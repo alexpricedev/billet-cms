@@ -81,6 +81,9 @@ const FORBIDDEN: Rule[] = [
       "src/server/test-utils/database.ts",
       "src/server/test-utils/bootstrap.ts",
       "src/server/test-utils/run-tests.ts",
+      // Creates throwaway databases for the migration tests — a database that
+      // doesn't exist yet, so no guarded pool could have been built for it.
+      "src/server/test-utils/migration-helpers.ts",
       // The test that bans the same call in test files; it names it in a string.
       "src/server/test-utils/database.test.ts",
     ]),
