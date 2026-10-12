@@ -1,5 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { CONTRACT_VERSION } from "@alexpricedev/billet-cms/contract";
+import type { SQL } from "bun";
 import { db } from "../services/database";
 import { log } from "../services/logger";
 
@@ -9,74 +11,65 @@ export type Migration = {
   applied_at: Date;
 };
 
+// The advisory lock key every CMS process takes while it migrates. Arbitrary
+// but fixed: it only has to be the same in every instance of this app, and
+// different from any other app sharing the database. Taken
+// transaction-scoped, so a crashed boot releases it with the transaction.
+//
+// Bound as a string and cast: a JS number would be sent as a numeric and match
+// no overload of pg_advisory_xact_lock.
+const MIGRATION_LOCK_KEY = "8041000001";
+
+const MIGRATIONS_DIR = join(process.cwd(), "src/server/database/migrations");
+
 /**
- * Ensure migrations table exists for tracking applied migrations
+ * Ensure the tracking table exists.
+ *
+ * Deliberately not named `migrations`: the CMS shares a database with the site
+ * it serves, and the site's own Billet app has a `migrations` table of its own.
  */
-export const ensureMigrationsTable = async (): Promise<void> => {
-  await db`
-    CREATE TABLE IF NOT EXISTS migrations (
+export const ensureMigrationsTable = async (sql: SQL = db): Promise<void> => {
+  await sql`
+    CREATE TABLE IF NOT EXISTS cms_migrations (
       id VARCHAR(255) PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     )
   `;
-
-  // Every migration file uses TIMESTAMPTZ; this table predates that and was
-  // the one place left declaring a naive timestamp. CREATE TABLE IF NOT EXISTS
-  // skips a database that already has it, so the conversion needs its own
-  // statement — guarded, so a boot on an already-correct database doesn't take
-  // an ACCESS EXCLUSIVE lock for nothing.
-  await db`
-    DO $$ BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'migrations'
-          AND column_name = 'applied_at'
-          AND data_type = 'timestamp without time zone'
-      ) THEN
-        ALTER TABLE migrations ALTER COLUMN applied_at TYPE TIMESTAMPTZ;
-      END IF;
-    END $$
-  `;
 };
 
-/**
- * Get list of migrations already applied to database
- */
-export const getAppliedMigrations = async (): Promise<Migration[]> => {
-  await ensureMigrationsTable();
+export const getAppliedMigrations = async (
+  sql: SQL = db,
+): Promise<Migration[]> => {
+  await ensureMigrationsTable(sql);
   const results =
-    await db`SELECT id, name, applied_at FROM migrations ORDER BY id`;
+    await sql`SELECT id, name, applied_at FROM cms_migrations ORDER BY id`;
   return results as Migration[];
 };
 
-/**
- * Record migration as applied in migrations table
- */
 export const recordMigration = async (
   id: string,
   name: string,
+  sql: SQL = db,
 ): Promise<void> => {
-  await db`INSERT INTO migrations (id, name) VALUES (${id}, ${name})`;
+  await sql`INSERT INTO cms_migrations (id, name) VALUES (${id}, ${name})`;
 };
 
-/**
- * Remove migration record from migrations table
- */
 export const removeMigration = async (id: string): Promise<void> => {
-  await db`DELETE FROM migrations WHERE id = ${id}`;
+  await db`DELETE FROM cms_migrations WHERE id = ${id}`;
 };
 
 /**
- * Get list of migration files that haven't been applied yet
+ * Migration files that haven't been applied yet, in filename order.
  */
-export const getPendingMigrations = async (): Promise<string[]> => {
-  const migrationsDir = join(process.cwd(), "src/server/database/migrations");
-  const migrationFiles = readdirSync(migrationsDir)
+export const getPendingMigrations = async (
+  sql: SQL = db,
+): Promise<string[]> => {
+  const migrationFiles = readdirSync(MIGRATIONS_DIR)
     .filter((file) => file.endsWith(".ts"))
     .sort();
 
-  const appliedMigrations = await getAppliedMigrations();
+  const appliedMigrations = await getAppliedMigrations(sql);
   const appliedIds = new Set(appliedMigrations.map((m) => m.id));
 
   return migrationFiles.filter((file) => {
@@ -86,68 +79,107 @@ export const getPendingMigrations = async (): Promise<string[]> => {
 };
 
 /**
- * Run a single migration file and record it as applied
+ * Run a single migration file and record it as applied.
+ *
+ * `sql` is the connection the caller holds a migration lock on, so the DDL and
+ * the row that records it commit together.
  */
-export const runMigration = async (filename: string): Promise<void> => {
-  const migrationPath = join(
-    process.cwd(),
-    "src/server/database/migrations",
-    filename,
-  );
+export const runMigration = async (
+  filename: string,
+  sql: SQL = db,
+): Promise<void> => {
+  const migrationPath = join(MIGRATIONS_DIR, filename);
   const migration = await import(migrationPath);
 
   if (typeof migration.up !== "function") {
     throw new Error(`Migration ${filename} does not export an 'up' function`);
   }
 
-  await migration.up(db);
+  await migration.up(sql);
 
   const id = filename.replace(".ts", "");
   const name = filename.replace(/^\d+_/, "").replace(".ts", "");
-  await recordMigration(id, name);
+  await recordMigration(id, name, sql);
 
   log.info("migrations", `Applied: ${filename}`);
 };
 
 /**
- * Run all pending migration files in order
+ * Write the contract version this build speaks into `cms_meta`.
+ *
+ * Upserted rather than inserted: a deploy of a newer CMS must overwrite the row
+ * the previous build left, and the site's publish step reads it to decide
+ * whether the two are compatible. `content_version` is left alone — the site
+ * owns that counter.
  */
-export const runMigrations = async (): Promise<void> => {
-  const pendingMigrations = await getPendingMigrations();
-
-  if (pendingMigrations.length === 0) {
-    log.info("migrations", "No pending migrations");
-    return;
-  }
-
-  log.info(
-    "migrations",
-    `Running ${pendingMigrations.length} pending migrations...`,
-  );
-
-  for (const migration of pendingMigrations) {
-    await runMigration(migration);
-  }
-
-  log.info("migrations", "All migrations completed");
+export const syncContractVersion = async (): Promise<void> => {
+  await db`
+    INSERT INTO cms_meta (id, contract_version)
+    VALUES (1, ${CONTRACT_VERSION})
+    ON CONFLICT (id) DO UPDATE
+      SET contract_version = EXCLUDED.contract_version,
+          updated_at = CURRENT_TIMESTAMP
+  `;
 };
 
 /**
- * Rollback a single migration and remove it from applied migrations
+ * Apply every pending migration, once, even when several instances boot at once.
+ *
+ * The whole run happens inside one transaction that first takes a Postgres
+ * advisory lock. Concurrent boots queue on the lock rather than racing: the
+ * loser waits, then re-reads `cms_migrations` inside its own transaction and
+ * finds nothing left to do. Without the lock two instances both see an empty
+ * table, both run `CREATE TABLE`, and one dies on "already exists" — the failure
+ * surfaces on a deploy that was correct on the previous, single-instance run.
+ *
+ * DDL is transactional in Postgres, so a migration that fails part-way rolls
+ * back with the lock and the next boot retries cleanly.
  */
-export const rollbackMigration = async (filename: string): Promise<void> => {
-  const migrationPath = join(
-    process.cwd(),
-    "src/server/database/migrations",
-    filename,
-  );
+export const runMigrations = async (): Promise<void> => {
+  const pending = await getPendingMigrations();
+
+  if (pending.length === 0) {
+    log.info("migrations", "No pending migrations");
+    await syncContractVersion();
+    return;
+  }
+
+  log.info("migrations", `Running ${pending.length} pending migrations...`);
+
+  await db.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK_KEY}::bigint)`;
+
+    // Re-read under the lock: another instance may have applied everything
+    // while this one waited.
+    const applied = new Set(
+      ((await tx`SELECT id FROM cms_migrations`) as { id: string }[]).map(
+        (row) => row.id,
+      ),
+    );
+
+    for (const migration of pending) {
+      const id = migration.replace(".ts", "");
+      if (applied.has(id)) continue;
+      await runMigration(migration, tx);
+    }
+  });
+
+  await syncContractVersion();
+  log.info("migrations", "All migrations completed");
+};
+
+export const rollbackMigration = async (
+  filename: string,
+  sql: SQL = db,
+): Promise<void> => {
+  const migrationPath = join(MIGRATIONS_DIR, filename);
   const migration = await import(migrationPath);
 
   if (typeof migration.down !== "function") {
     throw new Error(`Migration ${filename} does not export a 'down' function`);
   }
 
-  await migration.down(db);
+  await migration.down(sql);
 
   const id = filename.replace(".ts", "");
   await removeMigration(id);
@@ -155,9 +187,6 @@ export const rollbackMigration = async (filename: string): Promise<void> => {
   log.info("migrations", `Rolled back: ${filename}`);
 };
 
-/**
- * Rollback the most recently applied migration
- */
 export const rollbackLastMigration = async (): Promise<void> => {
   const appliedMigrations = await getAppliedMigrations();
 

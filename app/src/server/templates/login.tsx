@@ -4,24 +4,18 @@ import { CsrfField } from "../components/csrf-field";
 import { Flash } from "../components/flash";
 import { FormField } from "../components/form-field";
 import { Honeypot } from "../components/honeypot";
-import type { AuthMode } from "../services/auth-mode";
 import type { CaptchaChallenge } from "../services/captcha";
 import type { FlashMessage } from "../utils/flash";
 
 export interface LoginState {
-  // "no-password" is a failed sign-in against an account carried over from
-  // magic-link mode. It renders like a validation error but carries a way out,
-  // because there is no password the user could have typed correctly.
-  state?: "email-sent" | "validation-error" | "no-password";
+  state?: "email-sent" | "validation-error";
   error?: string;
   // Preserved across the redirect so a failed attempt doesn't make the user
-  // retype their address. The password is deliberately never carried back —
-  // flash state lives in a cookie.
+  // retype their address.
   email?: string;
 }
 
 export interface LoginProps {
-  mode: AuthMode;
   // Bound to this page's POST and to the guest session the GET set a cookie
   // for. Null when no session could be made: the form still renders, and the
   // post it produces fails the check, which is the right answer.
@@ -37,30 +31,19 @@ export interface LoginProps {
 }
 
 export const Login = ({
-  mode,
   csrfToken,
   state,
   challenge,
   message,
   showConsoleHint,
 }: LoginProps) => {
-  const password = mode === "password";
-
   return (
     <AuthPage
-      title="Login - Billet"
-      description={
-        password
-          ? "Log in to Billet with your email and password."
-          : "Log in to Billet with a magic link — no passwords to remember."
-      }
+      title="Login - Billet CMS"
+      description="Log in to Billet CMS with a magic link — no passwords to remember."
       canonicalPath="/login"
       heading="Sign in to your account"
-      subtitle={
-        password
-          ? "Enter your email and password to continue"
-          : "We'll send you a magic link to sign in instantly"
-      }
+      subtitle="We'll send you a magic link to sign in instantly"
       footer={
         <>
           <a href="/signup">Create an account</a>
@@ -69,10 +52,6 @@ export const Login = ({
         </>
       }
     >
-      {/* Left by a flow that ended somewhere else and sent them here to sign
-          in — accepting an invitation on an account that already has a
-          password. Rendered above the form, since it explains why they're
-          looking at it. */}
       {message && (
         <Flash type={message.type}>
           <span>{message.text}</span>
@@ -90,32 +69,11 @@ export const Login = ({
       ) : (
         <form method="POST" action="/login">
           <CsrfField token={csrfToken} />
-          {(state?.state === "validation-error" ||
-            state?.state === "no-password") &&
-            state.error && (
-              <Flash type="error">
-                <span>{state.error}</span>
-                {/* The message alone is a dead end — nothing on this page tells
-                    someone that the reset flow is also how you set a first
-                    password. */}
-                {state.state === "no-password" && (
-                  <p className="flash-action">
-                    {/* Carry the address across so the reset form doesn't ask
-                        for what was typed one page earlier. The flash trims
-                        empties, so a missing email is a real case. */}
-                    <a
-                      href={
-                        state.email
-                          ? `/forgot-password?email=${encodeURIComponent(state.email)}`
-                          : "/forgot-password"
-                      }
-                    >
-                      Set your password
-                    </a>
-                  </p>
-                )}
-              </Flash>
-            )}
+          {state?.state === "validation-error" && state.error && (
+            <Flash type="error">
+              <span>{state.error}</span>
+            </Flash>
+          )}
 
           <FormField label="Email address" id="email">
             <input
@@ -129,32 +87,13 @@ export const Login = ({
             />
           </FormField>
 
-          {password && (
-            <FormField label="Password" id="password">
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                placeholder="Enter your password"
-              />
-            </FormField>
-          )}
-
           <Honeypot />
 
           <CaptchaWidget challenge={challenge} />
 
           <button type="submit" className="login-submit">
-            {password ? "Sign in" : "Send magic link"}
+            Send magic link
           </button>
-
-          {password && (
-            <p className="login-aside">
-              <a href="/forgot-password">Forgot your password?</a>
-            </p>
-          )}
         </form>
       )}
     </AuthPage>

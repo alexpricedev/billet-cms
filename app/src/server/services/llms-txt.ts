@@ -33,12 +33,6 @@ const PAGES: LlmsPage[] = [
     description:
       "Server-rendered form handling with validation, CSRF protection, and progressive enhancement.",
   },
-  {
-    path: "/todos",
-    title: "Todos",
-    description:
-      "A todo list backed by a shared service layer, exposed as HTML forms that work without JavaScript, in-place fragments when it is on, and a JSON API.",
-  },
 ];
 
 const RESOURCES: LlmsPage[] = [

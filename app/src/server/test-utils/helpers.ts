@@ -2,45 +2,22 @@ import { expect } from "bun:test";
 import type { SQL } from "bun";
 
 /**
- * Clean up test data between tests
- * Truncates all tables to provide test isolation
+ * Clean up test data between tests.
  *
- * @param db - The database connection to use (should be the mocked testDb from each test file)
+ * Truncates every table the CMS owns — and only those. The CMS shares a
+ * database with the site it serves in production, so a blanket truncate here
+ * would wipe the site's own tables in any test that points at one.
  */
 export const cleanupTestData = async (db: SQL): Promise<void> => {
-  /* One statement rather than seven, because every test in the suite calls this
-     and the round trips add up — on CI each one waits on an fsync. Truncating
-     the tables together also removes the ordering problem: a single TRUNCATE
-     checks its foreign keys once, at the end.
-
-     RESTART IDENTITY resets `todo_id_seq`, which the todo tests assert
-     against by literal id. */
   await db`
     TRUNCATE TABLE
-      organization_invites, organization_members, organizations,
-      user_tokens, sessions, users,
-      todo
+      cms_user_tokens, cms_sessions, cms_users
     RESTART IDENTITY CASCADE
   `;
 };
 
 /**
- * Seed the database with test data for the todo table: two open, one done.
- *
- * @param db - The database connection to use (should be the mocked testDb from each test file)
- */
-export const seedTestData = async (db: SQL): Promise<void> => {
-  await db`INSERT INTO todo (title, created_by) VALUES (${"Test Todo 1"}, ${"alice@example.com"})`;
-  await db`INSERT INTO todo (title, created_by) VALUES (${"Test Todo 2"}, ${null})`;
-  await db`INSERT INTO todo (title, completed_at, created_by) VALUES (${"Test Todo 3"}, now(), ${"bob@example.com"})`;
-};
-
-/**
- * Generate a random email address for testing
- * Uses timestamp and random string to ensure uniqueness
- *
- * @param domain - Optional domain, defaults to "example.com"
- * @returns A unique email address for testing
+ * Generate a random email address for testing.
  */
 export const randomEmail = (domain = "example.com"): string => {
   const timestamp = Date.now();
@@ -55,11 +32,7 @@ export const randomEmail = (domain = "example.com"): string => {
  * Bun.SQL tagged template is a lazy thenable rather than a Promise, so
  * `.rejects` never settles and the file times out with no failing assertion to
  * point at. Awaiting it inside a real async function is what gives Bun a
- * promise to reject, and doing that in one place keeps the shape out of every
- * test that needs it.
- *
- * @param run - Runs the query. Return it or await it; either works.
- * @param expected - Optional message or pattern the error must match.
+ * promise to reject.
  */
 export const expectQueryToReject = async (
   run: () => unknown,
@@ -76,14 +49,9 @@ export const expectQueryToReject = async (
 /**
  * Runs `body` with the site-wide indexing switch open.
  *
- * Indexing is closed unless `ALLOW_INDEXING=true` (`indexingAllowed` in
- * `services/seo.ts`), and the closed default renders `noindex` on every page by
- * itself. A test about a page's *own* `noindex` prop has to open the switch
- * first or it passes on the default and would keep passing after someone
- * deleted the prop it exists to protect.
- *
- * Restores the previous value, so a file that runs these alongside tests of the
- * closed default doesn't depend on their order.
+ * Indexing is closed unless `ALLOW_INDEXING=true`, and the closed default
+ * renders `noindex` on every page by itself, so a test about a page's *own*
+ * `noindex` prop has to open the switch first.
  */
 export const withIndexingAllowed = async <T>(
   body: () => T | Promise<T>,

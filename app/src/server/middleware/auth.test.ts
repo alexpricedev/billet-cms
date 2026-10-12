@@ -97,7 +97,7 @@ describe("Auth Middleware", () => {
       const sessionIdHash = computeHMAC(sessionId);
 
       await db`
-        UPDATE sessions
+        UPDATE cms_sessions
         SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 hour'
         WHERE id_hash = ${sessionIdHash}
       `;
@@ -186,7 +186,7 @@ describe("Auth Middleware", () => {
       const sessionIdHash = computeHMAC(sessionId);
 
       await db`
-        UPDATE sessions
+        UPDATE cms_sessions
         SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 hour'
         WHERE id_hash = ${sessionIdHash}
       `;
@@ -246,7 +246,7 @@ describe("Auth Middleware", () => {
       const sessionIdHash = computeHMAC(sessionId);
 
       await db`
-        UPDATE sessions
+        UPDATE cms_sessions
         SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 hour'
         WHERE id_hash = ${sessionIdHash}
       `;

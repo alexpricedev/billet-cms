@@ -1,7 +1,8 @@
 {
-  "name": "billet",
-  "description": "A full-stack TypeScript starter that gives AI coding agents guardrails",
-  "version": "5.1.0",
+  "name": "billet-cms-app",
+  "description": "Billet CMS: the headless CMS service",
+  "version": "0.0.0",
+  "private": true,
   "engines": {
     "bun": ">=1.4.0"
   },
@@ -29,11 +30,9 @@
     "check": "bun run lint && bun run typecheck",
     "audit": "bun audit --audit-level=high",
     "generate:pepper": "bun -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
-    "seed": "bun run src/server/database/seed.ts",
     "migrate:up": "bun run src/server/database/cli.ts up",
     "migrate:status": "bun run src/server/database/cli.ts status",
-    "migrate:create": "bun run src/server/database/cli.ts create",
-    "prepare": "husky"
+    "migrate:create": "bun run src/server/database/cli.ts create"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
@@ -41,11 +40,11 @@
     "@types/bun": "1.4.2",
     "@types/node": "^26.6.3",
     "happy-dom": "^20.14.3",
-    "husky": "9.1.7",
     "railway": "^3.12.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@alexpricedev/billet-cms": "workspace:*",
     "preact": "^10.29.8",
     "preact-render-to-string": "^6.7.0",
     "resend": "^6.30.0"

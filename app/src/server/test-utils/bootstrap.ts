@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+/* biome-ignore-all lint/suspicious/noConsole: CLI script */
+
 import { SQL } from "bun";
 
 /**
@@ -15,31 +17,23 @@ const db = new SQL(process.env.DATABASE_URL);
 
 /**
  * Bootstrap test database
- * - Drop all tables CASCADE (clean slate)
- * - Clear migration history
+ * - Drop every cms_ relation CASCADE (clean slate)
  * - Run migrations fresh
+ *
+ * Only the CMS's own relations are dropped. The site's tables are not this
+ * script's to touch — `drop schema` or a blanket sweep would take them with it.
  */
 export async function bootstrap() {
   console.log("🧪 Bootstrapping test database...");
 
   try {
-    console.log("  Dropping existing tables...");
-    await db`DROP TABLE IF EXISTS user_tokens CASCADE`;
-    await db`DROP TABLE IF EXISTS sessions CASCADE`;
-    await db`DROP TABLE IF EXISTS users CASCADE`;
-    await db`DROP TABLE IF EXISTS todo CASCADE`;
-    await db`DROP TABLE IF EXISTS project CASCADE`;
-    await db`DROP TABLE IF EXISTS example CASCADE`;
-    await db`DROP TABLE IF EXISTS migrations CASCADE`;
-
-    console.log("  Clearing migration history...");
-    await db`
-      CREATE TABLE IF NOT EXISTS migrations (
-        id VARCHAR(255) PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
+    console.log("  Dropping CMS relations...");
+    await db`DROP VIEW IF EXISTS cms_identities CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_user_tokens CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_sessions CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_users CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_meta CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_migrations CASCADE`;
 
     console.log("  Running migrations...");
     const { runMigrations } = await import("../database/migrate");

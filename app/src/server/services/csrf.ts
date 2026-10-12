@@ -58,7 +58,7 @@ export const ensureCsrfSecret = async (sessionId: string): Promise<string> => {
   // Try to get existing secret
   const result = await db`
     SELECT csrf_secret 
-    FROM sessions 
+    FROM cms_sessions 
     WHERE id_hash = ${sessionIdHash} 
       AND expires_at > CURRENT_TIMESTAMP
   `;
@@ -78,7 +78,7 @@ export const ensureCsrfSecret = async (sessionId: string): Promise<string> => {
 
   // Try to be the single writer - conditional UPDATE
   const updateResult = await db`
-    UPDATE sessions 
+    UPDATE cms_sessions 
     SET csrf_secret = ${csrfSecret}
     WHERE id_hash = ${sessionIdHash} 
       AND expires_at > CURRENT_TIMESTAMP
@@ -94,7 +94,7 @@ export const ensureCsrfSecret = async (sessionId: string): Promise<string> => {
   // Another request won the race, fetch their secret
   const reselect = await db`
     SELECT csrf_secret 
-    FROM sessions 
+    FROM cms_sessions 
     WHERE id_hash = ${sessionIdHash} 
       AND expires_at > CURRENT_TIMESTAMP
   `;
@@ -177,7 +177,7 @@ export const inspectCsrfToken = async (
     // Get session's CSRF secret
     const result = await db`
       SELECT csrf_secret
-      FROM sessions
+      FROM cms_sessions
       WHERE id_hash = ${sessionIdHash}
         AND expires_at > CURRENT_TIMESTAMP
         AND csrf_secret IS NOT NULL

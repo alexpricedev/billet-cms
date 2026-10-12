@@ -114,7 +114,7 @@ describe("Logout Controller", () => {
       const { computeHMAC } = await import("../../utils/crypto");
       const sessionIdHash = computeHMAC(sessionId);
       const sessions = await db`
-        SELECT id_hash FROM sessions WHERE id_hash = ${sessionIdHash}
+        SELECT id_hash FROM cms_sessions WHERE id_hash = ${sessionIdHash}
       `;
       expect(sessions).toHaveLength(0);
     });
@@ -197,7 +197,7 @@ describe("Logout Controller", () => {
       const { computeHMAC } = await import("../../utils/crypto");
       const sessionIdHash = computeHMAC(sessionId);
       const sessions = await db`
-        SELECT id_hash FROM sessions WHERE id_hash = ${sessionIdHash}
+        SELECT id_hash FROM cms_sessions WHERE id_hash = ${sessionIdHash}
       `;
       expect(sessions).toHaveLength(0);
     });
@@ -208,7 +208,7 @@ describe("Logout Controller", () => {
       const sessionId = await createAuthenticatedSession(user.id);
 
       // Delete user (this will cascade delete the session in real DB, but might cause errors in test)
-      await db`DELETE FROM users WHERE id = ${user.id}`;
+      await db`DELETE FROM cms_users WHERE id = ${user.id}`;
 
       const request = createBunRequest("http://localhost:3000/auth/logout", {
         method: "POST",
@@ -349,7 +349,7 @@ describe("Logout Controller", () => {
         '"cookies", "storage"',
       );
 
-      const remaining = await db`SELECT id_hash FROM sessions`;
+      const remaining = await db`SELECT id_hash FROM cms_sessions`;
       expect(remaining.length).toBe(0);
     });
 

@@ -8,7 +8,6 @@ const user: User = {
   email: "member@example.com",
   role: "user",
   created_at: new Date("2026-01-01"),
-  email_verified_at: new Date("2026-01-01"),
 };
 
 describe("Nav", () => {
@@ -47,7 +46,7 @@ describe("Nav", () => {
   });
 
   test("marks the current page on its link", () => {
-    const html = renderToString(<Nav page="todos" user={null} />);
+    const html = renderToString(<Nav page="stack" user={null} />);
 
     expect(html).toContain('aria-current="page"');
   });

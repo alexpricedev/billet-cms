@@ -85,18 +85,8 @@ export const guardAuthForm = async (
 };
 
 /**
- * Read a password exactly as typed.
- *
- * Deliberately not `readFormValues`, which trims and drops empties: leading and
- * trailing whitespace is a legitimate part of a passphrase, and silently
- * stripping it on sign-in would reject a password that was accepted at sign-up.
+ * Emails, unlike passwords, are normalised — nobody means the spaces.
  */
-export const readPassword = (formData: FormData, field: string): string => {
-  const value = formData.get(field);
-  return typeof value === "string" ? value : "";
-};
-
-/** Emails, unlike passwords, are normalised — nobody means the spaces. */
 export const readEmail = (formData: FormData): string => {
   const value = formData.get("email");
   return typeof value === "string" ? value.trim() : "";

@@ -5,8 +5,8 @@ export type { User };
 
 export const getUsers = async (): Promise<User[]> => {
   const results = await db`
-    SELECT id, email, role, created_at, email_verified_at
-    FROM users
+    SELECT id, email, role, created_at
+    FROM cms_users
     ORDER BY created_at DESC
   `;
   return results as User[];

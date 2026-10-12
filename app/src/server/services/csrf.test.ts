@@ -85,7 +85,8 @@ describe("CSRF Service", () => {
       const { computeHMAC } = await import("../utils/crypto");
       const sessionIdHash = computeHMAC(sessionId);
       await import("./database").then(
-        ({ db }) => db`DELETE FROM sessions WHERE id_hash = ${sessionIdHash}`,
+        ({ db }) =>
+          db`DELETE FROM cms_sessions WHERE id_hash = ${sessionIdHash}`,
       );
 
       const secret = await ensureCsrfSecret(sessionId);
@@ -119,7 +120,7 @@ describe("CSRF Service", () => {
       const sessionIdHash = computeHMAC(sessionId);
       const { db } = await import("./database");
       const dbResult = await db`
-        SELECT csrf_secret FROM sessions WHERE id_hash = ${sessionIdHash}
+        SELECT csrf_secret FROM cms_sessions WHERE id_hash = ${sessionIdHash}
       `;
 
       expect(dbResult.length).toBe(1);

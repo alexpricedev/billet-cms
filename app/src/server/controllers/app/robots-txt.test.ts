@@ -48,7 +48,7 @@ describe("robots.txt Controller", () => {
     allowIndexing();
     const body = await robotsTxt.index().text();
 
-    expect(body).toContain("Disallow: /admin");
+    expect(body).toContain("Disallow: /account");
     expect(body).toContain("Disallow: /account");
     expect(body).toContain("Disallow: /api/");
     expect(body).toContain("Disallow: /auth/");
