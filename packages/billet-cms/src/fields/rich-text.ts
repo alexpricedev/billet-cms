@@ -109,7 +109,7 @@ const block: z.ZodType<RichTextNode> = z.lazy(() =>
     z.strictObject({
       type: z.literal("orderedList"),
       attrs: z
-        .object({ start: z.number().int().positive().optional() })
+        .strictObject({ start: z.number().int().positive().optional() })
         .optional(),
       content: z.array(listItem),
     }),

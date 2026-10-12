@@ -98,6 +98,33 @@ describe("richText", () => {
     expect(richText().schema.safeParse(document).success).toBe(false);
   });
 
+  test("rejects an unknown key on orderedList attrs, matching the JSON Schema", () => {
+    const document = {
+      type: "doc",
+      content: [
+        {
+          type: "orderedList",
+          attrs: { start: 1, extra: true },
+          content: [
+            {
+              type: "listItem",
+              content: [{ type: "paragraph" }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(false);
+  });
+
+  test("rejects an unknown key on heading attrs, matching the JSON Schema", () => {
+    const document = {
+      type: "doc",
+      content: [{ type: "heading", attrs: { level: 2, extra: true } }],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(false);
+  });
+
   test("flattens to JSON Schema even though the nodes are recursive", () => {
     const stored = blockStoredSchema(
       block("article", { body: richText() }, () => null),
