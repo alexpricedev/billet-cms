@@ -49,6 +49,13 @@ repo. This file is only the invariants.
 - **The database is the runtime contract, not the source of truth.** Block and
   page definitions live in site code and are published into `cms_` rows on
   deploy; the CMS never imports site code.
+- **CMS sign-in is invite-only.** Magic-link sign-in only looks up an existing
+  `cms_users` row: an unknown email creates no row, sends no link and starts no
+  session, but gets the same "check your email" page a known one gets, so the
+  form can't be used to enumerate accounts. There is no self-serve sign-up.
+  Accounts are provisioned by an operator with `bun run cms:add-user <email>`
+  (idempotent), and only then can that address sign in. Phase 3 replaces
+  `cms_users` with the site's own accounts through `cms_identities`.
 
 ## Porting Billet upgrades
 

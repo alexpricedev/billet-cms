@@ -54,6 +54,19 @@ import {
 import { authFormPost, staleCsrfToken } from "../../test-utils/auth-form";
 import { login } from "./login";
 
+/**
+ * POST /login the way the browser does, returning both the request (for its
+ * Set-Cookie headers) and the response.
+ */
+const postEmail = async (email: string) => {
+  const formData = new FormData();
+  formData.append("email", email);
+
+  const request = await authFormPost("/login", formData);
+
+  return { request, response: await login.create(request) };
+};
+
 describe("Login Controller", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
@@ -226,13 +239,10 @@ describe("Login Controller", () => {
   });
 
   describe("POST /login", () => {
-    test("creates magic link for valid email", async () => {
-      const formData = new FormData();
-      formData.append("email", "test@example.com");
+    test("mints a magic link for an existing user", async () => {
+      const user = await findOrCreateUser("test@example.com");
 
-      const request = await authFormPost("/login", formData);
-
-      const response = await login.create(request);
+      const { request, response } = await postEmail("test@example.com");
 
       expect(response.status).toBe(303);
       expect(response.headers.get("location")).toBe("/login");
@@ -241,32 +251,63 @@ describe("Login Controller", () => {
       expect(setCookie).toBeDefined();
       expect(setCookie).toContain("email-sent");
 
-      // Verify user was created
-      const users =
-        await db`SELECT id, email FROM cms_users WHERE email = 'test@example.com'`;
-      expect(users).toHaveLength(1);
+      // The account was already there: sign-in mints a token, it does not
+      // provision a new row.
+      expect(await db`SELECT id FROM cms_users`).toHaveLength(1);
 
-      // Verify magic link token was created
       const tokens = await db`
         SELECT id, user_id, type, expires_at
         FROM cms_user_tokens
-        WHERE user_id = ${(users[0] as any).id} AND type = 'magic_link'
+        WHERE user_id = ${user.id} AND type = 'magic_link'
       `;
       expect(tokens).toHaveLength(1);
     });
 
-    test("normalizes email to lowercase", async () => {
-      const formData = new FormData();
-      formData.append("email", "Test@Example.COM");
+    test("normalizes the email it looks up", async () => {
+      const user = await findOrCreateUser("test@example.com");
 
-      const request = await authFormPost("/login", formData);
+      const { request } = await postEmail("Test@Example.COM");
 
-      await login.create(request);
+      expect(findSetCookie(request, "flash_state")).toContain("email-sent");
+      expect(await db`SELECT id FROM cms_users`).toHaveLength(1);
 
-      // Verify user was created with lowercase email
-      const users =
-        await db`SELECT email FROM cms_users WHERE email = 'test@example.com'`;
-      expect(users).toHaveLength(1);
+      const tokens = await db`SELECT user_id FROM cms_user_tokens`;
+      expect(tokens).toHaveLength(1);
+      expect(tokens[0].user_id).toBe(user.id);
+    });
+
+    // Invite-only: an unknown address must not be provisioned, and the response
+    // must be indistinguishable from the one a known address gets, or the form
+    // becomes an account-enumeration oracle.
+    test("an unknown email creates no user and no token, and looks identical to a known one", async () => {
+      const known = await findOrCreateUser("known@example.com");
+
+      const knownPost = await postEmail("known@example.com");
+      const unknownPost = await postEmail("unknown@example.com");
+
+      // Same status, same redirect, byte-for-byte the same flash cookie.
+      expect(unknownPost.response.status).toBe(knownPost.response.status);
+      expect(unknownPost.response.headers.get("location")).toBe(
+        knownPost.response.headers.get("location"),
+      );
+      expect(findSetCookie(unknownPost.request, "flash_state")).toBe(
+        findSetCookie(knownPost.request, "flash_state"),
+      );
+
+      // The unknown address got no account, no token and no session.
+      expect(
+        await db`SELECT id FROM cms_users WHERE email = 'unknown@example.com'`,
+      ).toHaveLength(0);
+      expect(findSetCookie(unknownPost.request, "session_id")).toBeUndefined();
+      const sessions =
+        await db`SELECT user_id FROM cms_sessions WHERE user_id IS NOT NULL`;
+      expect(sessions).toHaveLength(0);
+
+      // The known address still got its link.
+      const tokens = await db`
+        SELECT user_id FROM cms_user_tokens WHERE user_id = ${known.id}
+      `;
+      expect(tokens).toHaveLength(1);
     });
 
     test("redirects with error for invalid email", async () => {
@@ -481,6 +522,8 @@ describe("Login Controller", () => {
       });
 
       test("issues the magic link when the captcha is solved", async () => {
+        const user = await findOrCreateUser("human@example.com");
+
         const formData = new FormData();
         formData.append("email", "human@example.com");
         formData.append("captcha_solution", solveChallenge(issueChallenge()));
@@ -493,9 +536,11 @@ describe("Login Controller", () => {
         const setCookie = findSetCookie(request, "flash_state");
         expect(setCookie).toContain("email-sent");
 
-        const users =
-          await db`SELECT id FROM cms_users WHERE email = 'human@example.com'`;
-        expect(users).toHaveLength(1);
+        expect(await db`SELECT id FROM cms_users`).toHaveLength(1);
+        const tokens = await db`
+          SELECT id FROM cms_user_tokens WHERE user_id = ${user.id}
+        `;
+        expect(tokens).toHaveLength(1);
       });
     });
   });

@@ -32,7 +32,8 @@
     "generate:pepper": "bun -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
     "migrate:up": "bun run src/server/database/cli.ts up",
     "migrate:status": "bun run src/server/database/cli.ts status",
-    "migrate:create": "bun run src/server/database/cli.ts create"
+    "migrate:create": "bun run src/server/database/cli.ts create",
+    "cms:add-user": "bun run scripts/add-user.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

@@ -11,12 +11,25 @@ mock.module("../../services/database", () => ({
   },
 }));
 
-import { createMagicLink } from "../../services/auth";
+import { createMagicLink, findOrCreateUser } from "../../services/auth";
 import { db } from "../../services/database";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
 import { callback } from "./callback";
 
 const ORIGIN = process.env.APP_URL as string;
+
+/**
+ * Provision the account, then mint its magic link.
+ *
+ * Sign-in is invite-only: `createMagicLink` returns null for an address with no
+ * `cms_users` row, so the callback tests seed the account first.
+ */
+const magicLinkFor = async (email: string) => {
+  await findOrCreateUser(email);
+  const link = await createMagicLink(email);
+  if (!link) throw new Error(`no account for ${email}`);
+  return link;
+};
 
 const cookieValue = (req: BunRequest, name: string): string => {
   const match = findSetCookie(req, name)?.match(new RegExp(`${name}=([^;]+)`));
@@ -94,7 +107,7 @@ describe("Callback Controller", () => {
     // and a fetch that spent the token would leave the recipient clicking a
     // link that was already dead. A GET must not touch it.
     test("does not spend the token", async () => {
-      const { user, rawToken } = await createMagicLink("scanned@example.com");
+      const { user, rawToken } = await magicLinkFor("scanned@example.com");
 
       const { res, html } = await openLink(rawToken);
 
@@ -109,7 +122,7 @@ describe("Callback Controller", () => {
     });
 
     test("still signs in after a scanner has fetched the link twice", async () => {
-      const { rawToken } = await createMagicLink("prefetched@example.com");
+      const { rawToken } = await magicLinkFor("prefetched@example.com");
 
       await openLink(rawToken);
       await openLink(rawToken);
@@ -121,7 +134,7 @@ describe("Callback Controller", () => {
     });
 
     test("carries the token and a CSRF field into the form", async () => {
-      const { rawToken } = await createMagicLink("form@example.com");
+      const { rawToken } = await magicLinkFor("form@example.com");
 
       const { html, csrfToken } = await openLink(rawToken);
 
@@ -132,7 +145,7 @@ describe("Callback Controller", () => {
     // The page holds a live sign-in token, and a cached copy would re-present a
     // form whose token has since been spent.
     test("is never cached", async () => {
-      const { rawToken } = await createMagicLink("nocache@example.com");
+      const { rawToken } = await magicLinkFor("nocache@example.com");
 
       const { res } = await openLink(rawToken);
 
@@ -160,7 +173,7 @@ describe("Callback Controller", () => {
 
   describe("POST /auth/callback", () => {
     test("successfully verifies valid magic link token", async () => {
-      const { rawToken } = await createMagicLink("test@example.com");
+      const { rawToken } = await magicLinkFor("test@example.com");
 
       const { req, res } = await signIn(rawToken);
 
@@ -174,7 +187,7 @@ describe("Callback Controller", () => {
     });
 
     test("marks token as used after successful verification", async () => {
-      const { user, rawToken } = await createMagicLink("used@example.com");
+      const { user, rawToken } = await magicLinkFor("used@example.com");
 
       await signIn(rawToken);
 
@@ -188,7 +201,7 @@ describe("Callback Controller", () => {
     });
 
     test("creates valid session after token verification", async () => {
-      const { user, rawToken } = await createMagicLink("session@example.com");
+      const { user, rawToken } = await magicLinkFor("session@example.com");
 
       const { req } = await signIn(rawToken);
       const sessionId = cookieValue(req, "session_id");
@@ -212,7 +225,7 @@ describe("Callback Controller", () => {
     // A cross-site auto-submit here would be login CSRF: a visitor dropped into
     // a session, and an account, they never asked for.
     test("rejects a submission with no CSRF token", async () => {
-      const { rawToken } = await createMagicLink("nocsrf@example.com");
+      const { rawToken } = await magicLinkFor("nocsrf@example.com");
       const opened = await openLink(rawToken);
 
       const { res } = await submitConfirm({
@@ -224,7 +237,7 @@ describe("Callback Controller", () => {
     });
 
     test("rejects a submission from another origin", async () => {
-      const { rawToken } = await createMagicLink("crossorigin@example.com");
+      const { rawToken } = await magicLinkFor("crossorigin@example.com");
       const opened = await openLink(rawToken);
 
       const { res } = await submitConfirm({
@@ -238,7 +251,7 @@ describe("Callback Controller", () => {
     });
 
     test("leaves the token unspent when the CSRF check fails", async () => {
-      const { user, rawToken } = await createMagicLink("survives@example.com");
+      const { user, rawToken } = await magicLinkFor("survives@example.com");
       const opened = await openLink(rawToken);
 
       await submitConfirm({
@@ -254,7 +267,7 @@ describe("Callback Controller", () => {
     });
 
     test("redirects with error for missing token", async () => {
-      const { rawToken } = await createMagicLink("blank@example.com");
+      const { rawToken } = await magicLinkFor("blank@example.com");
       const opened = await openLink(rawToken);
 
       const { res } = await submitConfirm({
@@ -283,7 +296,7 @@ describe("Callback Controller", () => {
     });
 
     test("redirects with error for already used token", async () => {
-      const { rawToken } = await createMagicLink("reuse@example.com");
+      const { rawToken } = await magicLinkFor("reuse@example.com");
 
       await signIn(rawToken);
       const { res } = await signIn(rawToken);
@@ -293,7 +306,7 @@ describe("Callback Controller", () => {
     });
 
     test("redirects with error for expired token", async () => {
-      const { user, rawToken } = await createMagicLink("expired@example.com");
+      const { user, rawToken } = await magicLinkFor("expired@example.com");
       const opened = await openLink(rawToken);
 
       await db`
@@ -313,7 +326,7 @@ describe("Callback Controller", () => {
     });
 
     test("handles database errors gracefully", async () => {
-      const { user, rawToken } = await createMagicLink("deleted@example.com");
+      const { user, rawToken } = await magicLinkFor("deleted@example.com");
       const opened = await openLink(rawToken);
       const sessionId = cookieValue(opened.req, "session_id");
 

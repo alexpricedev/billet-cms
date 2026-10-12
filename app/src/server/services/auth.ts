@@ -82,7 +82,12 @@ export const findUserByEmail = async (email: string): Promise<User | null> => {
 };
 
 /**
- * Create or get an existing user by email.
+ * Provision a CMS user: insert the email if it is new, return the existing row
+ * if it is not.
+ *
+ * **Operator and test only — never a request path.** CMS sign-in is invite-only:
+ * an unknown address at `POST /login` creates nothing (see `createMagicLink`).
+ * The operator script `bun run cms:add-user` and the tests are the only callers.
  *
  * Phase 1 ships Billet's scaffold, so the CMS still owns a `cms_users` table
  * for its magic-link sign-in. Phase 3 moves sign-in onto the site's own
@@ -177,12 +182,20 @@ export const regenerateSession = async (
 };
 
 /**
- * Create a magic link token for a user, creating the account on first use.
+ * Create a magic-link token for an email that already has a `cms_users` row, or
+ * `null` for an email that does not.
+ *
+ * Sign-in is invite-only, so an unknown address gets no row, no token and no
+ * email. The caller still shows the same "check your email" page it shows a
+ * known address, so the form can never be used to enumerate accounts.
  */
 export const createMagicLink = async (
   email: string,
-): Promise<{ user: User; rawToken: string }> => {
-  const user = await findOrCreateUser(email);
+): Promise<{ user: User; rawToken: string } | null> => {
+  const user = await findUserByEmail(email);
+
+  if (!user) return null;
+
   const rawToken = await createUserToken(user.id, "magic_link");
 
   return { user, rawToken };

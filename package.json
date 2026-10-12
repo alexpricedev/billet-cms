@@ -13,7 +13,8 @@
     "test": "bun run --cwd app --env-file=../.env.test test && bun run --cwd packages/billet-cms test",
     "build": "bun run --cwd app build",
     "migrate:up": "bun run --cwd app migrate:up",
-    "migrate:status": "bun run --cwd app migrate:status"
+    "migrate:status": "bun run --cwd app migrate:status",
+    "cms:add-user": "bun run --cwd app --env-file=../.env cms:add-user"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

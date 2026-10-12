@@ -105,13 +105,24 @@ export const login = {
     }
 
     try {
-      const { user, rawToken } = await createMagicLink(email.toLowerCase());
+      const link = await createMagicLink(email.toLowerCase());
 
-      await getEmailService().sendMagicLink({
-        to: { email: user.email },
-        magicLinkUrl: appUrl(`/auth/callback?token=${rawToken}`),
-        expiryMinutes: MAGIC_LINK_EXPIRY_MINUTES,
-      });
+      // Sign-in is invite-only: an unknown address mints nothing. Send the link
+      // only when there is an account, but fall through to the same response
+      // either way so the form can't be used to enumerate accounts.
+      if (link) {
+        try {
+          await getEmailService().sendMagicLink({
+            to: { email: link.user.email },
+            magicLinkUrl: appUrl(`/auth/callback?token=${link.rawToken}`),
+            expiryMinutes: MAGIC_LINK_EXPIRY_MINUTES,
+          });
+        } catch {
+          // A send failure is not the visitor's problem, and surfacing it would
+          // only tell them the address has an account. Log it for the operator.
+          log.error("login", "Could not send the magic link email");
+        }
+      }
 
       setFlash(req, { state: "email-sent" });
       return redirect("/login");
