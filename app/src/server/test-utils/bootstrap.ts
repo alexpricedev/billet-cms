@@ -32,6 +32,9 @@ export async function bootstrap() {
     await db`DROP TABLE IF EXISTS cms_user_tokens CASCADE`;
     await db`DROP TABLE IF EXISTS cms_sessions CASCADE`;
     await db`DROP TABLE IF EXISTS cms_users CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_slots CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_page_types CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_block_types CASCADE`;
     await db`DROP TABLE IF EXISTS cms_meta CASCADE`;
     await db`DROP TABLE IF EXISTS cms_migrations CASCADE`;
 
