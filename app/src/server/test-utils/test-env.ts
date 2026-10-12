@@ -40,9 +40,10 @@ const TEST_ENV: Record<string, string> = {
   PORT: "3000",
   APP_URL: "http://localhost:3000",
 
-  // The site a signed-out CMS visitor is sent to. Nothing asserts the literal
-  // except the tests that drive sign-in; it only needs to be present and the
-  // same on every machine.
+  // The site a signed-out CMS visitor is sent to. Required: the CMS has no
+  // sign-in of its own, so `validateEnv` refuses to boot without it. Nothing
+  // asserts the literal except the tests that drive sign-in; it only needs to be
+  // present and the same on every machine.
   SITE_APP_URL: "http://localhost:4000",
 
   // Required by the app at runtime. Nothing asserts these literals — they only

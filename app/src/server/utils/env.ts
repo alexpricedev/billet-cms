@@ -6,18 +6,17 @@ const REQUIRED = [
   "PORT",
   "APP_NAME",
   "APP_URL",
+  "SITE_APP_URL",
 ];
 
-// APP_URL and SITE_URL are both parsed with `new URL()` at request time, so a
-// malformed value is a throw on every page render rather than a warning. The
-// protocol check is not pedantry: `new URL("mailto:x")` parses happily and its
-// `.origin` is the literal string "null", which would ship canonicals reading
-// "null/stack". In production `http:` is rejected too — a plaintext canonical is
-// a duplicate-content and mixed-content signal, and the emailed links built from
-// the same origin would go out unencrypted. Dev and test stay on http://localhost.
-//
-// Exported so the rule can be tested directly: validateEnv() answers a bad value
-// with process.exit(1), which a test can't call without taking the runner down.
+// APP_URL, SITE_URL and SITE_APP_URL are all parsed with `new URL()` at request
+// time, so a malformed value is a throw on every page render rather than a
+// warning. The protocol check is not pedantry: `new URL("mailto:x")` parses
+// happily and its `.origin` is the literal string "null", which would ship
+// canonicals reading "null/stack". In production `http:` is rejected too — a
+// plaintext canonical is a duplicate-content and mixed-content signal, and the
+// emailed links built from the same origin would go out unencrypted. Dev and
+// test stay on http://localhost.
 export const urlProblem = (key: string, value: string): string | null => {
   let parsed: URL;
   try {
@@ -37,7 +36,14 @@ export const urlProblem = (key: string, value: string): string | null => {
   return null;
 };
 
-export function validateEnv(): void {
+/**
+ * Refuse to boot on a missing or malformed environment.
+ *
+ * `exit` defaults to `process.exit` (the process really stops in production);
+ * tests inject a recorder so they can assert the refusal without taking the
+ * runner down, the same seam `registerShutdown` uses.
+ */
+export function validateEnv(exit: (code: number) => void = process.exit): void {
   const missing: string[] = [];
 
   for (const key of REQUIRED) {
@@ -52,7 +58,7 @@ export function validateEnv(): void {
       "env",
       "Set these in your .env file or environment before starting the server",
     );
-    process.exit(1);
+    exit(1);
   }
 
   // APP_URL is the origin CSRF validation compares against and — via siteUrl()
@@ -62,7 +68,7 @@ export function validateEnv(): void {
   const appUrlProblem = urlProblem("APP_URL", process.env.APP_URL as string);
   if (appUrlProblem) {
     log.error("env", appUrlProblem);
-    process.exit(1);
+    exit(1);
   }
 
   // SITE_URL is optional: absent means the canonical origin follows APP_URL,
@@ -76,20 +82,28 @@ export function validateEnv(): void {
     const siteUrlProblem = urlProblem("SITE_URL", configuredSiteUrl);
     if (siteUrlProblem) {
       log.error("env", siteUrlProblem);
-      process.exit(1);
+      exit(1);
     }
   }
 
-  // SITE_APP_URL is the site's own Billet app, where CMS sign-in happens. It is
-  // optional at boot on purpose: the CMS is deployed before its site, and a
-  // missing value is answered with a clear "sign-in is unavailable" page rather
-  // than a crash. Set, it is held to the same URL rule as everything else.
+  // SITE_APP_URL is the site's own Billet app, where CMS sign-in happens, and it
+  // is required: the CMS has no sign-in of its own, so with no site URL it can
+  // sign nobody in at all. A missing or blank value is named here rather than
+  // left to a service that boots cleanly and then dead-ends every signed-out
+  // visit. It is held to the same URL rule as APP_URL, so a bare host or a
+  // non-http(s) scheme is fatal too.
   const configuredSiteAppUrl = process.env.SITE_APP_URL?.trim();
-  if (configuredSiteAppUrl) {
+  if (!configuredSiteAppUrl) {
+    log.error(
+      "env",
+      "SITE_APP_URL is required — set it to the site's Billet app origin (for example https://example.com)",
+    );
+    exit(1);
+  } else {
     const siteAppUrlProblem = urlProblem("SITE_APP_URL", configuredSiteAppUrl);
     if (siteAppUrlProblem) {
       log.error("env", siteAppUrlProblem);
-      process.exit(1);
+      exit(1);
     }
   }
 
@@ -109,7 +123,7 @@ export function validateEnv(): void {
       "env",
       `TRUST_PROXY must be one of: true, false (got "${process.env.TRUST_PROXY}")`,
     );
-    process.exit(1);
+    exit(1);
   }
 
   if (process.env.TRUST_PROXY === "true") {

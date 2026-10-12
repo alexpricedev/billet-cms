@@ -191,7 +191,9 @@ non-default value sets the variable per case, at runtime.
 
 There is no `/login`, no magic link and no email delivery in this app. A signed-out visit to a
 guarded page is redirected to `/sign-in`, which sends the browser to the site's Billet app at
-`<SITE_APP_URL><CMS_SIGN_IN_PATH>` (see `services/sign-in.ts`). The site mounts that route from the
+`<SITE_APP_URL><CMS_SIGN_IN_PATH>` (see `services/sign-in.ts`). `SITE_APP_URL` is required —
+without it the CMS can sign nobody in, and `validateEnv` refuses to boot when it is missing or not
+a valid http(s) URL. The site mounts that route from the
 plugin (`handleCmsSignIn` in `packages/billet-cms/src/sign-in`); it resolves the site's own signed-in
 user, refuses anyone not in `cms_identities`, and mints a single-use handoff token that the CMS's
 `/handoff` route spends to start a `cms_session`. The two halves share only the database and the

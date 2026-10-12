@@ -20,7 +20,7 @@
     "test:setup": "NODE_ENV=test bun run src/server/test-utils/bootstrap.ts",
     "test:file": "NODE_ENV=test bun run src/server/database/cli.ts up && NODE_ENV=test bun test",
     "test:changed": "NODE_ENV=test bun run src/server/database/cli.ts up && NODE_ENV=test bun test --isolate --changed",
-    "test:browser": "bun run build && NODE_ENV=test bun test --timeout 30000 scripts/browser-smoke.test.ts",
+    "test:browser": "bun run build && NODE_ENV=test bun test --env-file=../.env.test --timeout 30000 scripts/browser-smoke.test.ts",
     "commit": "git add --all && git commit",
     "wip": "bash scripts/wip",
     "bench": "bun run scripts/benchmark.ts",

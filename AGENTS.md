@@ -52,8 +52,11 @@ repo. This file is only the invariants.
 - **The CMS has no sign-in of its own; signing in always goes through the
   site.** A signed-out visit to a guarded page is sent to `/sign-in`, which
   redirects to `<SITE_APP_URL><CMS_SIGN_IN_PATH>` — a route the site mounts from
-  the plugin (`handleCmsSignIn`, `packages/billet-cms/src/sign-in`). That route
-  resolves the site's own signed-in user, checks them against `cms_identities`
+  the plugin (`handleCmsSignIn`, `packages/billet-cms/src/sign-in`).
+  `SITE_APP_URL` is required: the CMS cannot sign anyone in without it, so
+  `validateEnv` refuses to boot when it is missing or not a valid http(s) URL
+  (`utils/env.ts`). That route resolves the site's own signed-in user, checks
+  them against `cms_identities`
   (the view over the site's `users`; the default exposes its admins), and, for an
   identity, writes a single-use 60-second token into `cms_handoff_tokens` and
   sends the browser back to the CMS's `/handoff`, which spends it and starts a
