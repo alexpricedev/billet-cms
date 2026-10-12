@@ -29,6 +29,10 @@ export async function bootstrap() {
   try {
     console.log("  Dropping CMS relations...");
     await db`DROP VIEW IF EXISTS cms_identities CASCADE`;
+    // A database left over from before Phase 3 still has `cms_users`, and the
+    // old foreign keys from it would block the fresh migrations. It is dropped
+    // first, before the tables that referenced it.
+    await db`DROP TABLE IF EXISTS cms_users CASCADE`;
     await db`DROP TABLE IF EXISTS cms_handoff_tokens CASCADE`;
     await db`DROP TABLE IF EXISTS cms_revisions CASCADE`;
     await db`DROP TABLE IF EXISTS cms_user_tokens CASCADE`;

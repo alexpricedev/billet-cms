@@ -240,6 +240,77 @@ describe("deleteUserSessions", () => {
   });
 });
 
+describe("a missing cms_identities view", () => {
+  // The view is a site-owned definition the CMS creates only when missing, so
+  // it can be absent for a while. A session must still be readable.
+  const recreateView = async () => {
+    const rows = (await db`
+      SELECT to_regclass('cms_identities') AS relation
+    `) as { relation: string | null }[];
+    if (!rows[0]?.relation) {
+      await db`
+        CREATE VIEW cms_identities AS
+        SELECT id, email, role FROM users WHERE role = 'admin'
+      `;
+    }
+  };
+
+  test("does not discard a guest session", async () => {
+    const rawId = await createGuestSession();
+    await db`DROP VIEW cms_identities`;
+
+    try {
+      const ctx = await getSessionContextFromDB(rawId);
+      expect(ctx).not.toBeNull();
+      expect(ctx?.isGuest).toBe(true);
+      expect(ctx?.sessionId).toBe(rawId);
+    } finally {
+      await recreateView();
+    }
+  });
+
+  test("returns the session but no user, rather than nothing", async () => {
+    const user = await seedIdentity(db, "view-missing@example.com");
+    const rawId = await createAuthenticatedSession(user.id);
+    await db`DROP VIEW cms_identities`;
+
+    try {
+      const ctx = await getSessionContextFromDB(rawId);
+      expect(ctx).not.toBeNull();
+      expect(ctx?.isAuthenticated).toBe(false);
+      expect(ctx?.user).toBeNull();
+    } finally {
+      await recreateView();
+    }
+  });
+});
+
+describe("identity removal", () => {
+  // The view is re-read on every request, so a site that removes or demotes an
+  // account ends the session at the next request rather than the cookie expiry.
+  test("ends the session when the account is deleted", async () => {
+    const user = await seedIdentity(db, "gone@example.com");
+    const rawId = await createAuthenticatedSession(user.id);
+    expect((await getSessionContextFromDB(rawId))?.isAuthenticated).toBe(true);
+
+    await db`DELETE FROM users WHERE id = ${user.id}`;
+
+    const ctx = await getSessionContextFromDB(rawId);
+    expect(ctx).not.toBeNull();
+    expect(ctx?.isAuthenticated).toBe(false);
+    expect(ctx?.user).toBeNull();
+  });
+
+  test("ends the session when the account is demoted out of the view", async () => {
+    const user = await seedIdentity(db, "demoted@example.com");
+    const rawId = await createAuthenticatedSession(user.id);
+
+    await db`UPDATE users SET role = 'user' WHERE id = ${user.id}`;
+
+    expect((await getSessionContextFromDB(rawId))?.isAuthenticated).toBe(false);
+  });
+});
+
 describe("renewSession", () => {
   test("updates last_activity_at", async () => {
     const user = await seedIdentity(db, "renew@example.com");

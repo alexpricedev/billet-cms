@@ -43,12 +43,16 @@ export const Dashboard = ({
           <ul className="cms-slot-list">
             {group.slots.map((slot) => (
               <li key={slot.id}>
-                <a href={`/cms/slots/${slot.id}`}>{slot.label ?? slot.name}</a>{" "}
-                <code>{slot.name}</code>{" "}
-                <span className="cms-slot-block">{slot.blockName}</span>
-                {slot.removedAt && (
-                  <span className="cms-removed"> (no longer declared)</span>
-                )}
+                <a className="cms-slot-link" href={`/cms/slots/${slot.id}`}>
+                  {slot.label ?? slot.name}
+                </a>
+                <span className="cms-slot-meta">
+                  <code>{slot.name}</code>
+                  <span className="cms-slot-block">{slot.blockName}</span>
+                  {slot.removedAt && (
+                    <span className="cms-removed">No longer declared</span>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

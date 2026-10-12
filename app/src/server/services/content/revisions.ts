@@ -8,6 +8,7 @@
  * arrived after the one the editor loaded.
  */
 import { randomUUID } from "node:crypto";
+import type { SQL } from "bun";
 import { jsonbValue } from "../../utils/sql";
 import { db } from "../database";
 
@@ -40,10 +41,18 @@ const toRevision = (row: RevisionRow): RevisionRecord => ({
   createdAt: row.created_at,
 });
 
+/**
+ * Read one revision.
+ *
+ * `sql` is threaded through so the write layer's transaction can read and write
+ * under one lock: passing the transaction is what makes a conflict check and
+ * the insert that follows it a single step.
+ */
 export const getRevisionById = async (
   id: string,
+  sql: SQL = db,
 ): Promise<RevisionRecord | null> => {
-  const rows = (await db`
+  const rows = (await sql`
     SELECT id, target_type, target_id, content, created_by, created_at
     FROM cms_revisions
     WHERE id = ${id}
@@ -55,8 +64,9 @@ export const getRevisionById = async (
 export const getLatestRevision = async (
   targetType: RevisionTargetType,
   targetId: string,
+  sql: SQL = db,
 ): Promise<RevisionRecord | null> => {
-  const rows = (await db`
+  const rows = (await sql`
     SELECT id, target_type, target_id, content, created_by, created_at
     FROM cms_revisions
     WHERE target_type = ${targetType} AND target_id = ${targetId}
@@ -75,8 +85,9 @@ export interface CreateRevisionInput {
 
 export const createRevision = async (
   input: CreateRevisionInput,
+  sql: SQL = db,
 ): Promise<RevisionRecord> => {
-  const rows = (await db`
+  const rows = (await sql`
     INSERT INTO cms_revisions (id, target_type, target_id, content, created_by)
     VALUES (
       ${randomUUID()},

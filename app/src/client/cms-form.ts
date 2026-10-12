@@ -39,20 +39,21 @@ const elementChildren = (node: Node): Element[] =>
     (child): child is Element => child.nodeType === Node.ELEMENT_NODE,
   );
 
-const inlineNodes = (node: Node, marks: RichTextMark[]): RichTextInline[] => {
-  // A bare text node has no children to walk — it *is* the inline content (this
-  // is how a `<li>one</li>` reaches here).
-  if (node.nodeType === Node.TEXT_NODE) {
-    const text = node.textContent ?? "";
-    if (text === "") return [];
-    return [
-      marks.length > 0 ? { type: "text", text, marks } : { type: "text", text },
-    ];
-  }
-
+/**
+ * Walk a run of inline nodes, carrying the marks already open above them.
+ *
+ * Marks are read off each element as it is entered, so a `<strong>` nested in a
+ * paragraph *or* sitting directly in a list item keeps its own mark. Flattening
+ * each node through a fresh walk instead — the old bug — silently dropped the
+ * mark of any inline element that was the first thing in the run.
+ */
+const inlineFromNodes = (
+  nodes: Node[],
+  marks: RichTextMark[],
+): RichTextInline[] => {
   const result: RichTextInline[] = [];
 
-  for (const child of Array.from(node.childNodes)) {
+  for (const child of nodes) {
     if (child.nodeType === Node.TEXT_NODE) {
       const text = child.textContent ?? "";
       if (text === "") continue;
@@ -82,18 +83,18 @@ const inlineNodes = (node: Node, marks: RichTextMark[]): RichTextInline[] => {
       const target = child.getAttribute("target");
       nextMarks = [
         ...marks,
-        {
-          type: "link",
-          attrs: { href, ...(target ? { target } : {}) },
-        },
+        { type: "link", attrs: { href, ...(target ? { target } : {}) } },
       ];
     }
 
-    result.push(...inlineNodes(child, nextMarks));
+    result.push(...inlineFromNodes(Array.from(child.childNodes), nextMarks));
   }
 
   return result;
 };
+
+const inlineNodes = (node: Node, marks: RichTextMark[]): RichTextInline[] =>
+  inlineFromNodes(Array.from(node.childNodes), marks);
 
 const paragraph = (node: Node): RichTextNode => {
   const content = inlineNodes(node, []);
@@ -102,100 +103,88 @@ const paragraph = (node: Node): RichTextNode => {
     : { type: "paragraph" };
 };
 
-/** A list item's children: block nodes, with any bare inline run wrapped in a paragraph. */
-const listItemNode = (item: Element): RichTextNode => {
-  const content: RichTextNode[] = [];
+const BLOCK_TAGS = new Set(["P", "H2", "H3", "H4", "UL", "OL", "DIV"]);
+
+const isListItem = (el: Element): boolean => el.tagName === "LI";
+
+/** Serialize exactly one block element — the unit a list item's children are. */
+const blockNode = (el: Element): RichTextNode => {
+  switch (el.tagName) {
+    case "H2":
+    case "H3":
+    case "H4":
+      return {
+        type: "heading",
+        attrs: { level: Number(el.tagName[1]) },
+        content: inlineNodes(el, []),
+      };
+    case "UL":
+      return {
+        type: "bulletList",
+        content: elementChildren(el).filter(isListItem).map(listItemNode),
+      };
+    case "OL": {
+      const start = Number.parseInt(el.getAttribute("start") ?? "", 10);
+      return {
+        type: "orderedList",
+        ...(Number.isSafeInteger(start) && start > 1
+          ? { attrs: { start } }
+          : {}),
+        content: elementChildren(el).filter(isListItem).map(listItemNode),
+      };
+    }
+    default:
+      return paragraph(el);
+  }
+};
+
+/**
+ * Collect the block nodes of a container, wrapping any bare inline run in a
+ * paragraph of its own.
+ *
+ * The run is wrapped from its own nodes, never by re-walking the container:
+ * re-walking a bare text node at the root is what duplicated the whole field.
+ */
+const blockNodes = (
+  root: Element,
+  into: RichTextNode[] = [],
+): RichTextNode[] => {
   let pending: Node[] = [];
 
   const flush = () => {
     if (pending.length === 0) return;
-    const inline = pending.flatMap((node) => inlineNodes(node, []));
-    if (inline.length > 0) content.push({ type: "paragraph", content: inline });
+    const inline = inlineFromNodes(pending, []);
+    if (inline.length > 0) into.push({ type: "paragraph", content: inline });
     pending = [];
   };
 
-  for (const child of Array.from(item.childNodes)) {
-    const isBlock =
-      child instanceof Element &&
-      ["P", "H2", "H3", "H4", "UL", "OL", "DIV"].includes(child.tagName);
-    if (isBlock) {
+  for (const child of Array.from(root.childNodes)) {
+    if (child instanceof Element && BLOCK_TAGS.has(child.tagName)) {
       flush();
-      for (const node of blockNodes(child as Element)) content.push(node);
+      into.push(blockNode(child));
+    } else if (
+      child.nodeType === Node.TEXT_NODE &&
+      (child.textContent ?? "").trim() === ""
+    ) {
+      // Formatting whitespace between blocks is not content. Inside a paragraph
+      // it would be — `inlineFromNodes` keeps it — but at block level it would
+      // become a phantom empty paragraph.
     } else {
       pending.push(child);
     }
   }
   flush();
 
+  return into;
+};
+
+/** A list item's children: block nodes, with any bare inline run wrapped in a paragraph. */
+const listItemNode = (item: Element): RichTextNode => {
+  const content = blockNodes(item);
+
   return content.length > 0
     ? { type: "listItem", content }
     : { type: "listItem" };
-};
-
-const blockNodes = (root: Element): RichTextNode[] => {
-  const result: RichTextNode[] = [];
-
-  for (const child of Array.from(root.childNodes)) {
-    if (child.nodeType === Node.TEXT_NODE) {
-      if ((child.textContent ?? "").trim() === "") continue;
-      result.push(paragraph(child.parentNode ?? root));
-      continue;
-    }
-    if (!(child instanceof Element)) continue;
-
-    switch (child.tagName) {
-      case "P":
-      case "DIV":
-        result.push(paragraph(child));
-        break;
-      case "H2":
-        result.push({
-          type: "heading",
-          attrs: { level: 2 },
-          content: inlineNodes(child, []),
-        });
-        break;
-      case "H3":
-        result.push({
-          type: "heading",
-          attrs: { level: 3 },
-          content: inlineNodes(child, []),
-        });
-        break;
-      case "H4":
-        result.push({
-          type: "heading",
-          attrs: { level: 4 },
-          content: inlineNodes(child, []),
-        });
-        break;
-      case "UL":
-        result.push({
-          type: "bulletList",
-          content: elementChildren(child)
-            .filter((item) => item.tagName === "LI")
-            .map(listItemNode),
-        });
-        break;
-      case "OL": {
-        const start = Number.parseInt(child.getAttribute("start") ?? "", 10);
-        result.push({
-          type: "orderedList",
-          ...(Number.isSafeInteger(start) && start > 1
-            ? { attrs: { start } }
-            : {}),
-          content: elementChildren(child)
-            .filter((item) => item.tagName === "LI")
-            .map(listItemNode),
-        });
-        break;
-      }
-      default:
-        result.push(paragraph(child));
-    }
-  }
-
-  return result;
 };
 
 export const serializeRichText = (root: Element): Record<string, unknown> => ({
@@ -255,16 +244,54 @@ const linkValue = (control: Element): unknown => {
   };
 };
 
+/**
+ * True for a value that carries nothing, so an untouched list row is dropped.
+ *
+ * The server renders one empty row for a list so a required list has somewhere
+ * to type. A text row read back as `undefined` falls away by itself, but an
+ * untouched rich-text or nested-list row reads back as an empty document or an
+ * empty array — truthy shapes that would otherwise become a phantom entry.
+ */
+const isEmptyDocument = (content: unknown): boolean => {
+  if (!Array.isArray(content) || content.length === 0) return true;
+  // The server gives an empty editor a trailing `<p>` to hold the caret, so an
+  // untouched rich-text row reads back as a document of empty paragraphs.
+  return content.every((node) => {
+    const block = node as { type?: unknown; content?: unknown };
+    return (
+      block.type === "paragraph" &&
+      (!Array.isArray(block.content) || block.content.length === 0)
+    );
+  });
+};
+
+const isEmptyValue = (value: unknown): boolean => {
+  if (value === undefined || value === null) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "doc"
+  ) {
+    return isEmptyDocument((value as { content?: unknown }).content);
+  }
+  return false;
+};
+
 const listValue = (control: Element): unknown[] => {
-  const items = control.querySelectorAll(
-    "[data-list-items] > [data-list-item]",
-  );
+  // `:scope >` so a nested list's items are not read as this list's own; a
+  // plain descendant selector matches them too, and one list would swallow the
+  // other's rows.
+  const container = control.querySelector(":scope > [data-list-items]");
+  if (!container) return [];
+
   const values: unknown[] = [];
-  for (const item of Array.from(items)) {
-    const inner = item.querySelector("[data-field]");
+  for (const item of Array.from(
+    container.querySelectorAll(":scope > [data-list-item]"),
+  )) {
+    const inner = item.querySelector(":scope > [data-field]");
     if (!inner) continue;
     const value = readControl(inner);
-    if (value !== undefined) values.push(value);
+    if (!isEmptyValue(value)) values.push(value);
   }
   return values;
 };
@@ -338,32 +365,53 @@ const wireRichText = (form: HTMLFormElement): void => {
   }
 };
 
+/**
+ * Wire every list through one delegated listener on the form.
+ *
+ * A per-list listener only reaches the lists present when the page loaded —
+ * the nested list inside a row the editor just added would have none, so its
+ * own Add and Remove buttons would do nothing. Delegation from the form covers
+ * a list however deep it is cloned. Each button is resolved against its nearest
+ * `[data-list]`, and `:scope >` keeps a nested list from answering for its
+ * parent's items, template or Add button.
+ */
 const wireLists = (form: HTMLFormElement): void => {
-  for (const list of Array.from(form.querySelectorAll("[data-list]"))) {
-    const items = list.querySelector("[data-list-items]");
-    const template = list.querySelector<HTMLTemplateElement>(
-      "[data-list-template]",
-    );
-    const max = Number.parseInt(list.getAttribute("data-max") ?? "", 10);
+  form.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
 
-    list
-      .querySelector("[data-list-add]")
-      ?.addEventListener("click", (event) => {
-        event.preventDefault();
-        if (!items || !template) return;
-        if (Number.isSafeInteger(max) && items.children.length >= max) return;
-        items.append(template.content.cloneNode(true));
-      });
-
-    list.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const remove = target.closest("[data-list-remove]");
-      if (!remove) return;
+    const add = target.closest("[data-list-add]");
+    if (add) {
       event.preventDefault();
-      remove.closest("[data-list-item]")?.remove();
-    });
-  }
+      const list = add.closest("[data-list]");
+      if (!list) return;
+
+      const items = list.querySelector(":scope > [data-list-items]");
+      const template = list.querySelector<HTMLTemplateElement>(
+        ":scope > [data-list-template]",
+      );
+      if (!items || !template) return;
+
+      const max = Number.parseInt(list.getAttribute("data-max") ?? "", 10);
+      if (Number.isSafeInteger(max) && items.children.length >= max) return;
+      items.append(template.content.cloneNode(true));
+      return;
+    }
+
+    const remove = target.closest("[data-list-remove]");
+    if (!remove) return;
+    event.preventDefault();
+
+    const item = remove.closest("[data-list-item]");
+    if (!item) return;
+    const list = item.closest("[data-list]");
+    item.remove();
+
+    // Removing the row would otherwise drop focus to <body>, losing a keyboard
+    // user's place in the form. The list's own Add button is the nearest stable
+    // landmark; `:scope >` avoids a nested list's Add button.
+    list?.querySelector<HTMLElement>(":scope > [data-list-add]")?.focus();
+  });
 };
 
 const wireForm = (form: HTMLFormElement): void => {

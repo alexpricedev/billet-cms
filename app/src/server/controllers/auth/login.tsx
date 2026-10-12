@@ -19,6 +19,45 @@ import { guardAuthForm, readEmail } from "./form-guard";
 
 const { getFlash, setFlash } = stateHelpers<LoginState>();
 
+/**
+ * Mint a magic link for `email` and send it, off the request path.
+ *
+ * Sign-in is invite-only: an unknown address mints nothing. The lookup, the
+ * token insert and the email send all happen here, detached from the response,
+ * because awaiting them would make a known address measurably slower to answer
+ * than an unknown one — the email provider alone is an outbound HTTP call — and
+ * the delay alone would be an account-enumeration oracle. Nothing is written to
+ * the site's `users` table either way.
+ */
+const sendMagicLinkInBackground = async (email: string): Promise<void> => {
+  try {
+    const link = await createMagicLink(email);
+    if (!link) return;
+
+    try {
+      await getEmailService().sendMagicLink({
+        to: { email: link.user.email },
+        magicLinkUrl: appUrl(`/auth/callback?token=${link.rawToken}`),
+        expiryMinutes: MAGIC_LINK_EXPIRY_MINUTES,
+      });
+    } catch {
+      // A send failure is not the visitor's problem, and surfacing it would
+      // only tell them the address has an account. Log it for the operator.
+      log.error("login", "Could not send the magic link email");
+    }
+  } catch {
+    log.error("login", "Could not create the magic link");
+  }
+};
+
+// The most recent detached task. The response deliberately does not wait for
+// it, so this is the only handle a test has on the work; production never reads
+// it.
+let inFlightMagicLink: Promise<void> = Promise.resolve();
+
+/** Wait for the magic link the last POST is still minting and sending. */
+export const whenMagicLinkSettled = (): Promise<void> => inFlightMagicLink;
+
 export const login = {
   async index(req: BunRequest): Promise<Response> {
     const page = await guestPageContext(req);
@@ -104,34 +143,11 @@ export const login = {
       return redirect("/login");
     }
 
-    try {
-      const link = await createMagicLink(email.toLowerCase());
+    // Detached: the response is identical and immediate for a known and an
+    // unknown address, so how long it takes can't be read as an oracle.
+    inFlightMagicLink = sendMagicLinkInBackground(email.toLowerCase());
 
-      // Sign-in is invite-only: an unknown address mints nothing. Send the link
-      // only when there is an account, but fall through to the same response
-      // either way so the form can't be used to enumerate accounts.
-      if (link) {
-        try {
-          await getEmailService().sendMagicLink({
-            to: { email: link.user.email },
-            magicLinkUrl: appUrl(`/auth/callback?token=${link.rawToken}`),
-            expiryMinutes: MAGIC_LINK_EXPIRY_MINUTES,
-          });
-        } catch {
-          // A send failure is not the visitor's problem, and surfacing it would
-          // only tell them the address has an account. Log it for the operator.
-          log.error("login", "Could not send the magic link email");
-        }
-      }
-
-      setFlash(req, { state: "email-sent" });
-      return redirect("/login");
-    } catch {
-      setFlash(req, {
-        state: "validation-error",
-        error: "Something went wrong. Please try again.",
-      });
-      return redirect("/login");
-    }
+    setFlash(req, { state: "email-sent" });
+    return redirect("/login");
   },
 };

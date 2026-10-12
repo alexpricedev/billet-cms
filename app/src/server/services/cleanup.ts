@@ -1,3 +1,4 @@
+import { ensureIdentitiesView } from "../database/identity-view";
 import { cleanupExpired } from "./auth";
 import { log } from "./logger";
 
@@ -7,10 +8,16 @@ import { log } from "./logger";
 const SWEEP_SCHEDULE = "0 * * * *";
 
 /**
- * Delete every expired row the CMS owns.
+ * Delete every expired row the CMS owns, and re-ensure the identity view.
+ *
+ * The view is created at boot only when missing, and a site migration drops it
+ * to retype a pinned `users` column (Postgres refuses the change while it
+ * depends on it). Rebuilding it here means sign-in recovers within the hour
+ * rather than waiting for a restart.
  */
 export const runCleanupSweep = async (): Promise<void> => {
   await cleanupExpired();
+  await ensureIdentitiesView();
 };
 
 // A rejection escaping a cron callback is an unhandled rejection, which
