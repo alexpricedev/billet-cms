@@ -2,6 +2,12 @@
   <img src="public/logo.svg" alt="Billet Logo" width="48" />
 </p>
 
+> **Billet CMS fork.** This is the CMS service, not a stock Billet app. It has no
+> sign-in of its own — a signed-out visit is handed to the site's Billet app,
+> which mints a single-use handoff token the CMS spends — and no email delivery,
+> password auth or captcha. The auth and email sections below describe upstream
+> Billet; `../AGENTS.md` and `CLAUDE.md` are the source of truth for this app.
+
 <h1 align="center">Billet</h1>
 
 <p align="center">

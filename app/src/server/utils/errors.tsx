@@ -54,3 +54,17 @@ export const render503 = (retryAfterSeconds: number): Response =>
     503,
     { "Retry-After": String(retryAfterSeconds) },
   );
+
+// 503 — the CMS can't sign anyone in because it has no site URL to hand them to.
+// Distinct from maintenance: the site is up, the CMS just isn't configured, so
+// the nav stays and the message points the operator at the missing setting
+// without leaking anything a visitor can act on.
+export const renderSignInUnavailable = (): Response =>
+  renderError(
+    <ErrorPage
+      status={503}
+      heading="Sign-in is unavailable"
+      message="This CMS can't send you to the site to sign in right now. If you run the service, set SITE_APP_URL to the site's URL."
+    />,
+    503,
+  );

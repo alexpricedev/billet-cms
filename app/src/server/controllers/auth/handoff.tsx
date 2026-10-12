@@ -11,18 +11,17 @@ import { HANDOFF_PATH, Handoff } from "../../templates/handoff";
 import { redirect, render } from "../../utils/response";
 
 /**
- * Where the site's Edit content link lands, in two halves: the GET shows a
- * confirm step and the POST spends the token. The split mirrors the magic-link
- * callback, and for the same reason — a single-use token that a prefetch or a
- * scanner could spend by fetching the URL would greet the person with an
- * expired link.
+ * Where the site's Edit content link and CMS sign-in both land, in two halves:
+ * the GET shows a confirm step and the POST spends the token. The split is the
+ * single-use-token rule — a token a prefetch or a scanner could spend by
+ * fetching the URL would greet the person with an expired link.
  */
 export const handoff = {
   async index(req: BunRequest): Promise<Response> {
     const token = new URL(req.url).searchParams.get("token");
 
     if (!token) {
-      return redirect("/login?error=Missing handoff token");
+      return redirect("/sign-in");
     }
 
     const ctx = await getSessionContext(req);
@@ -59,7 +58,7 @@ export const handoff = {
     const token = formData.get("token");
 
     if (typeof token !== "string" || !token) {
-      return redirect("/login?error=Missing handoff token");
+      return redirect("/sign-in");
     }
 
     try {
@@ -69,7 +68,9 @@ export const handoff = {
       );
 
       if (!result.success) {
-        return redirect(`/login?error=${encodeURIComponent(result.error)}`);
+        // An expired or already-spent token: start a fresh sign-in rather than
+        // a dead end. The site mints a new one and comes back to /handoff.
+        return redirect("/sign-in");
       }
 
       setSessionCookie(req, result.sessionId);
@@ -79,7 +80,7 @@ export const handoff = {
         headers: { Location: "/cms" },
       });
     } catch {
-      return redirect("/login?error=Could not sign in. Please try again.");
+      return redirect("/sign-in");
     }
   },
 };

@@ -8,7 +8,7 @@ import {
   stack,
   webmanifest,
 } from "../controllers/app";
-import { account, callback, handoff, login, logout } from "../controllers/auth";
+import { account, handoff, logout, signIn } from "../controllers/auth";
 import { dashboard, slotForm } from "../controllers/cms";
 import { createRouteHandler } from "../utils/route-handler";
 
@@ -26,10 +26,10 @@ export const appRoutes = {
     GET: forms.index,
     POST: forms.create,
   }),
-  "/login": createRouteHandler({
-    GET: login.index,
-    POST: login.create,
-  }),
+  // The CMS has no sign-in of its own. A signed-out visitor is sent here, and
+  // this route hands them to the site's sign-in route — see `controllers/auth/
+  // sign-in.tsx` and the plugin's `handleCmsSignIn`.
+  "/sign-in": signIn.index,
   "/account": account.index,
   // The CMS's own surface. /cms lists the pages and slots a site published;
   // /cms/slots/:id is the generated editor for one slot.
@@ -38,15 +38,10 @@ export const appRoutes = {
     GET: slotForm.index,
     POST: slotForm.create,
   }),
-  // Both of these arrive as a link in an email, so both render a confirm step
-  // on GET and spend the token on POST: a single-use token a mail scanner can
-  // burn by fetching the link is a token the recipient never gets to use.
-  "/auth/callback": createRouteHandler({
-    GET: callback.index,
-    POST: callback.create,
-  }),
-  // The Edit content handoff: a link the site mints, spent here. Same
-  // GET-confirm/POST-spend shape, for the same single-use-token reason.
+  // The Edit content handoff and CMS sign-in both arrive as a single-use token
+  // the site minted, so both render a confirm step on GET and spend the token on
+  // POST: a token a browser prefetch or a link scanner could burn by fetching
+  // the URL would otherwise leave the person staring at a dead link.
   "/handoff": createRouteHandler({
     GET: handoff.index,
     POST: handoff.create,

@@ -175,8 +175,8 @@ suite on the ones the guard can't see. Detail and reasoning: `.claude/rules/data
 ### One preload sets the test environment
 
 `bunfig.toml` preloads `src/server/test-utils/test-env.ts`, which pins the whole test environment
-(`SESSION_COOKIE_NAME`, `AUTH_MODE`, `CAPTCHA_ENABLED`, `TEAMS_ENABLED`, `TRUST_PROXY`, `PORT`,
-`APP_URL`, `CRYPTO_PEPPER`, email/app names), and `src/client/test-utils/setup.ts`, which registers
+(`SESSION_COOKIE_NAME`, `TRUST_PROXY`, `PORT`, `APP_URL`, `SITE_APP_URL`, `CRYPTO_PEPPER`,
+`APP_NAME`), and `src/client/test-utils/setup.ts`, which registers
 happy-dom globals and then restores Bun's native `Request`/`Response`/`FormData` — but **not**
 `fetch`: happy-dom's fetch stays installed and enforces the Same-Origin Policy, so a test that
 needs real network must use `Bun.fetch`.
@@ -184,25 +184,22 @@ needs real network must use `Bun.fetch`.
 A preload is the only place early enough: imports are hoisted above a file's body, so values
 captured at import time (`SESSION_COOKIE_NAME` in `services/sessions.ts`, `CRYPTO_PEPPER` in
 `utils/crypto.ts`) are already read before a test's first line runs. `.env.test` carries
-`DATABASE_URL` and nothing else — anything else you put there is overridden. Tests that exercise
-password mode, the captcha, or teams set the variable per case, at runtime.
+`DATABASE_URL` and nothing else — anything else you put there is overridden. A test that needs a
+non-default value sets the variable per case, at runtime.
 
-### Auth is one mode or the other, never both
+### Sign-in goes through the site, and the CMS has no login of its own
 
-`AUTH_MODE` (`src/server/services/auth-mode.ts`) is `magic-link` (default) or `password`. The two
-are mutually exclusive on purpose. `/forgot-password`, `/reset-password`, `/account/password`,
-and `/auth/verify*` all `render404()` from inside their controllers when the mode is wrong — the
-route table in `routes/app.tsx` is static, so a route existing tells you nothing about whether it
-answers. `/login`, `/signup`, and `/account` exist in both modes and branch on
-`passwordAuthEnabled()`.
+There is no `/login`, no magic link and no email delivery in this app. A signed-out visit to a
+guarded page is redirected to `/sign-in`, which sends the browser to the site's Billet app at
+`<SITE_APP_URL><CMS_SIGN_IN_PATH>` (see `services/sign-in.ts`). The site mounts that route from the
+plugin (`handleCmsSignIn` in `packages/billet-cms/src/sign-in`); it resolves the site's own signed-in
+user, refuses anyone not in `cms_identities`, and mints a single-use handoff token that the CMS's
+`/handoff` route spends to start a `cms_session`. The two halves share only the database and the
+contract — never a secret and never an API call.
 
-`authMode()` reads `process.env` on every call so tests can flip it mid-file; an invalid value is
-fatal at boot in `validateEnv()`.
-
-Every emailed link renders a confirm step on `GET` and spends its token on `POST` — mail security
-scanners fetch each link they deliver, and a `GET` that redeemed would burn the token before the
-recipient clicked. `runbooks/EMAIL.md` has the rule and the reason `/auth/callback` is CSRF-checked
-while `/auth/verify` deliberately isn't.
+`/handoff` keeps the GET-confirm/POST-spend shape every single-use token needs: a browser prefetch
+or a link scanner that followed the URL would otherwise burn the token before the person clicked.
+Both the Edit content link and the sign-in route use it.
 
 ### Two role axes, and they must never merge
 
@@ -233,17 +230,18 @@ cosmetic.
 
 Core does not scope domain data by org — `runbooks/TEAMS.md` has the seam and the reasoning.
 
-### Passwords are read raw, and never round-trip through flash state
+### The CMS never touches passwords
 
-`readFormValues` (`src/server/utils/form-data.ts`) trims values and drops empties — **unsafe for
-credentials**, because whitespace is part of a password. Password controllers use `readPassword`
-from `src/server/controllers/auth/form-guard.ts` instead, which reads the field verbatim.
+The CMS has no password field, no password hashing in its own sign-in path and no credential column
+on any `cms_` table. Sign-in reads the site's accounts through `cms_identities`, which exposes
+`id`, `email` and `role` only, and hands the browser to the site for the login step — so a
+password never crosses into the CMS. `hashPassword`/`verifyPassword` remain in `utils/crypto.ts`
+for the site's own use; they are deliberately *not* peppered with `CRYPTO_PEPPER`, unlike everything
+else in that file — see the comment there and `SECURITY.md`.
 
-Flash state is an HMAC-signed but client-readable cookie. A failed auth form preserves the email
-address and nothing else. Never add a password to it.
-
-Password hashing lives in `src/server/utils/crypto.ts` and is deliberately *not* peppered with
-`CRYPTO_PEPPER`, unlike everything else in that file — see the comment there and `SECURITY.md`.
+`readFormValues` (`src/server/utils/form-data.ts`) trims values and drops empties, which is right
+for the CMS's own forms. If a credential ever did have to be read here, it would need a verbatim
+reader instead.
 
 ### Security headers and CSP are centralised
 
@@ -360,6 +358,6 @@ Detail lives in skills so it loads only when it's relevant:
 ## Runbooks
 
 `runbooks/` holds the operational standards this project is held to — `SECURITY.md`, `PRIVACY.md`,
-`ACCESSIBILITY.md`, `SEO.md`, `EMAIL.md`, `CI.md`, `TEAMS.md`, `RELEASE.md`. Read the relevant one
-before changing headers, cookies, metadata, email delivery, anything on the team surface, or
+`ACCESSIBILITY.md`, `SEO.md`, `CI.md`, `TEAMS.md`, `RELEASE.md`. Read the relevant one
+before changing headers, cookies, metadata, anything on the team surface, or
 cutting a release.

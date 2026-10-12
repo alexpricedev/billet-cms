@@ -43,7 +43,7 @@ describe("Dashboard controller", () => {
     );
 
     expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe("/login");
+    expect(res.headers.get("location")).toBe("/sign-in");
   });
 
   test("lists the pages and the slots published into them", async () => {

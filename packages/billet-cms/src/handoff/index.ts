@@ -48,6 +48,25 @@ export interface EditContentLinkOptions {
 }
 
 /**
+ * Whether the CMS is allowed to sign `userId` in.
+ *
+ * Reads `cms_identities`, the site's view. Throws on a database error (a missing
+ * CMS table, an unreachable database) rather than answering `false`, so a caller
+ * can tell "not an editor" from "could not check" — the sign-in route answers 403
+ * for the first and 503 for the second.
+ */
+export const isCmsIdentity = async (
+  sql: SQL,
+  userId: string,
+): Promise<boolean> => {
+  const rows = (await sql.unsafe(
+    `SELECT 1 FROM ${TABLES.identities} WHERE id = $1`,
+    [userId],
+  )) as unknown[];
+  return rows.length > 0;
+};
+
+/**
  * Mint a single-use handoff token and return the URL that spends it, or `null`
  * when the site has no CMS configured or the user isn't a CMS identity.
  *
@@ -64,11 +83,7 @@ export const createEditContentLink = async (
   if (!cmsUrl) return null;
 
   try {
-    const identity = (await sql.unsafe(
-      `SELECT 1 FROM ${TABLES.identities} WHERE id = $1`,
-      [options.userId],
-    )) as unknown[];
-    if (identity.length === 0) return null;
+    if (!(await isCmsIdentity(sql, options.userId))) return null;
 
     const now = options.now ?? new Date();
     const ttlMs = (options.ttlSeconds ?? HANDOFF_TOKEN_TTL_SECONDS) * 1000;

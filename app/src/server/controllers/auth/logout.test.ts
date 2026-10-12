@@ -100,7 +100,7 @@ describe("Logout Controller", () => {
       const response = await logout.create(request);
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
       expect(response.headers.get("clear-site-data")).toBe(
         '"cookies", "storage"',
       );
@@ -126,7 +126,7 @@ describe("Logout Controller", () => {
       const response = await logout.create(request);
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
 
       const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
@@ -145,7 +145,7 @@ describe("Logout Controller", () => {
       const response = await logout.create(request);
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
 
       const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
@@ -163,7 +163,7 @@ describe("Logout Controller", () => {
       const response = await logout.create(request);
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
     });
 
     test("multiple session cookies - uses correct cms_session", async () => {
@@ -190,7 +190,7 @@ describe("Logout Controller", () => {
       const response = await logout.create(request);
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
 
       // Correct session should be deleted
       const { computeHMAC } = await import("../../utils/crypto");
@@ -220,7 +220,7 @@ describe("Logout Controller", () => {
 
       // Should still redirect and clear cookie even if DB error occurs
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
 
       const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
@@ -238,7 +238,7 @@ describe("Logout Controller", () => {
       const response = await logout.create(request);
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
     });
 
     test("requires CSRF token - rejects request without token", async () => {
@@ -308,7 +308,7 @@ describe("Logout Controller", () => {
       const response = await logout.create(request);
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
 
       const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
@@ -343,7 +343,7 @@ describe("Logout Controller", () => {
       const response = await logout.create(request);
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/");
       expect(response.headers.get("Clear-Site-Data")).toBe(
         '"cookies", "storage"',
       );

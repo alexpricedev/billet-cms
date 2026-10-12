@@ -72,9 +72,6 @@ const submit = async (opts: {
   return { req, res: await handoff.create(req) };
 };
 
-const errorFrom = (res: Response): string =>
-  decodeURIComponent(res.headers.get("location") ?? "");
-
 describe("Handoff Controller", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
@@ -99,13 +96,11 @@ describe("Handoff Controller", () => {
       expect(rows[0].used_at).toBeNull();
     });
 
-    test("redirects with an error when no token is given", async () => {
+    test("redirects to sign-in when no token is given", async () => {
       const { res } = await open();
 
       expect(res.status).toBe(303);
-      expect(res.headers.get("location")).toBe(
-        "/login?error=Missing handoff token",
-      );
+      expect(res.headers.get("location")).toBe("/sign-in");
     });
 
     test("sends an already signed-in visitor to the content", async () => {
@@ -167,7 +162,7 @@ describe("Handoff Controller", () => {
       });
 
       expect(second.res.status).toBe(303);
-      expect(errorFrom(second.res)).toContain("Invalid or expired link");
+      expect(second.res.headers.get("location")).toBe("/sign-in");
     });
 
     // Two clicks arriving together must produce one session, not two: the
@@ -200,7 +195,7 @@ describe("Handoff Controller", () => {
         1,
       );
       expect(
-        locations.filter((location) => location?.startsWith("/login?error=")),
+        locations.filter((location) => location === "/sign-in"),
       ).toHaveLength(1);
 
       const sessions = await db`

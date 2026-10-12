@@ -73,20 +73,16 @@ describe("railway.ts", () => {
   // service that boots. `validateEnv()` exits the process on any of these, so a
   // `preserve()` here is a crash-loop on a fresh project.
   test("gives every boot-required variable a default", () => {
-    for (const key of ["APP_NAME", "EMAIL_PROVIDER", "FROM_EMAIL", "FROM_NAME"]) {
+    for (const key of ["APP_NAME"]) {
       expect(app?.variables?.[key]).toMatchObject({ type: "literal" });
     }
   });
 
   // The product is "Billet CMS", not upstream Billet. The default name reaches
-  // the page <title>, the nav and every email, so a half-done rename is visible
-  // to users; these are the deploy-time defaults the service would carry.
+  // the page <title>, the nav and every page, so a half-done rename is visible
+  // to users; this is the deploy-time default the service would carry.
   test("names the product Billet CMS", () => {
     expect(app?.variables?.APP_NAME).toEqual({
-      type: "literal",
-      value: "Billet CMS",
-    });
-    expect(app?.variables?.FROM_NAME).toEqual({
       type: "literal",
       value: "Billet CMS",
     });
@@ -109,16 +105,10 @@ describe("railway.ts", () => {
     for (const key of [
       "APP_NAME",
       "APP_URL",
-      "EMAIL_PROVIDER",
-      "FROM_EMAIL",
-      "FROM_NAME",
-      "RESEND_API_KEY",
+      "SITE_APP_URL",
       "SITE_URL",
       "ALLOW_INDEXING",
-      "CAPTCHA_ENABLED",
-      "CAPTCHA_DIFFICULTY",
       "TRUST_PROXY",
-      "REPLY_TO_EMAIL",
       "SECURITY_CONTACT",
       "SESSION_COOKIE_NAME",
       "MAINTENANCE_MODE",

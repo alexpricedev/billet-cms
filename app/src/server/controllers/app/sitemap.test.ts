@@ -31,6 +31,7 @@ describe("Sitemap Controller", () => {
 
     expect(body).not.toContain("/admin");
     expect(body).not.toContain("/login");
+    expect(body).not.toContain("/sign-in");
     expect(body).not.toContain("/api/");
   });
 });

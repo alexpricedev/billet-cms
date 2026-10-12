@@ -47,7 +47,7 @@ export const SITE_DESCRIPTION =
   "Guardrails for your AI coding agents — a full-stack TypeScript starter on Bun";
 
 // Public, indexable routes included in the sitemap. Private or noindex routes
-// (/login, /account), API endpoints, and auth callbacks are intentionally
+// (/account, /cms), API endpoints, and the sign-in handoff are intentionally
 // omitted.
 export const SITEMAP_PATHS = ["/", "/stack", "/forms"] as const;
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CMS_SIGN_IN_PATH,
   CONTRACT_VERSION,
   hashJson,
   isCmsRelation,
@@ -14,6 +15,13 @@ import {
 describe("CONTRACT_VERSION", () => {
   test("is set and looks like a version", () => {
     expect(CONTRACT_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe("CMS_SIGN_IN_PATH", () => {
+  test("is the site path both services agree on, and is site-relative", () => {
+    expect(CMS_SIGN_IN_PATH).toBe("/cms/sign-in");
+    expect(CMS_SIGN_IN_PATH.startsWith("/")).toBe(true);
   });
 });
 

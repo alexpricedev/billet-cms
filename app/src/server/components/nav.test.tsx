@@ -40,10 +40,11 @@ describe("Nav", () => {
     );
   });
 
-  test("shows Login instead when signed out", () => {
+  test("shows Sign in instead when signed out", () => {
     const html = renderToString(<Nav page="home" user={null} />);
 
-    expect(html).toContain('href="/login"');
+    expect(html).toContain('href="/sign-in"');
+    expect(html).toContain("Sign in");
     expect(html).not.toContain('href="/account"');
   });
 

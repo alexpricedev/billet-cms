@@ -243,7 +243,7 @@ describe("formAction", () => {
   });
 
   describe("guards", () => {
-    test('"user" sends a guest to login, or 401 on a fragment request', async () => {
+    test('"user" sends a guest to sign in, or 401 on a fragment request', async () => {
       const guestId = await createGuestSession();
       const gated = formAction<State>({
         redirectTo: "/things",
@@ -255,7 +255,7 @@ describe("formAction", () => {
         post(guestId, await validToken(guestId)),
       );
       expect(plain.status).toBe(303);
-      expect(plain.headers.get("Location")).toBe("/login");
+      expect(plain.headers.get("Location")).toBe("/sign-in");
 
       const fragment = await gated(handled)(
         post(guestId, await validToken(guestId), { fragment: true }),
@@ -308,7 +308,7 @@ describe("formAction", () => {
         ok: false,
         response: new Response("", {
           status: 303,
-          headers: { Location: "/login" },
+          headers: { Location: "/sign-in" },
         }),
       });
       const toHome: ActionGuard<undefined> = async () => ({

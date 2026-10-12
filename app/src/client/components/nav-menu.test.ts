@@ -12,7 +12,7 @@ const markup = `
         <ul>
           <li><a href="/stack">Stack</a></li>
         </ul>
-        <div class="nav-auth"><a class="btn-ghost" href="/login">Login</a></div>
+        <div class="nav-auth"><a class="btn-ghost" href="/sign-in">Sign in</a></div>
       </div>
     </nav>
   </header>

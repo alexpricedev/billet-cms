@@ -22,7 +22,7 @@ const canonicalUrl = (path?: string): string =>
 
 /* The site is noindex unless `ALLOW_INDEXING=true` says otherwise, so the
    `noindex` prop is a page opting *out* on top of a default that already keeps
-   it out — a page that passes it (/login, /admin, an error page) stays noindex
+   it out — a page that passes it (/account, /cms, an error page) stays noindex
    after the switch opens the rest of the site up. See `indexingAllowed` in
    services/seo.ts. */
 const blocksIndexing = (noindex?: boolean): boolean =>

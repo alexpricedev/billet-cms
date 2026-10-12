@@ -42,7 +42,7 @@ describe("Account Controller", () => {
       const response = await account.index(getAccount());
 
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/login");
+      expect(response.headers.get("location")).toBe("/sign-in");
     });
 
     test("shows the email and the sign-in method", async () => {
@@ -51,7 +51,7 @@ describe("Account Controller", () => {
       const html = await (await account.index(getAccount(sessionId))).text();
 
       expect(html).toContain("me@example.com");
-      expect(html).toContain("Magic link");
+      expect(html).toContain("Through the site");
       // The nav's sign-out form is the only one: a second copy in a page card
       // was the duplicate this asserts against.
       expect(html.match(/action="\/auth\/logout"/g)).toHaveLength(1);
