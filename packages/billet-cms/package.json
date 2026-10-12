@@ -1,0 +1,26 @@
+{
+  "name": "@alexpricedev/billet-cms",
+  "version": "0.0.0",
+  "description": "Block plugin and contract for Billet CMS",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./contract": "./src/contract/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "lint": "biome check src",
+    "lint:write": "biome check src --write",
+    "typecheck": "bun --bun tsc --noEmit",
+    "test": "bun test src",
+    "check": "bun run lint && bun run typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/bun": "1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
