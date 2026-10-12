@@ -19,10 +19,11 @@ mock.module("../../services/database", () => ({
   },
 }));
 
-import { saveSlotDraft } from "../../services/content";
+import { createRevision, saveSlotDraft } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
+import { staleCsrfToken } from "../../test-utils/auth-form";
 import { createBunRequest } from "../../test-utils/bun-request";
 import { slotForm } from "./slot";
 
@@ -51,6 +52,21 @@ const validContent = {
 };
 
 const path = (slotId: string) => `/cms/slots/${slotId}`;
+
+/** The value of a hidden input the form rendered, by field name. */
+const hiddenValue = (html: string, name: string): string | undefined =>
+  html.match(new RegExp(`name="${name}" value="([^"]*)"`))?.[1];
+
+/**
+ * The last hidden input with this name. The nav's sign-out form renders its own
+ * `_csrf` in the header, ahead of the slot form's, so the form's is the last.
+ */
+const lastHiddenValue = (html: string, name: string): string | undefined => {
+  const matches = [
+    ...html.matchAll(new RegExp(`name="${name}" value="([^"]*)"`, "g")),
+  ];
+  return matches.at(-1)?.[1];
+};
 
 describe("Slot form controller", () => {
   let slotId: string;
@@ -85,11 +101,15 @@ describe("Slot form controller", () => {
       { id: slotId },
     );
 
-  const post = async (fields: Record<string, string>, session = sessionId) => {
+  const rawPost = async (
+    fields: Record<string, string>,
+    session = sessionId,
+    csrf?: string,
+  ) => {
     const formData = new FormData();
     formData.append(
       "_csrf",
-      await createCsrfToken(session, "POST", path(slotId)),
+      csrf ?? (await createCsrfToken(session, "POST", path(slotId))),
     );
     for (const [key, value] of Object.entries(fields)) {
       formData.append(key, value);
@@ -104,6 +124,9 @@ describe("Slot form controller", () => {
       { id: slotId },
     );
   };
+
+  const post = (fields: Record<string, string>, session = sessionId) =>
+    rawPost(fields, session);
 
   describe("GET", () => {
     test("redirects an anonymous visitor to sign in", async () => {
@@ -125,6 +148,23 @@ describe("Slot form controller", () => {
       expect(html).toContain('name="content"');
     });
 
+    test("names its controls for assistive technology", async () => {
+      const html = await (await slotForm.index(get())).text();
+
+      // A label for the text control; a fieldset/legend for the composites.
+      expect(html).toContain(
+        '<label class="cms-field-label" for="cms-field-heading"',
+      );
+      expect(html).toContain('id="cms-field-heading"');
+      expect(html).toContain('<legend class="cms-field-label">');
+      // The rich text editor is a labelled, multiline textbox.
+      expect(html).toContain('role="textbox"');
+      expect(html).toContain('aria-multiline="true"');
+      // And the toolbar buttons say what they do.
+      expect(html).toContain('aria-label="Bold"');
+      expect(html).toContain('aria-controls="cms-field-body"');
+    });
+
     test("renders a 404 for a slot that does not exist", async () => {
       const req = createBunRequest(
         `${ORIGIN}/cms/slots/00000000-0000-4000-8000-000000000000`,
@@ -132,6 +172,35 @@ describe("Slot form controller", () => {
       );
       const res = await slotForm.index(req);
       expect(res.status).toBe(404);
+    });
+
+    test("renders a 404 for a slot id that is not a UUID", async () => {
+      const req = createBunRequest(`${ORIGIN}/cms/slots/not-a-uuid`, {
+        method: "GET",
+        headers: { cookie: `cms_session=${sessionId}` },
+      });
+      const res = await slotForm.index(req);
+      expect(res.status).toBe(404);
+    });
+
+    test("flags a removed slot but still lets it be edited", async () => {
+      await db`UPDATE cms_slots SET removed_at = NOW() WHERE id = ${slotId}`;
+
+      const html = await (await slotForm.index(get())).text();
+
+      expect(html).toContain("no longer declared in the site's templates");
+      expect(html).toContain("data-cms-form");
+    });
+
+    test("makes a removed block type read-only", async () => {
+      await db`
+        UPDATE cms_block_types SET removed_at = NOW() WHERE name = 'hero'
+      `;
+
+      const html = await (await slotForm.index(get())).text();
+
+      expect(html).toContain("no longer published");
+      expect(html).not.toContain("data-cms-form");
     });
   });
 
@@ -162,29 +231,77 @@ describe("Slot form controller", () => {
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toMatch(/can.{0,5}t be saved/);
-      expect(html).toContain("heading");
+      // The field's own label, not its machine name.
+      expect(html).toContain("Heading");
+      expect(html).toContain('aria-invalid="true"');
       expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
     });
 
-    test("keeps a removed field's value and flags it", async () => {
-      // A revision written before the field was dropped.
+    test("recovers an expired page instead of losing the work", async () => {
+      const res = await slotForm.create(
+        await rawPost(
+          {
+            content: JSON.stringify({ ...validContent, heading: "Kept" }),
+            base_revision: "",
+          },
+          sessionId,
+          await staleCsrfToken(sessionId, path(slotId)),
+        ),
+      );
+
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("This page expired");
+      // The posted content is still in the form...
+      expect(html).toContain("Kept");
+      // ...behind a fresh token, so saving again works.
+      expect(hiddenValue(html, "_csrf")).toBeTruthy();
+      expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+    });
+
+    test("falls back to the base revision when the content cannot be read", async () => {
       const seeded = await saveSlotDraft({
         slotId,
-        content: { ...validContent, droppedField: { kept: true } },
+        content: validContent,
         baseRevisionId: null,
         actorId: editorId,
       });
       if (!seeded.ok) throw new Error("seed save failed");
 
+      const res = await slotForm.create(
+        await post({
+          content: "{not json",
+          base_revision: seeded.revision.id,
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("could not be read");
+      // The base revision's content, not an empty form.
+      expect(html).toContain("A heading");
+    });
+
+    test("keeps a removed field's value and flags it", async () => {
+      // A revision written before the field was dropped. Written directly so the
+      // strict validator doesn't reject the very key under test.
+      const seeded = await createRevision({
+        targetType: "slot",
+        targetId: slotId,
+        content: { ...validContent, droppedField: { kept: true } },
+        createdBy: editorId,
+      });
+
       const getHtml = await (await slotForm.index(get())).text();
       expect(getHtml).toContain("no longer defined in code");
       expect(getHtml).toContain("droppedField");
 
+      // The client no longer sends removed fields; the server carries them
+      // through from the revision the editor loaded.
       const res = await slotForm.create(
         await post({
           content: JSON.stringify(validContent),
-          base_revision: seeded.revision.id,
-          removed_fields: JSON.stringify({ droppedField: { kept: true } }),
+          base_revision: seeded.id,
         }),
       );
 
@@ -205,12 +322,13 @@ describe("Slot form controller", () => {
       if (!first.ok) throw new Error("first save failed");
 
       const otherId = (await seedIdentity(db, "other@example.com")).id;
-      await saveSlotDraft({
+      const second = await saveSlotDraft({
         slotId,
         content: { ...validContent, heading: "Theirs" },
         baseRevisionId: first.revision.id,
         actorId: otherId,
       });
+      if (!second.ok) throw new Error("second save failed");
 
       const res = await slotForm.create(
         await post({
@@ -223,7 +341,12 @@ describe("Slot form controller", () => {
       const html = await res.text();
       expect(html).toContain("newer version");
       expect(html).toContain("other@example.com");
-      expect(html).toContain('name="overwrite"');
+      expect(html).toContain("Load their version");
+      // No blind-overwrite flag: the form now points its base at theirs.
+      expect(html).not.toContain('name="overwrite"');
+      expect(hiddenValue(html, "base_revision")).toBe(second.revision.id);
+      // The editor's work is still in the form.
+      expect(html).toContain("Mine");
 
       // Nothing written until the editor confirms.
       const latest = await db`
@@ -232,7 +355,7 @@ describe("Slot form controller", () => {
       expect(latest[0].content.heading).toBe("Theirs");
     });
 
-    test("writes on top once the editor confirms the overwrite", async () => {
+    test("overwrites once the editor confirms, using the re-rendered base", async () => {
       const first = await saveSlotDraft({
         slotId,
         content: validContent,
@@ -241,12 +364,39 @@ describe("Slot form controller", () => {
       });
       if (!first.ok) throw new Error("first save failed");
 
-      const res = await slotForm.create(
+      const otherId = (await seedIdentity(db, "other@example.com")).id;
+      await saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "Theirs" },
+        baseRevisionId: first.revision.id,
+        actorId: otherId,
+      });
+
+      // First attempt conflicts and comes back with their revision as the base.
+      const conflict = await slotForm.create(
         await post({
           content: JSON.stringify({ ...validContent, heading: "Mine" }),
           base_revision: first.revision.id,
-          overwrite: "1",
         }),
+      );
+      expect(conflict.status).toBe(200);
+      const conflictHtml = await conflict.text();
+
+      const base = hiddenValue(conflictHtml, "base_revision") ?? "";
+      const csrf = lastHiddenValue(conflictHtml, "_csrf") ?? "";
+      expect(base).toBeTruthy();
+      expect(csrf).toBeTruthy();
+
+      // Saving again with that base is a deliberate overwrite.
+      const res = await slotForm.create(
+        await rawPost(
+          {
+            content: JSON.stringify({ ...validContent, heading: "Mine" }),
+            base_revision: base,
+          },
+          sessionId,
+          csrf,
+        ),
       );
 
       expect(res.status).toBe(303);

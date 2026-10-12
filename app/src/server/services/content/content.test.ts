@@ -22,6 +22,7 @@ mock.module("../database", () => ({
 
 import { db } from "../database";
 import { getLatestRevision, saveSlotDraft } from "./index";
+import { createRevision } from "./revisions";
 
 const hero = block(
   "hero",
@@ -97,17 +98,44 @@ describe("content write layer", () => {
     expect(await getLatestRevision("slot", slotId)).toBeNull();
   });
 
-  test("keeps a removed field's value and lets it validate (Q4)", async () => {
+  // Q4: the value is re-attached from the revision the editor loaded, so the
+  // client never has to send a key the schema no longer declares.
+  test("carries a removed field through from the revision it was based on", async () => {
+    // A revision written while the field still existed. Written directly so the
+    // strict validator doesn't reject the very key under test.
+    const seeded = await createRevision({
+      targetType: "slot",
+      targetId: slotId,
+      content: { ...validContent, droppedField: { kept: true } },
+      createdBy: editorId,
+    });
+
     const result = await saveSlotDraft({
       slotId,
-      content: { ...validContent, droppedField: { kept: true } },
-      baseRevisionId: null,
+      content: validContent,
+      baseRevisionId: seeded.id,
       actorId: editorId,
     });
 
     expect(result.ok).toBe(true);
     const latest = await getLatestRevision("slot", slotId);
     expect(latest?.content.droppedField).toEqual({ kept: true });
+  });
+
+  test("refuses a key the schema does not declare", async () => {
+    const result = await saveSlotDraft({
+      slotId,
+      content: { ...validContent, nope: 1 },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    // Zod reports an unrecognised key at the root, naming it in the message.
+    expect(result.issues.some((issue) => issue.message.includes("nope"))).toBe(
+      true,
+    );
   });
 
   test("saves on top of the revision it was based on", async () => {
@@ -167,7 +195,9 @@ describe("content write layer", () => {
     expect(latest?.content.heading).toBe("Theirs");
   });
 
-  test("writes once the editor chooses to overwrite", async () => {
+  // Item 15: the overwrite is not a flag that skips the check — it is a base
+  // pointing at the revision the editor has now seen.
+  test("writes when the base is the conflicted newer revision", async () => {
     const first = await saveSlotDraft({
       slotId,
       content: validContent,
@@ -176,25 +206,81 @@ describe("content write layer", () => {
     });
     if (!first.ok) throw new Error("first save failed");
 
-    await saveSlotDraft({
+    const second = await saveSlotDraft({
       slotId,
       content: { ...validContent, heading: "Theirs" },
       baseRevisionId: first.revision.id,
       actorId: editorId,
     });
+    if (!second.ok) throw new Error("second save failed");
 
     const overwritten = await saveSlotDraft({
       slotId,
       content: { ...validContent, heading: "Mine" },
-      baseRevisionId: first.revision.id,
+      baseRevisionId: second.revision.id,
       actorId: editorId,
-      overwrite: true,
     });
 
     expect(overwritten.ok).toBe(true);
     expect((await getLatestRevision("slot", slotId))?.content.heading).toBe(
       "Mine",
     );
+  });
+
+  // Item 2/21: the conflict check and the insert are one transaction under a
+  // row lock, so a first save raced by a second produces a conflict, not two
+  // drafts written as though each was current.
+  test("serialises two first saves: one wins, one conflicts", async () => {
+    const [a, b] = await Promise.all([
+      saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "A" },
+        baseRevisionId: null,
+        actorId: editorId,
+      }),
+      saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "B" },
+        baseRevisionId: null,
+        actorId: editorId,
+      }),
+    ]);
+
+    const results = [a, b];
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toHaveLength(1);
+
+    const revisions = await db`SELECT id FROM cms_revisions`;
+    expect(revisions).toHaveLength(1);
+  });
+
+  test("serialises two saves based on the same revision", async () => {
+    const first = await saveSlotDraft({
+      slotId,
+      content: validContent,
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+    if (!first.ok) throw new Error("first save failed");
+
+    const [a, b] = await Promise.all([
+      saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "A" },
+        baseRevisionId: first.revision.id,
+        actorId: editorId,
+      }),
+      saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "B" },
+        baseRevisionId: first.revision.id,
+        actorId: editorId,
+      }),
+    ]);
+
+    expect([a, b].filter((result) => result.ok)).toHaveLength(1);
+    const revisions = await db`SELECT id FROM cms_revisions`;
+    expect(revisions).toHaveLength(2);
   });
 
   test("throws for a slot that does not exist", async () => {

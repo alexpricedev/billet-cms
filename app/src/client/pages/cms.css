@@ -5,13 +5,28 @@
   font-size: 0.9rem;
 }
 
-.cms-intro,
+.cms-intro {
+  color: var(--color-text-secondary);
+  /* Keep the intro to a comfortable measure rather than the full page width. */
+  max-width: 65ch;
+}
+
 .cms-slot-meta {
   color: var(--color-text-secondary);
 }
 
 .cms-page {
   margin-top: 2rem;
+}
+
+/* A long slot name is a single unbroken token; without this it pushes the
+   layout wider than the viewport on a phone. */
+.cms-page h2,
+.cms-slot-list li,
+.cms-slot-list code,
+.cms-breadcrumb span,
+h1 {
+  overflow-wrap: anywhere;
 }
 
 .cms-slot-list,
@@ -24,10 +39,26 @@
 
 .cms-slot-list li,
 .cms-page-type-list li {
+  /* The label sits over its muted slot/block metadata. */
+  display: grid;
+  gap: 0.2rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
   background: var(--color-surface);
+}
+
+.cms-slot-link {
+  font-weight: 600;
+}
+
+.cms-slot-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  color: var(--color-text-tertiary);
+  font-size: 0.85rem;
 }
 
 .cms-slot-block,
@@ -40,6 +71,25 @@
   color: var(--color-warning);
 }
 
+/* Callouts read as separate blocks rather than one run of text. */
+[data-page="cms"] .flash-success,
+[data-page="cms"] .flash-warning,
+[data-page="cms"] .flash-error {
+  margin-top: 1rem;
+}
+
+[data-page="cms"] .flash-warning p:last-child,
+[data-page="cms"] .flash-error p:last-child,
+[data-page="cms"] .flash-success p:last-child {
+  margin-bottom: 0;
+}
+
+[data-page="cms"] .flash-warning ul,
+[data-page="cms"] .flash-error ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+
 .cms-fields {
   display: grid;
   gap: 1.5rem;
@@ -49,10 +99,20 @@
 .cms-field {
   display: grid;
   gap: 0.4rem;
+  /* A fieldset can be a field too; strip the browser's default box. */
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
 }
 
 .cms-field-label {
   font-weight: 600;
+}
+
+.cms-field-sublabel {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
 }
 
 .cms-required {
@@ -62,6 +122,13 @@
 .cms-field-help {
   color: var(--color-text-tertiary);
   font-size: 0.85rem;
+}
+
+.cms-field-errors {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  margin: 0;
+  padding-left: 1.1rem;
 }
 
 .cms-field input[type="text"],
@@ -74,12 +141,67 @@
   color: var(--color-text);
 }
 
+.cms-field input[aria-invalid="true"],
+.cms-field select[aria-invalid="true"],
+.cms-rich-text[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+/* The link field offers a URL and a page id; only the one the select names is
+   shown. `:has` reads the chosen option, so this needs no script. */
+.cms-field-link:has([data-link-type] option[value="page"]:checked)
+.cms-link-url,
+.cms-field-link:has([data-link-type] option[value="url"]:checked)
+  .cms-link-page {
+  display: none;
+}
+
+.cms-field-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cms-field-checkbox input[type="checkbox"] {
+  margin: 0;
+}
+
 .cms-rich-text {
   min-height: 6rem;
-  padding: 0.75rem;
+  padding: 0.75rem 1rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
+}
+
+/* List rhythm inside the editor: headings and paragraphs breathe, lists keep
+   their markers clear of the text. */
+.cms-rich-text > :first-child {
+  margin-top: 0;
+}
+
+.cms-rich-text > :last-child {
+  margin-bottom: 0;
+}
+
+.cms-rich-text p {
+  margin: 0 0 0.75rem;
+}
+
+.cms-rich-text h2,
+.cms-rich-text h3,
+.cms-rich-text h4 {
+  margin: 1rem 0 0.5rem;
+}
+
+.cms-field .cms-rich-text ul,
+.cms-field .cms-rich-text ol {
+  margin: 0.5rem 0 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.cms-rich-text li {
+  margin: 0.25rem 0;
 }
 
 .cms-rte-toolbar {
@@ -99,6 +221,13 @@
   cursor: pointer;
 }
 
+/* The list field is a grid, so a button that doesn't say otherwise stretches to
+   the full column width. */
+.cms-list-add,
+.cms-list-remove {
+  justify-self: start;
+}
+
 .cms-list-item {
   display: grid;
   gap: 0.5rem;
@@ -106,6 +235,14 @@
   border: 1px dashed var(--color-border);
   border-radius: var(--radius);
   margin-bottom: 0.5rem;
+}
+
+.cms-noscript {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-hover);
+  color: var(--color-text-secondary);
 }
 
 .cms-save {

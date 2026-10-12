@@ -170,6 +170,45 @@ describe("Handoff Controller", () => {
       expect(errorFrom(second.res)).toContain("Invalid or expired link");
     });
 
+    // Two clicks arriving together must produce one session, not two: the
+    // spend is a single conditional UPDATE, so only one can claim the row.
+    test("spends the token once under concurrent clicks", async () => {
+      const token = await mintTokenFor("admin@example.com");
+      // Each click arrives with its own guest session, so the test isolates the
+      // one shared thing — the token — rather than the sessions the winner
+      // discards.
+      const firstOpen = await open(token);
+      const secondOpen = await open(token);
+
+      const [first, second] = await Promise.all([
+        submit({
+          token,
+          csrfToken: firstOpen.csrfToken,
+          sessionId: cookieValue(firstOpen.req, "cms_session"),
+        }),
+        submit({
+          token,
+          csrfToken: secondOpen.csrfToken,
+          sessionId: cookieValue(secondOpen.req, "cms_session"),
+        }),
+      ]);
+
+      const locations = [first.res, second.res].map((res) =>
+        res.headers.get("location"),
+      );
+      expect(locations.filter((location) => location === "/cms")).toHaveLength(
+        1,
+      );
+      expect(
+        locations.filter((location) => location?.startsWith("/login?error=")),
+      ).toHaveLength(1);
+
+      const sessions = await db`
+        SELECT user_id FROM cms_sessions WHERE session_type = 'authenticated'
+      `;
+      expect(sessions).toHaveLength(1);
+    });
+
     test("refuses a submission with no CSRF token, leaving the token unspent", async () => {
       const token = await mintTokenFor("admin@example.com");
       const opened = await open(token);

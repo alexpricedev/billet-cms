@@ -47,11 +47,16 @@ mock.module("../../services/database", () => ({
 
 import { db } from "../../services/database";
 import {
+  EmailService,
+  getEmailService,
+  setEmailService,
+} from "../../services/email";
+import {
   createAuthenticatedSession,
   createGuestSession,
 } from "../../services/sessions";
 import { authFormPost, staleCsrfToken } from "../../test-utils/auth-form";
-import { login } from "./login";
+import { login, whenMagicLinkSettled } from "./login";
 
 /**
  * POST /login the way the browser does, returning both the request (for its
@@ -63,7 +68,12 @@ const postEmail = async (email: string) => {
 
   const request = await authFormPost("/login", formData);
 
-  return { request, response: await login.create(request) };
+  const response = await login.create(request);
+  // Minting and sending run off the request path on purpose; wait for the work
+  // so the assertions below see it.
+  await whenMagicLinkSettled();
+
+  return { request, response };
 };
 
 describe("Login Controller", () => {
@@ -262,6 +272,53 @@ describe("Login Controller", () => {
       expect(tokens).toHaveLength(1);
     });
 
+    // Awaiting the lookup and the send made a known address measurably slower
+    // to answer than an unknown one, so the response time alone told an
+    // attacker who has an account. The work now runs off the request path.
+    test("answers without waiting for the email send", async () => {
+      await seedIdentity(db, "known@example.com");
+
+      const original = getEmailService();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let sendStarted = false;
+      setEmailService(
+        new EmailService({
+          send: async () => {
+            sendStarted = true;
+            await gate;
+          },
+        }),
+      );
+
+      try {
+        const formData = new FormData();
+        formData.append("email", "known@example.com");
+        const request = await authFormPost("/login", formData);
+
+        // If the controller awaited the send, this await would hang until the
+        // test timed out: the provider is blocked on a gate nothing releases
+        // until after the response is inspected.
+        const response = await login.create(request);
+
+        expect(response.status).toBe(303);
+        expect(findSetCookie(request, "flash_state")).toContain("email-sent");
+
+        // The detached task still runs; it just doesn't hold up the response.
+        const deadline = Date.now() + 1000;
+        while (!sendStarted && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(sendStarted).toBe(true);
+      } finally {
+        release();
+        await whenMagicLinkSettled();
+        setEmailService(original);
+      }
+    });
+
     test("normalizes the email it looks up", async () => {
       const user = await seedIdentity(db, "test@example.com");
 
@@ -368,6 +425,7 @@ describe("Login Controller", () => {
       const request = await authFormPost("/login", formData);
 
       await login.create(request);
+      await whenMagicLinkSettled();
 
       // Should still be only one site user
       const users =
@@ -542,6 +600,7 @@ describe("Login Controller", () => {
         const request = await authFormPost("/login", formData);
 
         const response = await login.create(request);
+        await whenMagicLinkSettled();
 
         expect(response.status).toBe(303);
         const setCookie = findSetCookie(request, "flash_state");

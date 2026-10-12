@@ -48,6 +48,14 @@ export const down = async (db: SQL): Promise<void> => {
         CHECK (role IN ('user', 'admin'))
     )
   `;
+
+  // The columns name identities from the site's `users`, and the recreated
+  // `cms_users` is empty, so any row still carrying a `user_id` would violate
+  // the foreign key that is about to be added. Delete those first; guest
+  // sessions (a null `user_id`) are unaffected and survive the rollback.
+  await db`DELETE FROM cms_sessions WHERE user_id IS NOT NULL`;
+  await db`DELETE FROM cms_user_tokens WHERE user_id IS NOT NULL`;
+
   await db`
     ALTER TABLE cms_sessions
     ADD CONSTRAINT cms_sessions_user_id_fkey

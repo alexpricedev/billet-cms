@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { TABLES } from "@alexpricedev/billet-cms/contract";
 import type { BunRequest } from "bun";
 import { computeHMAC } from "../utils/crypto";
 import {
@@ -76,21 +77,44 @@ export const createAuthenticatedSession = async (
   return rawSessionId;
 };
 
+/**
+ * Read one identity from the site's view, tolerating a missing view.
+ *
+ * `cms_identities` is created by the CMS only when it is missing and is owned by
+ * the site, so it can legitimately be absent for a while — a site migration
+ * drops it to retype a column, or the CMS booted before the site's first
+ * deploy. A session must still be readable in that window, so a failed lookup
+ * is a null identity rather than an error that discards the session.
+ */
+const loadIdentity = async (
+  userId: string,
+): Promise<{ id: string; email: string; role: string } | null> => {
+  try {
+    const rows = (await db.unsafe(
+      `SELECT id, email, role FROM ${TABLES.identities} WHERE id = $1`,
+      [userId],
+    )) as { id: string; email: string; role: string }[];
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+};
+
 export const getSessionContextFromDB = async (
   rawSessionId: string,
 ): Promise<SessionContext | null> => {
   try {
     const sessionIdHash = computeHMAC(rawSessionId);
 
+    // The session row is read on its own, with no join onto `cms_identities`:
+    // a missing view would otherwise make every session — guest sessions and
+    // the CSRF secret they carry included — look absent, and every page would
+    // mint a fresh guest row.
     const result = await db`
-      SELECT
-        s.id_hash, s.user_id, s.session_type,
-        s.expires_at, s.last_activity_at, s.created_at,
-        i.id as identity_id, i.email, i.role
-      FROM cms_sessions s
-      LEFT JOIN cms_identities i ON s.user_id = i.id
-      WHERE s.id_hash = ${sessionIdHash}
-        AND s.expires_at > CURRENT_TIMESTAMP
+      SELECT id_hash, user_id, session_type
+      FROM cms_sessions
+      WHERE id_hash = ${sessionIdHash}
+        AND expires_at > CURRENT_TIMESTAMP
     `;
 
     if (result.length === 0) return null;
@@ -99,24 +123,20 @@ export const getSessionContextFromDB = async (
       id_hash: string;
       user_id: string | null;
       session_type: string;
-      expires_at: string;
-      last_activity_at: string;
-      created_at: string;
-      identity_id: string | null;
-      email: string | null;
-      role: string | null;
     };
 
     // Re-read through the view on every request, so a site that removes an
     // account or drops its role from `cms_identities` ends the session at the
     // next request rather than when the cookie expires.
-    const isAuthenticated =
-      data.session_type === "authenticated" && data.identity_id !== null;
-    const user: User | null = isAuthenticated
+    const identity =
+      data.session_type === "authenticated" && data.user_id
+        ? await loadIdentity(data.user_id)
+        : null;
+    const user: User | null = identity
       ? {
-          id: data.identity_id as string,
-          email: data.email as string,
-          role: data.role ?? "user",
+          id: identity.id,
+          email: identity.email,
+          role: identity.role ?? "user",
         }
       : null;
 
@@ -126,7 +146,7 @@ export const getSessionContextFromDB = async (
       sessionType: data.session_type as SessionType,
       user,
       isGuest: data.session_type === "guest",
-      isAuthenticated,
+      isAuthenticated: user !== null,
       requiresSetCookie: false,
     };
   } catch {
