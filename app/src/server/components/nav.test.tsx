@@ -33,6 +33,9 @@ describe("Nav", () => {
     expect(panel).toContain('href="/stack"');
     expect(panel).toContain('href="/account"');
     expect(panel).toContain('action="/auth/logout"');
+    // The label matches /account's wording rather than upstream's "Logout".
+    expect(panel).toContain("Sign out");
+    expect(panel).not.toContain("Logout");
     expect(html.slice(0, html.indexOf('id="nav-menu"'))).toContain(
       "nav-toggle",
     );

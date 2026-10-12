@@ -25,14 +25,14 @@ export const up = async (db: SQL): Promise<void> => {
     ALTER COLUMN user_id DROP NOT NULL
   `;
 
-  await db`CREATE INDEX idx_cms_sessions_csrf_secret ON cms_sessions(csrf_secret) WHERE csrf_secret IS NOT NULL`;
-  await db`CREATE INDEX idx_cms_sessions_session_type ON cms_sessions(session_type)`;
+  await db`CREATE INDEX cms_sessions_csrf_secret_idx ON cms_sessions(csrf_secret) WHERE csrf_secret IS NOT NULL`;
+  await db`CREATE INDEX cms_sessions_session_type_idx ON cms_sessions(session_type)`;
 };
 
 export const down = async (db: SQL): Promise<void> => {
   await db`DELETE FROM cms_sessions WHERE session_type = 'guest'`;
-  await db`DROP INDEX IF EXISTS idx_cms_sessions_session_type`;
-  await db`DROP INDEX IF EXISTS idx_cms_sessions_csrf_secret`;
+  await db`DROP INDEX IF EXISTS cms_sessions_session_type_idx`;
+  await db`DROP INDEX IF EXISTS cms_sessions_csrf_secret_idx`;
   await db`ALTER TABLE cms_sessions ALTER COLUMN user_id SET NOT NULL`;
   await db`ALTER TABLE cms_sessions DROP COLUMN IF EXISTS session_type`;
   await db`ALTER TABLE cms_sessions DROP COLUMN IF EXISTS csrf_secret`;

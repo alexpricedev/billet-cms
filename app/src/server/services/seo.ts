@@ -42,7 +42,7 @@ export const siteUrl = (): string => {
 export const indexingAllowed = (): boolean =>
   process.env.ALLOW_INDEXING === "true";
 
-export const SITE_NAME = "Billet";
+export const SITE_NAME = "Billet CMS";
 export const SITE_DESCRIPTION =
   "Guardrails for your AI coding agents — a full-stack TypeScript starter on Bun";
 

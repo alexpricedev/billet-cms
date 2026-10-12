@@ -5,6 +5,12 @@ description: How to lint, typecheck, and test this repo before finishing work. U
 
 # Verifying changes
 
+> **This is the Billet CMS fork of Billet.** The repo-root `AGENTS.md` and
+> `app/CLAUDE.md` list what the strip removed from upstream (todos, teams,
+> password auth, the user admin dashboard, the seed script, `scripts/qa-session.ts`)
+> and which tables were renamed to `cms_`. Commands below that name a removed
+> surface no longer exist.
+
 Run these through the `package.json` scripts. They set env vars and apply migrations that the
 raw `bun` commands do not.
 

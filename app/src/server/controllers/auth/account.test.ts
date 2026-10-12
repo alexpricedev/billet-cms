@@ -49,7 +49,9 @@ describe("Account Controller", () => {
 
       expect(html).toContain("me@example.com");
       expect(html).toContain("Magic link");
-      expect(html).toContain('action="/auth/logout"');
+      // The nav's sign-out form is the only one: a second copy in a page card
+      // was the duplicate this asserts against.
+      expect(html.match(/action="\/auth\/logout"/g)).toHaveLength(1);
     });
 
     test("mints a CSRF token for the sign-out form", async () => {

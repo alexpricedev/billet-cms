@@ -14,7 +14,6 @@
 @import "./components/flash.css";
 @import "./components/form-field.css";
 @import "./components/data-table.css";
-@import "./components/badge.css";
 
 /* Page styles */
 @import "./pages/home.css";

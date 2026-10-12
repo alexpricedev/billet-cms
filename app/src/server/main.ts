@@ -19,8 +19,11 @@ import { registerShutdown } from "./utils/shutdown";
 
 validateEnv();
 await runMigrations();
-// After migrations, before serving: sign-in reads this view, and a site that
-// hasn't deployed yet simply gets no view until its users table exists.
+// After migrations, before serving. Nothing reads this view yet: Phase 1 still
+// signs users in against cms_users, and Phase 3 moves sign-in onto the site's
+// accounts through this view. It is created at boot so a site's deploy finds it
+// waiting — and skipped while the CMS is deployed before its site, because a
+// view over a `users` table that doesn't exist yet is an error.
 await ensureIdentitiesView();
 await initAssets();
 await warnOnMissingDevBundles();

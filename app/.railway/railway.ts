@@ -22,7 +22,7 @@ import { defineRailway, postgres, preserve, project, service } from "railway/iac
 // reads as *create a second one*. It matches by default when
 // `railway config apply` is what created the service; it won't if you connected
 // a repo first, because Railway names a service after the repo.
-export const partial = "web";
+export const partial = "cms";
 
 export default defineRailway(() => {
   const db = postgres("Postgres");
@@ -82,10 +82,8 @@ export default defineRailway(() => {
       REPLY_TO_EMAIL: preserve(),
       SITE_URL: preserve(),
       ALLOW_INDEXING: preserve(),
-      AUTH_MODE: preserve(),
       CAPTCHA_ENABLED: preserve(),
       CAPTCHA_DIFFICULTY: preserve(),
-      TEAMS_ENABLED: preserve(),
       SECURITY_CONTACT: preserve(),
       SESSION_COOKIE_NAME: preserve(),
       MAINTENANCE_MODE: preserve(),

@@ -39,12 +39,16 @@ export const up = async (db: SQL): Promise<void> => {
     )
   `;
 
-  await db`CREATE INDEX idx_cms_sessions_user_id ON cms_sessions(user_id)`;
-  await db`CREATE INDEX idx_cms_sessions_expires_at ON cms_sessions(expires_at)`;
-  await db`CREATE INDEX idx_cms_sessions_last_activity ON cms_sessions(last_activity_at)`;
-  await db`CREATE INDEX idx_cms_user_tokens_user_id ON cms_user_tokens(user_id)`;
-  await db`CREATE INDEX idx_cms_user_tokens_type ON cms_user_tokens(type)`;
-  await db`CREATE INDEX idx_cms_user_tokens_expires_at ON cms_user_tokens(expires_at)`;
+  // Indexes are `cms_`-prefixed first (`cms_<table>_<column>_idx`) rather than
+  // carrying an `idx_` prefix: the prefix is what has to come first so a
+  // relation added to a shared database is recognisably the CMS's in a list of
+  // pg_class names, and it matches the naming the site's own Billet app uses.
+  await db`CREATE INDEX cms_sessions_user_id_idx ON cms_sessions(user_id)`;
+  await db`CREATE INDEX cms_sessions_expires_at_idx ON cms_sessions(expires_at)`;
+  await db`CREATE INDEX cms_sessions_last_activity_idx ON cms_sessions(last_activity_at)`;
+  await db`CREATE INDEX cms_user_tokens_user_id_idx ON cms_user_tokens(user_id)`;
+  await db`CREATE INDEX cms_user_tokens_type_idx ON cms_user_tokens(type)`;
+  await db`CREATE INDEX cms_user_tokens_expires_at_idx ON cms_user_tokens(expires_at)`;
 };
 
 export const down = async (db: SQL): Promise<void> => {

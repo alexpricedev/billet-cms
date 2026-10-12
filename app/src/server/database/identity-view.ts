@@ -16,8 +16,10 @@ const IDENTITY_VIEW_LOCK_KEY = "8041000002";
  * admins, which is the smallest useful set; a site that wants editors replaces
  * the view in its own migration.
  *
- * Only the columns sign-in needs: an id to key a session on, an email to
- * identify with, and a role to gate on.
+ * The default pins three columns of the site's `users` table: `id` (keyed on,
+ * and the view's own column of the same name), `email` (sign-in identity) and
+ * `role` (`'admin'` is the default filter). A site that renames or drops any of
+ * them must replace this view rather than rely on the default.
  */
 const DEFAULT_IDENTITY_VIEW_QUERY = `SELECT id, email, role
   FROM users
@@ -30,7 +32,8 @@ const DEFAULT_IDENTITY_VIEW_QUERY = `SELECT id, email, role
  *
  * 1. **Create only if missing.** The site owns this view's definition. Running
  *    `CREATE OR REPLACE` on every boot would silently discard a site's custom
- *    editor roles.
+ *    editor roles. Existence is `to_regclass`, so any relation under that name —
+ *    a view, or a site that replaced it with a table — counts as present.
  * 2. **Skip when the site's `users` table isn't there yet.** The CMS is
  *    deployed before the site, and creating a view over a table that doesn't
  *    exist is an error. Boot proceeds without it; the next boot after the
@@ -41,11 +44,11 @@ export const ensureIdentitiesView = async (sql: SQL = db): Promise<void> => {
     await tx`SELECT pg_advisory_xact_lock(${IDENTITY_VIEW_LOCK_KEY}::bigint)`;
 
     const existing = await tx`
-      SELECT 1 FROM pg_views
-      WHERE schemaname = current_schema()
-        AND viewname = ${TABLES.identities}
+      SELECT to_regclass(${TABLES.identities}) AS relation
     `;
-    if (existing.length > 0) return;
+    if ((existing[0] as { relation: string | null } | undefined)?.relation) {
+      return;
+    }
 
     const siteUsers = await tx`
       SELECT 1 FROM information_schema.tables

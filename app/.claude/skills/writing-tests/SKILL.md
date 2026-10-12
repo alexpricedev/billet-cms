@@ -5,6 +5,13 @@ description: Testing patterns for this repo — which layer gets mocked, how ser
 
 # Writing tests
 
+> **This is the Billet CMS fork of Billet.** The repo-root `AGENTS.md` and
+> `app/CLAUDE.md` list what the strip removed from upstream (todos, teams,
+> password auth, the user admin dashboard, the seed script, `scripts/qa-session.ts`)
+> and which tables were renamed to `cms_`. Examples below still write upstream
+> names — read `users`, `sessions` and `user_tokens` as `cms_users`,
+> `cms_sessions` and `cms_user_tokens`, and `todo` as gone.
+
 Tests are co-located: `home.test.ts` sits next to `home.tsx`. Test user-visible behaviour rather
 than implementation, and cover both guest and authenticated paths for anything auth-aware.
 

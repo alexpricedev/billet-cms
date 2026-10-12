@@ -60,7 +60,7 @@ export const Nav = ({ page, user, csrfToken }: NavProps) => (
             <form method="post" action="/auth/logout">
               <CsrfField token={csrfToken ?? null} />
               <button type="submit" className="btn-ghost">
-                Logout
+                Sign out
               </button>
             </form>
           </>
