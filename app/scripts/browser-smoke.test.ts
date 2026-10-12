@@ -13,9 +13,11 @@ import { prepareDatabase } from "../src/server/test-utils/prepare-databases";
 
 // Real-browser smoke tests, run via `bun run test:browser` — deliberately NOT
 // part of `bun run test`, which globs `src` only. Bun.WebView is experimental
-// and the engine differs by platform (system WebKit on macOS, an installed
-// Chrome elsewhere), so these journeys must never gate the deterministic
-// suite. What they cover is exactly what happy-dom can't:
+// and the engine differs by platform, so these journeys must never gate the
+// deterministic suite. The `chrome` backend is required off macOS (the default
+// `webkit` backend throws there) and is what CI installs, so every run is
+// pinned to it rather than to whatever the platform defaults to. What they
+// cover is exactly what happy-dom can't:
 //
 // - the client bundle executing in a real page (running, not just parsing)
 // - CSP: a blocked script passes every unit test and fails only here
@@ -244,6 +246,11 @@ beforeAll(async () => {
   startSite();
 
   view = new Bun.WebView({
+    // Chrome, not the platform default: `webkit` (the default) throws on
+    // non-macOS, and CI is Linux. Pinning it means local and CI run the same
+    // engine. Bun auto-detects the binary, or takes BUN_CHROME_PATH when CI's
+    // setup-chrome sets it.
+    backend: "chrome",
     width: 1280,
     height: 900,
     console: (type, ...args) => {
@@ -357,25 +364,28 @@ describe("browser smoke", () => {
     // The server rendered one empty list row; the client script appends a
     // second on click. That only happens if cms-form.js loaded, passed CSP and
     // ran — the same proof the forms page gives for main.js.
-    const before = await view.evaluate<number>(
-      `document.querySelectorAll("[data-list-items] > [data-list-item]").length`,
-    );
+    const rowCount = () =>
+      view.evaluate<number>(
+        `document.querySelectorAll("[data-list-items] > [data-list-item]").length`,
+      );
+    const before = await rowCount();
     await view.click("[data-list-add]");
-    const after = await until(
-      () =>
-        view.evaluate<number>(
-          `document.querySelectorAll("[data-list-items] > [data-list-item]").length`,
-        ),
-      (count) => count === before + 1,
-    );
-    expect(after).toBe(before + 1);
+    // Bun's Chrome backend can leave a click's completion handler pending, and
+    // a `evaluate` issued straight after stalls behind it. A beat, then read.
+    await Bun.sleep(300);
+    expect(await rowCount()).toBe(before + 1);
 
     // Save a heading. The input has no `name`: only the hidden `content` field
     // is submitted, and only the script rebuilds it from the inputs, so a saved
-    // heading proves the script ran on submit too.
+    // heading proves the script ran on submit too. `requestSubmit()` fires the
+    // same submit event a click would — the script's listener included — without
+    // waiting on a click's navigation, which stalls the same way.
     await view.click("#cms-field-heading");
     await view.type("Hero heading from the smoke test");
-    await clickThrough(".cms-save");
+    await Bun.sleep(300);
+    await view
+      .evaluate(`document.querySelector("form[data-cms-form]").requestSubmit()`)
+      .catch(() => {});
 
     const saved = await until(bodyText, (text) =>
       text.includes("Draft saved."),
