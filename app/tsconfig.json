@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@client/*": ["./src/client/*"],
+      "@server/*": ["./src/server/*"],
+      "@shared/*": ["./src/shared/*"]
+    }
+  },
+  "include": ["src/**/*", "scripts/**/*.ts", ".railway/**/*.ts", ".claude/hooks/**/*"],
+  "exclude": ["node_modules", "dist", "src/server/services/email-providers/resend.ts"]
+}

@@ -1,0 +1,53 @@
+{
+  "name": "billet",
+  "description": "A full-stack TypeScript starter that gives AI coding agents guardrails",
+  "version": "5.1.0",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "scripts": {
+    "build": "bun run build:client && bun run build:css",
+    "build:client": "bun build ./src/client/main.ts ./src/client/captcha.ts --outdir ./dist/assets --minify",
+    "build:css": "bun build ./src/client/style.css --outdir ./dist/assets --entry-naming main.css --minify",
+    "start": "bun --no-env-file run src/server/main.ts",
+    "dev": "bun run build && bun run --parallel --no-orphans dev:client dev:server dev:css",
+    "dev:client": "bun --watch build ./src/client/main.ts ./src/client/captcha.ts --outdir ./dist/assets",
+    "dev:server": "bun --watch run src/server/main.ts",
+    "dev:css": "bun build ./src/client/style.css --outdir ./dist/assets --entry-naming main.css --watch",
+    "test": "NODE_ENV=test bun run src/server/test-utils/run-tests.ts",
+    "test:coverage": "NODE_ENV=test bun run src/server/database/cli.ts up && NODE_ENV=test bun test --isolate src",
+    "test:setup": "NODE_ENV=test bun run src/server/test-utils/bootstrap.ts",
+    "test:file": "NODE_ENV=test bun run src/server/database/cli.ts up && NODE_ENV=test bun test",
+    "test:changed": "NODE_ENV=test bun run src/server/database/cli.ts up && NODE_ENV=test bun test --isolate --changed",
+    "test:browser": "bun run build && NODE_ENV=test bun test --timeout 30000 scripts/browser-smoke.test.ts",
+    "commit": "git add --all && git commit",
+    "wip": "bash scripts/wip",
+    "bench": "bun run scripts/benchmark.ts",
+    "lint": "biome check src",
+    "lint:write": "biome check src --write",
+    "typecheck": "bun --bun tsc --noEmit",
+    "check": "bun run lint && bun run typecheck",
+    "audit": "bun audit --audit-level=high",
+    "generate:pepper": "bun -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+    "seed": "bun run src/server/database/seed.ts",
+    "migrate:up": "bun run src/server/database/cli.ts up",
+    "migrate:status": "bun run src/server/database/cli.ts status",
+    "migrate:create": "bun run src/server/database/cli.ts create",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@happy-dom/global-registrator": "^20.14.5",
+    "@types/bun": "1.4.2",
+    "@types/node": "^26.6.3",
+    "happy-dom": "^20.14.3",
+    "husky": "9.1.7",
+    "railway": "^3.12.0",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "preact": "^10.29.8",
+    "preact-render-to-string": "^6.7.0",
+    "resend": "^6.30.0"
+  }
+}

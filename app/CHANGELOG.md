@@ -1,0 +1,1350 @@
+# Changelog
+
+Billet is consumed by cloning or forking this repository, not by installing from npm. Tags and
+this file are the only upgrade signals a fork gets, so anything that can silently break a fork
+after a merge is documented here under **Breaking changes**.
+
+Versions follow [semantic versioning](https://semver.org/): a major bump means a fork needs to
+change its own code after merging.
+
+## 5.1.0
+
+Billet ships Railway Infrastructure as Code. The six build and deploy settings — builder, build
+command, start command, healthcheck path and timeout, restart policy — lived only in the service's
+Settings tab, retyped by hand on every new deploy and invisible to review. They are now
+`.railway/railway.ts`, authored against Railway's `railway/iac` SDK and applied by an explicit
+`railway config apply`. Nothing applies on `git push`.
+
+The previous position was that IaC was the wrong shape for a starter, because it was scoped to a
+whole Railway project and `omit means delete` could reach services the file knew nothing about.
+Partial exports settle that: `export const partial = "web"` scopes deletion to the resources this
+file owns, so a project holding several unrelated apps and one shared PostgreSQL is safe.
+
+**No migration, and no fork has code to change.** The dashboard route still works and the settings
+table in the README is unchanged — this adds a second, versioned way to apply the same six values.
+
+### Added
+
+- **`.railway/railway.ts`** — the six settings, the Postgres link (`DATABASE_URL` by reference,
+  not by value), and every environment variable the server reads. Secrets stay out of source:
+  everything the operator owns, `CRYPTO_PEPPER` included, is `preserve()`. Needs Railway CLI
+  **5.42.1 or newer**.
+- **The service takes its name from the partial.** `export const partial = "web"` is both the
+  deletion scope and the service name, so renaming is a single edit that cannot half-apply. The
+  name has to match what Railway calls the service — it does when `railway config apply` created
+  it, and it won't if you connected a repo first, because Railway names a service after the repo.
+- **The restart policy is declared as the retry cap only**, and the file says why. Railway accepts
+  `restartPolicyMaxRetries` and silently drops `restartPolicyType`: declaring the type produced a
+  plan that never converged — apply reported success, the value read back as `null`, and the next
+  plan proposed the same change again. `ON_FAILURE` is Railway's default, so the documented
+  behaviour (on failure, max 3) is what you get without it.
+- **Starter defaults for everything the server needs at boot**, so one `railway config apply`
+  leaves a service that runs. `APP_NAME`, `FROM_NAME`, `FROM_EMAIL` and `EMAIL_PROVIDER=console`
+  are literals; `APP_URL` is `https://${{RAILWAY_PUBLIC_DOMAIN}}`, which Railway resolves at
+  deploy time — that is what breaks the chicken-and-egg of needing the public domain before the
+  service that owns it exists. Without them, apply produced a service that crash-looped in
+  `validateEnv()` on a variable nobody had mentioned.
+- **`TRUST_PROXY=true` is set by the file**, because it is always correct on Railway and was easy
+  to miss — without it the rate limiter keys every visitor to the proxy's address. It is also now
+  in the README's environment-variable table.
+- **`.railway/railway.test.ts`** guards those values and the no-literal-secrets rule against
+  drift. It is named in `TEST_PATHS` in `src/server/test-utils/run-tests.ts`, with the leading `./`
+  that `bun test` needs to read a dot-directory path as a path rather than a name filter.
+- **`railway` as a devDependency**, and `.railway/**/*.ts` in `tsconfig.json`'s `include` so
+  `bun run check` covers the file. Nothing under `src/` imports it; a production install is
+  unaffected.
+- **`runbooks/RELEASE.md`** — the process this entry was written against: a release is its own
+  pull request, opened after the feature PR has merged, carrying `CHANGELOG.md`, `package.json`'s
+  `version` and `.billet-version` and nothing else. It covers choosing the number by "does a fork
+  have to change its own code?", what belongs under `### Breaking changes`, and the tag and
+  GitHub release. `CLAUDE.md` carries the matching working agreement, so an agent writes a version
+  heading on a release branch rather than on a feature branch.
+
+### Changed
+
+- **`CRYPTO_PEPPER` is `preserve()`, and Railway's variable generators are not used at all.**
+  Neither form works here. `{ generator: "secret(32)", isSealed: true }` cannot be read back, so
+  every plan proposes it again and `railway config plan` never exits clean. Dropping `isSealed`
+  is worse: Railway stores and serves the **literal string `secret(32)`** as the value, so the app
+  boots with a publicly known pepper protecting every session token. Set it once by hand —
+  `railway variables --set CRYPTO_PEPPER=$(bun run generate:pepper)`.
+- **`README.md`'s Railway section** documents the `init` / `apply` / `domain` path from nothing to
+  a running app, the `link` / `plan` / `apply` path for a project you already have, and the three
+  things a plan won't warn you about — no deployment until you connect the repo, the service name
+  that has to match, and what the partial is protecting you from.
+- **`START_PROMPT.md`** adds `.railway/railway.ts` to the rename table. `project("my-app")` becomes
+  the project slug; renaming the service is a separate question, answered by editing `partial`
+  alone.
+- **`railway.json` is still not here, and now can't be.** Railway has retired Config as Code: a new
+  service cannot opt into it and existing ones stop reading it on **2026-12-01**. There is nothing
+  to migrate — the file is hand-written, not the output of `railway config migrate`.
+
+## 5.0.1
+
+`Content-Signal` in `/robots.txt` now follows `ALLOW_INDEXING` like every other statement Billet
+makes to a crawler. It was a module constant appended to every user-agent group unconditionally, so
+a host with indexing switched off — a preview, a staging box, a fork's first deploy, a test run —
+served `search=yes, ai-input=yes, ai-train=yes` while every response on it carried
+`X-Robots-Tag: noindex` and the meta tag said the same.
+
+**No migration, and no fork has code to change.** A fork that wants the open posture on an
+un-indexed host sets `ALLOW_INDEXING=true`, which is the switch that already governs the rest.
+
+### Fixed
+
+- **`search=yes` alongside a site-wide `noindex` was two answers to one question.** The closed
+  posture is now `search=no, ai-input=no, ai-train=no`, in the wildcard group and in each named
+  AI-crawler group. The open posture is unchanged.
+- **Grounding and training consent fails closed for the reason `indexingAllowed()` is closed by
+  default** (`runbooks/SEO.md` §1b): an unconfigured host should not be granting downstream-use
+  consent because nobody set a variable.
+- **Crawling stays allowed either way**, which is unchanged and still deliberate — a crawler has to
+  fetch a page to be told `noindex`, so a `Disallow: /` would strand the layers doing the work.
+
+### Changed
+
+- **`contentSignal(open)` in `src/server/services/seo.ts`** replaces the `CONTENT_SIGNAL` constant,
+  and `buildRobotsTxt` reads `indexingAllowed()` once so a single body cannot answer from two
+  states. `runbooks/SEO.md` §5 documented the line as unconditional and is corrected.
+
+## 5.0.0
+
+The signed-out auth forms are CSRF-checked. `/login`, `/signup`, `/forgot-password`,
+`/reset-password` and `/invites/accept` all ran the rate limit, the honeypot and the captcha and
+then took the post on trust, on the reasoning that there is no session to protect. There is: a
+forged `POST /login` signs the victim into the *attacker's* account and they carry on working in
+it — the same reasoning `/auth/callback` is CSRF-checked on (`runbooks/EMAIL.md` §5). A major
+version because the four signed-out templates now need a token the controller has to pass, and
+`redirectIfAuthenticated` is gone — see **Breaking changes**.
+
+**The check lives in `guardAuthForm`, between the rate limit and the body parse.** One place, so
+the five forms cannot drift apart. The position is load-bearing in both directions: `checkCsrf`
+clones the request to find the field, so a controller that reads the form first spends the body
+and 403s every request; and a post with no session cookie is refused before the clone, so a
+cookie-less flood still costs nothing.
+
+**Not having a session is no reason to skip the check — it is the reason to issue one.** The `GET`
+for each of these pages now sets the guest session cookie and mints a token against it. Minting a
+token without sending the cookie renders something nothing can verify, which is the bug this
+release actually fixes: `redirectIfAuthenticated` called `getSessionContext`, which creates a guest
+session as a side effect, and then threw the context away — a session row per anonymous page view,
+no cookie, no token. `guestPageContext` hands the context back instead. `/reset-password` and
+`/invites/accept` read the context directly rather than through it, because spending one of those
+links while already signed in is legitimate.
+
+**A stale token is an old tab, not an attack.** A token that verifies against the session secret
+but only in an older bucket proves possession, so the form is re-rendered behind a fresh token and
+the action is not performed. `/login`, `/signup` and `/forgot-password` come back with the typed
+address intact; `/reset-password` and `/invites/accept` come back to their own link, because the
+single-use token is in the form body and a stale CSRF token must not cost someone a new email.
+Only `expired-token` recovers — `invalid-origin` and `expired-session` stay hard 403s, and widening
+that gate would turn the app into a token vending machine for attacker-initiated posts.
+
+**A visitor with cookies blocked gets a form that renders and a post that is refused.** The
+templates draw the form whether or not a token was minted. Refusing to draw it would turn a
+session that could not be created into a blank page rather than a post that fails the check.
+
+### Breaking changes
+
+- **A fork that renders `Login`, `Signup`, `ForgotPassword` or `ResetPassword` from its own
+  controller breaks silently.** The new `csrfToken` prop is optional, so the call still typechecks,
+  still renders, and then 403s every submission with nothing in the logs but the refusal. Grep for
+  `<Login`, `<Signup`, `<ForgotPassword` and `<ResetPassword` before merging, and pass
+  `await csrfTokens(ctx).for("<the form's action>")` from `src/server/utils/csrf-tokens.ts` — the
+  token is bound to method *and* path, so it must name the path that form posts to. The shipped
+  controllers are the worked examples. This is the one change here that fails at runtime rather
+  than at `bun run typecheck`.
+- **`redirectIfAuthenticated` is removed from `src/server/middleware/auth.ts`.** `guestPageContext`
+  replaces it and returns `{ redirect } | { ctx }` rather than `Response | null`, so a caller reads
+  `if ("redirect" in page) return page.redirect` and then has the session context to set the guest
+  cookie from and mint a token against. A fork calling the old name fails typecheck, which is the
+  right kind of failure — the rename exists because the old signature could not hand back the
+  context the forms need.
+- **A fork's own tests that post to these five routes now get a 403.** Every post needs a session
+  cookie, an `Origin`, and a `_csrf` field bound to that session and path.
+  `src/server/test-utils/auth-form.ts` is the helper the shipped tests use: `authFormPost(path,
+  formData)` mints all three, with options to omit the token, forge it, change the origin, or reuse
+  a known session. Import it *below* the `mock.module("../../services/database", …)` call, like
+  every other service import in those files.
+- **`GET /reset-password` now mints a guest session and sets a cookie** where it previously created
+  nothing. A fork asserting on the absence of `Set-Cookie` there, or counting session rows across
+  that page, will see one more than it did.
+- **`migrations.applied_at` becomes `TIMESTAMPTZ`.** Every migration file already used it; this
+  table predates the convention and was the one naive timestamp left. `ensureMigrationsTable`
+  converts in place at boot, guarded so a database that is already correct does not take an
+  `ACCESS EXCLUSIVE` lock for nothing. `CREATE TABLE IF NOT EXISTS` cannot do it, which is why the
+  conversion is a second statement. Existing rows are reinterpreted in the server's `TimeZone`; a
+  fork running Postgres in anything but UTC should check the values afterwards.
+
+### Fixed
+
+- **The signed-out auth forms verify a CSRF token.** `/login`, `/signup`, `/forgot-password`,
+  `/reset-password` and `/invites/accept`, all through `guardAuthForm`
+  (`src/server/controllers/auth/form-guard.ts`). `runbooks/SECURITY.md` §3 has the rule, the
+  ordering constraint, and the recovery behaviour.
+- **`/invites/accept` no longer gates the check on `ctx.isAuthenticated`.** It ran `checkCsrf` for
+  a signed-in visitor and skipped it for everyone else, on the reasoning that a signed-out invitee
+  has no session to bind to. They do now: the `GET` gives them one.
+- **One orphan session row per anonymous page view, on every signed-out auth page.** The rows were
+  created, never cookied, and never used again.
+
+### Changed
+
+- **`FormGuardResult` gains `csrf` and `csrf-expired`.** The first carries the refusal `Response`
+  and is returned alongside `rate-limited`; the second carries the parsed body, like `honeypot` and
+  `captcha`, so the caller can put the visitor back where they were. `csrf-expired` is returned
+  ahead of the honeypot and the captcha because those are stale on that same page and their verdict
+  cannot change the outcome.
+- **`CsrfField` accepts `undefined`** as well as `string | null`, so an optional prop can be passed
+  straight through.
+- **`src/server/templates/auth-forms.test.tsx`** covers all four signed-out forms against both a
+  token and a null, which is what pins the "render the form either way" rule.
+
+## 4.2.1
+
+The "check the server console for the link" hint now renders only under
+`EMAIL_PROVIDER=console`. Signup, forgot-password and the `/account` verification flash showed it
+to everyone; with a real provider configured the link is in an inbox and the hint pointed at a
+terminal the reader has no access to.
+
+**No migration, and no fork has code to change** unless it renders one of those three templates
+itself — `signup.tsx`, `forgot-password.tsx` and `account.tsx` each take a new
+`showConsoleHint` prop, and a fork calling them directly gets the hint hidden by default.
+
+### Fixed
+
+- **The console hint is gated on the provider, not on `NODE_ENV` or a localhost check.** A fork
+  running the console provider on a staging box still needs the hint; a local run pointed at
+  Resend must not show it. `login.tsx` was already fixed this way in 3.0 — the other three sites
+  were missed and now take the same prop.
+- **The `/account` flash is split.** It was one sentence, so the "sent to `<email>`" half now
+  always renders and only the hint clause drops.
+
+### Changed
+
+- **`consoleEmailProvider()` in `src/server/services/email.ts`** replaces the `process.env`
+  comparison the controllers each repeated. It reads `process.env` per call, like `authMode()`
+  and `teamsEnabled()`, so a test can flip the provider mid-file.
+
+## 4.2.0
+
+The password minimum moves from 8 to 12, and the rule stops being written down in four places.
+Cyber Essentials A5.5 expects a 12-character floor where no additional brute-force protection is
+relied on; length remains the only rule, so the NIST SP 800-63B stance above the constant — no
+composition rules, ever — is unchanged.
+
+**No migration, and no fork has code to change.** The rule applies only where a password is set or
+changed: signup, `/account`, the reset flow, and invite acceptance. Neither the login controller,
+the login template, nor `signInWithPassword` references length at all, so an existing account with
+an 8-character password still signs in after the merge. That is the property worth stating
+plainly, because the obvious fear about raising a minimum is locking out the users you already
+have.
+
+**The bounds now come from the constants everywhere.** Three controllers spelled
+`"Password must be between 8 and 128 characters."` as a literal rather than reading
+`MIN_PASSWORD_LENGTH` / `MAX_PASSWORD_LENGTH`, so the constant and the copy could drift apart with
+nothing failing — the templates interpolated, the error messages lied. `team/accept.tsx` was worse
+than copy: it re-implemented the rule as `password.length < 8 || password.length > 128`, a second
+definition that `validatePassword` could not reach. It now calls `validatePassword`, and all three
+messages interpolate, so the next time this floor moves it moves once.
+
+### Changed
+
+- **`MIN_PASSWORD_LENGTH` `8` → `12`** in `src/server/services/passwords.ts`, with the reasoning on
+  the existing comment. `MAX_PASSWORD_LENGTH` stays at 128, and `validatePassword` was already
+  interpolating both.
+- **`auth/account.tsx`, `auth/password-reset.tsx` and `team/accept.tsx`** import the two constants
+  and interpolate them into the invalid-password message instead of hardcoding the numbers.
+- **`team/accept.tsx` validates through `validatePassword`** rather than its own inline length
+  comparison. The wording a user sees is unchanged, and the check still runs before the invite
+  token is consumed, so a too-short password does not burn a single-use link.
+- **`SECURITY.md`** records the length-only policy as 12–128.
+
+### Note for forks
+
+Nothing under `src/` needs a fork's attention, but a fork carrying **its own** password tests will
+see them fail: assertions on `minlength="8"`, `"at least 8 characters"` or `"between 8 and 128"`
+are now wrong, and any fixture password of 8–11 characters that was expected to be *accepted* is
+now rejected. Deliberately-invalid fixtures stay invalid. This is a minor rather than a major
+because it is test copy, not application code — but it is the one thing that will go red.
+
+## 4.1.0
+
+A dependency window and nothing else. Every bump is a patch or minor release of something already
+here, `bun run check` and the suite are green on them, and no file under `src/` changed — so a fork
+merging this has nothing to do beyond reinstalling. It is a minor rather than a patch because the
+pinned Biome floor moved, and a fork's own code sits on that floor.
+
+### Changed
+
+- **Biome `2.5.13` → `2.5.14`**, pinned exactly as before, so `bun run lint` runs this version and
+  not whatever a fork happens to have installed. No rule changes reached this tree — `biome check
+  src` reports no fixes and `src/` is untouched — but a fork carrying its own lint-clean code gets
+  the new version's checks on the next `bun install`.
+- **`@happy-dom/global-registrator` `^20.14.3` → `^20.14.5`.** The registrator is what
+  `src/client/test-utils/setup.ts` preloads for the DOM globals; `happy-dom` itself stays at
+  `^20.14.3` in `package.json` and resolves to `20.14.5` through the caret, so the two halves of
+  the DOM stay on one version.
+- **`@types/node` `^26.5.1` → `^26.6.1`** and **Resend `^6.28.0` → `^6.28.1`**. Resend's client is
+  excluded from typechecking in `tsconfig.json`, so `bun run check` does not cover that one — it is
+  a patch release of the provider used only when `EMAIL_PROVIDER=resend`.
+
+## 4.0.0
+
+Preact leaves the browser, the demo resource becomes a todo list, and the two meet in the middle:
+every action on `/todos` is a plain form that works without JavaScript, and with it the same form
+posts in place and the server answers with the row. A major version because the resource is
+renamed and its table replaced — see **Breaking changes**.
+
+**Preact stays as the server's template engine only.** Every page still renders through
+`renderToString`, and JSX is still what gives templates a typecheck, but nothing in `src/client/`
+imports it any more. The client bundle no longer marks it external, and the import map, the
+`esm.sh` preconnect, and `https://esm.sh` in the CSP `script-src` are gone. `main.js` is a few
+kilobytes with no framework in it.
+
+**`src/client/reactive/` is the replacement.** `signal.ts` is a signal, computed, effect and
+batch, synchronous and pull-based, so an effect reading a signal and a computed of it runs once
+per write. `component.ts` is `defineComponent`, `registerComponent`, `mount` and `bind`: a
+component is a factory that receives its root element and returns named signals, computeds and
+actions; `mount` wires them to `data-text`, `data-show`, `data-value`, `data-class`, `data-attr`,
+`data-prop` and `data-on` attributes under a `data-component` root, and `bind(el)` does the same
+for markup inserted later. The attributes carry names, never expressions, so nothing on the page
+evaluates a string and `'unsafe-eval'` stays out of the CSP.
+
+**`ui.perElement` binds one name to a list of elements.** Directive values are names, and a name
+has to be written before the data exists — so a row of filter chips built from a query, or a set
+of sortable column headers, has no name to give each one. `ui.perElement((el) => …)` is read once
+per bound element and handed that element, inside that element's own effect, so it tracks signals
+the way a computed does and works anywhere a readable does. It is a wrapper object rather than a
+bare function because an action is a bare function too: nothing at runtime could tell them apart,
+and `data-text` naming an action would call it instead of throwing.
+
+**`data-show` sets an inline `display` as well as `hidden`.** The `hidden` attribute works through
+the user-agent rule `[hidden] { display: none }`, which loses to any author `display:` on the same
+element — so `.panel { display: flex }` left the panel open however the signal was set, silently,
+and no test could see it. Hiding now also writes `style="display: none"`, which no stylesheet can
+outrank; showing restores whatever inline display the element arrived with. Assert visibility with
+`isShown` / `isHidden` from `src/client/test-utils/visibility.ts` rather than reading `.hidden`,
+and note that a client test still cannot evaluate a stylesheet at all: anything gated by a CSS
+rule rather than a binding needs a browser.
+
+**Components import the layer as two namespaces.** `import * as ui from "@client/reactive"` (a
+barrel over `signal.ts` and `component.ts`) and `import * as server from "@client/reactive/request"`,
+so a component body reads as its own logic with the framework calls prefixed — `ui.signal`,
+`ui.bind`, `server.submit`, `server.parse`. The request module is kept out of the `ui` barrel on
+purpose: every enhanced form in a codebase is a `server.` call, one grep away.
+
+**Two rules the layer needed and didn't have, now in `.claude/rules/client.md`.** A component's
+signals belong to its instance and there is no store, so a nested component tells an outer one
+that something changed with a bubbling `CustomEvent` and a listener registered in an effect —
+never by hoisting state into a module. And a failed enhanced post falls back to `form.submit()`
+only when the form holds nothing the user typed; when it holds a draft, the error is shown in
+place beside the field and the form is left alone, because reloading in response to a recoverable
+failure destroys the work it was meant to protect.
+
+**`src/shared/` is the seam both sides import.** `attributes.ts` is the `data-*` vocabulary with a
+typed `bindings<T>()` builder, so a template's binding names are checked against the component's
+exported type and a misspelt name fails `bun run typecheck`. `protocol.ts` holds the header names
+the fetch helper and the server agree on; `services/csrf.ts` re-exports its CSRF constants from
+there. `todo.ts` is copy both sides render. Nothing in the directory touches the DOM or `node:`.
+
+**Fragments over forms.** `server.submit` (`src/client/reactive/request.ts`) posts a form with its
+CSRF token promoted to `X-CSRF-Token` and an `X-Fragment: 1` header, refusing redirects. A
+controller checks `isFragmentRequest(req)` and answers with `renderFragment(<TodoRow />)` — the
+same server component the page renders — instead of the redirect-and-flash a plain post gets. A
+stale-but-authentic token gets `refreshCsrfToken()`: a 403 carrying a fresh token that
+`server.submit` writes back into the form and retries once. Forged or cross-origin tokens fail hard
+with no header, as before. On any failure the component falls back to `form.submit()`.
+
+**`formAction` and `csrfTokens` take the plumbing out of controllers.** Every POST controller
+outside `controllers/auth/` is now a `formAction` handler: the wrapper owns the guard (`"session"`,
+`"user"`, or a function such as `orgRoleGuard`), the CSRF check with stale-token recovery on both
+paths, and the response — redirect-and-flash for a plain post, fragment or bare status for a
+fragment request; a guard that would redirect a fragment request answers 401 or 403 instead. A
+handler returns `{ flash, fragment, status }`, `{ reject, flash }` or a `Response`. `csrfTokens(ctx)`
+mints the GET side in one call per form or per row. The todo, forms and team controllers shrink
+accordingly, with no behaviour change on the plain-post path.
+
+**Client code has three tiers, and a test enforces the fence.** `src/client/boundaries.test.ts`
+fails the suite on `fetch`, markup building, `JSON.parse`, routing or storage in client code
+outside `reactive/request.ts`; on runtime imports across the server/client line; on DOM or `node:`
+in `src/shared/`; and on `main.js` growing past a 16 KB byte budget — headroom for roughly four
+more components, sized from the 1–2 KB an application component actually costs, so the number
+moving means something rather than arriving three components in. CLAUDE.md states the tiers and the
+question to ask before writing client code; how the layer, the fragment protocol and `formAction`
+work moves to path-scoped rules in `.claude/rules/`, loaded when the matching files are opened, in
+line with Anthropic's guidance to keep CLAUDE.md short; the PR template asks which tier a change is.
+
+**The Postgres pool is guarded, and four binding hazards have one answer each.** `db` from
+`src/server/services/database.ts` is now a `Proxy` over the pool whose `apply` trap checks every
+bound parameter, and `testDatabase()` wraps its pools the same way — so a query that throws in
+production throws in a test rather than passing there and failing against live data. It rejects an
+array (which binds as the string `"a,b"`, and inside `= ANY()` gets `insufficient data left in
+message`) and a plain object that has not been declared with `jsonbValue()` (which binds as
+`"[object Object]"`). Both were silent at every layer before, and both corrupt data, so the guard
+throws in production too. Nothing had to change to be covered: `db` was already the only tag in the
+codebase, and `db.begin`, `db.close` and the rest of the surface pass through untouched.
+
+`src/server/utils/sql.ts` is the writing half of `utils/database.ts`: `jsonbValue(obj)` declares a
+value destined for a `jsonb` column and its signature refuses a `string`, so
+`jsonbValue(JSON.stringify(prefs))` fails typecheck rather than storing a jsonb *string*;
+`inList(values)` builds an `IN` list and throws on an empty array rather than rendering `IN ()`;
+`textArrayLiteral(values)` builds the literal for a `text[]` column with every element quoted and
+escaped. `expectQueryToReject` joins `test-utils/helpers.ts` for asserting a query fails, because
+`expect(db`…`).rejects` never settles against a lazy thenable and times the file out instead.
+`src/server/database/driver-safety.test.ts` fails the suite on the four the guard structurally
+can't see, in the `Rule[]` shape `src/client/boundaries.test.ts` uses. The three-hazard section in
+CLAUDE.md becomes a short pointer to `.claude/rules/database.md`, loaded when a file that queries
+Postgres is opened.
+
+**Todos replace projects.** Migration `009` drops `project` and creates `todo` with a
+`completed_at` column. `/todos` lists, adds, toggles and deletes; add and toggle return the row as
+a fragment, delete returns a 204. The `todo-list` component filters by all, active or completed,
+keeps the count, and swaps rows in place. `/api/todos` mirrors the old API with `completed_at` in
+the payload and an optional `completed` boolean on `PUT`. The delete column still renders only for
+authenticated users. Client tests render the real template as their fixture and mock `fetch` with
+real `TodoRow` output; the browser smoke test adds a todo, toggles it and filters without a page
+load, checking a window marker to prove no navigation happened.
+
+**`data-value` refuses a checkbox or a radio.** Both carry a string `value`, so they cleared the
+binder's "is this a form control" check and then bound the wrong thing: writing the signal back
+changed what the control submits, never what is checked. Checked state is the browser's to submit
+and the server's to own, so there is no group binding to add — `bind` throws and names
+`data-prop="checked:…"` and `data-on` instead.
+
+**The site is `noindex` until `ALLOW_INDEXING=true` opens it.** `indexingAllowed()` in
+`services/seo.ts` is the one switch: `withSecurityHeaders` puts `X-Robots-Tag: noindex, nofollow`
+on every response, the layouts render the matching meta tag and omit the site JSON-LD, and
+`robots.txt` drops its `Sitemap:` line. The header sits alongside the meta tag because the tag only
+covers HTML — an image, the sitemap itself, `llms.txt` and every JSON endpoint is indexable on its
+own and has nowhere to put one. Closed by default so a preview deploy, a staging host or a fork's
+first Railway URL can't be indexed because nobody remembered to block it; anything other than
+exactly `true` reads as closed, typos included. The per-page `noindex` prop becomes an opt-*out* on
+top of that default, so `/admin` and `/login` stay out of the index once the switch is on.
+
+Crawling stays allowed while indexing is off, which is deliberate: `noindex` is what keeps a page
+out of the index and a crawler has to *fetch* a page to read it, so a `Disallow: /` would block the
+fetch and strand the header and meta tag that do the work — while not keeping the site out on its
+own, since a URL linked from elsewhere is indexed unfetched as a bare result. A host that needs to
+be un-fetched rather than un-indexed wants HTTP auth, not `robots.txt`.
+
+**`src/client/style.css` is a manifest and nothing else.** `@import` is hoisted above every other
+rule in a file, so the base rules that used to sit below the imports actually landed *after* them
+and silently won ties against the pages and components they appeared to precede. They move to
+`src/client/base.css`, imported first, then components, then pages — the order on screen is now the
+order in the cascade. `boundaries.test.ts` fails the suite if a rule goes back into the entry.
+
+### Breaking changes
+
+- **A fork that is already in Google must set `ALLOW_INDEXING=true` on production.** Indexing is
+  now closed by default, so merging this and deploying without the variable de-indexes a live site:
+  crawlers fetch, read the `noindex`, and drop the pages. Setting the variable brings them back on
+  the next crawl, so the mistake is recoverable — it costs the re-crawl, not the rankings — but set
+  it with the deploy and skip that. Everywhere else — previews, staging, review apps — wants the
+  new default and needs no change. `runbooks/SEO.md` §1b has the reasoning.
+- **A fork with its own rules in `src/client/style.css` has to move them.** The entry is now a
+  manifest of `@import` lines and nothing else, and `src/client/boundaries.test.ts` fails the suite
+  on anything else in it. Move global rules to the new `src/client/base.css` (which holds what used
+  to sit below the imports) and page or component rules to their own file. A fork that only *added
+  imports* to `style.css` has nothing to do beyond resolving the merge — note the groups are now
+  ordered base → components → pages, so a page import belongs at the bottom rather than the top.
+- **The `project` table is dropped and `todo` created in its place.** Migration `009` does not
+  copy rows; the demo resource is starter content. A fork that kept the `project` table for real
+  data must either remove migration `009` before merging (and then also keep its own copies of the
+  project service, controllers, templates and tests, which this release deletes) or migrate the
+  rows into `todo` in a migration of its own that runs before `009`.
+- **Every `project` file is renamed or deleted.** `services/project.ts` → `services/todo.ts`
+  (`Todo` gains `completed_at`, `updateTodo` takes an optional `completed`, `toggleTodo` is new).
+  `controllers/app/projects.tsx` → `controllers/app/todos.tsx` (with `toggle`),
+  `controllers/api/projects.ts` → `controllers/api/todos.ts` (`todosApi`),
+  `templates/projects.tsx` → `templates/todos.tsx`, and `components/todo-row.tsx` is new. Routes
+  move from `/projects` to `/todos` (plus `/todos/:id/toggle`) and from `/api/projects` to
+  `/api/todos`; the nav label is **Todos**; the sitemap and `llms.txt` follow. `createMockProject`
+  is `createMockTodo`; `cleanupTestData` truncates `todo`; `seedTestData` inserts todos, one
+  completed. Grep a fork for `project` before merging.
+- **A fork with its own Preact islands has to bring Preact back or rewrite them.** The bundle no
+  longer marks `preact` external and the import map that resolved it is gone from `layouts.tsx`.
+  Either restore the `--external` flags, the import map, and `https://esm.sh` in `script-src`
+  (`package.json`, `src/server/components/layouts.tsx`, `src/server/utils/security-headers.ts`),
+  or rewrite the island as a component against `src/client/reactive/`. `todo-list.ts` is the
+  worked example; the `writing-tests` skill's client reference has the test pattern.
+- **`data-component` now also mounts components.** It was a CSS hook on `<body>` and the nav; both
+  still work unchanged, because a root whose name has no registered component is skipped. But
+  `data-text`, `data-show` and the other binding attributes are read on every element under a
+  registered root, so a fork using those attribute names for something else should rename them.
+- **`X-Fragment` and `X-CSRF-Token` are now defined in `src/shared/protocol.ts`.**
+  `CSRF_HEADER_NAME` and `CSRF_FIELD_NAME` in `services/csrf.ts` are re-exports with the same
+  values; a fork that imports them is unaffected. A fork with its own `src/shared/` directory or
+  `@shared/*` path alias has a conflict to resolve in `tsconfig.json`.
+
+## 3.5.0
+
+`railway.json` is deleted. Railway [deprecated Config as Code](https://docs.railway.com/config-as-code):
+a new service can no longer opt into it, and existing services stop reading the file on
+**2026-12-01**. So for anyone forking Billet today the file was already inert — six settings sitting
+in the repository looking authoritative, silently ignored by the platform, with the first sign
+being a deploy that builds without `bun run build` and serves an unstyled site.
+
+The replacement, [Infrastructure as Code](https://docs.railway.com/infrastructure-as-code), is
+scoped to a Railway **project and environment**, not to one service. That is the wrong shape to ship
+in a starter: a single project holding several unrelated apps against one shared PostgreSQL is a
+common way to run Railway, and there `omit means delete` reaches services the file was never meant
+to describe. A `.railway/railway.ts` committed by a template is a footgun aimed at the neighbours.
+
+The six values move to the service's Settings tab, documented in the README next to the environment
+variables that had to be set there anyway.
+
+### Breaking changes
+
+- **A fork that relied on `railway.json` must set six values in the Railway dashboard.** Under the
+  service's **Settings** tab: builder **Railpack**, build command `bun install && bun run build`,
+  start command `bun run start`, healthcheck path `/health`, healthcheck timeout `30`, restart
+  policy **On failure** with max `3` retries. An already-deployed service that has been reading
+  `railway.json` keeps running on its last-known configuration, but the next deploy after merging
+  this uses whatever the dashboard holds — which for a service that never had these typed in is
+  Railway's autodetected defaults. Set them **before** merging, not after: the failure mode is a
+  build that skips `bun run build`, so the server boots and every page renders without CSS or
+  client JavaScript, and `initAssets()` throws under `NODE_ENV=production` if `dist/assets` is
+  empty. Nothing in the app changes; there is no code edit to make.
+- **Do not re-add `railway.json`.** New services cannot opt into it, so re-adding it produces a
+  file that is read by nothing. If you want the six values versioned, `railway config pull` writes
+  a `.railway/railway.ts` from the project's current state; in a project shared with other apps add
+  `export const partial = "<your-service>"` so `omit means delete` is scoped to what that file
+  owns, and read `railway config plan`'s diff before `railway config apply`. IaC is never applied
+  by `git push` — only by an explicit `apply` — so the file is inert until someone runs it.
+
+### Removed
+
+- `railway.json`. It carried `builder`, `buildCommand`, `startCommand`, `healthcheckPath`,
+  `healthcheckTimeout`, `restartPolicyType` and `restartPolicyMaxRetries` — nothing that isn't a
+  field in the service UI, and nothing the app reads.
+
+### Changed
+
+- The README's **Deploy → Railway** section gains the settings table and a sixth step, and explains
+  why the values are in the dashboard rather than in a file — so the next agent to notice the
+  missing config doesn't helpfully commit it back. Deploying Billet anywhere that runs
+  `bun run start` is unaffected.
+
+## 3.4.0
+
+The canonical site origin was a hardcoded constant in `src/server/services/seo.ts`, kept in step
+with `APP_URL` by a sentence in a runbook and nothing else. It now derives from `APP_URL`, with an
+optional `SITE_URL` env var as the override.
+
+Drifting the two was never cosmetic: a canonical, `og:url`, or sitemap `<loc>` on a different
+domain from the one emailed links and CSRF origin validation use reads to Google as cloaking. And
+editing the constant was the one edit-a-source-file step in the deploy path, so it was the step a
+fork skipped — shipping a live site whose canonicals pointed at Billet's placeholder domain.
+
+### Breaking changes
+
+- **A fork that edited `SITE_URL` in `src/server/services/seo.ts` loses that edit on upgrade.** The
+  constant is gone; the origin now follows `APP_URL`. For most forks that is the correct value and
+  no action is needed. A fork whose canonical domain differs from its app domain — marketing site
+  on the apex, app on a subdomain — must set `SITE_URL` in its **environment** instead
+  (`SITE_URL=https://example.com`). Check a deployed page's `<link rel="canonical">` after merging.
+- **`APP_URL` and `SITE_URL` are now validated at boot and fatal when malformed.** Both must parse
+  as absolute `http(s)` URLs, and under `NODE_ENV=production` both must be `https`. A deployment
+  that has been running on an `http://` `APP_URL`, or on a value missing its scheme, will refuse to
+  start until it is fixed. Previously a bad `APP_URL` meant one broken emailed link; now the
+  canonical origin derives from it, so it would be a throw on every page render. A `SITE_URL` that
+  is unset or blank is not malformed — it means the origin follows `APP_URL`.
+
+### Changed
+
+- `SITE_URL` in `services/seo.ts` is replaced by `siteUrl()`, which returns `SITE_URL`'s origin
+  when set and `APP_URL`'s otherwise. It reads `process.env` on every call rather than at import,
+  for the reason `authMode()` does: imports are hoisted, so a module-level constant freezes
+  whatever the environment happened to hold at load time.
+- Both branches reduce to `.origin`, so a trailing slash or a stray path in the configured value
+  can't double up in a generated URL.
+- `absolute()` is exported from `services/seo.ts`; `services/llms-txt.ts` imports it instead of
+  keeping a verbatim copy of the same line, and `components/layouts.tsx` builds the OG and Twitter
+  image URLs with it rather than concatenating onto the origin by hand.
+- `appOrigin()` in `utils/app-url.ts` is the one place `APP_URL` is reduced to an origin. `appUrl()`
+  is built on it and `siteUrl()` falls back to it, so the emailed-link domain and the canonical
+  domain can't diverge through two copies of the same parse.
+- `services/security-txt.ts` computed `const host = new URL(SITE_URL).host` at module load — the
+  same import-time-capture trap. Resolved inside `resolveContact()` now.
+- `SITE_NAME`, `SITE_DESCRIPTION` and `SITEMAP_PATHS` stay constants. They are product identity,
+  which belongs in source; the origin is deployment config that was already in the environment.
+
+### Added
+
+- `SITE_URL` as an optional, documented env var — in `.env.example`, the README environment table,
+  and `runbooks/SEO.md` §1, with the apex/`www` and `app.`-subdomain cases as the only reasons to
+  set it.
+- `src/server/services/seo.test.ts` pins the derivation against literal domains. The existing SEO
+  suites build their expectations from the same value they assert against, so they are
+  self-consistent and would pass against a wrong origin. The new file covers deriving from
+  `APP_URL`, keeping the port, the `SITE_URL` override, trailing-slash reduction, and — the case
+  that catches a regression to a module-level constant — `APP_URL` changed after the module loaded.
+- `src/server/utils/env.test.ts` covers the new URL rule: a missing scheme, a `mailto:` that parses
+  but has a `"null"` origin, and `http` under `NODE_ENV=production`. `urlProblem()` is exported for
+  it, because `validateEnv()` answers a bad value with `process.exit(1)`.
+
+### Fixed
+
+- `runbooks/SEO.md` §5 described `robots.txt` as a static file in `public/` needing a manual
+  `Sitemap:` edit, and §4 linked to it. There is no `public/robots.txt`: `buildRobotsTxt()`
+  generates the body and the disallow list is wider than the three paths documented. Both sections
+  now describe what the code does. The same stale claim is corrected in `README.md` and
+  `START_PROMPT.md`.
+
+## 3.3.0
+
+A dev-only script and the gotcha behind it. In a downstream fork this cost an afternoon of
+debugging "I keep getting logged out, is it the database?" — it was not the database.
+
+Nothing existing changes behaviour; a fork merges this and gains a file.
+
+### Added
+
+- **`scripts/qa-session.ts`** — mints a session for a QA account of its own and prints the
+  `Cookie` header. A workspace has one `DATABASE_URL`, so the dev database an agent writes to is
+  the one the developer's browser is signed in against. An agent verifying an admin screen would
+  mint a session for `admin@example.com` and tidy up afterwards with
+  `DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE email = 'admin@example.com')`
+  — logging the human out mid-session, with nothing on screen to explain it. It presents as
+  session expiry or a connection-pool fault. The script gives the agent its own accounts so no
+  person's session is ever touched.
+- Both role axes are reachable: `--role=user|admin` for the platform flag, `--org-role=owner|admin|member`
+  for standing in an organisation, and they compose — "org owner who is not a platform admin" is
+  the case worth verifying and would be inexpressible with one flag. Each combination is its own
+  account named after itself (`qa-agent-admin-member@example.com`), so minting one never mutates a
+  role out from under a session another still holds. Org roles share a single `QA` organisation,
+  which is what makes an owner and a member comparable on the same page; `--org-role` warns when
+  `TEAMS_ENABLED` is not `true`, because `/team` answers 404 then and that 404 reads as a bug.
+- `--clean` deletes every QA account's sessions in one predicate. Clearing only the account named
+  by the flags would leave the others signed in, which is the state the script exists to avoid
+  having to reason about.
+- The script refuses to run under `NODE_ENV=production`: `--role=admin` creates a platform admin
+  on demand, at an address the operator does not control. Unset `NODE_ENV` reads as not-production,
+  the same way `validateEnv` and `initAssets` treat it. No QA account is in the seed — they exist
+  only if an agent runs the script.
+- A `CLAUDE.md` gotcha, "The dev database is shared with whoever has the browser open", carrying
+  the symptom as well as the rule, and the corollary: `DELETE FROM sessions` without a `user_id`
+  predicate is never right in a dev database.
+
+### Changed
+
+- `PlatformRole`, `PLATFORM_ROLES` and `isPlatformRole` are exported from
+  `src/server/services/auth.ts`, mirroring `OrgRole` in `organizations.ts`. `User["role"]`, `toUser`
+  and the session row type now name the type instead of repeating `"user" | "admin"`, and the QA
+  script validates its `--role` flag against the same guard the org axis has always had. No
+  behaviour changes and the literals are identical, so a fork needs no edit.
+
+## 3.2.0
+
+One bug, and it is the kind that costs days rather than minutes: the parallel test suite could
+exhaust PostgreSQL's connection limit, and when it did the failure landed in a file that had
+nothing to do with it. Downstream it produced 100 failures in one run and 0 in the next on an
+unchanged tree, and was misdiagnosed three times — twice as concurrent-agent contention, once as a
+flaky auth controller.
+
+Nothing in `src/server/` outside `test-utils/` changed, and no fork has to change its own code.
+A fork that has added test files of its own does have one mechanical edit, described below.
+
+### Fixed
+
+- **Test files no longer open a 10-connection pool each.** Every service and controller test
+  `mock.module`s the database module with its own `SQL` instance, and `new SQL(url)` with no
+  options takes Bun's default pool max of 10. `bun test --parallel` runs one file per core, so a
+  ten-core machine reached for up to 100 connections against a server whose `max_connections` is
+  typically 100 — with a dev server on the same PostgreSQL already holding 10. Past the line
+  PostgreSQL answers `sorry, too many clients already` (SQLSTATE 53300) to whichever file happened
+  to be connecting at that moment, not the one at fault, which is why the error names an innocent
+  file and the next run comes back green.
+- The cap now lives in one place: `testDatabase()` in `src/server/test-utils/database.ts` does the
+  `DATABASE_URL` check and returns `new SQL(url, { max: 3, idleTimeout: 5 })`. All 27 test files
+  that built their own connection use it. Measured on a ten-core machine, peak connections went
+  from over the limit to 27–30 of 100, and the suite got *faster* — the pools were competing.
+- **Three, not one.** A test that holds a reserved connection — a session-level advisory lock, a
+  row lock, a `begin()` that also reads outside the transaction — needs two at once. A pool of one
+  deadlocks instead, and that deadlock presents as a hang with no error attached.
+- The obvious fix — capping workers in `run-tests.ts` — was tried and reverted. It treats the
+  symptom, costs parallelism, and leaves the next test file free to add another ten connections.
+
+### Added
+
+- `src/server/test-utils/database.test.ts` fails the suite if any test file calls `new SQL(`
+  directly. It strips comments before matching, so a comment explaining the rule doesn't trip it,
+  and asserts the file list is non-empty so a broken walk can't pass silently. A comment alone
+  would not have stopped the next file.
+- `CLAUDE.md` gained three `Bun.SQL` behaviours that fail without an error, each of which cost real
+  debugging time: `expect(query).rejects` **hangs** rather than fails, because a tagged template is
+  a lazy thenable and not a promise, so the file times out with no failing assertion to point at
+  (wrap it in an async IIFE); `= ANY(${array})` serialises a JS array to a comma-joined string and
+  `sql.array()` embeds literal quotes in each element, so use `IN ${sql(array)}` and hand-build the
+  literal for a `text[]` column; and Bun JSON-encodes a value bound to a `jsonb` column itself, so
+  `${JSON.stringify(obj)}` stores a jsonb *string* that reads back as text and matches no query.
+
+### Changed
+
+- `run-tests.ts` names its sweep paths in a `TEST_PATHS` constant instead of passing `"src"` inline.
+  The behaviour is identical; the comment there is the point. Only `src/` is swept, so a test under
+  `scripts/` never runs in CI unless it is named — deliberate for `scripts/browser-smoke.test.ts`,
+  which needs a built bundle and a listening server and runs through `bun run test:browser`, but
+  silent for anything else. Opt files in by name; widening the glob would drag the smoke test in.
+- The `writing-tests` skill's service and controller reference shapes show `testDatabase()`. They
+  previously showed the `new SQL(process.env.DATABASE_URL)` preamble as canonical, which is how a
+  28th pool would have arrived.
+
+**A fork with its own test files should run the same replacement.** They will not fail
+`bun run test` until the guard test is merged, at which point it names them; the edit is dropping
+the `DATABASE_URL` guard and `new SQL(...)` line for `const connection = testDatabase();` and
+removing the now-unused `import { SQL } from "bun"`.
+
+## 3.1.0
+
+Mostly a fork-tracking convention and a dependency window. The dependency window is the part that
+needs reading: it moved the TypeScript and Biome floors, and rewrote `tsconfig.json`'s path
+resolution. None of it changed `src/` behaviour, and the suite is unchanged — but a fork's own code
+and config sit on those floors.
+
+The version number is deliberately a minor despite the **Breaking changes** below. The toolchain
+floors moved without any Billet API changing, so a fork that typechecks and lints clean after
+merging has nothing else to do; the section documents what to check, not what to rewrite.
+
+### Breaking changes
+
+- **Requires TypeScript 7** (`^7.0.2`, up from `^5.9.3`). `bun run check` runs
+  `bun --bun tsc --noEmit` against whatever is installed, so this is the floor now. Nothing in
+  `src/` changed for it, but a fork whose own code or `tsconfig.json` leans on 5.x behaviour, or on
+  a flag 7 dropped, fails `bun run check` after merging. Typecheck your tree before you take this.
+- **`tsconfig.json` resolves paths from the repository root, not from `src/`.** `baseUrl: "src"` is
+  gone and the `@client/*` / `@server/*` aliases are now `./src/client/*` and `./src/server/*`;
+  `moduleResolution` moved from `Node` to `bundler`, which is what Bun actually does. A fork that
+  added aliases of its own under the old `baseUrl` wrote them relative to `src/` — those entries
+  resolve to the wrong place after merging, and the failure reads as a missing module rather than a
+  config change. Rewrite them root-relative.
+- **Requires Biome 2.5.11** (up from 2.0.5), and `lint` runs the pinned dependency rather than
+  shelling out to `@biomejs/biome@beta`. The config shape changed with it: `recommended: true`
+  became `preset: "recommended"`, and `useUniqueElementIds` moved out of `nursery` into
+  `correctness` (still off here). A fork carrying its own `biome.json` edits in the 2.0 shape has to
+  port them, and rules that landed in `recommended` between those versions can report code that
+  used to pass `bun run lint`.
+
+### Added
+
+- **`.billet-version`** records which upstream Billet release a tree came from — one bare version
+  line, everything else comment. It exists because `package.json`'s `version` cannot answer that
+  question: `START_PROMPT.md` hands the project name and that field to the fork at setup, so it
+  becomes the fork's own app version and upstream provenance is lost at the moment of forking. The
+  practical cost of not having it is that a fork reporting a bug already fixed upstream can only be
+  answered by diffing source against a repository the fork may not even have as a remote.
+- The file is deliberately absent from the rename list in `START_PROMPT.md` §2, and called out as
+  the exception in §3 where the other references to the original repository get removed — those are
+  the two steps that would otherwise rewrite or delete it. It is provenance, not project identity.
+- There is deliberately **no tooling** around it. The file's own comment carries the two `curl`
+  commands that list upstream's tags and read its CHANGELOG, which is everything a comparison
+  needs; from there `git log <tag>..HEAD -- <path>` settles whether a given fix is present. A script
+  would have been a few hundred lines every fork inherits to re-implement two commands.
+- Upstream bumps the line in the release commit, alongside the `package.json` bump and this entry.
+  `CLAUDE.md` says so, so that an agent working in a fork reads the version before judging whether
+  a reported bug is real.
+
+**Forks created before 3.1.0 have no such file** and should write one by hand. If upstream is still
+a remote, the merge base names the release:
+
+```bash
+git remote add upstream https://github.com/alexpricedev/Billet.git
+git fetch upstream --tags
+git describe --tags --abbrev=0 $(git merge-base HEAD upstream/main)
+```
+
+Otherwise pick the closest release from this file by comparing what your tree has, and put that
+version on the first line — an approximate answer is worth far more than none.
+
+### Changed
+
+- Preact `10.28.4` → `10.29.8`, and the `esm.sh` import map in
+  `src/server/components/layouts.tsx` moved with it. Those two have to stay in step: the client
+  bundle marks `preact` external and resolves it from that map, so a fork that bumps only
+  `package.json` ships a server and a browser running different Preact versions.
+- Resend `^6.9.4` → `^6.25.0`. `src/server/services/email-providers/resend.ts` is excluded from
+  typechecking, so `bun run check` does not cover this one.
+- `actions/checkout` 5 → 7 in CI, and `.github/dependabot.yml` now groups dependency and action
+  updates so a window like this arrives as one pull request instead of six.
+- `src/client/style.css` picked up the new Biome formatter's multi-line handling of long CSS value
+  lists. No rules changed.
+- The docs no longer point readers at `src/server/templates/forms.tsx` as an example after
+  `START_PROMPT.md` tells them to delete it.
+
+## 3.0.0
+
+Two independent lines of work: an audit against
+[elsewhencode/project-guidelines](https://github.com/elsewhencode/project-guidelines) — its API
+section (§9) and environment/dependency sections (§3–4) were where this repo had real gaps — and
+the adoption of [Bun 1.4](https://bun.com/blog/bun-v1.4), which the toolchain now requires. The API
+response shape and the Bun floor each make this a major on their own.
+
+Two items deserve more attention than their diff size suggests. A fork running
+`TEAMS_ENABLED=true` should take the **last-owner atomicity fix** (under Fixed): the failure needs
+two owners racing within milliseconds and an org admin can recover it, but when it hits, an
+organisation silently loses its last owner. And a fork deployed behind a reverse proxy must set
+**`TRUST_PROXY=true`** (under Breaking changes) or the rate limiter throttles all visitors as one.
+
+### Breaking changes
+
+- **Requires Bun 1.4.0.** `.bun-version` and `engines.bun` are pinned to it, and CI installs from
+  that file. A fork on 1.3.x must upgrade before merging. Nothing in `src/` changed for it — the
+  suite is 755 pass / 0 fail on 1.4.0 exactly as it was on 1.3.11 — but the floor moved, and a
+  fork's own code may not have been audited against 1.4's behaviour changes the way this one was.
+- **`.env.test` now carries `DATABASE_URL` only.** Any other key in yours is inert — the preload
+  overrides it — so a fork that had pinned values there should delete them rather than trust them.
+  `DATABASE_URL` stays outside the pin deliberately: it is the one value that has to vary per
+  machine and per workspace (`scripts/workspace.ts`), since two suites sharing a database truncate
+  each other's tables mid-run.
+- A fork that deliberately ran its suite against a non-default configuration — password mode, say —
+  by putting it in `.env.test` no longer gets it. Set it per test case instead, the way the files
+  covering password mode, the captcha and teams already do.
+- **`GET /api/projects` returns a wrapped, paginated payload.** It was a bare `Project[]`; it is now
+  `{ data: Project[], pagination: { total, limit, offset } }`, defaulting to 25 rows. A fork with a
+  client reading `response.json()` as an array must read `.data`. `GET /api/projects/:id`, `POST`
+  and `PUT` are wrapped in `data` too, and `GET /api/stats` returns `{ data: VisitorStats }`. The
+  wrapper is what makes `total` expressible — and anything added later — without a second breaking
+  change.
+- **API errors return the shared JSON envelope**, not a text body. `{ error: { code, message,
+  fields? } }` replaces `new Response("Project not found", { status: 404 })`. A fork asserting on
+  the response text must assert on `error.code` instead — `not_found`, `invalid_id`, `invalid_json`,
+  `invalid_body`, `invalid_limit`, `invalid_offset`, `method_not_allowed`,
+  `unsupported_media_type`, `rate_limited`.
+- **`rateLimit` returns that same envelope.** The 429 body changed from `{ error: "Too many
+  requests" }` to `{ error: { code: "rate_limited", message } }` and now carries `Retry-After`.
+  This affects the auth and team forms as well as the API, since they share the middleware.
+- **`rateLimit` takes a bucket as its second argument** — `rateLimit(req, "auth", 5, 60_000)`.
+  A fork with its own call sites must name one of `RateLimitBucket`'s members (`auth`,
+  `api-read`, `api-write`) or add its own; the budget is spent per bucket per address, not per
+  address. The existing auth and team call sites all pass `auth`, which is the counter they
+  already shared, so nothing about those limits changed.
+- **`getProjects()` is unchanged, but the API no longer calls it.** `getProjectPage(limit, offset)`
+  is the paginated read; the `/projects` HTML page still uses `getProjects()`.
+- **`createMockRequest` returns a `BunRequest`** and takes a fourth `headers` argument. A string
+  `body` is now sent verbatim rather than JSON-encoded, so a test can post a malformed body.
+- **`@types/bun` moved to 1.4.0, and the route-literal generics are gone.** bun-types 1.4 rewrote
+  `BunRequest.params` as a mapped type over `keyof`, which never resolves for an unbound type
+  parameter — a controller written as `destroy<T extends \`${string}:id${string}\`>(req:
+  BunRequest<T>)` stops compiling. This repo's four such controllers now take a plain `BunRequest`
+  and read `params.id` through the index signature; a fork that copied the pattern into its own
+  controllers must do the same after merging. `@types/node` is pinned directly now too — the 24.x
+  that happy-dom pulled in transitively fails typechecking inside bun-types 1.4 itself.
+
+- **The rate limiter keys on the client's socket address, not `x-forwarded-for`.** The header is
+  client-controlled — a fresh value per request bought a fresh bucket, so the 5/min limit in front
+  of `/login` could be walked past. **A fork deployed behind a reverse proxy must set
+  `TRUST_PROXY=true`** (validated at boot; see `.env.example` and `runbooks/SECURITY.md` §5), or
+  every visitor shares the proxy's address and one busy user rate-limits everyone. With it set,
+  only the *last* header entry — the hop the trusted proxy added — is believed. The `x-real-ip`
+  fallback is gone for the same reason.
+
+- **`bun run start` no longer reads `.env` files** (`--no-env-file`). Production configuration
+  comes from the platform's environment only, so a stray `.env` baked into a container image can't
+  shadow it. A fork that deliberately configures production through an `.env` file on the server
+  must remove the flag from the `start` script — or better, move those values into the platform's
+  environment. `bun run dev` and the test suite still load `.env` / `.env.test` as before.
+- **`upgrade-insecure-requests` ships in production only**, like HSTS. WebKit — unlike Chrome —
+  applies the upgrade to `http://localhost` subresources, so in dev the directive rewrote every
+  asset URL to an `https://localhost` origin nothing serves and pages loaded with no stylesheet or
+  client bundle. Production responses are unchanged; only non-production CSP lost the directive.
+
+### Added
+
+- **Browser smoke tests** (`bun run test:browser`, `scripts/browser-smoke.test.ts`) on
+  `Bun.WebView` — system WebKit on macOS, an installed Chrome elsewhere, zero new dependencies.
+  Six journeys in about a second: home renders with a stylesheet, the client bundle hydrates its
+  island, a guest submits the form through the CSRF round-trip with trusted input events, the
+  captcha solves its proof of work in the page and the login submit carries it, a magic link
+  scraped from the console email provider's output signs in end to end — including loading the
+  link twice to prove GET doesn't redeem it, the invariant `runbooks/EMAIL.md` exists for — and
+  the page console stays clean (which is where CSP violations surface). Deliberately separate from
+  `bun run test`: the API is experimental and the engine varies by platform, so it never gates the
+  deterministic suite. Its first run caught the `upgrade-insecure-requests` bug above.
+- `bun run test:changed` — Bun 1.4's `--changed` walks the import graph backwards from uncommitted
+  edits and runs only the affected test files. The middle ground between `test:file` and the full
+  suite while iterating; the full suite remains the gate.
+- **Graceful shutdown.** `registerShutdown` (`src/server/utils/shutdown.ts`) drains on
+  `SIGTERM`/`SIGINT`: the cleanup sweep stops, `server.stop()` lets in-flight responses finish
+  (Bun 1.4 resolves it when the last connection closes), then the pool closes via `closeDatabase`
+  and the process exits 0. Deploys no longer sever requests mid-response. A second signal during
+  the drain is ignored; an operator who can't wait has SIGKILL.
+- The `profiling` skill (`.claude/skills/profiling/`): Bun 1.4's Markdown-format profilers
+  (`--cpu-prof-md`, `--heap-prof-md`, `bun build --metafile-md`) and how to point them at this
+  repo's server and client bundle.
+- **HEAD works on every dispatched route.** `createRouteHandler` and `createApiRouteHandler`
+  answered anything but the listed methods with a 405, and nothing lists HEAD — so crawlers and
+  uptime monitors probing `/projects` or `/login` read the app as down. HEAD now runs the GET
+  handler and strips the body in the dispatcher, and `Allow` advertises it next to GET. A resource
+  with no GET still 405s.
+
+- `src/server/controllers/api/request-guard.ts` — the guards every JSON endpoint runs, the mirror
+  of `auth/form-guard.ts` for machine callers. `readJsonBody` rejects a non-JSON `Content-Type`
+  (415) and an unparseable or non-object body (400); `readIdParam` rejects anything that isn't a
+  positive integer in `serial` range; `readPagination` reads `?limit=`/`?offset=` and rejects
+  out-of-range values rather than clamping them; `apiReadLimit` / `apiWriteLimit` are the per-IP
+  budgets (60 and 20 per minute).
+- `jsonError` and the `JsonErrorBody` type in `src/server/utils/response.ts`; `expectJsonError` in
+  `src/server/test-utils/setup.ts`, which asserts the envelope and returns the parsed body.
+- `createApiRouteHandler` in `src/server/utils/route-handler.ts` — JSON 405 with an `Allow` header.
+  `createRouteHandler` now sends `Allow` too.
+- `.bun-version` (1.4.0) and `engines.bun`, with `bun-version-file` on every `setup-bun` step in
+  CI. `oven-sh/setup-bun` was installing the latest release, so the CI toolchain moved on Bun's
+  release schedule rather than on a commit — on an app built on `Bun.SQL`, `Bun.password` and
+  Bun's CSS bundler.
+- `bun run audit` (`bun audit --audit-level=high`) and `.github/workflows/audit.yml`, on PRs and
+  weekly. `.github/dependabot.yml` opens grouped weekly PRs for dependencies and pinned Action
+  versions. See `runbooks/CI.md` §1b.
+- `.editorconfig` for the files Biome doesn't format — migrations, workflows, shell scripts.
+- An **API Reference** section in `README.md`, and a rewritten
+  `.claude/skills/adding-a-feature/references/api-endpoint.md` teaching the guarded pattern.
+
+### Changed
+
+- **The suite runs in parallel, one worker per core, each with its own database.**
+  `test-env.ts` rewrites `DATABASE_URL` from `BUN_TEST_WORKER_ID` (see
+  `src/server/test-utils/worker-database.ts`); `run-tests.ts` creates and migrates the extra
+  databases up front, idempotently, so only the first run on a machine pays for it. Slot 1 keeps the
+  base name, so a single-worker run and `bun run test:file` use exactly the database they always did.
+  Measured on the same tree and the same four-core host: **44.15s → 14.49s, 67% faster**, at 756
+  pass / 0 fail across 68 files, holding across four consecutive runs. Cumulatively against the
+  process-per-file runner this release replaced, 55.15s → 14.49s.
+  `TEST_WORKERS=1` turns parallelism off, which is what you want when a failure needs a readable,
+  ordered log instead of four interleaved ones.
+- **`bun run test` runs one process with `bun test --isolate`**, not one process per test file.
+  Isolation is the flag's job now: a fresh `globalThis` and cleared module registries per file, plus
+  closing handles a file leaked, cancelling its timers and re-running the preloads — and one
+  transpile cache shared across all 68 files instead of paid 68 times. Measured back to back on one
+  host: **55.15s → 45.96s, 17% faster**, at an unchanged 755 pass / 0 fail across 68 files.
+  `run-tests.ts` is now only migrations, `NODE_ENV`, a whole-run hang timeout and the slow-file
+  report; the glob, the spawn loop and the output scraping are gone.
+- `TEST_FILE_TIMEOUT_MS` is now **`TEST_TIMEOUT_MS`** and caps the whole run rather than each file
+  (default 10 minutes, 30 in CI). Per-test timeouts are Bun's own `--timeout`.
+- Per-file durations come from `--timings` (`.timings.json`, gitignored) rather than being timed by
+  hand. The file is written slowest-first, so it doubles as the slow-test report — and it is what
+  `--shard` and `--parallel` will read to balance by wall time.
+- `bun run test:coverage` passes `--isolate` too, so it matches what `bun run test` does.
+- **The test environment is set in one place: `src/server/test-utils/test-env.ts`**, preloaded into
+  every test file by `bunfig.toml`. It pins `SESSION_COOKIE_NAME`, `AUTH_MODE`, `CAPTCHA_ENABLED`,
+  `TEAMS_ENABLED`, `PORT`, `APP_URL`, `CRYPTO_PEPPER` and the app/email names. `run-tests.ts` no
+  longer sets any of them, and `.github/workflows/ci.yml` no longer declares them either —
+  `DATABASE_URL` is the only variable CI supplies.
+- A preload is the only place the pin actually works. Imports are hoisted above a test file's body,
+  so setting `process.env` there is too late for anything captured at import — `SESSION_COOKIE_NAME`
+  in `services/sessions.ts`, `CRYPTO_PEPPER` in `utils/crypto.ts`. It also covers every entry point
+  rather than one: `run-tests.ts` spawned children with a fixed env, so `bun run test` was safe
+  while `test:file`, `test:coverage` and an editor's run-test button ran against whatever was in the
+  developer's `.env` — a dev server in password mode, with the captcha on, or with teams enabled was
+  enough to fail dozens of tests with no hint as to why.
+- **`happy-dom` 20.8.3 → 20.12.0** (with `@happy-dom/global-registrator`), clearing three
+  high-severity advisories the new audit found on its first run — two in `happy-dom` itself and one
+  in its transitive `ws`. Both are devDependencies. One moderate advisory remains, in `resend` →
+  `svix` → `uuid`, which is below the audit threshold and not fixable from here until `resend`
+  ships an update.
+- **`/api/stats` answers `GET` only.** It was registered as a bare handler, so it served its
+  payload to any method, `DELETE` included. Every API route now goes through
+  `createApiRouteHandler`.
+- `POST /api/projects` sends a `Location` header, and 204s send a null body rather than `""`.
+- `title` is trimmed and required on create and update. It was passed through unvalidated, so
+  `{}` reached `createProject(undefined, null)` and the database.
+- `bun run dev` uses `bun run --parallel --no-orphans` for the three watchers: name-prefixed
+  output, and the watchers die with the terminal instead of orphaning on the port.
+- A CSRF check that finds the request body already consumed logs the ordering violation
+  (`checkCsrf` must run before `readFormValues` — Bun 1.4 makes `req.clone()` throw after a body
+  read) instead of degrading to a silent 403; a test pins the fail-closed behaviour.
+- `runbooks/CI.md` §1b: `bun audit fix` is the first move on an advisory, and `bun pm diff` — which
+  reports new install scripts and new `child_process`/`fs`/`net`/`vm` imports between two published
+  versions — is the pre-merge check for dependency bumps nobody here authored.
+- **The cleanup sweep runs on `Bun.cron` instead of `setInterval`** — hourly on the hour, pinned to
+  UTC (1.4 parses in-process cron schedules in local time). Runs can no longer overlap, the job has
+  a real `unref()`/`stop()` for the shutdown path, and the cast guarding against happy-dom's
+  browser-style `setInterval` is gone with the `setInterval`.
+
+### Fixed
+
+- **Every rate limit shared one counter per address.** `requestLog` was keyed on the client
+  address alone, so the new API budgets spent the auth forms' — five requests to any `/api/*`
+  route left the next `/login`, `/signup`, `/forgot-password`, `/account/password` or
+  `/team/invites` POST from that address already over the 5/minute limit, which behind a shared
+  NAT meant five cheap unauthenticated GETs could deny login to everyone on it. Reads spent the
+  write allowance the same way, so the documented 60/20 split never held either. The bucket name
+  is now half the key.
+- **A failing drain no longer skips the rest of the shutdown.** `registerShutdown` awaited
+  `server.stop()` and `db.close()` unguarded, and a rejection from either escaped the signal
+  handler as an unhandled rejection — fatal in Bun — killing the process partway through, with
+  the pool still open and `exit` never reached. That is the outcome the function exists to
+  prevent. Each step is best-effort now: it logs what failed and the sequence continues to
+  `exit(0)`, because a process that was asked to stop and stopped did not crash.
+- **The last-owner invariant was not actually atomic.** `removeMember` and `updateMemberRole` put
+  the guard inside the statement — an `EXISTS (… another owner …)` in the `WHERE` — which reads as
+  atomic and isn't. Under Postgres's default READ COMMITTED, two concurrent removals of the last two
+  owners each see the *other* owner, because neither has committed, so both pass and both commit.
+  The organisation is left with **no owner**. Recoverable only if an org *admin* remains, since every
+  team route gates on `admin` and an admin can promote someone back to owner — an org whose only
+  admin-or-above members were the two owners is stuck. Write skew: row-level
+  locking only serialises writes to the same row, and these touch different rows.
+- Both statements now open with a `FOR UPDATE` CTE over the org's owner rows, so the second caller
+  waits and, once the first commits, re-checks against what actually survived and is refused.
+  `ORDER BY user_id` fixes the lock order against deadlocks. A fork on `TEAMS_ENABLED=true` should
+  take this: measured against the unlocked statement, **24 of 25 concurrent attempts emptied the
+  org**. `runbooks/TEAMS.md` §5 has the reasoning.
+- The test that was supposed to catch it made a single attempt and passed by luck. It now repeats,
+  and there is a matching one for concurrent demotions via `updateMemberRole`, which had the same
+  bug. Running the suite in parallel is what surfaced it.
+- **`scripts/workspace.ts destroy` now drops the per-worker test databases too.** It dropped exactly
+  two names and required each to carry the workspace slug, so `…-test-w2`, `-w3`, … would have
+  failed the ownership check and been left behind on every archive. It asks Postgres which exist
+  rather than guessing at a core count, and only ever for children of a name that already passed the
+  guard.
+- **`bun run wip drop` now drops.** It pointed the ref back at `@{1}` with `git update-ref`, which
+  *appends* to a reflog rather than rewriting it — and `wip list` reads the reflog. So the snapshot
+  it claimed to drop stayed listed and stayed restorable, and the list grew by one entry on every
+  drop (four drops took an eight-entry list to nine). It now uses `git reflog delete --updateref
+  --rewrite`, the idiom git-stash's own `drop` uses, and deletes `refs/worktree/wip` once the last
+  entry goes: emptying a reflog leaves the ref behind, and `list` would then print nothing at all
+  rather than "no snapshots in this worktree".
+
+## 2.3.0
+
+### Added
+
+- **Expired rows are now swept.** `src/server/services/cleanup.ts` starts an hourly timer from
+  `main.ts` that deletes expired `user_tokens` and `sessions`, and — only with `TEAMS_ENABLED=true`
+  — expired `organization_invites` that were never accepted. `cleanupExpired` had existed in
+  `auth.ts` since the first release with no caller, so every fork has been accumulating dead rows
+  in the two highest-churn tables in the schema.
+- The sweep is **not** a correctness fix and forks should not treat it as one. Every read already
+  filters `expires_at > CURRENT_TIMESTAMP` — in `auth.ts`, `sessions.ts`, `csrf.ts` and
+  `invites.ts` — so an expired row has never been honoured whether or not it was still present.
+  What the sweep buys is bloat control on guest sessions, which churn faster than anything else
+  here, and the retention window `runbooks/PRIVACY.md` §7 asks for: a spent `user_tokens` row keeps
+  a live-looking `token_hash` indefinitely, and a lapsed invite keeps the invitee's email address.
+- **Accepted invites are kept**, expired or not. Migration `008` records acceptance with a
+  timestamp rather than deleting the row precisely so it survives as the record of who joined via
+  whom; the sweep's `accepted_at IS NULL` predicate is what preserves that. Revoked and lapsed
+  invites are deleted once their original seven days are up.
+- `startCleanupSweep()` returns a stop handle and its timer is `unref`'d, so it never holds a
+  process or the test runner open. The first sweep runs immediately — a deploy that restarts more
+  often than the interval would otherwise never sweep — and is not awaited at boot, so a database
+  blip during it cannot stop the server listening. A rejection is logged and retried next hour
+  rather than escaping the interval callback, where Bun would treat it as fatal.
+- Every instance of a multi-instance deployment runs the sweep. That needs no lock: the statements
+  are unconditional `DELETE`s over rows nothing can still use, so the losers of the race delete
+  nothing.
+
+### Changed
+
+- `cleanupExpired` in `auth.ts` stays scoped to `user_tokens` and `sessions`. Invites are swept by
+  `cleanupExpiredInvites` in `invites.ts`, composed by `cleanup.ts`, so auth never imports the team
+  surface. `runbooks/TEAMS.md` §9 now lists `cleanup.ts` as the fifth reference to untangle when
+  removing teams — the import is what `bun run check` reports if you miss it.
+
+## 2.2.0
+
+### Added
+
+- Optional org-level user management, behind `TEAMS_ENABLED`. Unset (or `false`) keeps the
+  existing behaviour exactly: `/team` and `/invites/accept` 404, no org is ever created, and the
+  three tables migration `008` adds stay empty. Set to `true`, a signed-in user can create a team and
+  then invite people by email, change their org role, and remove them. A value outside
+  `true`/`false` stops the server at boot rather than silently 404ing the whole surface — the
+  same treatment `AUTH_MODE` gets, and for the same reason.
+- **Org role is a separate axis from `users.role`.** `users.role` (`'user' | 'admin'`) still
+  means *platform operator* and still gates `/admin` via `requireAdmin`; it is untouched. The new
+  `organization_members.org_role` (`'owner' | 'admin' | 'member'`) means standing inside one
+  organisation. They
+  are not merged on purpose: a platform operator answering a support ticket is not thereby an
+  owner of a customer's org, and widening the existing `CHECK` would have made "org owner who is
+  not a platform admin" inexpressible.
+- `requireOrgRole` in `src/server/middleware/org.ts`, returning a discriminated union with the
+  resolved session **and** membership, in the shape `requireAdmin` established. `membership.org.id`
+  is the documented seam a fork uses to scope its own tables by org — core deliberately does not
+  scope `project` or any other domain data.
+- **Migration `008` adds tables and alters none**, so a fork that will never use teams can drop the
+  feature without writing a migration against its own account data. Membership is a row in
+  `organization_members` with a `UNIQUE` `user_id` rather than `org_id` / `org_role` /
+  `org_joined_at` columns on `users`. The unique index keeps "one org per user" structural, and
+  since the org, role and join date are one row, a half-removed member is unrepresentable rather
+  than merely forbidden by a `CHECK`. Removal is the migration's `down` — three `DROP TABLE`s, none
+  of which can reach a `users` row — and `runbooks/TEAMS.md` §9 lists the rest. A test asserts
+  `users` has none of the three columns, so reintroducing one fails the suite.
+- Invitations in their own `organization_invites` table, not a `user_tokens` type. Reusing
+  `user_tokens` would have meant creating a shell `users` row per invited address, and because
+  `signInWithPassword` reports `no-password` distinguishably from `invalid-credentials`, that
+  would have turned `/login` into an oracle for "this address was invited to something once".
+  Seven-day expiry, single-use, revocable, idempotent re-invite, capped and rate limited.
+- Invite acceptance works in **both** auth modes. Magic-link mode signs the invitee in — the
+  emailed token is the credential, exactly as a magic link is. Password mode asks a new invitee
+  to choose a password; an address that **already** has one becomes a member but is sent to
+  `/login` without a session, because mailbox control is grounds for a reset and never a sign-in.
+  An invite accepted while signed in as a different account is refused, so forwarding the link
+  can't turn it into a join-anyone link.
+- A team must always have at least one owner, enforced inside the statement rather than around it
+  — two owners demoting each other concurrently cannot leave the org unadministered. The template
+  hides the control too, but the server is what decides.
+- Both self-actions belong to somebody else: your own row has no `Remove` control and no role
+  select, and the server refuses either. Granting ownership was already owner-only, so the only
+  self-change the roles allowed was a demotion — which drops you below the `admin` minimum `/team`
+  requires, with no way to undo it. Leaving a team is not shipped for the same reason: with one org
+  per user, a member who left would need a fresh invitation to get back. See `runbooks/TEAMS.md` §8.
+- Migration `008_add_organizations.ts`: `organizations`, `organization_members`, and
+  `organization_invites`. It runs in every fork, flag or no flag, and all three stay empty when
+  teams are off.
+- `runbooks/TEAMS.md` — the role model, invite lifecycle, the authorisation checklist for new
+  team routes, how to scope your own data, how to remove the feature, and what is deliberately not
+  shipped.
+- **`scripts/wip`, a per-worktree replacement for `git stash`.** Running several agents at once
+  usually means a worktree each, and worktrees share one `.git` directory — so `refs/stash` is a
+  single global stack and an agent that pops in its own checkout can silently take work another
+  agent pushed seconds earlier. `bun run wip save|stash|list|show|restore|drop` snapshots to
+  `refs/worktree/wip`, the one ref namespace git keeps per-worktree, so a snapshot is invisible to
+  every other checkout. `restore` applies without dropping; losing a snapshot takes an explicit
+  `drop`.
+- **A checked-in `.claude/settings.json`**, registering one `PreToolUse` hook,
+  `.claude/hooks/no-shared-stash.ts`, which denies `git stash` and prints the `wip` commands
+  instead. `git stash create` and anything naming `refs/worktree/` pass through — that is how
+  `scripts/wip` builds a snapshot. `.gitignore` stops ignoring both paths (`.claude/settings.local.json`
+  is still ignored), and `tsconfig.json` now typechecks `.claude/hooks/**/*`. A fork that already
+  keeps its own `.claude/settings.json` will hit a merge conflict here and should keep both hooks.
+- **`scripts/workspace.ts`, giving each Conductor workspace its own port and databases.** The
+  setup script copies one `.env` into every workspace, so all of them shared a dev database, a
+  test database, port 3000 and a session cookie name. `provision` rewrites this workspace's
+  `.env` with `PORT`/`APP_URL` from `CONDUCTOR_PORT`, a `DATABASE_URL` named `<base>-<workspace>`,
+  and a workspace-specific `SESSION_COOKIE_NAME` — cookies are not scoped by port, so a sign-in
+  on `:3001` was overwriting the session on `:3002`. `.env.test` gets a `DATABASE_URL` and nothing
+  else, because `cleanupTestData` truncates every table and two agents on one `billet-test` fail
+  each other's suites at random. It derives the base name from the **root** checkout, so re-running
+  setup can't compound the suffix. `destroy` runs on archive and drops the pair, refusing any
+  database whose name doesn't carry that workspace's slug — an unprovisioned workspace still points
+  at the shared `billet`, and dropping that would take every other agent down with it. Both are
+  no-ops where `CONDUCTOR_PORT` is unset (cloud workspaces, plain clones), so nothing changes for a
+  fork that doesn't use Conductor.
+- `.conductor/settings.toml` calls both, and sets `run_mode = "concurrent"` now that two
+  workspaces can run `bun run dev` at once.
+
+### Changed
+
+- `run-tests.ts` pins `PORT=3000` and `APP_URL=http://localhost:3000` alongside the four variables
+  it already pinned. Tests hardcode `http://localhost:3000` in request URLs and `csrf.test.ts`
+  builds its expected Origin from `APP_URL`, so a workspace port leaking in from `.env` would 403
+  every form post. `DATABASE_URL` is deliberately not pinned — that one is per-workspace on purpose.
+- `Badge`'s `variant` union widens from `"admin" | "user"` to include `"owner"` and `"member"`,
+  with matching classes in `src/client/components/badge.css`. Additive, but a fork that has
+  restyled that file will want to add the two rules.
+- `run-tests.ts` now pins `TEAMS_ENABLED=false` alongside `SESSION_COOKIE_NAME`, `AUTH_MODE` and
+  `CAPTCHA_ENABLED`. Same reason as those three: a developer who runs the dev server with teams
+  on has it in their `.env`, and leaked into a test run it breaks every `expect(404)` on a team
+  route.
+- `cleanupTestData` truncates the three new tables, and does the whole thing in one
+  `TRUNCATE … RESTART IDENTITY CASCADE` rather than seven statements plus an `ALTER SEQUENCE`.
+  Every test in the suite calls it and each round trip waits on an fsync under CI; one statement
+  also checks its foreign keys once, at the end, so the table order stops mattering. A fork that
+  has its own copy needs both changes.
+- `.github/workflows/ci.yml` puts the Postgres cluster in `/dev/shm` (`PGDATA`, `--shm-size=1g`)
+  and raises `TEST_FILE_TIMEOUT_MS` to 180s. Test data is disposable, so the fsync every
+  `cleanupTestData` waits on buys nothing but wall clock; the per-file cap is a hang detector,
+  and a runner is slower than a laptop, so the old value was killing files that only needed a few
+  more seconds. The database and `APP_NAME` also lose a workspace-specific name (`san-jose-test`)
+  for a neutral one. `runbooks/CI.md` has the detail.
+- The homepage hero, `README.md`, the `package.json` description and the OpenGraph copy in
+  `src/server/services/seo.ts` are reworded around "put your agents on rails" — the product is
+  the guardrails, not the starter. Copy only, but a fork that has kept the stock hero and
+  metadata will see them all move together, `public/og-image.png` included.
+- **`/auth/callback` and `/auth/verify` answer both `GET` and `POST`.** The `GET` renders a
+  confirm step and the `POST` spends the token, so a fork that has replaced either controller
+  needs the second handler and the `createRouteHandler` entry. `/auth/callback` mints a guest
+  session on the `GET` to sign its form's CSRF token; `/auth/verify` deliberately does neither,
+  so a confirmation link still works from a mail client that keeps no cookies.
+- `render()` in `src/server/utils/response.ts` takes an optional second argument of
+  content-specific headers, used for the `Cache-Control: no-store` both confirm pages need.
+  Purely additive — existing calls are unchanged, and `Content-Type` still can't be overridden.
+- `Login` takes a `showConsoleHint` prop, and the "check the server console for the magic link"
+  line only renders when it is true. It was unconditional, so every fork running a real mail
+  provider was telling users to read a terminal they have no access to.
+
+### Fixed
+
+- **Guard denials were silent.** `requireAdmin` has always written its "Admin access required"
+  message to the `"message"` flash key, but nothing ever read it — `stateHelpers` reads `"state"`
+  — so a non-admin was bounced to `/` with no explanation and the cookie was dropped unread on
+  the next request. `home` now renders it, which fixes `requireAdmin` as well as the new guard.
+  If you were debugging that, it wasn't you. The payload is `FlashMessage` — `text` plus a
+  required `type` — because the same key carries "Admin access required" and "You've joined Acme",
+  and a default would have rendered one of them in the wrong style. `/login` reads it too, since
+  that is where invite acceptance sends an account that already has a password.
+- **Email bodies interpolated every field into HTML unescaped.** Harmless until now, since the
+  only values were URLs the server built and env vars the operator set — but the invite is the
+  first email carrying text a user typed, and an org name of `<a href="…">` would have rendered
+  as live markup in every invitee's inbox. `renderActionHtml` now escapes at the render boundary,
+  so no future email can reintroduce the hole by forgetting, and the subject is stripped of
+  CR/LF against header injection. The plaintext body is unchanged.
+- **Mail scanners spent single-use links before the recipient could.** Corporate mail security
+  (Microsoft Defender Safe Links and friends) fetches every URL it delivers, and both
+  `/auth/callback` and `/auth/verify` redeemed on `GET` — so the token was gone before the click,
+  and the visitor landed on a login form or an "invalid link" page that explained nothing. Both
+  now render a confirm step and redeem on `POST`: scanners follow links, they don't submit forms.
+  `runbooks/EMAIL.md` §5 has the rule for any new emailed link, and why the CSRF treatment of the
+  two differs.
+- **`/login` ignored the `?error=` it was redirected with.** Every dead end in the sign-in flow
+  sends the visitor to `/login?error=…`, and the page rendered a pristine form instead of the
+  message. Flash state still wins where both are present, and the query value is capped and
+  rendered as text.
+- **The dev bundle could be served mid-rebuild, and stay broken for an hour.** `bun build --watch`
+  rewrites `dist/assets/*` in place, so a reload can read the file while it is half-written —
+  and `serveFile` streamed those zero bytes as a `200` carrying `max-age=3600`, which is what
+  made the stylesheet "just not load" and then stay unloaded. Dev bundles now go through
+  `serveDevBundle` (`src/server/utils/static-files.ts`), which reads the whole file into memory,
+  answers an empty read with `503` + `Retry-After` instead of caching it as valid, and sets
+  `no-store` throughout. A bad moment costs one reload.
+- **A missing bundle answered `404`, which browsers treat as settled.** `handleFallback` now
+  checks the name against `BUNDLE_FILENAMES`, so `/assets/main.css` with no build behind it is a
+  `503` — build state the next `bun run build` fixes — while `/assets/typo.js` stays a `404`.
+  `warnOnMissingDevBundles()` says the same thing at boot, and `bun run dev` builds once before
+  starting the watchers.
+- **`assets.test.ts` deleted the real `dist/assets`.** It built its fixtures in the live directory
+  and `rmSync`'d the whole thing in `afterAll`, so running that one file from an editor's test
+  button left the running dev server with no bundles and every page unstyled until someone ran
+  `bun run build`. Every read of the directory now goes through `assetsDir()`, and
+  `setAssetsDirForTest()` overrides it; pass `null` in an `afterEach` to restore. A fork with its
+  own asset tests must call it before touching that directory. Deliberately not an env var —
+  `--outdir ./dist/assets` is fixed in `package.json`, so pointing a deployment elsewhere would
+  only break boot.
+
+## 2.1.1
+
+### Changed
+
+- The **Set your password** link on the `/login` no-password notice now carries the address
+  that was just typed, and `/forgot-password` prefills its email field from `?email=`. The
+  reset still takes a deliberate click — a server-side auto-submit has no captcha solution to
+  present and would spend the shared auth rate limit on a failed sign-in. A flash value wins
+  over the query param, and only an address-shaped param is accepted.
+
+## 2.1.0
+
+### Added
+
+- Optional password auth, behind `AUTH_MODE`. Unset (or `magic-link`) keeps the existing
+  behaviour exactly; `password` swaps in email-and-password credentials with argon2id hashing
+  via `Bun.password` — no new dependency. The two modes are mutually exclusive: with both,
+  every account would have two ways in and the weaker one would set the ceiling. An
+  `AUTH_MODE` value outside the two stops the server at boot rather than silently falling back.
+- `/signup`, in **both** modes. Magic-link mode emails a link with sign-up wording; password
+  mode takes an email and password and signs the user straight in.
+- `/account`, in both modes: email address, verification status, and — in password mode only —
+  a change-password form that keeps the current session and signs the user out everywhere else.
+  An account carried over from magic-link mode has no password yet, so it gets a set-password
+  form there instead; which of the two runs is decided from the account's own state, never from
+  the fields the form submits. Setting a first password signs the user out everywhere else too —
+  the account gains a credential, and anything else holding a session predates it — and both the
+  form and the confirmation say so.
+- A signed-out user whose account predates the switch to password mode is told so when they
+  try to sign in, and linked to `/forgot-password` to set a first password. Sign-in otherwise
+  gives one message for a wrong password and an unknown address; this case is the deliberate
+  exception, because there is no password such a user could type correctly. It does make
+  `/login` report whether an address is a registered carried-over account — see the enumeration
+  posture in `SECURITY.md` for the trade and how to revert it in a fork.
+- Password reset by email (`/forgot-password`, `/reset-password`) and email verification
+  (`/auth/verify`, `/auth/verify/resend`). All four 404 in magic-link mode. `/auth/verify`
+  renders its own result page rather than redirecting into `/account`, so a link opened from a
+  mail client with no session still shows the outcome.
+- `users.email_verified_at`, with a fixed banner reminding unverified users to confirm.
+  Nothing is gated on it — forks add their own gating. Magic-link sign-in stamps it (clicking
+  the link proves ownership), so the banner only ever appears in password mode.
+- Migration `007_add_password_credentials.ts` adds `users.password_hash` and
+  `users.email_verified_at`, both nullable, and backfills existing users as verified.
+
+### Changed
+
+- `User` gains `email_verified_at: Date | null`. Any fork constructing a `User` literal —
+  test fixtures, factories, seed data — needs the field.
+- `Layout` renders the verification banner and sets `data-banner` on `<body>`; `Nav` gains an
+  Account link. A fork with a customised `src/server/components/layouts.tsx`,
+  `nav.tsx`, or `templates/login.tsx` will hit merge conflicts in those files.
+- The magic-link token helpers in `services/auth.ts` are now `createUserToken` /
+  `consumeUserToken`, generalised over a token type. `createMagicLink` and `verifyMagicLink`
+  keep their signatures and behaviour.
+- `signInWithPassword` returns a `SignInResult` discriminated union rather than `User | null`,
+  matching the other result types in `services/passwords.ts` and carrying the reason a sign-in
+  failed. A fork calling it directly needs `result.success` / `result.user` instead of a null
+  check — note that the old `if (!user)` still compiles against the new type and is always
+  false, so the compiler will not catch this for you.
+- The layered bot defence (rate limit → honeypot → captcha) moved out of the login controller
+  into `controllers/auth/form-guard.ts` and now runs on `/signup` and `/forgot-password` too.
+  A honeypot or captcha failure hands the parsed body back to the caller, so `/reset-password`
+  can re-render behind the token the visitor already has instead of sending them off to request
+  a new email over a stale challenge. `/forgot-password` preserves the typed address across a
+  rejected submission, the way `/login` and `/signup` do.
+- The honeypot feign is mode-aware. Magic-link mode still borrows "check your email"; password
+  mode borrows the transient-failure message instead, because claiming a link was sent to an app
+  with no links strands a human who tripped it by autofill.
+- `regenerateSession` (and `verifyMagicLink`'s second argument) now take the raw session id from
+  the request cookie rather than one the caller resolved first, and discard it whatever its type.
+  Resolving it first created a guest session for a cookieless visitor purely to delete it a line
+  later, and signing in while already signed in left the old row behind as an orphan.
+- `robots.txt` disallows `/account` alongside `/admin`, `/api/`, and `/auth/`.
+- `test-utils/run-tests.ts` now pins `AUTH_MODE=magic-link` and `CAPTCHA_ENABLED=false`
+  alongside `SESSION_COOKIE_NAME`. Running the dev server in password mode or with the captcha
+  on puts those in your `.env`, and leaked into the suite they fail every test that posts to an
+  auth form.
+
+## 2.0.0
+
+### Breaking changes
+
+**One JSX runtime: Preact replaces React on the server.** The server used React purely as a
+JSX-to-string function — no hooks, context, Suspense, or portals — so it now compiles with
+`jsxImportSource: preact` and renders through `renderToString` from `preact-render-to-string`.
+`react`, `react-dom`, `@types/react`, and `@types/react-dom` are gone.
+
+If you carry a fork, merging this requires three changes in your own code:
+
+- **Write SVG presentation attributes in kebab-case.** Preact passes attribute names through
+  verbatim where React rewrote them, so `strokeWidth` reaches the browser unrecognised and the
+  stroke renders at the default width. There is no error and no failing test — the SVG just looks
+  wrong. Rename `strokeWidth` → `stroke-width`, `strokeLinecap` → `stroke-linecap`, and so on for
+  every presentation attribute in your JSX. Both renderers emit the kebab-case form identically,
+  so the fix is safe to apply before you merge.
+- **Swap React types for Preact ones.** `React.ReactNode` becomes `ComponentChildren`, and `JSX`
+  type imports come from `preact`. `dangerouslySetInnerHTML` is unchanged.
+- **Drop the `@jsxImportSource preact` pragma comments from client islands.** Preact is the default
+  runtime now, so the per-file pragma that opted back out of React is redundant.
+
+Text escaping is also less aggressive — a literal `'` where React emitted `&#x27;`. Both are valid
+HTML and both escape the injection-relevant characters, but a test asserting on the entity will
+need updating.
+
+`preact` is a runtime **dependency**, not a devDependency: the server imports its JSX runtime, so a
+production install without it won't boot. The client bundle marks it `--external` and resolves it
+from the import map in `src/server/components/layouts.tsx` — keep that pinned version in step with
+`package.json`.
+
+### Added
+
+- Optional first-party proof-of-work captcha on `/login`, behind `CAPTCHA_ENABLED`, alongside a
+  honeypot field and rate limiting. No third-party service.
+- Brotli and gzip response compression.
+- SEO defaults: sitemap, `robots.txt`, structured data, canonical URLs, per-page meta, and
+  `theme-color`.
+- AI-assistant discovery: `llms.txt`, discovery headers, and a dynamic web manifest.
+- Accessibility baseline: focus rings, reduced-motion support, form labels, and table semantics.
+- Privacy, Security, Accessibility, SEO, Email, and CI runbooks under `runbooks/`.
+- GitHub Actions CI pipeline.
+- Process-isolated test runner that applies migrations first and pins `SESSION_COOKIE_NAME`.
+
+### Changed
+
+- `CLAUDE.md` reorganised around gotchas, with detail moved into skills that load on demand.
+- Expired CSRF tokens now re-render the form with the user's input intact instead of discarding it.
+- Postgres pool hardened; Railway healthcheck added and the builder switched to Metal.
+- All environment variables are required at boot — `validateEnv()` exits on a missing one.
+- `SESSION_COOKIE_NAME` is configurable via env.
+
+### Removed
+
+- `react`, `react-dom`, `@types/react`, `@types/react-dom`.
+- The unused `APP_ORIGIN` environment variable.
+
+## 1.0.0
+
+Initial tagged release.

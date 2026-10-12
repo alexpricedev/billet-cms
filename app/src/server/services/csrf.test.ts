@@ -1,0 +1,486 @@
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
+import { testDatabase } from "../test-utils/database";
+import { cleanupTestData } from "../test-utils/helpers";
+import { findOrCreateUser } from "./auth";
+import {
+  CSRF_GRACE_WINDOWS,
+  createCsrfToken,
+  ensureCsrfSecret,
+  inspectCsrfToken,
+  TIME_WINDOW_MINUTES,
+  validateOrigin,
+  verifyCsrfToken,
+} from "./csrf";
+import { db } from "./database";
+import { createAuthenticatedSession } from "./sessions";
+
+const connection = testDatabase();
+
+mock.module("./database", () => ({
+  get db() {
+    return connection;
+  },
+}));
+
+describe("CSRF Service", () => {
+  beforeEach(async () => {
+    await cleanupTestData(db);
+  });
+
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  afterAll(async () => {
+    await connection.end();
+    mock.restore();
+  });
+  const createTestSession = async (
+    email = `test-${Date.now()}-${Math.random()}@example.com`,
+  ) => {
+    const user = await findOrCreateUser(email);
+    return createAuthenticatedSession(user.id);
+  };
+
+  describe("ensureCsrfSecret", () => {
+    test("generates new secret for new session", async () => {
+      const sessionId = await createTestSession();
+
+      const secret = await ensureCsrfSecret(sessionId);
+
+      expect(secret).toBeTruthy();
+      expect(secret.length).toBeGreaterThan(20);
+    });
+
+    test("returns existing secret for session with secret", async () => {
+      const sessionId = await createTestSession();
+
+      const secret1 = await ensureCsrfSecret(sessionId);
+      const secret2 = await ensureCsrfSecret(sessionId);
+
+      expect(secret1).toBe(secret2);
+    });
+
+    test("returns empty string for non-existent session", async () => {
+      const fakeSessionId = "non-existent-session";
+
+      const secret = await ensureCsrfSecret(fakeSessionId);
+
+      expect(secret).toBe("");
+    });
+
+    test("returns empty string when session exists but UPDATE fails", async () => {
+      const sessionId = await createTestSession();
+
+      // Delete the session to simulate a race condition
+      const { computeHMAC } = await import("../utils/crypto");
+      const sessionIdHash = computeHMAC(sessionId);
+      await import("./database").then(
+        ({ db }) => db`DELETE FROM sessions WHERE id_hash = ${sessionIdHash}`,
+      );
+
+      const secret = await ensureCsrfSecret(sessionId);
+
+      expect(secret).toBe("");
+    });
+
+    test("handles concurrent secret generation race condition", async () => {
+      const sessionId = await createTestSession();
+
+      // Simulate concurrent calls to ensureCsrfSecret
+      const promise1 = ensureCsrfSecret(sessionId);
+      const promise2 = ensureCsrfSecret(sessionId);
+      const promise3 = ensureCsrfSecret(sessionId);
+
+      const [secret1, secret2, secret3] = await Promise.all([
+        promise1,
+        promise2,
+        promise3,
+      ]);
+
+      // All should return the same secret (first writer wins)
+      expect(secret1).toBeTruthy();
+      expect(secret2).toBeTruthy();
+      expect(secret3).toBeTruthy();
+      expect(secret1).toBe(secret2);
+      expect(secret2).toBe(secret3);
+
+      // Verify the secret is actually stored in database
+      const { computeHMAC } = await import("../utils/crypto");
+      const sessionIdHash = computeHMAC(sessionId);
+      const { db } = await import("./database");
+      const dbResult = await db`
+        SELECT csrf_secret FROM sessions WHERE id_hash = ${sessionIdHash}
+      `;
+
+      expect(dbResult.length).toBe(1);
+      expect(dbResult[0].csrf_secret).toBe(secret1);
+    });
+
+    test("tokens from concurrent requests remain valid", async () => {
+      const sessionId = await createTestSession();
+
+      // Generate tokens concurrently (this will trigger concurrent ensureCsrfSecret calls)
+      const tokenPromises = [
+        createCsrfToken(sessionId, "POST", "/test1"),
+        createCsrfToken(sessionId, "POST", "/test2"),
+        createCsrfToken(sessionId, "POST", "/test3"),
+      ];
+
+      const [token1, token2, token3] = await Promise.all(tokenPromises);
+
+      // All tokens should be valid
+      expect(token1).toBeTruthy();
+      expect(token2).toBeTruthy();
+      expect(token3).toBeTruthy();
+
+      // Verify all tokens are valid for their respective paths
+      const [valid1, valid2, valid3] = await Promise.all([
+        verifyCsrfToken(sessionId, "POST", "/test1", token1),
+        verifyCsrfToken(sessionId, "POST", "/test2", token2),
+        verifyCsrfToken(sessionId, "POST", "/test3", token3),
+      ]);
+
+      expect(valid1).toBe(true);
+      expect(valid2).toBe(true);
+      expect(valid3).toBe(true);
+    });
+  });
+
+  describe("createCsrfToken and verifyCsrfToken", () => {
+    test("creates and verifies valid token", async () => {
+      const sessionId = await createTestSession();
+      const method = "POST";
+      const path = "/examples";
+
+      const token = await createCsrfToken(sessionId, method, path);
+      const isValid = await verifyCsrfToken(sessionId, method, path, token);
+
+      expect(token).toBeTruthy();
+      expect(token).toContain(".");
+      expect(isValid).toBe(true);
+    });
+
+    test("rejects token with wrong method", async () => {
+      const sessionId = await createTestSession();
+      const method = "POST";
+      const path = "/examples";
+
+      const token = await createCsrfToken(sessionId, method, path);
+      const isValid = await verifyCsrfToken(sessionId, "PUT", path, token);
+
+      expect(isValid).toBe(false);
+    });
+
+    test("rejects token with wrong path", async () => {
+      const sessionId = await createTestSession();
+      const method = "POST";
+      const path = "/examples";
+
+      const token = await createCsrfToken(sessionId, method, path);
+      const isValid = await verifyCsrfToken(sessionId, method, "/other", token);
+
+      expect(isValid).toBe(false);
+    });
+
+    test("rejects token with wrong session", async () => {
+      const sessionId1 = await createTestSession();
+      const sessionId2 = await createTestSession();
+      const method = "POST";
+      const path = "/examples";
+
+      const token = await createCsrfToken(sessionId1, method, path);
+      const isValid = await verifyCsrfToken(sessionId2, method, path, token);
+
+      expect(isValid).toBe(false);
+    });
+
+    test("rejects malformed token", async () => {
+      const sessionId = await createTestSession();
+      const method = "POST";
+      const path = "/examples";
+
+      const isValid1 = await verifyCsrfToken(
+        sessionId,
+        method,
+        path,
+        "invalid",
+      );
+      const isValid2 = await verifyCsrfToken(
+        sessionId,
+        method,
+        path,
+        "too.many.parts.here",
+      );
+      const isValid3 = await verifyCsrfToken(sessionId, method, path, "");
+
+      expect(isValid1).toBe(false);
+      expect(isValid2).toBe(false);
+      expect(isValid3).toBe(false);
+    });
+
+    test("rejects token for non-existent session", async () => {
+      const fakeSessionId = "non-existent-session";
+      const method = "POST";
+      const path = "/examples";
+
+      const isValid = await verifyCsrfToken(
+        fakeSessionId,
+        method,
+        path,
+        "fake.token",
+      );
+
+      expect(isValid).toBe(false);
+    });
+
+    test("tokens are method case insensitive", async () => {
+      const sessionId = await createTestSession();
+      const path = "/examples";
+
+      const token = await createCsrfToken(sessionId, "post", path);
+      const isValid = await verifyCsrfToken(sessionId, "POST", path, token);
+
+      expect(isValid).toBe(true);
+    });
+
+    test("path normalization - token valid for same path with query params", async () => {
+      const sessionId = await createTestSession();
+      const basePath = "/examples";
+      const pathWithQuery = "/examples?x=1&y=2";
+
+      // Create token for base path
+      const token = await createCsrfToken(sessionId, "POST", basePath);
+
+      // Should be valid for path with query params
+      const isValid = await verifyCsrfToken(
+        sessionId,
+        "POST",
+        pathWithQuery,
+        token,
+      );
+
+      expect(isValid).toBe(true);
+    });
+
+    test("path normalization - token valid for same path with fragments", async () => {
+      const sessionId = await createTestSession();
+      const basePath = "/examples";
+      const pathWithFragment = "/examples#section";
+
+      // Create token for base path
+      const token = await createCsrfToken(sessionId, "POST", basePath);
+
+      // Should be valid for path with fragment
+      const isValid = await verifyCsrfToken(
+        sessionId,
+        "POST",
+        pathWithFragment,
+        token,
+      );
+
+      expect(isValid).toBe(true);
+    });
+
+    test("createCsrfToken throws error for non-existent session", async () => {
+      const fakeSessionId = "non-existent-session";
+
+      await expect(
+        createCsrfToken(fakeSessionId, "POST", "/test"),
+      ).rejects.toThrow("Cannot create CSRF token: session not found");
+    });
+  });
+
+  describe("validateOrigin", () => {
+    test("accepts matching Origin header", () => {
+      const req = new Request("http://example.com/test", {
+        headers: { Origin: "http://example.com" },
+      });
+
+      const isValid = validateOrigin(req, "http://example.com");
+
+      expect(isValid).toBe(true);
+    });
+
+    test("accepts matching Referer header when no Origin", () => {
+      const req = new Request("http://example.com/test", {
+        headers: { Referer: "http://example.com/page" },
+      });
+
+      const isValid = validateOrigin(req, "http://example.com");
+
+      expect(isValid).toBe(true);
+    });
+
+    test("rejects mismatched Origin", () => {
+      const req = new Request("http://example.com/test", {
+        headers: { Origin: "http://evil.com" },
+      });
+
+      const isValid = validateOrigin(req, "http://example.com");
+
+      expect(isValid).toBe(false);
+    });
+
+    test("rejects mismatched Referer", () => {
+      const req = new Request("http://example.com/test", {
+        headers: { Referer: "http://evil.com/page" },
+      });
+
+      const isValid = validateOrigin(req, "http://example.com");
+
+      expect(isValid).toBe(false);
+    });
+
+    test("rejects request with no Origin or Referer", () => {
+      const req = new Request("http://example.com/test");
+
+      const isValid = validateOrigin(req, "http://example.com");
+
+      expect(isValid).toBe(false);
+    });
+
+    test("uses APP_URL env var when no expected origin provided", () => {
+      const originalAppUrl = process.env.APP_URL;
+      process.env.APP_URL = "http://test.com";
+
+      const req = new Request("http://example.com/test", {
+        headers: { Origin: "http://test.com" },
+      });
+
+      const isValid = validateOrigin(req);
+
+      expect(isValid).toBe(true);
+
+      process.env.APP_URL = originalAppUrl;
+    });
+  });
+
+  describe("inspectCsrfToken", () => {
+    const WINDOW_MS = TIME_WINDOW_MINUTES * 60 * 1000;
+
+    // Mint a token as if the page had rendered `minutesAgo` in the past.
+    const mintAged = async (
+      sessionId: string,
+      minutesAgo: number,
+    ): Promise<string> => {
+      setSystemTime(new Date(Date.now() - minutesAgo * 60 * 1000));
+      const token = await createCsrfToken(sessionId, "POST", "/forms");
+      setSystemTime();
+      return token;
+    };
+
+    test("returns valid for a freshly minted token", async () => {
+      const sessionId = await createTestSession();
+      const token = await createCsrfToken(sessionId, "POST", "/forms");
+
+      expect(await inspectCsrfToken(sessionId, "POST", "/forms", token)).toBe(
+        "valid",
+      );
+    });
+
+    test("returns expired for a token a few windows old", async () => {
+      const sessionId = await createTestSession();
+      // 3 windows back is beyond the current/previous pair but inside grace.
+      const token = await mintAged(sessionId, TIME_WINDOW_MINUTES * 3);
+
+      expect(await inspectCsrfToken(sessionId, "POST", "/forms", token)).toBe(
+        "expired",
+      );
+    });
+
+    test("returns invalid once a token falls outside the grace range", async () => {
+      const sessionId = await createTestSession();
+      const token = await mintAged(
+        sessionId,
+        TIME_WINDOW_MINUTES * (CSRF_GRACE_WINDOWS + 4),
+      );
+
+      expect(await inspectCsrfToken(sessionId, "POST", "/forms", token)).toBe(
+        "invalid",
+      );
+    });
+
+    test("returns session-expired when the session has no secret", async () => {
+      const sessionId = await createTestSession();
+
+      expect(
+        await inspectCsrfToken(sessionId, "POST", "/forms", "nonce.token"),
+      ).toBe("session-expired");
+    });
+
+    test("returns invalid for a malformed token", async () => {
+      const sessionId = await createTestSession();
+      await ensureCsrfSecret(sessionId);
+
+      expect(
+        await inspectCsrfToken(sessionId, "POST", "/forms", "no-dot-here"),
+      ).toBe("invalid");
+    });
+
+    test("returns rate-limited after repeated forged attempts", async () => {
+      const sessionId = await createTestSession();
+      await ensureCsrfSecret(sessionId);
+
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await inspectCsrfToken(sessionId, "POST", "/forms", "bad.token");
+      }
+
+      expect(
+        await inspectCsrfToken(sessionId, "POST", "/forms", "bad.token"),
+      ).toBe("rate-limited");
+    });
+
+    test("expired tokens never trip the failure brake", async () => {
+      const sessionId = await createTestSession();
+      const token = await mintAged(sessionId, TIME_WINDOW_MINUTES * 3);
+
+      // Well past MAX_FAILURES_PER_WINDOW: a user with several stale tabs must
+      // not be able to lock themselves out of the recovery path.
+      for (let attempt = 0; attempt < 11; attempt++) {
+        expect(await inspectCsrfToken(sessionId, "POST", "/forms", token)).toBe(
+          "expired",
+        );
+      }
+    });
+
+    test("expired tokens are still rejected by verifyCsrfToken", async () => {
+      const sessionId = await createTestSession();
+      const token = await mintAged(sessionId, TIME_WINDOW_MINUTES * 3);
+
+      expect(await verifyCsrfToken(sessionId, "POST", "/forms", token)).toBe(
+        false,
+      );
+    });
+
+    test("a token from the previous window is still valid", async () => {
+      const sessionId = await createTestSession();
+      setSystemTime(new Date(Date.now() - WINDOW_MS));
+      const token = await createCsrfToken(sessionId, "POST", "/forms");
+      setSystemTime();
+
+      const status = await inspectCsrfToken(sessionId, "POST", "/forms", token);
+      // Depending on where "now" sits in its bucket this is either the previous
+      // bucket (valid) or one older (expired) - never a hard failure.
+      expect(["valid", "expired"]).toContain(status);
+    });
+
+    test("an expired token for the wrong path stays invalid", async () => {
+      const sessionId = await createTestSession();
+      const token = await mintAged(sessionId, TIME_WINDOW_MINUTES * 3);
+
+      expect(await inspectCsrfToken(sessionId, "POST", "/todos", token)).toBe(
+        "invalid",
+      );
+    });
+  });
+});
