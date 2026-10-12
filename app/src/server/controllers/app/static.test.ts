@@ -35,6 +35,17 @@ describe("Static Page Controllers", () => {
 
       expect(html).toContain("The Stack");
     });
+
+    // Husky is gone with the rest of the strip, so the feedback stack lists four
+    // layers, not five.
+    test("does not advertise pre-commit hooks", async () => {
+      const req = createBunRequest("http://localhost:3000/stack");
+      const response = await stack.index(req);
+      const html = await response.text();
+
+      expect(html).not.toMatch(/pre-commit/i);
+      expect(html).toContain("Four layers");
+    });
   });
 
   describe("Forms Controller", () => {

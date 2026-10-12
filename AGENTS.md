@@ -38,7 +38,11 @@ repo. This file is only the invariants.
   at boot; `content_version` is bumped on publish and polled by the plugin.
 - **`cms_identities` is a view the CMS creates only if it is missing, and never
   replaces.** The site owns its definition (the default is the site's admins).
-  `app/src/server/database/identity-view.ts`.
+  A site migration that drops or retypes `users.id`, `users.email` or
+  `users.role` must `DROP VIEW cms_identities` first — Postgres refuses the
+  change while the view depends on the column — and the CMS rebuilds the default
+  on its next boot; a site with its own definition recreates it in the same
+  migration. `app/src/server/database/identity-view.ts`.
 - **The contract version is `CONTRACT_VERSION`** in
   `packages/billet-cms/src/contract`. Bump it whenever stored rows change shape
   in a way an older CMS or site cannot read.

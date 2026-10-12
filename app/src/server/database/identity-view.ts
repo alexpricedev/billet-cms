@@ -18,8 +18,12 @@ const IDENTITY_VIEW_LOCK_KEY = "8041000002";
  *
  * The default pins three columns of the site's `users` table: `id` (keyed on,
  * and the view's own column of the same name), `email` (sign-in identity) and
- * `role` (`'admin'` is the default filter). A site that renames or drops any of
- * them must replace this view rather than rely on the default.
+ * `role` (`'admin'` is the default filter). Postgres refuses to drop or retype a
+ * column a view depends on, so a site migration that changes any of them must
+ * `DROP VIEW cms_identities` first; the CMS rebuilds this default on its next
+ * boot. A site that wants a different definition — a renamed column, or editor
+ * roles beyond admins — creates that view in the same migration, and the CMS
+ * leaves it alone from then on.
  */
 const DEFAULT_IDENTITY_VIEW_QUERY = `SELECT id, email, role
   FROM users
@@ -32,19 +36,31 @@ const DEFAULT_IDENTITY_VIEW_QUERY = `SELECT id, email, role
  *
  * 1. **Create only if missing.** The site owns this view's definition. Running
  *    `CREATE OR REPLACE` on every boot would silently discard a site's custom
- *    editor roles. Existence is `to_regclass`, so any relation under that name —
- *    a view, or a site that replaced it with a table — counts as present.
+ *    editor roles. Existence is `to_regclass` against `current_schema()`, so any
+ *    relation under that name — a view, or a site that replaced it with a table —
+ *    counts as present, and the check is scoped to the schema the CMS creates in
+ *    rather than wherever the session's `search_path` happens to point.
  * 2. **Skip when the site's `users` table isn't there yet.** The CMS is
  *    deployed before the site, and creating a view over a table that doesn't
  *    exist is an error. Boot proceeds without it; the next boot after the
  *    site's first deploy creates it.
+ *
+ * A site migration that drops or retypes `users.id`, `users.email` or
+ * `users.role` has to `DROP VIEW cms_identities` first, because Postgres refuses
+ * the change while the view depends on the column. That drop is the whole
+ * signal: the next boot finds no view, takes rule 1's create path and rebuilds
+ * the default. A site that had replaced the default with its own definition must
+ * recreate that definition in the same migration, or the next boot rebuilds the
+ * admin-only default in its place.
  */
 export const ensureIdentitiesView = async (sql: SQL = db): Promise<void> => {
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(${IDENTITY_VIEW_LOCK_KEY}::bigint)`;
 
     const existing = await tx`
-      SELECT to_regclass(${TABLES.identities}) AS relation
+      SELECT to_regclass(
+        current_schema() || '.' || ${TABLES.identities}
+      ) AS relation
     `;
     if ((existing[0] as { relation: string | null } | undefined)?.relation) {
       return;

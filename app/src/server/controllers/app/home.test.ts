@@ -37,6 +37,17 @@ describe("Home Controller", () => {
       expect(html).toContain("<main>");
     });
 
+    // The strip removed Husky, so the page must not advertise pre-commit hooks
+    // as a layer the repo still has.
+    test("does not advertise pre-commit hooks", async () => {
+      const request = createBunRequest("http://localhost:3000/", {
+        method: "GET",
+      });
+      const html = await (await home.index(request)).text();
+
+      expect(html).not.toMatch(/pre-commit/i);
+    });
+
     // A public page carries no noindex of its own, so what it renders is the
     // site-wide switch. Both directions, because the default being closed is
     // the whole point and the open path is what a production host gets.

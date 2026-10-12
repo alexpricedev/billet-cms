@@ -6,6 +6,14 @@ paths:
 
 # The client layer
 
+> **This is the Billet CMS fork of Billet.** The repo-root `AGENTS.md` and
+> `app/CLAUDE.md` list what the strip removed from upstream (todos, teams,
+> password auth, the user admin dashboard, the seed script, `scripts/qa-session.ts`)
+> and which tables were renamed to `cms_`. Examples below still name upstream
+> surfaces — read `users`, `sessions` and `user_tokens` as `cms_users`,
+> `cms_sessions` and `cms_user_tokens`, and treat `todo`, `todo-list` and
+> `teams` as gone.
+
 Loaded when you open client or shared code. The always-on rule — three tiers, plain form by
 default — is in CLAUDE.md; this is how the layer works.
 
