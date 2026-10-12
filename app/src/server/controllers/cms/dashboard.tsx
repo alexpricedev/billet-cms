@@ -15,7 +15,7 @@ export const dashboard = {
     if (authRedirect) return authRedirect;
 
     const ctx = await getSessionContext(req);
-    if (!ctx.user || !ctx.sessionId) return redirect("/login");
+    if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
     const [slots, pageTypes] = await Promise.all([
       listSlots(),

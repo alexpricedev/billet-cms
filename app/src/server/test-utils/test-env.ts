@@ -22,7 +22,7 @@
 import { workerDatabaseUrl } from "./worker-database";
 
 // Assigned, not defaulted. A developer running the dev server in password mode,
-// with the captcha on, or with teams enabled has those in `.env`, and Bun has
+// with teams enabled has those in `.env`, and Bun has
 // already loaded it by the time this runs — deferring to it would reintroduce
 // the leak. Tests that exercise a non-default set the variable per case at
 // runtime, which happens long after preload.
@@ -30,9 +30,7 @@ const TEST_ENV: Record<string, string> = {
   // Tests hardcode `cms_session=` when they build a cookie header.
   SESSION_COOKIE_NAME: "cms_session",
 
-  // Optional features at the defaults the app ships with. The captcha is the
-  // only one left that a test flips per case.
-  CAPTCHA_ENABLED: "false",
+  // Optional features at the defaults the app ships with.
   TRUST_PROXY: "false",
 
   // Tests build request URLs as http://localhost:3000, and `services/csrf.ts`
@@ -42,13 +40,14 @@ const TEST_ENV: Record<string, string> = {
   PORT: "3000",
   APP_URL: "http://localhost:3000",
 
-  // Required by the app at runtime. Nothing asserts these literals — the email
-  // tests compare against `process.env` — they only need to be present and the
+  // The site a signed-out CMS visitor is sent to. Nothing asserts the literal
+  // except the tests that drive sign-in; it only needs to be present and the
   // same on every machine.
+  SITE_APP_URL: "http://localhost:4000",
+
+  // Required by the app at runtime. Nothing asserts these literals — they only
+  // need to be present and the same on every machine.
   APP_NAME: "Test App",
-  EMAIL_PROVIDER: "console",
-  FROM_EMAIL: "test@example.com",
-  FROM_NAME: "Test",
 
   // Hashes are only stable within one pepper, and a real one has no business in
   // a test run.

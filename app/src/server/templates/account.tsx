@@ -30,7 +30,7 @@ export const Account = ({ user, csrfToken }: AccountProps) => (
         <dt>Role</dt>
         <dd>{user.role}</dd>
         <dt>Sign-in method</dt>
-        <dd>Magic link</dd>
+        <dd>Through the site</dd>
       </dl>
     </section>
   </Layout>

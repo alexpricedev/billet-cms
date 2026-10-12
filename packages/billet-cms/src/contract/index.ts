@@ -22,8 +22,8 @@ import { createHash } from "node:crypto";
  * the definition tables; it moved the stored field metadata from a flat list to
  * a tree, so a Phase 1 CMS cannot read a Phase 2 publish. Phase 3 adds the
  * revisions a CMS save writes, the published-revision pointer on `cms_slots`
- * and the single-use handoff tokens a site mints for the Edit content link, and
- * drops `cms_users` — sign-in now reads the site's own accounts through
+ * and the single-use handoff tokens a site mints for the Edit content link and
+ * CMS sign-in, and drops `cms_users` — sign-in now reads the site's own accounts through
  * `cms_identities` — so an older CMS cannot read a Phase 3 database.
  */
 export const CONTRACT_VERSION = "0.3.0";
@@ -34,6 +34,18 @@ export const CONTRACT_VERSION = "0.3.0";
  * other's tables, sequences, indexes or constraints.
  */
 export const TABLE_PREFIX = "cms_";
+
+/**
+ * The path on the **site** that starts a CMS sign-in.
+ *
+ * The CMS has no sign-in of its own: a signed-out visit is sent to
+ * `<SITE_APP_URL>${CMS_SIGN_IN_PATH}`, a route the site mounts from the plugin
+ * (`handleCmsSignIn`). That route mints a single-use handoff token and sends the
+ * browser back to the CMS, which spends it — the same mechanism as the Edit
+ * content link, and no shared secret between the two services. Fixing the path
+ * here is what lets both sides agree on it without importing each other.
+ */
+export const CMS_SIGN_IN_PATH = "/cms/sign-in";
 
 /**
  * Every table and view the CMS owns.
@@ -50,8 +62,9 @@ export const TABLE_PREFIX = "cms_";
  *
  * `revisions` is where every save lands: one immutable row per draft, keyed by
  * the page or slot it belongs to. `handoff_tokens` carries the single-use
- * tokens a site mints for its Edit content link, written by the plugin and
- * spent by the CMS.
+ * tokens a site mints, written by the plugin and spent by the CMS — the Edit
+ * content link and the CMS sign-in route both use it, so the CMS can hand a
+ * signed-in site admin a session without a shared secret.
  */
 export const TABLES = {
   migrations: "cms_migrations",

@@ -14,11 +14,11 @@ export interface HandoffProps {
  * The confirm step between the site's Edit content link and the CMS session it
  * starts.
  *
- * Like the magic-link callback, the GET only shows the button and the POST
- * spends the token. A single-use token that a browser prefetch or a link
- * scanner could burn by fetching the URL would leave the person staring at an
- * expired link with nothing to explain it; a GET that answers with a form is
- * inert.
+ * Both the site's Edit content link and CMS sign-in land here, and both carry a
+ * single-use token, so the GET only shows the button and the POST spends it. A
+ * token that a browser prefetch or a link scanner could burn by fetching the URL
+ * would leave the person staring at an expired link with nothing to explain it;
+ * a GET that answers with a form is inert.
  */
 export const Handoff = ({ token, csrfToken }: HandoffProps) => {
   return (

@@ -145,7 +145,7 @@ export const slotForm = {
     if (authRedirect) return authRedirect;
 
     const ctx = await getSessionContext(req);
-    if (!ctx.user || !ctx.sessionId) return redirect("/login");
+    if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
     const slotId = (req.params as { id: string }).id;
     if (!UUID_PATTERN.test(slotId)) return render404();
@@ -175,7 +175,7 @@ export const slotForm = {
     if (authRedirect) return authRedirect;
 
     const ctx = await getSessionContext(req);
-    if (!ctx.user || !ctx.sessionId) return redirect("/login");
+    if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
     const slotId = (req.params as { id: string }).id;
     if (!UUID_PATTERN.test(slotId)) return render404();

@@ -9,6 +9,7 @@
     "./contract": "./src/contract/index.ts",
     "./fields": "./src/fields/index.ts",
     "./handoff": "./src/handoff/index.ts",
+    "./sign-in": "./src/sign-in/index.ts",
     "./schema": "./src/schema/index.ts",
     "./cli/publish": "./src/cli/publish/index.ts"
   },

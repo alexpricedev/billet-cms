@@ -10,7 +10,7 @@ export const account = {
     if (authRedirect) return authRedirect;
 
     const ctx = await getSessionContext(req);
-    if (!ctx.user || !ctx.sessionId) return redirect("/login");
+    if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
     // Sign-out is the only action on the page, so it needs the one token.
     const csrfToken = await createCsrfToken(

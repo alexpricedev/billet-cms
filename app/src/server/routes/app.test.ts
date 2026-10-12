@@ -17,6 +17,14 @@ describe("app routes", () => {
     expect(appRoutes).not.toHaveProperty("/signup");
   });
 
+  // The CMS has no sign-in of its own (review round 4): the magic-link login and
+  // its callback are gone, and /sign-in hands off to the site.
+  test("has no CMS login route, and a /sign-in handoff instead", () => {
+    expect(appRoutes).not.toHaveProperty("/login");
+    expect(appRoutes).not.toHaveProperty("/auth/callback");
+    expect(appRoutes).toHaveProperty("/sign-in");
+  });
+
   test("/signup falls through to the 404 page", async () => {
     // The route table above is what actually decides this: the fallback is only
     // reached for a path no declared route claimed.

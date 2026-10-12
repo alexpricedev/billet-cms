@@ -73,17 +73,16 @@ export default defineRailway(() => {
       // domain doesn't exist until the service does.
       APP_NAME: "Billet CMS",
       APP_URL: "https://${{RAILWAY_PUBLIC_DOMAIN}}",
-      EMAIL_PROVIDER: "console",
-      FROM_EMAIL: "noreply@example.com",
-      FROM_NAME: "Billet CMS",
-      RESEND_API_KEY: preserve(),
 
       // Optional — each one changes behaviour only when set.
-      REPLY_TO_EMAIL: preserve(),
+      //
+      // SITE_APP_URL is the site's own Billet app, where sign-in happens. It is
+      // preserved rather than defaulted: the site's domain isn't knowable from
+      // here, and the CMS boots without it (a signed-out visit answers "sign-in
+      // is unavailable" until it's set).
+      SITE_APP_URL: preserve(),
       SITE_URL: preserve(),
       ALLOW_INDEXING: preserve(),
-      CAPTCHA_ENABLED: preserve(),
-      CAPTCHA_DIFFICULTY: preserve(),
       SECURITY_CONTACT: preserve(),
       SESSION_COOKIE_NAME: preserve(),
       MAINTENANCE_MODE: preserve(),

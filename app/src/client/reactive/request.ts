@@ -77,7 +77,7 @@ const send = (form: HTMLFormElement): Promise<Response> => {
     body,
     headers,
     credentials: "same-origin",
-    // A controller that redirects (requireAuth sending a guest to /login) is
+    // A controller that redirects (requireAuth sending a guest to /sign-in) is
     // answering a plain post, not a fragment request. Following it would hand
     // the caller a whole login page to insert as a row; refusing it makes the
     // response opaque and not ok, so it fails and the form falls back.

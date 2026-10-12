@@ -39,7 +39,7 @@ export const logout = {
     return new Response("", {
       status: 303,
       headers: {
-        Location: "/login",
+        Location: "/",
         "Clear-Site-Data": '"cookies", "storage"',
       },
     });

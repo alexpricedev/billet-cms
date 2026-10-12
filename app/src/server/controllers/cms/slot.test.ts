@@ -133,7 +133,7 @@ describe("Slot form controller", () => {
       const res = await slotForm.index(get(""));
 
       expect(res.status).toBe(303);
-      expect(res.headers.get("location")).toBe("/login");
+      expect(res.headers.get("location")).toBe("/sign-in");
     });
 
     test("builds the form from the published field metadata", async () => {

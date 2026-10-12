@@ -13,7 +13,7 @@ import { clientKey } from "./client-ip";
  * only by the requests it describes.
  *
  * Deliberately coarse. `auth` is one bucket across every credential and
- * mail-sending form (`/login`, `/signup`, `/forgot-password`, `/reset-password`,
+ * signed-out form (`/forms`, and any future one),
  * `/account/password`, `/auth/verify*`, `/team/invites`, `/invites/accept`)
  * because that is the budget those routes have always shared: an attacker who
  * can spread guesses over four endpoints has four times the budget, and the

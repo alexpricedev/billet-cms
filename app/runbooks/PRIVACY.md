@@ -1,5 +1,10 @@
 # Privacy Runbook
 
+> **Billet CMS fork.** The CMS has no sign-in of its own and no email delivery:
+> it reads the site's accounts through `cms_identities` and hands sign-in to the
+> site. Sections below that mention magic links, password credentials or emailed
+> tokens describe upstream Billet and the site's own app.
+
 Billet ships **privacy-clean by default**: no analytics, no advertising, no
 third-party trackers, and only strictly-necessary first-party cookies. Out of
 the box there is nothing to consent to and — under the GDPR/ePrivacy rules — no

@@ -26,7 +26,6 @@ const FIXTURE_DIR = "dist/.assets-test";
 const writeBundles = () => {
   mkdirSync(FIXTURE_DIR, { recursive: true });
   writeFileSync(`${FIXTURE_DIR}/main.js`, "console.log('test')");
-  writeFileSync(`${FIXTURE_DIR}/captcha.js`, "console.log('captcha')");
   writeFileSync(`${FIXTURE_DIR}/cms-form.js`, "console.log('cms')");
   writeFileSync(`${FIXTURE_DIR}/main.css`, "body { color: red }");
 };
@@ -133,7 +132,6 @@ describe("isBundleFilename", () => {
   test("recognises the bundles the build produces", () => {
     expect(isBundleFilename("main.css")).toBe(true);
     expect(isBundleFilename("main.js")).toBe(true);
-    expect(isBundleFilename("captcha.js")).toBe(true);
     expect(isBundleFilename("cms-form.js")).toBe(true);
   });
 

@@ -49,17 +49,22 @@ repo. This file is only the invariants.
 - **The database is the runtime contract, not the source of truth.** Block and
   page definitions live in site code and are published into `cms_` rows on
   deploy; the CMS never imports site code.
-- **CMS sign-in is invite-only, and the CMS never writes the site's accounts.**
-  Magic-link sign-in looks a person up in `cms_identities`, the view over the
-  site's own `users` table; an email the view does not expose — an unknown
-  address, or a site user the default view keeps out because they are not an
-  admin — creates no row, sends no link and starts no session, but gets the same
-  "check your email" page a known one gets, so the form can't be used to
-  enumerate accounts. The CMS never inserts into, updates or deletes `users`;
-  there is no self-serve sign-up and no `cms_users` table (Phase 3 dropped it).
-  A session stores the site user's id and re-reads the view on every request, so
-  a site that removes an account ends the session at the next request. There is
-  no CMS account to provision.
+- **The CMS has no sign-in of its own; signing in always goes through the
+  site.** A signed-out visit to a guarded page is sent to `/sign-in`, which
+  redirects to `<SITE_APP_URL><CMS_SIGN_IN_PATH>` — a route the site mounts from
+  the plugin (`handleCmsSignIn`, `packages/billet-cms/src/sign-in`). That route
+  resolves the site's own signed-in user, checks them against `cms_identities`
+  (the view over the site's `users`; the default exposes its admins), and, for an
+  identity, writes a single-use 60-second token into `cms_handoff_tokens` and
+  sends the browser back to the CMS's `/handoff`, which spends it and starts a
+  `cms_session`. A site user who is not in the view is refused with a 403 and
+  gets no token; someone signed out on the site goes through the site's own login
+  (password or magic link — the site's choice) first. The CMS never inserts into,
+  updates or deletes `users`, and never reads or writes password data. There is
+  no `cms_users` table (Phase 3 dropped it) and no CMS magic-link sign-in (review
+  round 4 removed it). A session stores the site user's id and re-reads the view
+  on every request, so a site that removes an account ends the session at the
+  next request. There is no CMS account to provision.
 - **The generated CMS form is the one recorded exception to server-rendered
   interaction.** `src/client/cms-form.ts` is shipped for the block editor: rich
   text is a `contenteditable` editor and repeatable lists are added and removed
@@ -84,7 +89,11 @@ of this fork. The strip and the renames are the things that will conflict:
 `teams-mode.ts`, the `/team` and `/invites` surfaces); password auth
 (`passwords.ts`, password reset, `AUTH_MODE`); the user admin dashboard
 (`/admin`, `middleware/admin.ts`); the seed script; Husky hooks; `scripts/qa-session.ts`;
-the email-verification banner and flow; `templates/accept-invite.tsx`.
+the email-verification banner and flow; `templates/accept-invite.tsx`. The CMS
+itself then lost its own sign-in: the magic-link login (`/login`,
+`/auth/callback`, the email service and its Resend provider, the captcha and
+honeypot that guarded the form) is gone, and sign-in goes through the site —
+see the invariant above.
 
 **Renamed to `cms_`.** `users` → `cms_users`, `sessions` → `cms_sessions`,
 `user_tokens` → `cms_user_tokens`, `migrations` → `cms_migrations`. Indexes
@@ -95,12 +104,14 @@ trailing `_idx` matches the site's own Billet app rather than an `idx_` prefix.
 The migration files were rewritten against the new names and now also create
 `cms_meta`; upstream migrations that add the removed columns do not apply.
 
-**Kept, but on a renamed table.** Magic-link sign-in is unchanged apart from
-the table names. `cms_users` was created by the verbatim-copy milestone and
-dropped by migration `009_identities_and_handoff.ts`: sign-in now reads the
-site's own accounts through `cms_identities`, `cms_sessions.user_id` and
-`cms_user_tokens.user_id` name an identity, and there is no foreign key because
-the view's rows belong to the site. `cms_user_tokens` (the magic-link tokens)
-is otherwise unchanged. When porting an upstream release, the sign-in service
-(`services/auth.ts`) will conflict where it read `cms_users`; point it at
-`cms_identities` as this fork does.
+**Kept, but on a renamed table.** `cms_users` was created by the
+verbatim-copy milestone and dropped by migration `009_identities_and_handoff.ts`:
+sign-in now reads the site's own accounts through `cms_identities`,
+`cms_sessions.user_id` and `cms_user_tokens.user_id` name an identity, and there
+is no foreign key because the view's rows belong to the site. `cms_user_tokens`
+is the magic-link token table the fork inherited; the CMS's own magic-link
+sign-in is gone (review round 4), so nothing writes it now, but it is left in
+place as migration history rather than dropped. When porting an upstream
+release, the sign-in service (`services/auth.ts`) will conflict where upstream
+reads `cms_users` and mints magic links; this fork keeps only the identity
+lookup and session helper, and sign-in goes through the plugin's handoff route.

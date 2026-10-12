@@ -1,5 +1,11 @@
 # Security Features
 
+> **Billet CMS fork.** This app has no sign-in of its own and never stores a
+> password: a signed-out visit is sent to the site's Billet app, which mints a
+> single-use handoff token the CMS spends. The password-storage and magic-link
+> sections below describe upstream Billet and the site's own app, not this
+> service — see `../AGENTS.md` and `CLAUDE.md`.
+
 ## CSRF Protection
 
 Billet implements robust Cross-Site Request Forgery (CSRF) protection using the **synchronizer token pattern**.

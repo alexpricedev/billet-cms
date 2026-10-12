@@ -8,8 +8,9 @@ import { db } from "./database";
  *
  * The site's plugin mints the token (see `@alexpricedev/billet-cms/handoff`)
  * and the CMS spends it here. The token is single-use and short-lived: the
- * UPDATE that claims it is the same race-safe shape the magic-link tokens use,
- * so two clicks on one link produce exactly one session.
+ * conditional UPDATE that claims it is the same race-safe shape the rest of the
+ * CMS's single-use tokens use, so two clicks on one link produce exactly one
+ * session.
  */
 export type HandoffResult =
   | { success: true; user: User; sessionId: string }

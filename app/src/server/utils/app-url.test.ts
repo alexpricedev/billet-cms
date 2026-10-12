@@ -14,8 +14,8 @@ describe("appUrl", () => {
   });
 
   test("builds an absolute URL on the configured origin", () => {
-    expect(appUrl("/auth/callback?token=abc")).toBe(
-      "https://app.example.com/auth/callback?token=abc",
+    expect(appUrl("/handoff?token=abc")).toBe(
+      "https://app.example.com/handoff?token=abc",
     );
   });
 

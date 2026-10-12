@@ -71,8 +71,8 @@ export const Nav = ({ page, user, csrfToken }: NavProps) => (
             </form>
           </>
         ) : (
-          <a href="/login" className="btn-ghost">
-            Login
+          <a href="/sign-in" className="btn-ghost">
+            Sign in
           </a>
         )}
       </div>

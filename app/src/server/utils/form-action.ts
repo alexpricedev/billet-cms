@@ -68,7 +68,7 @@ export type ActionHandler<State, G> = (
 const refuseFragment = (response: Response): Response => {
   if (response.status < 300 || response.status >= 400) return response;
   const location = response.headers.get("Location") ?? "";
-  return new Response(null, { status: location === "/login" ? 401 : 403 });
+  return new Response(null, { status: location === "/sign-in" ? 401 : 403 });
 };
 
 export const formAction =
@@ -94,7 +94,7 @@ export const formAction =
       if (guard === "user" && !ctx.isAuthenticated) {
         return fragment
           ? new Response(null, { status: 401 })
-          : redirect("/login");
+          : redirect("/sign-in");
       }
     }
 

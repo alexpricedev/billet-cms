@@ -6,9 +6,6 @@ const REQUIRED = [
   "PORT",
   "APP_NAME",
   "APP_URL",
-  "EMAIL_PROVIDER",
-  "FROM_EMAIL",
-  "FROM_NAME",
 ];
 
 // APP_URL and SITE_URL are both parsed with `new URL()` at request time, so a
@@ -49,10 +46,6 @@ export function validateEnv(): void {
     }
   }
 
-  if (process.env.EMAIL_PROVIDER === "resend" && !process.env.RESEND_API_KEY) {
-    missing.push("RESEND_API_KEY");
-  }
-
   if (missing.length > 0) {
     log.error("env", `Missing required variables: ${missing.join(", ")}`);
     log.error(
@@ -62,25 +55,10 @@ export function validateEnv(): void {
     process.exit(1);
   }
 
-  if (
-    process.env.EMAIL_PROVIDER === "resend" &&
-    (process.env.FROM_EMAIL as string).endsWith("@example.com")
-  ) {
-    log.error(
-      "env",
-      "FROM_EMAIL is still the @example.com placeholder — Resend will reject it or it will land in spam",
-    );
-    log.error(
-      "env",
-      "Set FROM_EMAIL to an address on a Resend-verified domain (see runbooks/EMAIL.md)",
-    );
-    process.exit(1);
-  }
-
-  // APP_URL is the origin CSRF validation compares against, the base for every
-  // emailed link, and — via siteUrl() in services/seo.ts — the canonical origin
-  // for canonicals, Open Graph tags, the sitemap and JSON-LD. One bad value now
-  // breaks all three, so it is fatal at boot rather than at first render.
+  // APP_URL is the origin CSRF validation compares against and — via siteUrl()
+  // in services/seo.ts — the canonical origin for canonicals, Open Graph tags,
+  // the sitemap and JSON-LD. One bad value now breaks all of them, so it is
+  // fatal at boot rather than at first render.
   const appUrlProblem = urlProblem("APP_URL", process.env.APP_URL as string);
   if (appUrlProblem) {
     log.error("env", appUrlProblem);
@@ -102,8 +80,22 @@ export function validateEnv(): void {
     }
   }
 
-  // AUTH_MODE has no place here: the CMS signs users in through the site's own
-  // identity view and accepts only magic links for now.
+  // SITE_APP_URL is the site's own Billet app, where CMS sign-in happens. It is
+  // optional at boot on purpose: the CMS is deployed before its site, and a
+  // missing value is answered with a clear "sign-in is unavailable" page rather
+  // than a crash. Set, it is held to the same URL rule as everything else.
+  const configuredSiteAppUrl = process.env.SITE_APP_URL?.trim();
+  if (configuredSiteAppUrl) {
+    const siteAppUrlProblem = urlProblem("SITE_APP_URL", configuredSiteAppUrl);
+    if (siteAppUrlProblem) {
+      log.error("env", siteAppUrlProblem);
+      process.exit(1);
+    }
+  }
+
+  // AUTH_MODE has no place here: the CMS has no sign-in of its own. Signing in
+  // always goes through the site — its login, then a single-use handoff token
+  // the CMS spends — so whichever mode the site runs is the site's business.
 
   // TRUST_PROXY decides whose word the rate limiter takes for the client
   // address (see middleware/client-ip.ts). A typo is worth refusing to boot
@@ -125,13 +117,6 @@ export function validateEnv(): void {
       "env",
       "Trusting x-forwarded-for from the proxy for rate limiting",
     );
-  }
-
-  // CAPTCHA_ENABLED is optional and self-contained: the proof-of-work captcha signs
-  // challenges with the already-required CRYPTO_PEPPER, so there is no new secret to
-  // conditionally require. Just surface that it's on.
-  if (process.env.CAPTCHA_ENABLED === "true") {
-    log.info("env", "Login captcha enabled (proof-of-work)");
   }
 
   log.info("env", "Environment variables validated");

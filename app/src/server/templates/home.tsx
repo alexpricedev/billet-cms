@@ -162,15 +162,15 @@ export const Home = ({ user, csrfToken, message }: HomeProps) => (
         <div className="feature-card">
           <h3>Authentication</h3>
           <p>
-            Magic-link login, session management, guest sessions, admin roles
+            Sign-in through the site's own accounts, session management, guest
+            sessions, admin roles
           </p>
         </div>
         <div className="feature-card">
           <h3>Security</h3>
           <p>
-            CSRF protection, rate limiting, an optional proof-of-work captcha, a
-            Content Security Policy, HSTS, and security headers on every
-            response
+            CSRF protection, rate limiting, a Content Security Policy, HSTS, and
+            security headers on every response
           </p>
         </div>
         <div className="feature-card">
@@ -196,7 +196,7 @@ export const Home = ({ user, csrfToken, message }: HomeProps) => (
           <h3>Email</h3>
           <p>
             Transactional mail through Resend, or a console provider in
-            development; magic links already wired
+            development; sign-in wired through the site
           </p>
         </div>
         <div className="feature-card">
