@@ -32,10 +32,17 @@
     "packages/billet-cms": {
       "name": "@alexpricedev/billet-cms",
       "version": "0.0.0",
+      "bin": {
+        "billet-cms-publish": "./src/cli/publish/cli.ts",
+      },
       "devDependencies": {
         "@biomejs/biome": "2.5.14",
         "@types/bun": "1.4.2",
         "typescript": "^7.0.2",
+        "zod": "^4.0.0",
+      },
+      "peerDependencies": {
+        "zod": "^4.0.0",
       },
     },
   },
@@ -147,5 +154,7 @@
     "whatwg-mimetype": ["whatwg-mimetype@3.0.0", "", {}, "sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q=="],
 
     "ws": ["ws@8.22.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg=="],
+
+    "zod": ["zod@4.6.6", "", {}, "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA=="],
   }
 }

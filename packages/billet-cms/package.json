@@ -6,7 +6,12 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./contract": "./src/contract/index.ts"
+    "./contract": "./src/contract/index.ts",
+    "./fields": "./src/fields/index.ts",
+    "./cli/publish": "./src/cli/publish/index.ts"
+  },
+  "bin": {
+    "billet-cms-publish": "./src/cli/publish/cli.ts"
   },
   "files": [
     "src"
@@ -18,9 +23,13 @@
     "test": "bun test src",
     "check": "bun run lint && bun run typecheck"
   },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@types/bun": "1.4.2",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "zod": "^4.0.0"
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   CONTRACT_VERSION,
+  hashJson,
   isCmsRelation,
   META_KEYS,
   STORED_SCHEMA_FORMAT,
@@ -31,6 +32,9 @@ describe("TABLES", () => {
       sessions: "cms_sessions",
       userTokens: "cms_user_tokens",
       identities: "cms_identities",
+      blockTypes: "cms_block_types",
+      pageTypes: "cms_page_types",
+      slots: "cms_slots",
     });
   });
 });
@@ -38,6 +42,7 @@ describe("TABLES", () => {
 describe("isCmsRelation", () => {
   test("accepts the CMS's own relations, including future ones", () => {
     expect(isCmsRelation("cms_users")).toBe(true);
+    expect(isCmsRelation("cms_block_types")).toBe(true);
     expect(isCmsRelation("cms_revisions")).toBe(true);
   });
 
@@ -61,7 +66,7 @@ describe("stored schema format", () => {
     expect(STORED_SCHEMA_FORMAT_VERSION).toBeGreaterThanOrEqual(1);
   });
 
-  test("carries the JSON Schema and the field metadata the form needs", () => {
+  test("carries the JSON Schema, the field metadata tree and a schema hash", () => {
     const document: StoredSchema = {
       format: STORED_SCHEMA_FORMAT,
       version: STORED_SCHEMA_FORMAT_VERSION,
@@ -75,11 +80,36 @@ describe("stored schema format", () => {
           max: 80,
           required: true,
         },
+        {
+          name: "links",
+          kind: "list",
+          required: true,
+          min: 1,
+          max: 6,
+          of: { name: "item", kind: "link", required: true },
+        },
       ],
+      schemaHash: "abc123",
     };
 
     expect(document.format).toBe(STORED_SCHEMA_FORMAT);
     expect(document.version).toBe(STORED_SCHEMA_FORMAT_VERSION);
     expect(document.fields[0]?.name).toBe("heading");
+    // The tree: a list's item metadata is nested, so the CMS renders a
+    // repeatable control without importing site code.
+    expect(document.fields[1]?.of?.kind).toBe("link");
+    expect(document.schemaHash).toBe("abc123");
+  });
+});
+
+describe("hashJson", () => {
+  test("is stable for the same value and changes when a value changes", () => {
+    const first = hashJson({ a: 1, b: ["x", "y"] });
+    expect(hashJson({ a: 1, b: ["x", "y"] })).toBe(first);
+    expect(hashJson({ a: 1, b: ["x", "z"] })).not.toBe(first);
+  });
+
+  test("is a hex digest, not the JSON itself", () => {
+    expect(hashJson({ a: 1 })).toMatch(/^[0-9a-f]{64}$/);
   });
 });
