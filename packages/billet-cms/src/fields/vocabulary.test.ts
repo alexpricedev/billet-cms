@@ -90,6 +90,14 @@ describe("richText", () => {
     expect(richText().schema.safeParse(document).success).toBe(false);
   });
 
+  test("rejects an unknown key on a node", () => {
+    const document = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [], extra: true }],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(false);
+  });
+
   test("flattens to JSON Schema even though the nodes are recursive", () => {
     const stored = blockStoredSchema(
       block("article", { body: richText() }, () => null),
@@ -245,6 +253,17 @@ describe("image", () => {
     ).toBe(true);
     expect(field.schema.safeParse({ alt: "no id" }).success).toBe(false);
   });
+
+  test("rejects an unknown key, matching the stored JSON Schema", () => {
+    expect(image().schema.safeParse({ mediaId: UUID, extra: 1 }).success).toBe(
+      false,
+    );
+
+    const stored = blockStoredSchema(
+      block("hero", { photo: image() }, () => null),
+    );
+    expect(properties(stored).photo?.additionalProperties).toBe(false);
+  });
 });
 
 describe("link", () => {
@@ -265,6 +284,26 @@ describe("link", () => {
     expect(field.schema.safeParse({ type: "url", url: "" }).success).toBe(
       false,
     );
+  });
+
+  test("rejects an unknown key on either branch, matching the JSON Schema", () => {
+    const field = link();
+    expect(
+      field.schema.safeParse({ type: "url", url: "/about", extra: 1 }).success,
+    ).toBe(false);
+    expect(
+      field.schema.safeParse({ type: "page", pageId: UUID, extra: 1 }).success,
+    ).toBe(false);
+
+    const stored = blockStoredSchema(
+      block("cta", { target: link() }, () => null),
+    );
+    const target = properties(stored).target as {
+      oneOf: Array<{ additionalProperties?: boolean }>;
+    };
+    for (const branch of target.oneOf) {
+      expect(branch.additionalProperties).toBe(false);
+    }
   });
 
   test("names the kind in metadata", () => {

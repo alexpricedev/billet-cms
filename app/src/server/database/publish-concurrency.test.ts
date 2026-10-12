@@ -12,7 +12,7 @@ const hero = block("hero", { heading: text() }, () => null);
 const definitions: SiteDefinitions = {
   blocks: [hero],
   slots: [slot("home.hero", hero)],
-  pageTypes: [pageType("Landing", { allowedBlocks: [hero] })],
+  pageTypes: [pageType("landing", { allowedBlocks: [hero] })],
 };
 
 /**

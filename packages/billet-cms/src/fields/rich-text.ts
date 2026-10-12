@@ -55,27 +55,27 @@ export interface RichTextDocument {
   content?: RichTextContent[];
 }
 
-const linkMark = z.object({
+const linkMark = z.strictObject({
   type: z.literal("link"),
-  attrs: z.object({
+  attrs: z.strictObject({
     href: z.string().regex(URL_PATTERN, URL_PATTERN_MESSAGE),
     target: z.enum(["_self", "_blank"]).optional(),
   }),
 });
 
 const mark: z.ZodType<RichTextMark> = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("bold") }),
-  z.object({ type: z.literal("italic") }),
+  z.strictObject({ type: z.literal("bold") }),
+  z.strictObject({ type: z.literal("italic") }),
   linkMark,
 ]);
 
 const inline: z.ZodType<RichTextInline> = z.discriminatedUnion("type", [
-  z.object({
+  z.strictObject({
     type: z.literal("text"),
     text: z.string(),
     marks: z.array(mark).optional(),
   }),
-  z.object({ type: z.literal("hardBreak") }),
+  z.strictObject({ type: z.literal("hardBreak") }),
 ]);
 
 // `listItem` and `block` are mutually recursive — a list item holds block
@@ -83,7 +83,7 @@ const inline: z.ZodType<RichTextInline> = z.discriminatedUnion("type", [
 // reference. The `z.lazy` wrapper is what lets the cycle resolve, and
 // `toJSONSchema` emits it as `$ref`/`$defs` rather than looping.
 const listItem: z.ZodType<RichTextNode> = z.lazy(() =>
-  z.object({
+  z.strictObject({
     type: z.literal("listItem"),
     content: z.array(block),
   }),
@@ -91,22 +91,22 @@ const listItem: z.ZodType<RichTextNode> = z.lazy(() =>
 
 const block: z.ZodType<RichTextNode> = z.lazy(() =>
   z.discriminatedUnion("type", [
-    z.object({
+    z.strictObject({
       type: z.literal("paragraph"),
       content: z.array(inline).optional(),
     }),
-    z.object({
+    z.strictObject({
       type: z.literal("heading"),
-      attrs: z.object({
+      attrs: z.strictObject({
         level: z.union([z.literal(2), z.literal(3), z.literal(4)]),
       }),
       content: z.array(inline).optional(),
     }),
-    z.object({
+    z.strictObject({
       type: z.literal("bulletList"),
       content: z.array(listItem),
     }),
-    z.object({
+    z.strictObject({
       type: z.literal("orderedList"),
       attrs: z
         .object({ start: z.number().int().positive().optional() })
@@ -117,7 +117,7 @@ const block: z.ZodType<RichTextNode> = z.lazy(() =>
 );
 
 /** The Zod schema for a rich text field's stored value. */
-export const richTextSchema: z.ZodType<RichTextDocument> = z.object({
+export const richTextSchema: z.ZodType<RichTextDocument> = z.strictObject({
   type: z.literal("doc"),
   content: z.array(block).optional(),
 });

@@ -93,6 +93,7 @@ const isNotSetUp = (error: unknown): boolean => {
  * so clearly rather than fail later on a missing field.
  */
 export const validateDefinitions = (definitions: SiteDefinitions): void => {
+  assertCollections(definitions);
   checkKind(definitions.blocks, "block", "blocks");
   checkKind(definitions.pageTypes, "pageType", "pageTypes");
   checkKind(definitions.slots, "slot", "slots");
@@ -110,6 +111,48 @@ export const validateDefinitions = (definitions: SiteDefinitions): void => {
   );
   assertBlocksResolve(definitions);
 };
+
+/**
+ * Require the three collections to be present, and each one an array.
+ *
+ * A site with no blocks must still export `blocks = []`: an absent key reads
+ * the same as a config wired to the wrong module, and only the explicit empty
+ * array says the site means it. A value that isn't an array is checked here
+ * too, so a `blocks: {}` typo names itself instead of failing later as a
+ * confusing "not iterable" from the validator below.
+ */
+const assertCollections = (definitions: SiteDefinitions): void => {
+  const collections = {
+    blocks: definitions.blocks,
+    pageTypes: definitions.pageTypes,
+    slots: definitions.slots,
+  };
+
+  for (const [name, value] of Object.entries(collections)) {
+    if (value !== undefined && !Array.isArray(value)) {
+      throw new Error(
+        `Expected "${name}" in the CMS config to be an array, but it is ` +
+          `${describeType(value)}. Export it as an array — for example ` +
+          `\`export const ${name} = []\`.`,
+      );
+    }
+  }
+
+  if (
+    definitions.blocks === undefined &&
+    definitions.pageTypes === undefined &&
+    definitions.slots === undefined
+  ) {
+    throw new Error(
+      "The CMS config declares none of blocks, pageTypes or slots. Export the " +
+        "definitions you have — a site with no blocks should still " +
+        "`export const blocks = []` — then publish again.",
+    );
+  }
+};
+
+const describeType = (value: unknown): string =>
+  value === null ? "null" : typeof value;
 
 /**
  * Every block a slot or page type names has to be in the same publish.
