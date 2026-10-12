@@ -11,7 +11,8 @@ import type { SQL } from "bun";
 export const cleanupTestData = async (db: SQL): Promise<void> => {
   await db`
     TRUNCATE TABLE
-      cms_user_tokens, cms_sessions, cms_users
+      cms_user_tokens, cms_sessions, cms_users,
+      cms_block_types, cms_page_types, cms_slots
     RESTART IDENTITY CASCADE
   `;
 };
