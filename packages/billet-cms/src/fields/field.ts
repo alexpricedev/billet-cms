@@ -9,7 +9,9 @@
  */
 import { z } from "zod";
 import type { FieldKind, FieldMetadata, ImageGuidance } from "../contract";
+import { assertMinMax, assertNonNegativeInteger } from "./options";
 import { type RichTextDocument, richTextSchema } from "./rich-text";
+import { URL_PATTERN, URL_PATTERN_MESSAGE } from "./url";
 
 export interface FieldOptions {
   label?: string;
@@ -19,6 +21,21 @@ export interface FieldOptions {
 }
 
 /**
+ * The value a field produces, given its options.
+ *
+ * A field is required unless `required: false` says otherwise, so the common
+ * declaration is `Field<T>` and only an explicit `required: false` widens it to
+ * `T | undefined`. This is what a block's render function sees: a required
+ * field is present, and the site is no longer asked to handle `undefined` for
+ * one it declared as required.
+ */
+export type FieldValue<T, O extends FieldOptions> = O extends {
+  required: false;
+}
+  ? T | undefined
+  : T;
+
+/**
  * One declared field.
  *
  * `T` is only for inference at the call site — `block()` reads it to type the
@@ -26,6 +43,8 @@ export interface FieldOptions {
  */
 export interface Field<T = unknown> {
   readonly kind: FieldKind;
+  /** Whether the field must be present in stored content. */
+  readonly required: boolean;
   readonly schema: z.ZodType<T>;
   /** Build the metadata the CMS renders, given the field's name. */
   metadata(name: string): FieldMetadata;
@@ -61,6 +80,9 @@ export type LinkValue =
   | { type: "page"; pageId: string; label?: string; newTab?: boolean }
   | { type: "url"; url: string; label?: string; newTab?: boolean };
 
+/** The shape an image field's `aspect` guidance must take, e.g. `"16:9"`. */
+export const ASPECT_PATTERN = /^\d+:\d+$/;
+
 const baseMetadata = (
   name: string,
   kind: FieldKind,
@@ -81,23 +103,30 @@ const baseMetadata = (
  *
  * The cast is one-directional and safe: a schema that accepts `T` accepts a
  * `T`, so widening the declared output to `T | undefined` only records what the
- * optional wrapper already does.
+ * optional wrapper already does. A required field keeps the plain schema, so
+ * `FieldValue` narrowing to `T` matches what is actually validated.
  */
-const optional = <T>(
+const optional = <T, O extends FieldOptions>(
   schema: z.ZodType<T>,
-  options: FieldOptions,
-): z.ZodType<T | undefined> =>
-  options.required === false
-    ? (schema.optional() as z.ZodType<T | undefined>)
-    : (schema as z.ZodType<T | undefined>);
+  options: O,
+): z.ZodType<FieldValue<T, O>> =>
+  (options.required === false ? schema.optional() : schema) as z.ZodType<
+    FieldValue<T, O>
+  >;
 
 /** A short, single-line string. */
-export const text = (options: TextOptions = {}): Field<string | undefined> => {
+export const text = <O extends TextOptions = TextOptions>(
+  options: O = {} as O,
+): Field<FieldValue<string, O>> => {
+  if (options.max !== undefined)
+    assertNonNegativeInteger(options.max, "text max");
+
   const schema =
     options.max === undefined ? z.string() : z.string().max(options.max);
 
   return {
     kind: "text",
+    required: options.required !== false,
     schema: optional(schema, options),
     metadata: (name) => {
       const metadata = baseMetadata(name, "text", options);
@@ -108,10 +137,11 @@ export const text = (options: TextOptions = {}): Field<string | undefined> => {
 };
 
 /** A rich text document, in the restricted structured-JSON format (Q1). */
-export const richText = (
-  options: FieldOptions = {},
-): Field<RichTextDocument | undefined> => ({
+export const richText = <O extends FieldOptions = FieldOptions>(
+  options: O = {} as O,
+): Field<FieldValue<RichTextDocument, O>> => ({
   kind: "richText",
+  required: options.required !== false,
   schema: optional(richTextSchema, options),
   metadata: (name) => baseMetadata(name, "richText", options),
 });
@@ -122,9 +152,18 @@ const imageValue = z.object({
 });
 
 /** A reference to an image in the media library. */
-export const image = (
-  options: ImageOptions = {},
-): Field<ImageValue | undefined> => {
+export const image = <O extends ImageOptions = ImageOptions>(
+  options: O = {} as O,
+): Field<FieldValue<ImageValue, O>> => {
+  if (options.minWidth !== undefined) {
+    assertNonNegativeInteger(options.minWidth, "image minWidth");
+  }
+  if (options.aspect !== undefined && !ASPECT_PATTERN.test(options.aspect)) {
+    throw new Error(
+      `image aspect must look like "16:9", got "${options.aspect}"`,
+    );
+  }
+
   const guidance: ImageGuidance = {};
   if (options.minWidth !== undefined) guidance.minWidth = options.minWidth;
   if (options.aspect !== undefined) guidance.aspect = options.aspect;
@@ -133,6 +172,7 @@ export const image = (
 
   return {
     kind: "image",
+    required: options.required !== false,
     schema: optional(imageValue, options),
     metadata: (name) => {
       const metadata = baseMetadata(name, "image", options);
@@ -151,7 +191,7 @@ const pageLink = z.object({
 
 const urlLink = z.object({
   type: z.literal("url"),
-  url: z.string().min(1),
+  url: z.string().regex(URL_PATTERN, URL_PATTERN_MESSAGE),
   label: z.string().optional(),
   newTab: z.boolean().optional(),
 });
@@ -159,25 +199,41 @@ const urlLink = z.object({
 const linkValue = z.discriminatedUnion("type", [pageLink, urlLink]);
 
 /** A link to a CMS page or a free URL. */
-export const link = (
-  options: FieldOptions = {},
-): Field<LinkValue | undefined> => ({
+export const link = <O extends FieldOptions = FieldOptions>(
+  options: O = {} as O,
+): Field<FieldValue<LinkValue, O>> => ({
   kind: "link",
+  required: options.required !== false,
   schema: optional(linkValue, options),
   metadata: (name) => baseMetadata(name, "link", options),
 });
 
 /** A repeatable list of another field. */
-export const list = <T>(
+export const list = <T, O extends ListOptions = ListOptions>(
   of: Field<T>,
-  options: ListOptions = {},
-): Field<T[] | undefined> => {
+  options: O = {} as O,
+): Field<FieldValue<T[], O>> => {
+  if (!of.required) {
+    // A list item is never absent: `required: false` would make every entry
+    // `T | undefined`, so an empty slot in a list has to be the site's problem
+    // to represent, not a hole the CMS writes.
+    throw new Error(
+      "list() items must be required; declare the item field without `required: false`",
+    );
+  }
+  if (options.min !== undefined)
+    assertNonNegativeInteger(options.min, "list min");
+  if (options.max !== undefined)
+    assertNonNegativeInteger(options.max, "list max");
+  assertMinMax(options.min, options.max, "list");
+
   let schema = z.array(of.schema);
   if (options.min !== undefined) schema = schema.min(options.min);
   if (options.max !== undefined) schema = schema.max(options.max);
 
   return {
     kind: "list",
+    required: options.required !== false,
     schema: optional(schema, options),
     metadata: (name) => {
       const metadata = baseMetadata(name, "list", options);

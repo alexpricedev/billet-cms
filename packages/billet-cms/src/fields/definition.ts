@@ -16,6 +16,7 @@ import {
   type StoredSchema,
 } from "../contract";
 import type { Field } from "./field";
+import { assertMinMax, assertNonNegativeInteger } from "./options";
 
 export type BlockFields = Record<string, Field>;
 
@@ -55,7 +56,18 @@ export const block = <F extends BlockFields>(
   name: string,
   fields: F,
   render: BlockRender<F>,
-): BlockDefinition<F> => ({ kind: "block", name, fields, render });
+): BlockDefinition<F> => {
+  if (Object.hasOwn(fields, "type")) {
+    // A page's content is an array of blocks told apart by a `type`
+    // discriminator (see `blockVariantSchema`). A field named `type` would
+    // overwrite it and make the stored content ambiguous, so it is rejected
+    // where the mistake is, not when the page fails to validate.
+    throw new Error(
+      `Block "${name}" declares a field named "type", which collides with the block's page-content discriminator`,
+    );
+  }
+  return { kind: "block", name, fields, render };
+};
 
 export interface SlotOptions {
   label?: string;
@@ -139,12 +151,18 @@ export const pageType = (
       );
     }
   }
-  for (const blockName of Object.keys(limits)) {
+  for (const [blockName, limit] of Object.entries(limits)) {
     if (!allowedNames.has(blockName)) {
       throw new Error(
         `Page type "${name}" sets limits for "${blockName}", which is not in allowedBlocks`,
       );
     }
+    const label = `Page type "${name}" limit for "${blockName}"`;
+    if (limit.min !== undefined)
+      assertNonNegativeInteger(limit.min, `${label} min`);
+    if (limit.max !== undefined)
+      assertNonNegativeInteger(limit.max, `${label} max`);
+    assertMinMax(limit.min, limit.max, label);
   }
 
   return {
@@ -238,6 +256,8 @@ export const pageTypeStoredSchema = (
       allowedBlocks,
       requiredBlocks,
       limits,
+      label: definition.label,
+      help: definition.help,
     }),
     ...(definition.label !== undefined ? { label: definition.label } : {}),
     ...(definition.help !== undefined ? { help: definition.help } : {}),

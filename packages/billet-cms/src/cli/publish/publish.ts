@@ -108,6 +108,43 @@ export const validateDefinitions = (definitions: SiteDefinitions): void => {
     (definitions.slots ?? []).map(({ name }) => name),
     "slot",
   );
+  assertBlocksResolve(definitions);
+};
+
+/**
+ * Every block a slot or page type names has to be in the same publish.
+ *
+ * A slot filled by an undeclared block, or a page type allowing one, would
+ * publish a row the CMS can't build a form from — a dangling reference that
+ * only shows up when an editor opens the page. The config is all in one file,
+ * so this is a mistake the publish can name before it writes anything.
+ */
+const assertBlocksResolve = (definitions: SiteDefinitions): void => {
+  const blockNames = new Set(
+    (definitions.blocks ?? []).map(({ name }) => name),
+  );
+
+  for (const definition of definitions.slots ?? []) {
+    if (!blockNames.has(definition.blockName)) {
+      throw new Error(
+        `Slot "${definition.name}" is filled by block "${definition.blockName}", which this publish doesn't declare`,
+      );
+    }
+  }
+
+  for (const definition of definitions.pageTypes ?? []) {
+    const referenced = [
+      ...definition.allowedBlocks,
+      ...definition.requiredBlocks,
+    ];
+    for (const block of referenced) {
+      if (!blockNames.has(block.name)) {
+        throw new Error(
+          `Page type "${definition.name}" references block "${block.name}", which this publish doesn't declare`,
+        );
+      }
+    }
+  }
 };
 
 const checkKind = (
@@ -180,8 +217,13 @@ export const publish = async (
 
 const readMeta = async (tx: SQL): Promise<MetaRow | undefined> => {
   try {
+    // `FOR UPDATE` is what serialises concurrent publishes. Two deploys racing
+    // would otherwise both read the pre-publish `content_version`, both decide
+    // their definitions changed, and collide writing rows (or bump the version
+    // twice for one change). The lock makes the second wait, re-read the row
+    // after the first commits, and see the definitions already current.
     const rows = (await tx.unsafe(
-      `SELECT contract_version, content_version FROM ${TABLES.meta} WHERE id = 1`,
+      `SELECT contract_version, content_version FROM ${TABLES.meta} WHERE id = 1 FOR UPDATE`,
     )) as MetaRow[];
     return rows[0];
   } catch (error) {

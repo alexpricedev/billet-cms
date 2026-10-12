@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { block, blockStoredSchema } from "./definition";
-import { image, link, list, richText, text } from "./field";
+import { type Field, image, link, list, richText, text } from "./field";
+import { URL_PATTERN } from "./url";
 
 const UUID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
@@ -97,6 +98,127 @@ describe("richText", () => {
     expect(stored.jsonSchema.$defs).toBeDefined();
     expect(properties(stored).body).toMatchObject({ type: "object" });
   });
+
+  test("accepts nested lists", () => {
+    const document = {
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [
+                { type: "paragraph", content: [{ type: "text", text: "One" }] },
+                {
+                  type: "orderedList",
+                  content: [
+                    {
+                      type: "listItem",
+                      content: [{ type: "paragraph" }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(true);
+  });
+
+  test("rejects an inline node directly in the doc", () => {
+    const document = {
+      type: "doc",
+      content: [{ type: "text", text: "loose" }],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(false);
+  });
+
+  test("rejects a block node inside a paragraph", () => {
+    const document = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "paragraph" }] }],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(false);
+  });
+
+  test("rejects a paragraph where a list item belongs", () => {
+    const document = {
+      type: "doc",
+      content: [{ type: "bulletList", content: [{ type: "paragraph" }] }],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(false);
+  });
+
+  test("rejects inline content inside a list item", () => {
+    const document = {
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [{ type: "text", text: "loose" }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(false);
+  });
+
+  test("rejects a javascript: link mark", () => {
+    const document = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "click",
+              marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(false);
+  });
+
+  test("accepts an https link mark", () => {
+    const document = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "click",
+              marks: [{ type: "link", attrs: { href: "https://example.com" } }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(richText().schema.safeParse(document).success).toBe(true);
+  });
+});
+
+describe("field value types", () => {
+  test("a required field is Field<T>, and required: false widens it to T | undefined", () => {
+    // These two annotations are the test: they only compile if the value type
+    // follows `required`. `bun run typecheck` is what fails if it regresses.
+    const required: Field<string> = text();
+    const optional: Field<string | undefined> = text({ required: false });
+
+    expect(required.required).toBe(true);
+    expect(optional.required).toBe(false);
+  });
 });
 
 describe("image", () => {
@@ -153,6 +275,79 @@ describe("link", () => {
       label: "CTA",
     });
   });
+
+  test("accepts http(s), mailto, tel, a relative path and a fragment", () => {
+    const field = link();
+    for (const url of [
+      "https://example.com/a?b=c#d",
+      "http://example.com",
+      "HTTPS://EXAMPLE.COM",
+      "mailto:hello@example.com",
+      "tel:+441234567890",
+      "/about/team",
+      "#section",
+    ]) {
+      expect(
+        field.schema.safeParse({ type: "url", url }).success,
+        `expected ${url} to be allowed`,
+      ).toBe(true);
+    }
+  });
+
+  test("rejects javascript:, data: and other non-allowlisted schemes", () => {
+    const field = link();
+    for (const url of [
+      "javascript:alert(1)",
+      "JavaScript:alert(1)",
+      "data:text/html;base64,PHNjcmlwdD4=",
+      "vbscript:msgbox(1)",
+      "file:///etc/passwd",
+    ]) {
+      expect(
+        field.schema.safeParse({ type: "url", url }).success,
+        `expected ${url} to be rejected`,
+      ).toBe(false);
+    }
+  });
+
+  test("rejects a protocol-relative URL, which navigates off-site", () => {
+    expect(
+      link().schema.safeParse({ type: "url", url: "//evil.example" }).success,
+    ).toBe(false);
+  });
+
+  test("rejects a backslash path, which a browser reads as protocol-relative", () => {
+    const field = link();
+    for (const url of ["/\\evil.example", "/about\\evil", "https://x/a\\b"]) {
+      expect(
+        field.schema.safeParse({ type: "url", url }).success,
+        `expected ${JSON.stringify(url)} to be rejected`,
+      ).toBe(false);
+    }
+  });
+
+  test("rejects a scheme with nothing after it", () => {
+    const field = link();
+    for (const url of ["https://", "http://", "mailto:", "tel:"]) {
+      expect(
+        field.schema.safeParse({ type: "url", url }).success,
+        `expected ${JSON.stringify(url)} to be rejected`,
+      ).toBe(false);
+    }
+  });
+
+  test("stores the allowlist as a JSON Schema pattern on the url branch", () => {
+    const stored = blockStoredSchema(
+      block("cta", { target: link() }, () => null),
+    );
+    const target = properties(stored).target as {
+      oneOf: Array<{ properties?: Record<string, { pattern?: string }> }>;
+    };
+    const urlBranch = target.oneOf.find(
+      (branch) => branch.properties?.url !== undefined,
+    );
+    expect(urlBranch?.properties?.url?.pattern).toBe(URL_PATTERN.source);
+  });
 });
 
 describe("list", () => {
@@ -188,5 +383,32 @@ describe("list", () => {
       minItems: 1,
       maxItems: 6,
     });
+  });
+
+  test("rejects an optional item field", () => {
+    expect(() => list(text({ required: false }))).toThrow(
+      /items must be required/,
+    );
+  });
+});
+
+describe("option validation", () => {
+  test("rejects a negative or fractional count", () => {
+    expect(() => text({ max: -1 })).toThrow(/non-negative integer/);
+    expect(() => text({ max: 1.5 })).toThrow(/non-negative integer/);
+    expect(() => list(text(), { min: -1 })).toThrow(/non-negative integer/);
+    expect(() => image({ minWidth: -1 })).toThrow(/non-negative integer/);
+  });
+
+  test("rejects a list whose min is above its max", () => {
+    expect(() => list(text(), { min: 3, max: 1 })).toThrow(
+      /min \(3\) must not be greater than max \(1\)/,
+    );
+  });
+
+  test("rejects an image aspect that isn't width:height", () => {
+    expect(() => image({ aspect: "wide" })).toThrow(/"16:9"/);
+    expect(() => image({ aspect: "16-9" })).toThrow(/"16:9"/);
+    expect(() => image({ aspect: "16:9" })).not.toThrow();
   });
 });

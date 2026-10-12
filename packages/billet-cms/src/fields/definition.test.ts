@@ -36,6 +36,12 @@ describe("block", () => {
     expect(schema.safeParse({}).success).toBe(false);
     expect(schema.safeParse({ heading: "x".repeat(81) }).success).toBe(false);
   });
+
+  test('rejects a field named "type", which collides with the page discriminator', () => {
+    expect(() => block("weird", { type: text() }, () => null)).toThrow(
+      /field named "type"/,
+    );
+  });
 });
 
 describe("blockStoredSchema", () => {
@@ -131,6 +137,24 @@ describe("pageType", () => {
     ).toThrow(/limits for "prose"/);
   });
 
+  test("stops at declaration when a limit is not a non-negative integer", () => {
+    expect(() =>
+      pageType("Landing", {
+        allowedBlocks: [hero],
+        limits: { hero: { max: -1 } },
+      }),
+    ).toThrow(/non-negative integer/);
+  });
+
+  test("stops at declaration when a limit's min is above its max", () => {
+    expect(() =>
+      pageType("Landing", {
+        allowedBlocks: [hero],
+        limits: { hero: { min: 2, max: 1 } },
+      }),
+    ).toThrow(/min \(2\) must not be greater than max \(1\)/);
+  });
+
   test("flattens to the stored document with a schema hash", () => {
     const stored = pageTypeStoredSchema(
       pageType("Landing", {
@@ -146,5 +170,21 @@ describe("pageType", () => {
     expect(stored.limits).toEqual({ hero: { max: 1 } });
     expect(stored.jsonSchema).toMatchObject({ type: "array" });
     expect(stored.schemaHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("changes the schema hash when only the label or help changes", () => {
+    const plain = pageTypeStoredSchema(
+      pageType("Landing", { allowedBlocks: [hero] }),
+    );
+    const relabelled = pageTypeStoredSchema(
+      pageType("Landing", { allowedBlocks: [hero], label: "Landing page" }),
+    );
+    const helped = pageTypeStoredSchema(
+      pageType("Landing", { allowedBlocks: [hero], help: "The home page" }),
+    );
+
+    expect(relabelled.schemaHash).not.toBe(plain.schemaHash);
+    expect(helped.schemaHash).not.toBe(plain.schemaHash);
+    expect(relabelled.label).toBe("Landing page");
   });
 });
