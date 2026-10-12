@@ -28,13 +28,14 @@ describe("TABLES", () => {
     expect(TABLES).toEqual({
       migrations: "cms_migrations",
       meta: "cms_meta",
-      users: "cms_users",
       sessions: "cms_sessions",
       userTokens: "cms_user_tokens",
       identities: "cms_identities",
       blockTypes: "cms_block_types",
       pageTypes: "cms_page_types",
       slots: "cms_slots",
+      revisions: "cms_revisions",
+      handoffTokens: "cms_handoff_tokens",
     });
   });
 });

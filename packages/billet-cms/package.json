@@ -8,6 +8,8 @@
     ".": "./src/index.ts",
     "./contract": "./src/contract/index.ts",
     "./fields": "./src/fields/index.ts",
+    "./handoff": "./src/handoff/index.ts",
+    "./schema": "./src/schema/index.ts",
     "./cli/publish": "./src/cli/publish/index.ts"
   },
   "bin": {
