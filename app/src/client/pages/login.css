@@ -1,0 +1,100 @@
+.login-page {
+  min-height: 100vh;
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 48px 16px;
+}
+
+.login-wrapper {
+  width: 100%;
+  max-width: 440px;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 32px;
+
+  a {
+    display: inline-flex;
+    color: var(--color-text);
+  }
+}
+
+.login-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 32px;
+}
+
+.login-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+.login-subtitle {
+  font-size: 14px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.login-card .flash-success p:first-child {
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.login-card .flash-success p:nth-child(2) {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.login-card .flash-success p:last-child {
+  color: var(--color-text-quaternary);
+  font-size: 12px;
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.login-card .flash-error span {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.login-card .form-field {
+  margin-bottom: 20px;
+}
+
+.login-submit {
+  width: 100%;
+}
+
+/* Secondary action inside the form itself — "forgot your password?" sits below
+   the submit button rather than in the footer, where it would compete with the
+   sign-in/sign-up cross-link. */
+.login-aside {
+  text-align: center;
+  font-size: 14px;
+  margin: 16px 0 0 0;
+}
+
+.login-footer {
+  text-align: center;
+  margin-top: 24px;
+  color: var(--color-text-quaternary);
+  font-size: 14px;
+
+  a {
+    font-size: 14px;
+    color: var(--color-text-quaternary);
+  }
+}

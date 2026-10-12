@@ -1,0 +1,184 @@
+import type { BunRequest } from "bun";
+import { log } from "../services/logger";
+import { indexingAllowed, SITE_NAME } from "../services/seo";
+import { withCompression } from "./compression";
+import { render500 } from "./errors";
+import { maintenanceResponse } from "./maintenance";
+
+// Single source of truth for the security headers sent on every response —
+// HTML, JSON, redirects, static files, and errors alike. Applied centrally
+// (see `secureRoutes` and the `fetch` fallback in main.ts) rather than per
+// route, so no response path can accidentally ship without them.
+
+const isProduction = process.env.NODE_ENV === "production";
+
+// Content Security Policy. Enforcing, but deliberately host-allowlist based
+// rather than nonce + 'strict-dynamic': the page ships inline JSON-LD and pulls
+// lottie from unpkg. The inline block forces 'unsafe-inline' here. The real wins this still buys:
+// frame-ancestors (clickjacking), object-src/base-uri lockdown, a tight source
+// allowlist, and upgrade-insecure-requests. Hardening to nonce + 'strict-dynamic'
+// (which lets us drop 'unsafe-inline') is the documented follow-up.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://unpkg.com",
+  "connect-src 'self'",
+  // Production only, like HSTS below: WebKit applies the upgrade to
+  // http://localhost subresources too (Chrome exempts localhost), so in dev it
+  // rewrites every asset URL to an https origin nothing serves and the page
+  // loads bare — found by the browser smoke tests, which run system WebKit.
+  ...(isProduction ? ["upgrade-insecure-requests"] : []),
+].join("; ");
+
+// Deny every powerful feature we do not use; fullscreen stays available to our
+// own origin. Mirrors the specification.website lock-down baseline.
+const PERMISSIONS_POLICY = [
+  "accelerometer=()",
+  "ambient-light-sensor=()",
+  "autoplay=()",
+  "battery=()",
+  "camera=()",
+  "display-capture=()",
+  "document-domain=()",
+  "encrypted-media=()",
+  "execution-while-not-rendered=()",
+  "execution-while-out-of-viewport=()",
+  "fullscreen=(self)",
+  "geolocation=()",
+  "gyroscope=()",
+  "keyboard-map=()",
+  "magnetometer=()",
+  "microphone=()",
+  "midi=()",
+  "navigation-override=()",
+  "payment=()",
+  "picture-in-picture=()",
+  "publickey-credentials-get=()",
+  "screen-wake-lock=()",
+  "sync-xhr=()",
+  "usb=()",
+  "web-share=()",
+  "xr-spatial-tracking=()",
+].join(", ");
+
+// Discovery Link header — advertises the site's machine-readable resources on
+// every response so agents and crawlers that never parse our HTML can still
+// find them (see spec: agent-readiness/link-headers). Relative refs resolve
+// against the request URL, keeping this host-agnostic. All rel values are
+// IANA-registered: `describedby`, `sitemap`, and `security` (RFC 9116).
+export const DISCOVERY_LINK_HEADER = [
+  '</llms.txt>; rel="describedby"; type="text/markdown"',
+  '</sitemap.xml>; rel="sitemap"; type="application/xml"',
+  '</.well-known/security.txt>; rel="security"; type="text/plain"',
+].join(", ");
+
+export const SECURITY_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Permissions-Policy": PERMISSIONS_POLICY,
+  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+  // HSTS only in production: sending it over plain HTTP in local dev would pin
+  // the browser to HTTPS for localhost. `preload` is safe here because
+  // includeSubDomains + a two-year max-age meet the preload-list requirements.
+  ...(isProduction
+    ? {
+        "Strict-Transport-Security":
+          "max-age=63072000; includeSubDomains; preload",
+      }
+    : {}),
+};
+
+const ROBOTS_TAG = "X-Robots-Tag";
+const BLOCK_INDEXING = "noindex, nofollow";
+
+// Merge the security headers onto an existing response without clobbering
+// headers a route already set (Content-Type, Cache-Control, Location, or an
+// intentional per-route override such as a relaxed CSP).
+export const withSecurityHeaders = (res: Response): Response => {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    if (!res.headers.has(name)) {
+      res.headers.set(name, value);
+    }
+  }
+  // Advertise discovery resources unless a route set its own Link header.
+  if (!res.headers.has("Link")) {
+    res.headers.set("Link", DISCOVERY_LINK_HEADER);
+  }
+  // Sign every redirect with the software that issued it, so anyone tracing a
+  // redirect chain can see which layer to fix (spec: resilience/redirect-by).
+  // Gating on Location covers every redirect source — the `redirect()` helper,
+  // the trailing-slash 308, and the inline 303s in the auth/admin middleware —
+  // without each having to remember to set it.
+  if (res.headers.has("Location") && !res.headers.has("X-Redirect-By")) {
+    res.headers.set("X-Redirect-By", SITE_NAME);
+  }
+  // Keeping the site out of the search engines is done here as well as in the
+  // `<meta name="robots">` tag, because the meta tag only covers HTML: an
+  // image, the sitemap itself, `llms.txt` and every JSON endpoint are indexable
+  // on their own and have nowhere to put a meta tag. One header on every
+  // response is the only version of this with no gaps. A route that sets its
+  // own tag keeps it.
+  if (!indexingAllowed() && !res.headers.has(ROBOTS_TAG)) {
+    res.headers.set(ROBOTS_TAG, BLOCK_INDEXING);
+  }
+  return res;
+};
+
+// The pipeline every response passes through on its way out — the single place
+// that owns the order of response transforms. Each step takes the request and
+// the response-so-far and returns the next response. Compress first (it rewrites
+// the body), then stamp the security headers on the result. New transforms
+// (ETag, Server-Timing, …) are added here, in order, rather than nested at the
+// call sites.
+export const finalizeResponse = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  const compressed = await withCompression(req, res);
+  return withSecurityHeaders(compressed);
+};
+
+// Run a response producer through the full request pipeline: honour maintenance
+// mode, catch any uncaught error as a styled 500 (never leaking a stack trace),
+// then `finalizeResponse`. Both the routed handlers (via `secureRoutes`) and the
+// `fetch` fallback go through this, so no path can bypass the guards or headers.
+export const handleGuarded = async <R extends Request>(
+  req: R,
+  produce: (req: R) => Response | Promise<Response>,
+): Promise<Response> => {
+  const maintenance = maintenanceResponse(req);
+  if (maintenance) return finalizeResponse(req, maintenance);
+
+  try {
+    return await finalizeResponse(req, await produce(req));
+  } catch (error) {
+    const { pathname } = new URL(req.url);
+    log.error(
+      "server",
+      `Unhandled error on ${req.method} ${pathname}: ${error}`,
+    );
+    return finalizeResponse(req, render500());
+  }
+};
+
+type RouteHandler = (req: BunRequest) => Response | Promise<Response>;
+
+// Wrap a Bun `routes` map so every handler runs through the guarded pipeline
+// (maintenance mode, 500 fallback, compression, security headers) before its
+// response leaves the server.
+export const secureRoutes = <T extends Record<string, RouteHandler>>(
+  routes: T,
+): T => {
+  const wrapped: Record<string, RouteHandler> = {};
+  for (const [path, handler] of Object.entries(routes)) {
+    wrapped[path] = (req) => handleGuarded(req, handler);
+  }
+  return wrapped as T;
+};
