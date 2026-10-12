@@ -47,7 +47,7 @@ export const Stack = ({ user, csrfToken }: StackProps) => (
 │   ├── page-lifecycle.ts    # Per-page init and cleanup
 │   ├── reactive/            # Signals, components, bind(), submit helper
 │   ├── style.css            # Global styles (CSS entry point)
-│   ├── components/          # Shared components + CSS (nav, todo list)
+│   ├── components/          # Shared components + CSS (nav)
 │   └── pages/               # Page JS & CSS (co-located)
 │
 ├── server/                  # Server-side code (Bun)
@@ -57,7 +57,6 @@ export const Stack = ({ user, csrfToken }: StackProps) => (
 │   │   ├── app/             # View controllers (HTML)
 │   │   ├── api/             # API controllers (JSON)
 │   │   ├── auth/            # Auth flows
-│   │   └── team/            # Team management (TEAMS_ENABLED)
 │   ├── templates/           # Full-page JSX templates
 │   ├── components/          # Reusable server JSX
 │   ├── services/            # Business logic & data

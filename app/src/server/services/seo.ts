@@ -15,10 +15,10 @@ import { appOrigin } from "../utils/app-url";
 // Google. SITE_URL overrides it for the one case where the two legitimately
 // differ (marketing site on the apex, app on a subdomain).
 //
-// Read from process.env on every call (not captured at import) for the reason
-// authMode() gives in auth-mode.ts: imports are hoisted, so a module-level const
-// would freeze whatever the test preload happened to hold. Reduced to .origin so
-// a trailing slash or stray path can't double up in a generated URL.
+// Read from process.env on every call (not captured at import): imports are
+// hoisted, so a module-level const would freeze whatever the test preload
+// happened to hold. Reduced to .origin so a trailing slash or stray path can't
+// double up in a generated URL.
 export const siteUrl = (): string => {
   const configured = process.env.SITE_URL?.trim();
   return configured ? new URL(configured).origin : appOrigin();
@@ -47,8 +47,9 @@ export const SITE_DESCRIPTION =
   "Guardrails for your AI coding agents — a full-stack TypeScript starter on Bun";
 
 // Public, indexable routes included in the sitemap. Private or noindex routes
-// (/login, /admin), API endpoints, and auth callbacks are intentionally omitted.
-export const SITEMAP_PATHS = ["/", "/stack", "/forms", "/todos"] as const;
+// (/login, /account), API endpoints, and auth callbacks are intentionally
+// omitted.
+export const SITEMAP_PATHS = ["/", "/stack", "/forms"] as const;
 
 // Absolute URL for a site-relative path. Exported so llms-txt.ts resolves against
 // the same origin rather than keeping its own copy of this line.
@@ -83,15 +84,7 @@ const AI_CRAWLERS = [
 ] as const;
 
 // Private surfaces kept out of every crawler's reach.
-const ROBOTS_DISALLOW = [
-  "/admin",
-  "/account",
-  "/api/",
-  "/auth/",
-  // Private even when TEAMS_ENABLED is off, where they 404 anyway.
-  "/team",
-  "/invites/",
-] as const;
+const ROBOTS_DISALLOW = ["/account", "/api/", "/auth/"] as const;
 
 // Content-Signal (an emerging IETF AI Preferences / IAB Tech Lab proposal)
 // declares downstream-use consent explicitly for crawlers that honour it. It

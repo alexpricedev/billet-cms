@@ -13,7 +13,6 @@ mock.module("../../services/database", () => ({
 
 import { createMagicLink } from "../../services/auth";
 import { db } from "../../services/database";
-import { createOrganizationForUser } from "../../services/organizations";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
 import { callback } from "./callback";
 
@@ -103,7 +102,7 @@ describe("Callback Controller", () => {
       expect(html).toContain("Confirm sign in");
 
       const tokens = await db`
-        SELECT used_at FROM user_tokens
+        SELECT used_at FROM cms_user_tokens
         WHERE user_id = ${user.id} AND type = 'magic_link'
       `;
       expect(tokens[0].used_at).toBeNull();
@@ -180,7 +179,7 @@ describe("Callback Controller", () => {
       await signIn(rawToken);
 
       const tokens = await db`
-        SELECT used_at FROM user_tokens
+        SELECT used_at FROM cms_user_tokens
         WHERE user_id = ${user.id} AND type = 'magic_link'
       `;
 
@@ -196,7 +195,7 @@ describe("Callback Controller", () => {
 
       const { computeHMAC } = await import("../../utils/crypto");
       const sessions = await db`
-        SELECT user_id, expires_at FROM sessions
+        SELECT user_id, expires_at FROM cms_sessions
         WHERE id_hash = ${computeHMAC(sessionId)}
       `;
 
@@ -248,7 +247,7 @@ describe("Callback Controller", () => {
       });
 
       const tokens = await db`
-        SELECT used_at FROM user_tokens
+        SELECT used_at FROM cms_user_tokens
         WHERE user_id = ${user.id} AND type = 'magic_link'
       `;
       expect(tokens[0].used_at).toBeNull();
@@ -298,7 +297,7 @@ describe("Callback Controller", () => {
       const opened = await openLink(rawToken);
 
       await db`
-        UPDATE user_tokens
+        UPDATE cms_user_tokens
         SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 hour'
         WHERE user_id = ${user.id} AND type = 'magic_link'
       `;
@@ -318,7 +317,7 @@ describe("Callback Controller", () => {
       const opened = await openLink(rawToken);
       const sessionId = cookieValue(opened.req, "session_id");
 
-      await db`DELETE FROM users WHERE id = ${user.id}`;
+      await db`DELETE FROM cms_users WHERE id = ${user.id}`;
 
       const { res } = await submitConfirm({
         token: rawToken,
@@ -330,47 +329,7 @@ describe("Callback Controller", () => {
       expect(errorFrom(res)).toContain("Invalid or expired token");
     });
   });
-
-  // /team is in no navigation, so a signed-in user with no team has no link to
-  // the create-a-team page. Landing them there is the only way they find it.
-  describe("landing after sign-in with teams enabled", () => {
-    const ORIGINAL_TEAMS = process.env.TEAMS_ENABLED;
-
-    beforeEach(() => {
-      process.env.TEAMS_ENABLED = "true";
-    });
-
-    afterAll(() => {
-      if (ORIGINAL_TEAMS === undefined) delete process.env.TEAMS_ENABLED;
-      else process.env.TEAMS_ENABLED = ORIGINAL_TEAMS;
-    });
-
-    const signInAs = async (email: string) => {
-      const { user, rawToken } = await createMagicLink(email);
-      const { res } = await signIn(rawToken);
-
-      return { user, location: res.headers.get("location") };
-    };
-
-    test("sends a user with no team to /team", async () => {
-      const { location } = await signInAs("teamless@example.com");
-
-      expect(location).toBe("/team");
-    });
-
-    test("sends a user who is already in a team home", async () => {
-      const first = await createMagicLink("member@example.com");
-      const created = await createOrganizationForUser(first.user.id, "Acme");
-      if (!created.success) throw new Error("seed failed");
-
-      const { location } = await signInAs("member@example.com");
-
-      expect(location).toBe("/");
-    });
-  });
 });
 
-// The flag-off case is covered by every other test in this file: the test
-// preload pins TEAMS_ENABLED=false, and they all assert "/". That matters more than it
-// looks — /team 404s with teams off, so a redirect there would break sign-in
-// for every fork that never turned the feature on.
+// Sign-in always lands on "/". The team redirect that used to live here went
+// with the team feature; the CMS has no /team page to discover.

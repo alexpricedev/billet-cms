@@ -40,7 +40,7 @@ describe("createGuestSession", () => {
     expect(rawId).toBeTruthy();
 
     const hash = computeHMAC(rawId);
-    const rows = await db`SELECT * FROM sessions WHERE id_hash = ${hash}`;
+    const rows = await db`SELECT * FROM cms_sessions WHERE id_hash = ${hash}`;
     expect(rows).toHaveLength(1);
     expect(rows[0].session_type).toBe("guest");
     expect(rows[0].user_id).toBeNull();
@@ -50,7 +50,7 @@ describe("createGuestSession", () => {
     const rawId = await createGuestSession();
     const hash = computeHMAC(rawId);
     const rows =
-      await db`SELECT expires_at FROM sessions WHERE id_hash = ${hash}`;
+      await db`SELECT expires_at FROM cms_sessions WHERE id_hash = ${hash}`;
     const expiresAt = new Date(rows[0].expires_at);
     const diff = expiresAt.getTime() - Date.now();
     const hours = diff / (1000 * 60 * 60);
@@ -65,7 +65,7 @@ describe("createAuthenticatedSession", () => {
     const rawId = await createAuthenticatedSession(user.id);
 
     const hash = computeHMAC(rawId);
-    const rows = await db`SELECT * FROM sessions WHERE id_hash = ${hash}`;
+    const rows = await db`SELECT * FROM cms_sessions WHERE id_hash = ${hash}`;
     expect(rows).toHaveLength(1);
     expect(rows[0].session_type).toBe("authenticated");
     expect(rows[0].user_id).toBe(user.id);
@@ -76,7 +76,7 @@ describe("createAuthenticatedSession", () => {
     const rawId = await createAuthenticatedSession(user.id);
     const hash = computeHMAC(rawId);
     const rows =
-      await db`SELECT expires_at FROM sessions WHERE id_hash = ${hash}`;
+      await db`SELECT expires_at FROM cms_sessions WHERE id_hash = ${hash}`;
     const expiresAt = new Date(rows[0].expires_at);
     const diff = expiresAt.getTime() - Date.now();
     const days = diff / (1000 * 60 * 60 * 24);
@@ -117,23 +117,10 @@ describe("getSessionContextFromDB", () => {
     expect(ctx?.user?.email).toBe("auth@example.com");
   });
 
-  test("carries email_verified_at so the reminder banner can render", async () => {
-    const user = await findOrCreateUser("unverified@example.com");
-    const rawId = await createAuthenticatedSession(user.id);
-
-    const unverified = await getSessionContextFromDB(rawId);
-    expect(unverified?.user?.email_verified_at).toBeNull();
-
-    await db`UPDATE users SET email_verified_at = NOW() WHERE id = ${user.id}`;
-
-    const verified = await getSessionContextFromDB(rawId);
-    expect(verified?.user?.email_verified_at).toBeInstanceOf(Date);
-  });
-
   test("returns null for expired session", async () => {
     const rawId = await createGuestSession();
     const hash = computeHMAC(rawId);
-    await db`UPDATE sessions SET expires_at = NOW() - INTERVAL '1 hour' WHERE id_hash = ${hash}`;
+    await db`UPDATE cms_sessions SET expires_at = NOW() - INTERVAL '1 hour' WHERE id_hash = ${hash}`;
 
     const ctx = await getSessionContextFromDB(rawId);
     expect(ctx).toBeNull();
@@ -149,7 +136,7 @@ describe("convertGuestToAuthenticated", () => {
     const result = await convertGuestToAuthenticated(hash, user.id);
     expect(result).toBe(true);
 
-    const rows = await db`SELECT * FROM sessions WHERE id_hash = ${hash}`;
+    const rows = await db`SELECT * FROM cms_sessions WHERE id_hash = ${hash}`;
     expect(rows[0].session_type).toBe("authenticated");
     expect(rows[0].user_id).toBe(user.id);
   });
@@ -162,7 +149,7 @@ describe("convertGuestToAuthenticated", () => {
     await convertGuestToAuthenticated(hash, user.id);
 
     const rows =
-      await db`SELECT expires_at FROM sessions WHERE id_hash = ${hash}`;
+      await db`SELECT expires_at FROM cms_sessions WHERE id_hash = ${hash}`;
     const expiresAt = new Date(rows[0].expires_at);
     const days = (expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
     expect(days).toBeGreaterThan(29);
@@ -180,7 +167,7 @@ describe("convertGuestToAuthenticated", () => {
   test("returns false for expired guest session", async () => {
     const rawId = await createGuestSession();
     const hash = computeHMAC(rawId);
-    await db`UPDATE sessions SET expires_at = NOW() - INTERVAL '1 hour' WHERE id_hash = ${hash}`;
+    await db`UPDATE cms_sessions SET expires_at = NOW() - INTERVAL '1 hour' WHERE id_hash = ${hash}`;
 
     const user = await findOrCreateUser("upgrade@example.com");
     const result = await convertGuestToAuthenticated(hash, user.id);
@@ -195,7 +182,7 @@ describe("deleteSession", () => {
     expect(result).toBe(true);
 
     const hash = computeHMAC(rawId);
-    const rows = await db`SELECT * FROM sessions WHERE id_hash = ${hash}`;
+    const rows = await db`SELECT * FROM cms_sessions WHERE id_hash = ${hash}`;
     expect(rows).toHaveLength(0);
   });
 
@@ -215,7 +202,8 @@ describe("deleteUserSessions", () => {
     const deleted = await deleteUserSessions(user.id);
     expect(deleted).toBe(3);
 
-    const rows = await db`SELECT * FROM sessions WHERE user_id = ${user.id}`;
+    const rows =
+      await db`SELECT * FROM cms_sessions WHERE user_id = ${user.id}`;
     expect(rows).toHaveLength(0);
   });
 
@@ -229,7 +217,7 @@ describe("deleteUserSessions", () => {
     expect(deleted).toBe(1);
 
     const rows =
-      await db`SELECT id_hash FROM sessions WHERE user_id = ${user.id}`;
+      await db`SELECT id_hash FROM cms_sessions WHERE user_id = ${user.id}`;
     expect(rows).toHaveLength(1);
     expect(rows[0].id_hash).toBe(keptHash);
   });
@@ -242,7 +230,8 @@ describe("deleteUserSessions", () => {
 
     await deleteUserSessions(mine.id);
 
-    const rows = await db`SELECT * FROM sessions WHERE user_id = ${theirs.id}`;
+    const rows =
+      await db`SELECT * FROM cms_sessions WHERE user_id = ${theirs.id}`;
     expect(rows).toHaveLength(1);
   });
 
@@ -259,11 +248,11 @@ describe("renewSession", () => {
     const hash = computeHMAC(rawId);
 
     const before =
-      await db`SELECT last_activity_at FROM sessions WHERE id_hash = ${hash}`;
+      await db`SELECT last_activity_at FROM cms_sessions WHERE id_hash = ${hash}`;
     await new Promise((r) => setTimeout(r, 50));
     await renewSession(rawId);
     const after =
-      await db`SELECT last_activity_at FROM sessions WHERE id_hash = ${hash}`;
+      await db`SELECT last_activity_at FROM cms_sessions WHERE id_hash = ${hash}`;
 
     expect(new Date(after[0].last_activity_at).getTime()).toBeGreaterThan(
       new Date(before[0].last_activity_at).getTime(),

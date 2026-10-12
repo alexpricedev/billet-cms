@@ -54,7 +54,7 @@ export const createGuestSession = async (): Promise<string> => {
   const expiresAt = new Date(Date.now() + GUEST_EXPIRY_MS);
 
   await db`
-    INSERT INTO sessions (id_hash, session_type, expires_at)
+    INSERT INTO cms_sessions (id_hash, session_type, expires_at)
     VALUES (${sessionIdHash}, 'guest', ${expiresAt.toISOString()})
   `;
 
@@ -69,7 +69,7 @@ export const createAuthenticatedSession = async (
   const expiresAt = new Date(Date.now() + AUTH_EXPIRY_MS);
 
   await db`
-    INSERT INTO sessions (id_hash, user_id, session_type, expires_at)
+    INSERT INTO cms_sessions (id_hash, user_id, session_type, expires_at)
     VALUES (${sessionIdHash}, ${userId}, 'authenticated', ${expiresAt.toISOString()})
   `;
 
@@ -86,10 +86,10 @@ export const getSessionContextFromDB = async (
       SELECT
         s.id_hash, s.user_id, s.session_type,
         s.expires_at, s.last_activity_at, s.created_at,
-        u.id as user_id_result, u.email, u.role, u.created_at as user_created_at,
-        u.email_verified_at
-      FROM sessions s
-      LEFT JOIN users u ON s.user_id = u.id
+        u.id as user_id_result, u.email, u.role,
+        u.created_at as user_created_at
+      FROM cms_sessions s
+      LEFT JOIN cms_users u ON s.user_id = u.id
       WHERE s.id_hash = ${sessionIdHash}
         AND s.expires_at > CURRENT_TIMESTAMP
     `;
@@ -107,7 +107,6 @@ export const getSessionContextFromDB = async (
       email: string | null;
       role: PlatformRole | null;
       user_created_at: string | null;
-      email_verified_at: string | null;
     };
 
     const isAuthenticated =
@@ -118,9 +117,6 @@ export const getSessionContextFromDB = async (
           email: data.email as string,
           role: (data.role as PlatformRole) ?? "user",
           created_at: new Date(data.user_created_at as string),
-          email_verified_at: data.email_verified_at
-            ? new Date(data.email_verified_at)
-            : null,
         }
       : null;
 
@@ -146,7 +142,7 @@ export const convertGuestToAuthenticated = async (
     const expiresAt = new Date(Date.now() + AUTH_EXPIRY_MS);
 
     const result = await db`
-      UPDATE sessions
+      UPDATE cms_sessions
       SET user_id = ${userId},
           session_type = 'authenticated',
           expires_at = ${expiresAt.toISOString()}
@@ -166,7 +162,7 @@ export const deleteSession = async (rawSessionId: string): Promise<boolean> => {
     const sessionIdHash = computeHMAC(rawSessionId);
 
     const result = await db`
-      DELETE FROM sessions
+      DELETE FROM cms_sessions
       WHERE id_hash = ${sessionIdHash}
     `;
 
@@ -179,16 +175,8 @@ export const deleteSession = async (rawSessionId: string): Promise<boolean> => {
 /**
  * Delete every session belonging to a user, optionally sparing one.
  *
- * Credential changes have to invalidate sessions an attacker may already hold.
- * A password reset passes no exception (nothing about the old session is
- * trustworthy); a deliberate change-password passes the current session's hash
- * so the user isn't logged out of the tab they're working in.
- *
- * Unlike the rest of this file, a failure here throws rather than returning a
- * falsy result. Every caller is a credential change that reports "you've been
- * signed out everywhere else" on success, so a swallowed error would claim a
- * purge that never happened and leave a stolen session live. Callers surface
- * the failure instead.
+ * A failure here throws rather than returning a falsy result: a swallowed error
+ * would claim a purge that never happened.
  */
 export const deleteUserSessions = async (
   userId: string,
@@ -196,12 +184,12 @@ export const deleteUserSessions = async (
 ): Promise<number> => {
   const result = exceptSessionHash
     ? await db`
-        DELETE FROM sessions
+        DELETE FROM cms_sessions
         WHERE user_id = ${userId}
           AND id_hash != ${exceptSessionHash}
       `
     : await db`
-        DELETE FROM sessions
+        DELETE FROM cms_sessions
         WHERE user_id = ${userId}
       `;
 
@@ -213,7 +201,7 @@ export const renewSession = async (rawSessionId: string): Promise<boolean> => {
     const sessionIdHash = computeHMAC(rawSessionId);
 
     const result = await db`
-      UPDATE sessions
+      UPDATE cms_sessions
       SET last_activity_at = CURRENT_TIMESTAMP
       WHERE id_hash = ${sessionIdHash}
         AND expires_at > CURRENT_TIMESTAMP

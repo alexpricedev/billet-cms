@@ -3,8 +3,9 @@ import { computeHMAC, generateSecureToken } from "../utils/crypto";
 import { db } from "./database";
 import { createAuthenticatedSession, deleteSession } from "./sessions";
 
-// The platform operator flag. A separate axis from organization_members.org_role
-// — see OrgRole in organizations.ts, and the note there on why they never merge.
+// The platform operator flag. Deliberately a separate axis from any editor or
+// teammate role a site exposes through `cms_identities`, so "site admin who is
+// not a CMS operator" stays expressible.
 export type PlatformRole = "user" | "admin";
 
 export const PLATFORM_ROLES: readonly PlatformRole[] = ["user", "admin"];
@@ -18,10 +19,6 @@ export interface User {
   email: string;
   role: PlatformRole;
   created_at: Date;
-  // Null until the address is proven: set when a magic link is clicked, or when
-  // a password user follows their verification email. Nothing is gated on it —
-  // it drives the reminder banner and is there for forks that want to gate.
-  email_verified_at: Date | null;
 }
 
 export interface UserToken {
@@ -34,37 +31,22 @@ export interface UserToken {
   created_at: Date;
 }
 
-// The `type` discriminator on user_tokens. Every single-use emailed token in the
-// app goes through the same table, hashing, and consume path — only the lifetime
-// differs, so a new flow adds a row here rather than a new mechanism.
-export type UserTokenType =
-  | "magic_link"
-  | "password_reset"
-  | "email_verification";
+// The `type` discriminator on cms_user_tokens. Magic link is the only flow the
+// scaffold ships; the column keeps a place for a second one without a new table.
+export type UserTokenType = "magic_link";
 
 const MINUTE_MS = 60 * 1000;
-const HOUR_MS = 60 * MINUTE_MS;
 
 const TOKEN_TTL_MS: Record<UserTokenType, number> = {
   // Short: the link both authenticates and signs in, so a leaked mailbox is a
   // live session.
   magic_link: 15 * MINUTE_MS,
-  // Short-ish: also grants account takeover, but users often reset from a
-  // different device and need time to get to their inbox.
-  password_reset: 60 * MINUTE_MS,
-  // Long: proves address ownership only. The user already has a session, so an
-  // expired link is pure friction with no security upside.
-  email_verification: 24 * HOUR_MS,
 };
 
-// What the emails carrying these tokens tell the recipient. Derived from the
-// lifetimes above rather than restated, so the copy can't quietly promise an
-// expiry the token doesn't have.
+// What the email carrying the token tells the recipient. Derived from the
+// lifetime above rather than restated, so the copy can't promise an expiry the
+// token doesn't have.
 export const MAGIC_LINK_EXPIRY_MINUTES = TOKEN_TTL_MS.magic_link / MINUTE_MS;
-export const PASSWORD_RESET_EXPIRY_MINUTES =
-  TOKEN_TTL_MS.password_reset / MINUTE_MS;
-export const EMAIL_VERIFICATION_EXPIRY_HOURS =
-  TOKEN_TTL_MS.email_verification / HOUR_MS;
 
 export type AuthResult =
   | { success: true; user: User; sessionId: string }
@@ -77,30 +59,22 @@ export const toUser = (row: {
   email: string;
   role: PlatformRole;
   created_at: string | Date;
-  email_verified_at: string | Date | null;
 }): User => ({
   id: row.id,
   email: row.email,
   role: row.role,
   created_at: new Date(row.created_at),
-  email_verified_at: row.email_verified_at
-    ? new Date(row.email_verified_at)
-    : null,
 });
 
 /**
  * Look up a user by email without creating one.
- *
- * Password sign-in needs this rather than findOrCreateUser: creating an account
- * because someone mistyped their address would leave a passwordless row behind
- * and turn a typo into a permanent orphan.
  */
 export const findUserByEmail = async (email: string): Promise<User | null> => {
   const normalizedEmail = email.toLowerCase().trim();
 
   const results = await db`
-    SELECT id, email, role, created_at, email_verified_at
-    FROM users
+    SELECT id, email, role, created_at
+    FROM cms_users
     WHERE email = ${normalizedEmail}
   `;
 
@@ -108,25 +82,23 @@ export const findUserByEmail = async (email: string): Promise<User | null> => {
 };
 
 /**
- * Create or get existing user by email
- * Normalizes email to lowercase for consistent lookups
+ * Create or get an existing user by email.
+ *
+ * Phase 1 ships Billet's scaffold, so the CMS still owns a `cms_users` table
+ * for its magic-link sign-in. Phase 3 moves sign-in onto the site's own
+ * accounts through `cms_identities` and drops this function.
  */
 export const findOrCreateUser = async (email: string): Promise<User> => {
   const normalizedEmail = email.toLowerCase().trim();
 
-  // First try to find existing user
   const existing = await findUserByEmail(normalizedEmail);
+  if (existing) return existing;
 
-  if (existing) {
-    return existing;
-  }
-
-  // Create new user if not found
   const userId = randomUUID();
   const newUser = await db`
-    INSERT INTO users (id, email)
+    INSERT INTO cms_users (id, email)
     VALUES (${userId}, ${normalizedEmail})
-    RETURNING id, email, role, created_at, email_verified_at
+    RETURNING id, email, role, created_at
   `;
 
   return toUser(newUser[0]);
@@ -146,7 +118,7 @@ export const createUserToken = async (
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS[type]);
 
   await db`
-    INSERT INTO user_tokens (id, user_id, token_hash, type, expires_at)
+    INSERT INTO cms_user_tokens (id, user_id, token_hash, type, expires_at)
     VALUES (
       ${randomUUID()},
       ${userId},
@@ -165,14 +137,14 @@ export const createUserToken = async (
  * The single UPDATE ... RETURNING is what makes this race-safe: two concurrent
  * requests with the same token both try to claim the row, and only the one that
  * flips used_at from NULL gets a row back. Type is part of the WHERE clause, so
- * a verification token can never be spent as a password reset.
+ * one flow's token can never be spent as another's.
  */
 export const consumeUserToken = async (
   rawToken: string,
   type: UserTokenType,
 ): Promise<string | null> => {
   const results = await db`
-    UPDATE user_tokens
+    UPDATE cms_user_tokens
     SET used_at = CURRENT_TIMESTAMP
     WHERE type = ${type}
       AND token_hash = ${computeHMAC(rawToken)}
@@ -190,14 +162,8 @@ export const consumeUserToken = async (
  *
  * Every sign-in path calls this instead of createAuthenticatedSession directly:
  * reusing the id an anonymous visitor arrived with would let an attacker who
- * planted that cookie ride the session once it gains privileges.
- *
- * `previousSessionId` is the raw cookie value, not a session the caller has
- * already looked up — resolving it first would mean creating a guest session
- * for a cookieless visitor purely to delete it a line later. The type isn't
- * checked either: a guest session must go, and an authenticated one belongs to
- * a sign-in that is being replaced, so it would only linger as an orphan.
- * Deleting an id that no longer exists is a no-op.
+ * planted that cookie ride the session once it gains privileges. Deleting an id
+ * that no longer exists is a no-op.
  */
 export const regenerateSession = async (
   userId: string,
@@ -211,9 +177,7 @@ export const regenerateSession = async (
 };
 
 /**
- * Create a magic link token for a user
- * Generates cryptographically secure token, hashes with HMAC-SHA256, stores in database
- * Token expires in 15 minutes for security
+ * Create a magic link token for a user, creating the account on first use.
  */
 export const createMagicLink = async (
   email: string,
@@ -225,9 +189,10 @@ export const createMagicLink = async (
 };
 
 /**
- * Verify a magic link token and consume it
- * Uses atomic UPDATE to prevent race conditions - only unused, valid tokens are consumed
- * Returns user data and creates new session on success
+ * Verify a magic link token and consume it, then mint a session.
+ *
+ * The atomic UPDATE inside `consumeUserToken` is what prevents races: only an
+ * unused, unexpired token is claimed.
  */
 export const verifyMagicLink = async (
   rawToken: string,
@@ -235,19 +200,14 @@ export const verifyMagicLink = async (
 ): Promise<AuthResult> => {
   const userId = await consumeUserToken(rawToken, "magic_link");
 
-  // No row claimed means the token was invalid, expired, or already used
   if (!userId) {
     return { success: false, error: "Invalid or expired token" };
   }
 
-  // Clicking a link sent to the address proves the user owns it, so the magic
-  // link doubles as email verification. COALESCE keeps the original timestamp
-  // on every subsequent sign-in.
   const userResults = await db`
-    UPDATE users
-    SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP)
+    SELECT id, email, role, created_at
+    FROM cms_users
     WHERE id = ${userId}
-    RETURNING id, email, role, created_at, email_verified_at
   `;
 
   if (userResults.length === 0) {
@@ -260,28 +220,22 @@ export const verifyMagicLink = async (
 };
 
 /**
- * Delete expired rows from the two auth tables.
+ * Delete expired rows from the CMS's own auth tables.
  *
- * Not a correctness measure — every read in this file, `sessions.ts` and
- * `csrf.ts` already filters `expires_at > CURRENT_TIMESTAMP`, so an expired row
- * is inert whether or not it is still here. What it buys is bloat (guest
- * sessions churn faster than anything else in the schema) and retention: a
- * spent `user_tokens` row keeps a live-looking `token_hash` indefinitely.
- *
- * Scoped to auth's own tables on purpose. `organization_invites` expires too,
- * but auth must not import the team surface — `cleanup.ts` composes the two.
+ * Not a correctness measure — every read filters `expires_at` — but it keeps
+ * guest sessions and spent token hashes from accumulating.
  *
  * Called on a timer by `startCleanupSweep`; safe to run concurrently with
  * anything, and safe to run twice.
  */
 export const cleanupExpired = async (): Promise<void> => {
   await db`
-    DELETE FROM user_tokens
+    DELETE FROM cms_user_tokens
     WHERE expires_at < CURRENT_TIMESTAMP
   `;
 
   await db`
-    DELETE FROM sessions
+    DELETE FROM cms_sessions
     WHERE expires_at < CURRENT_TIMESTAMP
   `;
 };

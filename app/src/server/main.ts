@@ -1,7 +1,6 @@
+import { ensureIdentitiesView } from "./database/identity-view";
 import { runMigrations } from "./database/migrate";
-import { seedIfEmpty } from "./database/seed";
 import { setIpSource } from "./middleware/client-ip";
-import { adminRoutes } from "./routes/admin";
 import { apiRoutes } from "./routes/api";
 import { appRoutes } from "./routes/app";
 import { initAssets, warnOnMissingDevBundles } from "./services/assets";
@@ -20,7 +19,9 @@ import { registerShutdown } from "./utils/shutdown";
 
 validateEnv();
 await runMigrations();
-await seedIfEmpty();
+// After migrations, before serving: sign-in reads this view, and a site that
+// hasn't deployed yet simply gets no view until its users table exists.
+await ensureIdentitiesView();
 await initAssets();
 await warnOnMissingDevBundles();
 
@@ -33,7 +34,6 @@ const server = Bun.serve({
   idleTimeout: 30,
   routes: secureRoutes({
     ...appRoutes,
-    ...adminRoutes,
     ...apiRoutes,
   }),
   async fetch(req) {

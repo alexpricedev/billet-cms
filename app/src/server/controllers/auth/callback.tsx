@@ -9,7 +9,6 @@ import {
 } from "../../services/sessions";
 import { AuthConfirm, CALLBACK_PATH } from "../../templates/auth-confirm";
 import { redirect, render } from "../../utils/response";
-import { landingAfterAuth } from "./landing";
 
 /**
  * Where a magic link lands, in two halves: the GET shows a confirm step and
@@ -41,7 +40,7 @@ export const callback = {
       : null;
 
     return render(
-      <AuthConfirm intent="sign-in" token={token} csrfToken={csrfToken} />,
+      <AuthConfirm token={token} csrfToken={csrfToken} />,
       // The page carries a live sign-in token: never store it, and never let a
       // back button re-present a form whose token has since been spent.
       { "Cache-Control": "no-store" },
@@ -73,7 +72,7 @@ export const callback = {
 
       return new Response("", {
         status: 303,
-        headers: { Location: await landingAfterAuth(result.user.id) },
+        headers: { Location: "/" },
       });
     } catch {
       return redirect("/login?error=Authentication failed. Please try again.");

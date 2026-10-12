@@ -15,15 +15,11 @@
 @import "./components/form-field.css";
 @import "./components/data-table.css";
 @import "./components/badge.css";
-@import "./components/verify-banner.css";
 
 /* Page styles */
 @import "./pages/home.css";
 @import "./pages/stack.css";
 @import "./pages/forms.css";
-@import "./pages/todos.css";
 @import "./pages/login.css";
 @import "./pages/account.css";
-@import "./pages/admin.css";
-@import "./pages/team.css";
 @import "./pages/error.css";

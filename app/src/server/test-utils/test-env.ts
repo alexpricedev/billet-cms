@@ -30,11 +30,9 @@ const TEST_ENV: Record<string, string> = {
   // Tests hardcode `session_id=` when they build a cookie header.
   SESSION_COOKIE_NAME: "session_id",
 
-  // The three optional features, at the defaults the app ships with. Files that
-  // cover password mode, the captcha or teams flip these themselves per case.
-  AUTH_MODE: "magic-link",
+  // Optional features at the defaults the app ships with. The captcha is the
+  // only one left that a test flips per case.
   CAPTCHA_ENABLED: "false",
-  TEAMS_ENABLED: "false",
   TRUST_PROXY: "false",
 
   // Tests build request URLs as http://localhost:3000, and `services/csrf.ts`
