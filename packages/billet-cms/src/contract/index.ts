@@ -18,11 +18,15 @@ import { createHash } from "node:crypto";
  * site's publish step checks before it writes anything.
  *
  * Bump this whenever the stored rows change shape in a way an older site or CMS
- * cannot read. Phase 2 adds the publish-time check, the field vocabulary and
+ * cannot read. Phase 2 added the publish-time check, the field vocabulary and
  * the definition tables; it moved the stored field metadata from a flat list to
- * a tree, so a Phase 1 CMS cannot read a Phase 2 publish.
+ * a tree, so a Phase 1 CMS cannot read a Phase 2 publish. Phase 3 adds the
+ * revisions a CMS save writes, the published-revision pointer on `cms_slots`
+ * and the single-use handoff tokens a site mints for the Edit content link, and
+ * drops `cms_users` — sign-in now reads the site's own accounts through
+ * `cms_identities` — so an older CMS cannot read a Phase 3 database.
  */
-export const CONTRACT_VERSION = "0.2.0";
+export const CONTRACT_VERSION = "0.3.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -37,22 +41,29 @@ export const TABLE_PREFIX = "cms_";
  * `identities` is a view, not a table: the CMS does not own user accounts. The
  * default definition reads the site's own `users` table and the CMS creates it
  * only when it is missing, so a site can replace it with one that exposes
- * editor roles.
+ * editor roles. Sign-in and every session read through it; there is no
+ * `cms_users` table (Phase 3 dropped it).
  *
  * `block_types`, `page_types` and `slots` hold what a site's deploy publishes:
  * the JSON Schema and field metadata the CMS builds its forms from, and the
  * page type rules (allowed blocks, required blocks, limits).
+ *
+ * `revisions` is where every save lands: one immutable row per draft, keyed by
+ * the page or slot it belongs to. `handoff_tokens` carries the single-use
+ * tokens a site mints for its Edit content link, written by the plugin and
+ * spent by the CMS.
  */
 export const TABLES = {
   migrations: "cms_migrations",
   meta: "cms_meta",
-  users: "cms_users",
   sessions: "cms_sessions",
   userTokens: "cms_user_tokens",
   identities: "cms_identities",
   blockTypes: "cms_block_types",
   pageTypes: "cms_page_types",
   slots: "cms_slots",
+  revisions: "cms_revisions",
+  handoffTokens: "cms_handoff_tokens",
 } as const;
 
 export type TableName = (typeof TABLES)[keyof typeof TABLES];
