@@ -64,10 +64,56 @@ export interface SaveSlotDraftInput {
   actorId: string | null;
 }
 
+/**
+ * Rewrite a Zod issue into copy an editor can act on.
+ *
+ * The stored schema is compiled by Zod, whose messages name the validator
+ * rather than the problem ("Too big: expected string to have <=80 characters",
+ * "Invalid input", "Unrecognized key: \"nope\""). The form shows this text
+ * beside the field's label, so it has to read as a sentence a person can fix.
+ * The patterns are the shapes Zod 4 produces for the vocabulary's constraints;
+ * anything unrecognised falls back to a plain generic line rather than leaking
+ * schema jargon.
+ */
+const plainMessage = (message: string): string => {
+  if (/received undefined$/.test(message)) return "This field is required.";
+
+  const tooBig = message.match(/^Too big: expected (\w+) to have <=(\d+)/);
+  if (tooBig) {
+    const [, kind, rawLimit] = tooBig;
+    const limit = Number(rawLimit);
+    if (kind === "string") return `Use ${limit} characters or fewer.`;
+    if (kind === "array")
+      return `Add no more than ${limit} ${limit === 1 ? "item" : "items"}.`;
+    return "This value is too large.";
+  }
+
+  const tooSmall = message.match(/^Too small: expected (\w+) to have >=(\d+)/);
+  if (tooSmall) {
+    const [, kind, rawLimit] = tooSmall;
+    const limit = Number(rawLimit);
+    if (kind === "string") return `Use at least ${limit} characters.`;
+    if (kind === "array")
+      return `Add at least ${limit} ${limit === 1 ? "item" : "items"}.`;
+    return "This value is too small.";
+  }
+
+  if (/^Invalid input: expected string, received/.test(message)) {
+    return "Enter text.";
+  }
+  const unknown = message.match(/^Unrecognized keys?: (.+)$/);
+  if (unknown) return `Unknown field: ${unknown[1]}.`;
+  if (message === "Invalid UUID") return "Enter a valid id.";
+  if (/^Invalid string: must match pattern/.test(message)) {
+    return "This value isn't in the expected format.";
+  }
+  return "This value isn't valid.";
+};
+
 const formatIssues = (issues: ValidationIssue[]): FieldIssue[] =>
   issues.map((issue) => ({
     path: issue.path.length > 0 ? issue.path.join(".") : "(content)",
-    message: issue.message,
+    message: plainMessage(issue.message),
   }));
 
 const describeConflict = async (
@@ -139,6 +185,13 @@ export const saveSlotDraft = async (
   if (!blockType) {
     throw new Error(
       `Block type "${slot.blockName}" for slot "${slot.name}" is not published`,
+    );
+  }
+  // A deploy removed the block type (Q4): the form is read-only, and the write
+  // layer refuses the slot too rather than trusting every caller to check.
+  if (blockType.removedAt) {
+    throw new Error(
+      `Block type "${slot.blockName}" for slot "${slot.name}" is no longer published`,
     );
   }
 

@@ -61,9 +61,9 @@ export interface FieldControlProps {
   errors?: FieldError[];
   /**
    * An accessible name to use instead of the field's own label. List rows use
-   * it: every row's item field is named "item", so `Item 2` is more useful than
-   * a second "item". A row is also where ids stop, because a cloned row would
-   * repeat them.
+   * it: a row's item field is named "item" in the metadata, so the list's own
+   * label — "Tags" rather than a second "item" — names each row. A row is also
+   * where ids stop, because a cloned row would repeat them.
    */
   labelOverride?: string;
 }
@@ -218,23 +218,20 @@ const SubControlLabel = ({
 const ListItemControl = ({
   field,
   value,
-  index,
+  listLabel,
 }: {
   field: FieldMetadata;
   value: unknown;
-  index: number;
+  /** The list's own label, so every Add/Remove names the list it belongs to. */
+  listLabel: string;
 }): JSX.Element => (
   <div className="cms-list-item" data-list-item>
-    <FieldControl
-      field={field}
-      value={value}
-      labelOverride={`Item ${index + 1}`}
-    />
+    <FieldControl field={field} value={value} labelOverride={listLabel} />
     <button
       type="button"
       className="cms-list-remove"
       data-list-remove
-      aria-label={`Remove item ${index + 1}`}
+      aria-label={`Remove from ${listLabel}`}
     >
       Remove
     </button>
@@ -290,7 +287,11 @@ export const FieldControl = ({
         </div>
       );
 
-    case "richText":
+    case "richText": {
+      // The editor carries the id, not the fieldset: two elements sharing one
+      // id makes the label point at whichever the browser saw last, and the
+      // editor — the actual textbox — would have no name of its own.
+      const labelId = idFor("label");
       return (
         <fieldset
           className="cms-field"
@@ -298,13 +299,14 @@ export const FieldControl = ({
           data-field-kind="richText"
           data-field-name={field.name}
           data-rich-text-field
-          id={controlId}
           aria-label={labelOverride}
         >
           {labelOverride ? (
-            <span className="cms-field-label">{labelOverride}</span>
+            <span className="cms-field-label" id={labelId}>
+              {labelOverride}
+            </span>
           ) : (
-            <legend className="cms-field-label">
+            <legend className="cms-field-label" id={labelId}>
               <FieldLabelText field={field} />
             </legend>
           )}
@@ -318,6 +320,8 @@ export const FieldControl = ({
             tabIndex={0}
             role="textbox"
             aria-multiline="true"
+            aria-labelledby={controlId ? labelId : undefined}
+            aria-label={controlId ? undefined : labelOverride}
             aria-required={required ? "true" : undefined}
             aria-invalid={invalid ? "true" : undefined}
             aria-describedby={described}
@@ -328,6 +332,7 @@ export const FieldControl = ({
           <FieldHelp help={field.help} id={helpId} />
         </fieldset>
       );
+    }
 
     case "image": {
       const image = asRecord(value);
@@ -418,6 +423,8 @@ export const FieldControl = ({
               placeholder="https://…"
               aria-label={controlId ? undefined : "External URL"}
               value={asString(link.url)}
+              aria-invalid={invalid ? "true" : undefined}
+              aria-describedby={described}
             />
           </div>
           <div className="cms-link-page">
@@ -429,6 +436,8 @@ export const FieldControl = ({
               placeholder="Page id"
               aria-label={controlId ? undefined : "CMS page"}
               value={asString(link.pageId)}
+              aria-invalid={invalid ? "true" : undefined}
+              aria-describedby={described}
             />
           </div>
           <SubControlLabel htmlFor={idFor("label")}>Label</SubControlLabel>
@@ -477,6 +486,10 @@ export const FieldControl = ({
       // An empty list still renders one row, so a required list has somewhere
       // to type before the editor adds a second entry.
       const rows = items.length > 0 ? items : [undefined];
+      // A row is cloned, so it has no stable number to name itself with; the
+      // list's own label is what makes each row's Add and Remove say which
+      // list they belong to.
+      const listLabel = fieldName(field);
 
       return (
         <fieldset
@@ -503,20 +516,24 @@ export const FieldControl = ({
                 key={index}
                 field={itemField}
                 value={item}
-                index={index}
+                listLabel={listLabel}
               />
             ))}
           </div>
           {/* Cloned by the editor when an item is added. Never in the form's
               query scope, so it is not serialised with the real rows. */}
           <template data-list-template>
-            <ListItemControl field={itemField} value={undefined} index={0} />
+            <ListItemControl
+              field={itemField}
+              value={undefined}
+              listLabel={listLabel}
+            />
           </template>
           <button
             type="button"
             className="cms-list-add"
             data-list-add
-            aria-label="Add item"
+            aria-label={`Add to ${listLabel}`}
           >
             Add item
           </button>

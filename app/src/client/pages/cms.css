@@ -24,6 +24,8 @@
 .cms-page h2,
 .cms-slot-list li,
 .cms-slot-list code,
+.cms-slot-meta code,
+.cms-page-type-list code,
 .cms-breadcrumb span,
 h1 {
   overflow-wrap: anywhere;
@@ -175,17 +177,24 @@ h1 {
 }
 
 /* List rhythm inside the editor: headings and paragraphs breathe, lists keep
-   their markers clear of the text. */
-.cms-rich-text > :first-child {
+   their markers clear of the text. The two edge rules are scoped to
+   `.cms-field` so they outrank the list-margin rule below, which would
+   otherwise leave a trailing list with its bottom margin. */
+.cms-field .cms-rich-text > :first-child {
   margin-top: 0;
 }
 
-.cms-rich-text > :last-child {
+.cms-field .cms-rich-text > :last-child {
   margin-bottom: 0;
 }
 
 .cms-rich-text p {
   margin: 0 0 0.75rem;
+}
+
+/* A paragraph inside a list item is the item's text, not a block after it. */
+.cms-rich-text li > p {
+  margin: 0;
 }
 
 .cms-rich-text h2,

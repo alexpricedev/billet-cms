@@ -345,40 +345,42 @@ const runRichTextCommand = (command: string, editor: HTMLElement): void => {
   }
 };
 
-const wireRichText = (form: HTMLFormElement): void => {
-  for (const field of Array.from(
-    form.querySelectorAll("[data-rich-text-field]"),
-  )) {
-    const editor = field.querySelector<HTMLElement>("[data-rich-text]");
-    if (!editor) continue;
-    for (const button of Array.from(
-      field.querySelectorAll("[data-rich-command]"),
-    )) {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        runRichTextCommand(
-          button.getAttribute("data-rich-command") ?? "",
-          editor,
-        );
-      });
-    }
-  }
-};
+/** The first control a keyboard user lands on when focusing a list row. */
+const FOCUSABLE = "input, select, textarea, button, [contenteditable], a[href]";
+
+const firstControl = (row: Element | null): HTMLElement | null =>
+  row ? row.querySelector<HTMLElement>(FOCUSABLE) : null;
 
 /**
- * Wire every list through one delegated listener on the form.
+ * Wire the rich text toolbars and the repeatable lists through one delegated
+ * listener on the form.
  *
- * A per-list listener only reaches the lists present when the page loaded —
- * the nested list inside a row the editor just added would have none, so its
- * own Add and Remove buttons would do nothing. Delegation from the form covers
- * a list however deep it is cloned. Each button is resolved against its nearest
- * `[data-list]`, and `:scope >` keeps a nested list from answering for its
- * parent's items, template or Add button.
+ * A per-button or per-list listener only reaches the controls present when the
+ * page loaded — the toolbar or nested list inside a row the editor just added
+ * would have none, so its own buttons would do nothing. Delegation from the
+ * form covers a control however deep it is cloned. Each button is resolved
+ * against its nearest `[data-rich-text-field]`/`[data-list]`, and `:scope >`
+ * keeps a nested list from answering for its parent's items, template or Add
+ * button.
  */
-const wireLists = (form: HTMLFormElement): void => {
+const wireControls = (form: HTMLFormElement): void => {
   form.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+
+    const command = target.closest("[data-rich-command]");
+    if (command) {
+      event.preventDefault();
+      const field = command.closest("[data-rich-text-field]");
+      const editor = field?.querySelector<HTMLElement>("[data-rich-text]");
+      if (editor) {
+        runRichTextCommand(
+          command.getAttribute("data-rich-command") ?? "",
+          editor,
+        );
+      }
+      return;
+    }
 
     const add = target.closest("[data-list-add]");
     if (add) {
@@ -405,18 +407,26 @@ const wireLists = (form: HTMLFormElement): void => {
     const item = remove.closest("[data-list-item]");
     if (!item) return;
     const list = item.closest("[data-list]");
+
+    // Where focus goes once the row is gone: the first control of the next row,
+    // else the previous row, else the list's Add button. Reading the siblings
+    // before the removal is what makes "next" and "previous" mean the rows
+    // around it rather than nothing (the row is detached afterwards).
+    const next = item.nextElementSibling;
+    const previous = item.previousElementSibling;
     item.remove();
 
-    // Removing the row would otherwise drop focus to <body>, losing a keyboard
-    // user's place in the form. The list's own Add button is the nearest stable
-    // landmark; `:scope >` avoids a nested list's Add button.
-    list?.querySelector<HTMLElement>(":scope > [data-list-add]")?.focus();
+    const nextFocus: HTMLElement | null | undefined =
+      firstControl(next) ??
+      firstControl(previous) ??
+      // `:scope >` avoids a nested list's Add button.
+      list?.querySelector<HTMLElement>(":scope > [data-list-add]");
+    nextFocus?.focus();
   });
 };
 
 const wireForm = (form: HTMLFormElement): void => {
-  wireRichText(form);
-  wireLists(form);
+  wireControls(form);
 
   form.addEventListener("submit", () => {
     const hidden = form.querySelector<HTMLInputElement>("[data-cms-content]");
