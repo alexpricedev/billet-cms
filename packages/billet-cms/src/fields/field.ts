@@ -146,7 +146,7 @@ export const richText = <O extends FieldOptions = FieldOptions>(
   metadata: (name) => baseMetadata(name, "richText", options),
 });
 
-const imageValue = z.object({
+const imageValue = z.strictObject({
   mediaId: z.uuid(),
   alt: z.string().optional(),
 });
@@ -182,14 +182,14 @@ export const image = <O extends ImageOptions = ImageOptions>(
   };
 };
 
-const pageLink = z.object({
+const pageLink = z.strictObject({
   type: z.literal("page"),
   pageId: z.uuid(),
   label: z.string().optional(),
   newTab: z.boolean().optional(),
 });
 
-const urlLink = z.object({
+const urlLink = z.strictObject({
   type: z.literal("url"),
   url: z.string().regex(URL_PATTERN, URL_PATTERN_MESSAGE),
   label: z.string().optional(),

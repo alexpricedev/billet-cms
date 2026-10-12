@@ -48,14 +48,14 @@ const hero = block(
   () => null,
 );
 const cta = block("cta", { label: text(), target: link() }, () => null);
-const landing = pageType("Landing", {
+const landing = pageType("landing", {
   allowedBlocks: [hero, cta],
   requiredBlocks: [hero],
   limits: { hero: { max: 1, position: "top" } },
 });
 // The same page type once `cta` is dropped, so a publish missing the block is
 // still self-consistent (every allowed block must be declared).
-const landingOnlyHero = pageType("Landing", {
+const landingOnlyHero = pageType("landing", {
   allowedBlocks: [hero],
   requiredBlocks: [hero],
   limits: { hero: { max: 1, position: "top" } },
@@ -151,11 +151,32 @@ describe("publish", () => {
         FROM cms_page_types
       `;
       expect(pageTypes[0]).toMatchObject({
-        name: "Landing",
+        name: "landing",
         allowed_blocks: ["hero", "cta"],
         required_blocks: ["hero"],
         block_limits: { hero: { max: 1, position: "top" } },
       });
+    });
+  });
+
+  test("an explicitly empty set publishes without touching the tables", async () => {
+    await withDatabase("empty", async (sql) => {
+      const summary = await publish(sql, {
+        blocks: [],
+        pageTypes: [],
+        slots: [],
+      });
+
+      expect(summary).toMatchObject({
+        blocks: 0,
+        pageTypes: 0,
+        slots: 0,
+        removedBlocks: 0,
+        removedPageTypes: 0,
+        removedSlots: 0,
+        changed: false,
+      });
+      expect(await readBlocks(sql)).toEqual([]);
     });
   });
 
@@ -211,14 +232,14 @@ describe("publish", () => {
     await withDatabase("page-type-label", async (sql) => {
       const first = await publish(sql, definitions);
       const [before] = (await sql`
-        SELECT schema_hash, label, help FROM cms_page_types WHERE name = 'Landing'
+        SELECT schema_hash, label, help FROM cms_page_types WHERE name = 'landing'
       `) as {
         schema_hash: string;
         label: string | null;
         help: string | null;
       }[];
 
-      const relabelled = pageType("Landing", {
+      const relabelled = pageType("landing", {
         allowedBlocks: [hero, cta],
         requiredBlocks: [hero],
         limits: { hero: { max: 1, position: "top" } },
@@ -234,7 +255,7 @@ describe("publish", () => {
       expect(summary.contentVersion).toBe(first.contentVersion + 1);
 
       const [after] = (await sql`
-        SELECT schema_hash, label, help FROM cms_page_types WHERE name = 'Landing'
+        SELECT schema_hash, label, help FROM cms_page_types WHERE name = 'landing'
       `) as {
         schema_hash: string;
         label: string | null;
@@ -260,7 +281,7 @@ describe("publish", () => {
       expect(droppedPageType.removedPageTypes).toBe(1);
       expect(droppedPageType.removedSlots).toBe(0);
       const [landingRemoved] = await sql`
-        SELECT removed_at FROM cms_page_types WHERE name = 'Landing'
+        SELECT removed_at FROM cms_page_types WHERE name = 'landing'
       `;
       expect(landingRemoved?.removed_at).not.toBeNull();
 
@@ -288,7 +309,7 @@ describe("publish", () => {
       expect(readded.changed).toBe(true);
       expect(readded.removedSlots).toBe(1);
       const [landingBack] = await sql`
-        SELECT removed_at FROM cms_page_types WHERE name = 'Landing'
+        SELECT removed_at FROM cms_page_types WHERE name = 'landing'
       `;
       expect(landingBack?.removed_at).toBeNull();
       const [ctaRemoved] = await sql`

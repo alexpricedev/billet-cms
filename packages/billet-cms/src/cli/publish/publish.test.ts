@@ -11,13 +11,43 @@ describe("validateDefinitions", () => {
       validateDefinitions({
         blocks: [hero],
         slots: [slot("home.hero", hero)],
-        pageTypes: [pageType("Landing", { allowedBlocks: [hero] })],
+        pageTypes: [pageType("landing", { allowedBlocks: [hero] })],
       }),
     ).not.toThrow();
   });
 
-  test("accepts an empty set", () => {
-    expect(() => validateDefinitions({})).not.toThrow();
+  test("accepts a set of explicit empty arrays", () => {
+    // A site with no blocks exports `blocks = []` rather than omitting the key.
+    expect(() =>
+      validateDefinitions({ blocks: [], pageTypes: [], slots: [] }),
+    ).not.toThrow();
+  });
+
+  test("rejects a config that declares none of blocks, pageTypes or slots", () => {
+    expect(() => validateDefinitions({})).toThrow(
+      /declares none of blocks, pageTypes or slots/,
+    );
+  });
+
+  test("rejects a collection that isn't an array, naming it", () => {
+    const notAnArray = { blocks: "hero" } as unknown as SiteDefinitions;
+    expect(() => validateDefinitions(notAnArray)).toThrow(
+      /Expected "blocks" in the CMS config to be an array, but it is string/,
+    );
+  });
+
+  test("rejects a non-array collection on each key", () => {
+    for (const key of ["blocks", "pageTypes", "slots"]) {
+      const wrong = { [key]: {} } as unknown as SiteDefinitions;
+      expect(() =>
+        validateDefinitions({
+          blocks: [],
+          pageTypes: [],
+          slots: [],
+          ...wrong,
+        }),
+      ).toThrow(new RegExp(`"${key}" in the CMS config to be an array`));
+    }
   });
 
   test("rejects a definition in the wrong collection, naming it", () => {
@@ -54,10 +84,10 @@ describe("validateDefinitions", () => {
     expect(() =>
       validateDefinitions({
         blocks: [hero],
-        pageTypes: [pageType("Landing", { allowedBlocks: [other] })],
+        pageTypes: [pageType("landing", { allowedBlocks: [other] })],
       }),
     ).toThrow(
-      /Page type "Landing" references block "other", which this publish doesn't declare/,
+      /Page type "landing" references block "other", which this publish doesn't declare/,
     );
   });
 
@@ -68,7 +98,7 @@ describe("validateDefinitions", () => {
     // to check the required list too, not just the allowed one.
     const handWritten = {
       kind: "pageType",
-      name: "Landing",
+      name: "landing",
       allowedBlocks: [hero],
       requiredBlocks: [other],
       limits: {},
@@ -77,7 +107,7 @@ describe("validateDefinitions", () => {
     expect(() =>
       validateDefinitions({ blocks: [hero], pageTypes: [handWritten] }),
     ).toThrow(
-      /Page type "Landing" references block "other", which this publish doesn't declare/,
+      /Page type "landing" references block "other", which this publish doesn't declare/,
     );
   });
 });

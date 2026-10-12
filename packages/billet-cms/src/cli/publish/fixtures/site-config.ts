@@ -10,4 +10,4 @@ export const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
 
 export const blocks = [hero];
 export const slots = [slot("home.hero", hero)];
-export const pageTypes = [pageType("Landing", { allowedBlocks: [hero] })];
+export const pageTypes = [pageType("landing", { allowedBlocks: [hero] })];

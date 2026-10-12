@@ -37,6 +37,29 @@ describe("block", () => {
     expect(schema.safeParse({ heading: "x".repeat(81) }).success).toBe(false);
   });
 
+  test("rejects unknown keys, matching the stored JSON Schema", () => {
+    const schema = blockContentSchema(hero);
+    expect(schema.safeParse({ heading: "Hi", extra: true }).success).toBe(
+      false,
+    );
+
+    // The site-side rejection only matches the CMS if the stored JSON Schema
+    // says the same thing, which is what `additionalProperties: false` is.
+    expect(blockStoredSchema(hero).jsonSchema.additionalProperties).toBe(false);
+  });
+
+  test("rejects an unknown key inside a page's block variant", () => {
+    const definition = pageType("landing", { allowedBlocks: [hero] });
+    const schema = pageTypeContentSchema(definition);
+
+    expect(
+      schema.safeParse([{ type: "hero", heading: "Hi", extra: 1 }]).success,
+    ).toBe(false);
+    expect(schema.safeParse([{ type: "hero", heading: "Hi" }]).success).toBe(
+      true,
+    );
+  });
+
   test('rejects a field named "type", which collides with the page discriminator', () => {
     expect(() => block("weird", { type: text() }, () => null)).toThrow(
       /field named "type"/,
@@ -97,7 +120,7 @@ describe("slot", () => {
 
 describe("pageType", () => {
   test("records the allowed, required and limited blocks", () => {
-    const definition = pageType("Landing", {
+    const definition = pageType("landing", {
       allowedBlocks: [hero, prose],
       requiredBlocks: [hero],
       limits: { hero: { max: 1, position: "top" } },
@@ -114,7 +137,7 @@ describe("pageType", () => {
   });
 
   test("validates page content as an array of the allowed blocks", () => {
-    const definition = pageType("Landing", {
+    const definition = pageType("landing", {
       allowedBlocks: [hero, prose],
     });
     const schema = pageTypeContentSchema(definition);
@@ -127,19 +150,19 @@ describe("pageType", () => {
 
   test("stops at declaration when a required block isn't allowed", () => {
     expect(() =>
-      pageType("Landing", { allowedBlocks: [hero], requiredBlocks: [prose] }),
+      pageType("landing", { allowedBlocks: [hero], requiredBlocks: [prose] }),
     ).toThrow(/requires block "prose"/);
   });
 
   test("stops at declaration when limits name a block that isn't allowed", () => {
     expect(() =>
-      pageType("Landing", { allowedBlocks: [hero], limits: { prose: {} } }),
+      pageType("landing", { allowedBlocks: [hero], limits: { prose: {} } }),
     ).toThrow(/limits for "prose"/);
   });
 
   test("stops at declaration when a limit is not a non-negative integer", () => {
     expect(() =>
-      pageType("Landing", {
+      pageType("landing", {
         allowedBlocks: [hero],
         limits: { hero: { max: -1 } },
       }),
@@ -148,7 +171,7 @@ describe("pageType", () => {
 
   test("stops at declaration when a limit's min is above its max", () => {
     expect(() =>
-      pageType("Landing", {
+      pageType("landing", {
         allowedBlocks: [hero],
         limits: { hero: { min: 2, max: 1 } },
       }),
@@ -157,14 +180,14 @@ describe("pageType", () => {
 
   test("flattens to the stored document with a schema hash", () => {
     const stored = pageTypeStoredSchema(
-      pageType("Landing", {
+      pageType("landing", {
         allowedBlocks: [hero, prose],
         requiredBlocks: [hero],
         limits: { hero: { max: 1 } },
       }),
     );
 
-    expect(stored.name).toBe("Landing");
+    expect(stored.name).toBe("landing");
     expect(stored.allowedBlocks).toEqual(["hero", "prose"]);
     expect(stored.requiredBlocks).toEqual(["hero"]);
     expect(stored.limits).toEqual({ hero: { max: 1 } });
@@ -174,17 +197,86 @@ describe("pageType", () => {
 
   test("changes the schema hash when only the label or help changes", () => {
     const plain = pageTypeStoredSchema(
-      pageType("Landing", { allowedBlocks: [hero] }),
+      pageType("landing", { allowedBlocks: [hero] }),
     );
     const relabelled = pageTypeStoredSchema(
-      pageType("Landing", { allowedBlocks: [hero], label: "Landing page" }),
+      pageType("landing", { allowedBlocks: [hero], label: "Landing page" }),
     );
     const helped = pageTypeStoredSchema(
-      pageType("Landing", { allowedBlocks: [hero], help: "The home page" }),
+      pageType("landing", { allowedBlocks: [hero], help: "The home page" }),
     );
 
     expect(relabelled.schemaHash).not.toBe(plain.schemaHash);
     expect(helped.schemaHash).not.toBe(plain.schemaHash);
     expect(relabelled.label).toBe("Landing page");
+  });
+});
+
+describe("name validation", () => {
+  test("accepts valid block, field and page type names", () => {
+    expect(() => block("hero", { heading: text() }, () => null)).not.toThrow();
+    expect(() =>
+      block("hero-2", { heroBanner_1: text() }, () => null),
+    ).not.toThrow();
+    expect(() => block("a", { a: text() }, () => null)).not.toThrow();
+    expect(() =>
+      block("a".repeat(64), { heading: text() }, () => null),
+    ).not.toThrow();
+    expect(() => pageType("landing", {})).not.toThrow();
+    expect(() => pageType("blogPost", {})).not.toThrow();
+  });
+
+  test("rejects an invalid block name", () => {
+    for (const name of [
+      "Hero",
+      "1hero",
+      "-hero",
+      "hero!",
+      "héro",
+      "",
+      "a".repeat(65),
+    ]) {
+      expect(() => block(name, { heading: text() }, () => null)).toThrow(
+        /Invalid block name/,
+      );
+    }
+  });
+
+  test("rejects an invalid field name, naming the block it is in", () => {
+    for (const field of ["Heading", "1heading", "head ing", "héad", ""]) {
+      expect(() => block("hero", { [field]: text() }, () => null)).toThrow(
+        /Invalid field name .* in block "hero"/,
+      );
+    }
+  });
+
+  test("rejects an invalid page type name", () => {
+    for (const name of ["Landing", "1landing", "land ing", "héro", ""]) {
+      expect(() => pageType(name, {})).toThrow(/Invalid page type name/);
+    }
+  });
+
+  test("accepts valid slot names, including a dotted page prefix", () => {
+    for (const name of [
+      "home",
+      "home.hero",
+      "footer.legal-notice",
+      "a".repeat(64),
+    ]) {
+      expect(() => slot(name, hero)).not.toThrow();
+    }
+  });
+
+  test("rejects an invalid slot name", () => {
+    for (const name of [
+      "Home.hero",
+      "1home",
+      ".hero",
+      "home hero",
+      "home/hero",
+      "",
+    ]) {
+      expect(() => slot(name, hero)).toThrow(/Invalid slot name/);
+    }
   });
 });

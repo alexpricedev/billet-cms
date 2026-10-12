@@ -16,6 +16,7 @@ import {
   type StoredSchema,
 } from "../contract";
 import type { Field } from "./field";
+import { assertName, SLOT_NAME_PATTERN } from "./name";
 import { assertMinMax, assertNonNegativeInteger } from "./options";
 
 export type BlockFields = Record<string, Field>;
@@ -57,6 +58,10 @@ export const block = <F extends BlockFields>(
   fields: F,
   render: BlockRender<F>,
 ): BlockDefinition<F> => {
+  assertName(name, "block");
+  for (const fieldName of Object.keys(fields)) {
+    assertName(fieldName, "field", { context: `in block "${name}"` });
+  }
   if (Object.hasOwn(fields, "type")) {
     // A page's content is an array of blocks told apart by a `type`
     // discriminator (see `blockVariantSchema`). A field named `type` would
@@ -96,14 +101,18 @@ export const slot = (
   name: string,
   definition: BlockDefinitionShape,
   options: SlotOptions = {},
-): SlotDefinition => ({
-  kind: "slot",
-  name,
-  blockName: definition.name,
-  page: options.page ?? name.split(".")[0],
-  ...(options.label !== undefined ? { label: options.label } : {}),
-  ...(options.help !== undefined ? { help: options.help } : {}),
-});
+): SlotDefinition => {
+  assertName(name, "slot", { pattern: SLOT_NAME_PATTERN });
+
+  return {
+    kind: "slot",
+    name,
+    blockName: definition.name,
+    page: options.page ?? name.split(".")[0],
+    ...(options.label !== undefined ? { label: options.label } : {}),
+    ...(options.help !== undefined ? { help: options.help } : {}),
+  };
+};
 
 export interface PageTypeOptions {
   label?: string;
@@ -137,6 +146,7 @@ export const pageType = (
   name: string,
   options: PageTypeOptions = {},
 ): PageTypeDefinition => {
+  assertName(name, "page type");
   const allowedBlocks = options.allowedBlocks ?? [];
   const requiredBlocks = options.requiredBlocks ?? [];
   const limits = options.limits ?? {};
@@ -185,14 +195,14 @@ const fieldShape = (fields: BlockFields): Record<string, z.ZodType> =>
 /** The Zod schema for a block's stored content: just its fields. */
 export const blockContentSchema = (
   definition: BlockDefinitionShape,
-): z.ZodType => z.object(fieldShape(definition.fields));
+): z.ZodType => z.strictObject(fieldShape(definition.fields));
 
 /**
  * A block as it appears inside a page's content array: its fields plus a `type`
  * discriminator, so several block types can share one array and be told apart.
  */
 const blockVariantSchema = (definition: BlockDefinitionShape): z.ZodType =>
-  z.object({
+  z.strictObject({
     type: z.literal(definition.name),
     ...fieldShape(definition.fields),
   });
