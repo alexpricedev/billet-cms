@@ -30,8 +30,27 @@ export const SITE_USERS_DDL = `CREATE TABLE IF NOT EXISTS users (
      CHECK (role IN ('user', 'admin'))
  )`;
 
-const SITE_TABLES = [
-  SITE_USERS_DDL,
+/**
+ * The same `users` table as a password-mode site has it.
+ *
+ * Upstream's `007_add_password_credentials` adds `password_hash` and
+ * `email_verified_at` to the table, both nullable; password mode is the one
+ * that fills the hash in. The CMS reaches accounts only through
+ * `cms_identities`, which selects `id, email, role`, so a test built on this
+ * table is how both halves of the password-mode coverage are proved: sign-in
+ * works over it, and the credential itself is never read or written.
+ */
+export const SITE_PASSWORD_USERS_DDL = `CREATE TABLE IF NOT EXISTS users (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   email VARCHAR(255) NOT NULL UNIQUE,
+   password_hash TEXT NULL,
+   email_verified_at TIMESTAMPTZ NULL,
+   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+   role VARCHAR(20) NOT NULL DEFAULT 'user'
+     CHECK (role IN ('user', 'admin'))
+ )`;
+
+const SITE_TABLES_AFTER_USERS = [
   `CREATE TABLE sessions (
      id_hash TEXT PRIMARY KEY,
      user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -68,8 +87,26 @@ const SITE_TABLES = [
   "CREATE INDEX idx_user_tokens_expires_at ON user_tokens(expires_at)",
 ] as const;
 
+const SITE_TABLES = [SITE_USERS_DDL, ...SITE_TABLES_AFTER_USERS] as const;
+
+const SITE_PASSWORD_TABLES = [
+  SITE_PASSWORD_USERS_DDL,
+  ...SITE_TABLES_AFTER_USERS,
+] as const;
+
 export const createSiteTables = async (sql: SQL): Promise<void> => {
   for (const statement of SITE_TABLES) {
+    await sql.unsafe(statement);
+  }
+};
+
+/**
+ * The same site in password mode: `users` carries the credential columns, so a
+ * site that signs its editors in with a password still has a `users` table the
+ * CMS can read through `cms_identities`.
+ */
+export const createPasswordSiteTables = async (sql: SQL): Promise<void> => {
+  for (const statement of SITE_PASSWORD_TABLES) {
     await sql.unsafe(statement);
   }
 };
