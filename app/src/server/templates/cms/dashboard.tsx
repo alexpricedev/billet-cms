@@ -47,7 +47,10 @@ export const Dashboard = ({
                   {slot.label ?? slot.name}
                 </a>
                 <span className="cms-slot-meta">
-                  <code>{slot.name}</code>
+                  {/* Only when it adds something: an unlabelled slot already
+                      shows its name as the link, so repeating it as <code>
+                      says it twice. */}
+                  {slot.label ? <code>{slot.name}</code> : null}
                   <span className="cms-slot-block">{slot.blockName}</span>
                   {slot.removedAt && (
                     <span className="cms-removed">No longer declared</span>

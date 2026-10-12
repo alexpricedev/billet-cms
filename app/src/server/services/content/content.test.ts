@@ -138,6 +138,52 @@ describe("content write layer", () => {
     );
   });
 
+  // The form is read-only once a deploy removes the block type (Q4); the write
+  // layer refuses the slot too rather than trusting every caller to check.
+  test("refuses to save a slot whose block type was removed", async () => {
+    await db`UPDATE cms_block_types SET removed_at = NOW() WHERE name = 'hero'`;
+
+    await expect(
+      saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      }),
+    ).rejects.toThrow(/no longer published/);
+  });
+
+  // The form shows the validator's message beside the field's label, so the
+  // write layer turns Zod's jargon into copy an editor can act on (item 9).
+  test("maps a schema failure to plain copy", async () => {
+    const result = await saveSlotDraft({
+      slotId,
+      content: { ...validContent, heading: "x".repeat(81) },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    const heading = result.issues.find((issue) => issue.path === "heading");
+    expect(heading?.message).toBe("Use 80 characters or fewer.");
+  });
+
+  test("names a missing required field in plain copy", async () => {
+    const { heading: _omitted, ...withoutHeading } = validContent;
+    const result = await saveSlotDraft({
+      slotId,
+      content: withoutHeading,
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    const heading = result.issues.find((issue) => issue.path === "heading");
+    expect(heading?.message).toBe("This field is required.");
+  });
+
   test("saves on top of the revision it was based on", async () => {
     const first = await saveSlotDraft({
       slotId,

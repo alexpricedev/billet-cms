@@ -158,7 +158,10 @@ describe("cms form editor", () => {
     expect(count()).toBe(2);
   });
 
-  test("keeps focus in the form when a row is removed", () => {
+  // Removing a row used to drop focus onto the list's Add button always —
+  // fine for the last row, wrong for the middle of a list, where it skips the
+  // rows below.
+  test("moves focus to the next row's control when a row is removed", () => {
     const list = form().querySelector("[data-list]") as HTMLElement;
     const remove = list.querySelector(
       "[data-list-remove]",
@@ -166,11 +169,69 @@ describe("cms form editor", () => {
     remove.focus();
     remove.click();
 
-    // Removing the row must not drop focus to <body>.
     expect(document.activeElement).not.toBe(document.body);
+    const rows = list.querySelectorAll(
+      ":scope > [data-list-items] > [data-list-item]",
+    );
+    expect(document.activeElement).toBe(rows[0].querySelector("input"));
+  });
+
+  test("falls back to the list's Add button when the last row is removed", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="list" data-field-name="tags" data-list>
+          <div data-list-items>
+            <div data-list-item>
+              <div data-field data-field-kind="text" data-field-name="item">
+                <input type="text" data-text-input value="only">
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>
+          </div>
+          <template data-list-template></template>
+          <button type="button" data-list-add>Add item</button>
+        </div>
+      </form>
+    `);
+
+    const list = form().querySelector("[data-list]") as HTMLElement;
+    (list.querySelector("[data-list-remove]") as HTMLButtonElement).click();
+
     expect(document.activeElement).toBe(
       list.querySelector(":scope > [data-list-add]"),
     );
+  });
+
+  test("falls back to the previous row's control when the last of several is removed", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="list" data-field-name="tags" data-list>
+          <div data-list-items>
+            ${["one", "two", "three"]
+              .map(
+                (value) => `
+            <div data-list-item>
+              <div data-field data-field-kind="text" data-field-name="item">
+                <input type="text" data-text-input value="${value}">
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>`,
+              )
+              .join("")}
+          </div>
+          <template data-list-template></template>
+          <button type="button" data-list-add>Add item</button>
+        </div>
+      </form>
+    `);
+
+    const rows = () => form().querySelectorAll(":scope [data-list-item]");
+    (
+      rows()[2].querySelector("[data-list-remove]") as HTMLButtonElement
+    ).click();
+
+    // The last row has no next; focus lands back on the row above it, not Add.
+    expect(document.activeElement).toBe(rows()[1].querySelector("input"));
   });
 
   test("serializes an empty editor to an empty document", () => {
@@ -400,6 +461,68 @@ describe("nested lists", () => {
         ":scope > [data-list-items] > [data-list-item]",
       ).length,
     ).toBe(1);
+  });
+});
+
+const richListMarkup = `
+  <form data-cms-form>
+    <input type="hidden" name="content" data-cms-content value="{}">
+    <div data-field data-field-kind="list" data-field-name="notes" data-list data-max="3">
+      <div data-list-items>
+        <div data-list-item>
+          <div data-field data-field-kind="richText" data-field-name="item" data-rich-text-field>
+            <div class="cms-rte-toolbar">
+              <button type="button" data-rich-command="bold">B</button>
+            </div>
+            <div data-rich-text contenteditable="true" tabindex="0"><p></p></div>
+          </div>
+          <button type="button" data-list-remove>Remove</button>
+        </div>
+      </div>
+      <template data-list-template>
+        <div data-list-item>
+          <div data-field data-field-kind="richText" data-field-name="item" data-rich-text-field>
+            <div class="cms-rte-toolbar">
+              <button type="button" data-rich-command="bold">B</button>
+            </div>
+            <div data-rich-text contenteditable="true" tabindex="0"><p></p></div>
+          </div>
+          <button type="button" data-list-remove>Remove</button>
+        </div>
+      </template>
+      <button type="button" data-list-add>Add item</button>
+    </div>
+  </form>
+`;
+
+describe("rich text in added rows", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    // happy-dom has no document.execCommand; remove the stub a test installs.
+    delete (document as unknown as { execCommand?: unknown }).execCommand;
+  });
+
+  // A per-button listener only reached the toolbar in the row present at load;
+  // the toolbar in a cloned row had none, so its buttons did nothing.
+  test("runs a toolbar command from a row added after load", () => {
+    const calls: string[] = [];
+    (
+      document as unknown as { execCommand: (command: string) => void }
+    ).execCommand = (command) => {
+      calls.push(command);
+    };
+
+    mount(richListMarkup);
+    const add = form().querySelector("[data-list-add]") as HTMLButtonElement;
+    add.click();
+
+    const rows = form().querySelectorAll("[data-list-item]");
+    const button = rows[1].querySelector(
+      "[data-rich-command='bold']",
+    ) as HTMLButtonElement;
+    button.click();
+
+    expect(calls).toEqual(["bold"]);
   });
 });
 

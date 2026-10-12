@@ -71,4 +71,22 @@ describe("Dashboard controller", () => {
     expect(html).toContain("Home hero");
     expect(html).toContain("home.hero");
   });
+
+  // An unlabelled slot shows its name as the link; repeating it in the muted
+  // <code> beside it says the same thing twice.
+  test("shows an unlabelled slot's name once, not twice", async () => {
+    await seedBlockType(db, hero);
+    await seedSlot(db, {
+      name: "about.intro",
+      blockName: "hero",
+      page: "about",
+    });
+
+    const identity = await seedIdentity(db, "editor@example.com");
+    const session = await createAuthenticatedSession(identity.id);
+
+    const html = await (await dashboard.index(get(session))).text();
+
+    expect(html.match(/about\.intro/g) ?? []).toHaveLength(1);
+  });
 });
