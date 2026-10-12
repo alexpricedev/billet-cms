@@ -60,22 +60,27 @@ export const removeMigration = async (id: string): Promise<void> => {
 };
 
 /**
+ * Migration files on disk, in filename order.
+ */
+const listMigrationFiles = (): string[] =>
+  readdirSync(MIGRATIONS_DIR)
+    .filter((file) => file.endsWith(".ts"))
+    .sort();
+
+const migrationId = (filename: string): string => filename.replace(".ts", "");
+
+/**
  * Migration files that haven't been applied yet, in filename order.
  */
 export const getPendingMigrations = async (
   sql: SQL = db,
 ): Promise<string[]> => {
-  const migrationFiles = readdirSync(MIGRATIONS_DIR)
-    .filter((file) => file.endsWith(".ts"))
-    .sort();
-
   const appliedMigrations = await getAppliedMigrations(sql);
   const appliedIds = new Set(appliedMigrations.map((m) => m.id));
 
-  return migrationFiles.filter((file) => {
-    const id = file.replace(".ts", "");
-    return !appliedIds.has(id);
-  });
+  return listMigrationFiles().filter(
+    (file) => !appliedIds.has(migrationId(file)),
+  );
 };
 
 /**
@@ -112,8 +117,8 @@ export const runMigration = async (
  * whether the two are compatible. `content_version` is left alone — the site
  * owns that counter.
  */
-export const syncContractVersion = async (): Promise<void> => {
-  await db`
+export const syncContractVersion = async (sql: SQL = db): Promise<void> => {
+  await sql`
     INSERT INTO cms_meta (id, contract_version)
     VALUES (1, ${CONTRACT_VERSION})
     ON CONFLICT (id) DO UPDATE
@@ -135,37 +140,46 @@ export const syncContractVersion = async (): Promise<void> => {
  * DDL is transactional in Postgres, so a migration that fails part-way rolls
  * back with the lock and the next boot retries cleanly.
  */
-export const runMigrations = async (): Promise<void> => {
-  const pending = await getPendingMigrations();
+export const runMigrations = async (sql: SQL = db): Promise<void> => {
+  let appliedCount = 0;
 
-  if (pending.length === 0) {
-    log.info("migrations", "No pending migrations");
-    await syncContractVersion();
-    return;
-  }
-
-  log.info("migrations", `Running ${pending.length} pending migrations...`);
-
-  await db.begin(async (tx) => {
+  await sql.begin(async (tx) => {
+    // The lock is taken before anything is read or created. Two instances
+    // booting together would otherwise race on `CREATE TABLE IF NOT EXISTS
+    // cms_migrations` — a check-then-create that Postgres can still lose with a
+    // duplicate-key error on its own system catalogue.
     await tx`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK_KEY}::bigint)`;
 
-    // Re-read under the lock: another instance may have applied everything
-    // while this one waited.
+    await ensureMigrationsTable(tx);
+
     const applied = new Set(
       ((await tx`SELECT id FROM cms_migrations`) as { id: string }[]).map(
         (row) => row.id,
       ),
     );
+    const pending = listMigrationFiles().filter(
+      (file) => !applied.has(migrationId(file)),
+    );
+    appliedCount = pending.length;
 
+    if (pending.length === 0) {
+      log.info("migrations", "No pending migrations");
+      return;
+    }
+
+    log.info("migrations", `Running ${pending.length} pending migrations...`);
     for (const migration of pending) {
-      const id = migration.replace(".ts", "");
-      if (applied.has(id)) continue;
       await runMigration(migration, tx);
     }
   });
 
-  await syncContractVersion();
-  log.info("migrations", "All migrations completed");
+  // After the transaction commits, so the row can only be written once the
+  // migration that creates `cms_meta` has landed.
+  await syncContractVersion(sql);
+
+  if (appliedCount > 0) {
+    log.info("migrations", "All migrations completed");
+  }
 };
 
 export const rollbackMigration = async (

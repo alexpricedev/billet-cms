@@ -1,4 +1,5 @@
 import { TABLES } from "@alexpricedev/billet-cms/contract";
+import type { SQL } from "bun";
 import { db } from "../services/database";
 import { log } from "../services/logger";
 
@@ -35,8 +36,8 @@ const DEFAULT_IDENTITY_VIEW_QUERY = `SELECT id, email, role
  *    exist is an error. Boot proceeds without it; the next boot after the
  *    site's first deploy creates it.
  */
-export const ensureIdentitiesView = async (): Promise<void> => {
-  await db.begin(async (tx) => {
+export const ensureIdentitiesView = async (sql: SQL = db): Promise<void> => {
+  await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(${IDENTITY_VIEW_LOCK_KEY}::bigint)`;
 
     const existing = await tx`
