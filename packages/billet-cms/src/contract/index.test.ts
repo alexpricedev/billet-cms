@@ -112,4 +112,16 @@ describe("hashJson", () => {
   test("is a hex digest, not the JSON itself", () => {
     expect(hashJson({ a: 1 })).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  test("sorts object keys recursively, so declaration order doesn't hash differently", () => {
+    expect(hashJson({ a: 1, b: 2 })).toBe(hashJson({ b: 2, a: 1 }));
+    expect(hashJson({ a: { x: 1, y: 2 }, b: [1, 2] })).toBe(
+      hashJson({ b: [1, 2], a: { y: 2, x: 1 } }),
+    );
+  });
+
+  test("still depends on array order and on the values", () => {
+    expect(hashJson([1, 2])).not.toBe(hashJson([2, 1]));
+    expect(hashJson({ a: 1 })).not.toBe(hashJson({ a: 2 }));
+  });
 });

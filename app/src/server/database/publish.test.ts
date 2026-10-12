@@ -53,6 +53,13 @@ const landing = pageType("Landing", {
   requiredBlocks: [hero],
   limits: { hero: { max: 1, position: "top" } },
 });
+// The same page type once `cta` is dropped, so a publish missing the block is
+// still self-consistent (every allowed block must be declared).
+const landingOnlyHero = pageType("Landing", {
+  allowedBlocks: [hero],
+  requiredBlocks: [hero],
+  limits: { hero: { max: 1, position: "top" } },
+});
 
 const definitions: SiteDefinitions = {
   blocks: [hero, cta],
@@ -76,15 +83,20 @@ const readBlocks = async (sql: SQL): Promise<BlockTypeRow[]> =>
 
 const snapshot = async (sql: SQL) => ({
   blocks: await sql`
-    SELECT id, name, schema_hash, removed_at FROM cms_block_types ORDER BY name
+    SELECT id, name, schema_hash, removed_at, updated_at
+    FROM cms_block_types ORDER BY name
   `,
   pageTypes: await sql`
-    SELECT id, name, schema_hash, removed_at FROM cms_page_types ORDER BY name
+    SELECT id, name, schema_hash, removed_at, updated_at
+    FROM cms_page_types ORDER BY name
   `,
   slots: await sql`
-    SELECT id, name, block_name, page, removed_at FROM cms_slots ORDER BY name
+    SELECT id, name, block_name, page, removed_at, updated_at
+    FROM cms_slots ORDER BY name
   `,
-  meta: await sql`SELECT content_version FROM cms_meta WHERE id = 1`,
+  meta: await sql`
+    SELECT content_version, updated_at FROM cms_meta WHERE id = 1
+  `,
 });
 
 describe("publish", () => {
@@ -195,13 +207,104 @@ describe("publish", () => {
     });
   });
 
+  test("a label-only page type change rewrites its row and bumps the content version", async () => {
+    await withDatabase("page-type-label", async (sql) => {
+      const first = await publish(sql, definitions);
+      const [before] = (await sql`
+        SELECT schema_hash, label, help FROM cms_page_types WHERE name = 'Landing'
+      `) as {
+        schema_hash: string;
+        label: string | null;
+        help: string | null;
+      }[];
+
+      const relabelled = pageType("Landing", {
+        allowedBlocks: [hero, cta],
+        requiredBlocks: [hero],
+        limits: { hero: { max: 1, position: "top" } },
+        label: "Landing page",
+        help: "The home page",
+      });
+      const summary = await publish(sql, {
+        ...definitions,
+        pageTypes: [relabelled],
+      });
+
+      expect(summary.changed).toBe(true);
+      expect(summary.contentVersion).toBe(first.contentVersion + 1);
+
+      const [after] = (await sql`
+        SELECT schema_hash, label, help FROM cms_page_types WHERE name = 'Landing'
+      `) as {
+        schema_hash: string;
+        label: string | null;
+        help: string | null;
+      }[];
+      expect(after?.schema_hash).not.toBe(before?.schema_hash);
+      expect(after?.label).toBe("Landing page");
+      expect(after?.help).toBe("The home page");
+    });
+  });
+
+  test("a page type and a slot a deploy drops are marked removed; a re-add clears them and a change rewrites the slot", async () => {
+    await withDatabase("removed-others", async (sql) => {
+      await publish(sql, definitions);
+
+      // Drop the page type but keep both slots.
+      const noPageTypes: SiteDefinitions = {
+        blocks: [hero, cta],
+        pageTypes: [],
+        slots: [slot("home.hero", hero), slot("home.cta", cta)],
+      };
+      const droppedPageType = await publish(sql, noPageTypes);
+      expect(droppedPageType.removedPageTypes).toBe(1);
+      expect(droppedPageType.removedSlots).toBe(0);
+      const [landingRemoved] = await sql`
+        SELECT removed_at FROM cms_page_types WHERE name = 'Landing'
+      `;
+      expect(landingRemoved?.removed_at).not.toBeNull();
+
+      // Point home.cta at a different block and relabel it: its row is rewritten.
+      const changedSlot = slot("home.cta", hero, { label: "Hero again" });
+      const changed = await publish(sql, {
+        blocks: [hero, cta],
+        pageTypes: [],
+        slots: [slot("home.hero", hero), changedSlot],
+      });
+      expect(changed.changed).toBe(true);
+      const [ctaSlot] = await sql`
+        SELECT block_name, label FROM cms_slots WHERE name = 'home.cta'
+      `;
+      expect(ctaSlot).toMatchObject({
+        block_name: "hero",
+        label: "Hero again",
+      });
+
+      // Re-add the page type and drop home.cta: one is cleared, the other removed.
+      const readded = await publish(sql, {
+        ...definitions,
+        slots: [slot("home.hero", hero)],
+      });
+      expect(readded.changed).toBe(true);
+      expect(readded.removedSlots).toBe(1);
+      const [landingBack] = await sql`
+        SELECT removed_at FROM cms_page_types WHERE name = 'Landing'
+      `;
+      expect(landingBack?.removed_at).toBeNull();
+      const [ctaRemoved] = await sql`
+        SELECT removed_at FROM cms_slots WHERE name = 'home.cta'
+      `;
+      expect(ctaRemoved?.removed_at).not.toBeNull();
+    });
+  });
+
   test("a definition a deploy drops is marked removed, never deleted, and re-adding clears it", async () => {
     await withDatabase("removed", async (sql) => {
       await publish(sql, definitions);
 
       const withoutCta: SiteDefinitions = {
         blocks: [hero],
-        pageTypes: [landing],
+        pageTypes: [landingOnlyHero],
         slots: [slot("home.hero", hero)],
       };
       const removed = await publish(sql, withoutCta);

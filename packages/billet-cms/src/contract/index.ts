@@ -174,7 +174,30 @@ export interface StoredPageType {
  *
  * Used as the schema hash a re-publish compares against the stored row: two
  * deploys that declare the same thing produce the same hash and write nothing.
- * Callers pass a value they build in a fixed key order.
+ * Object keys are sorted recursively first, so the hash depends on the values
+ * alone and not on the order a deploy happened to build them in.
  */
 export const hashJson = (value: unknown): string =>
-  createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  createHash("sha256")
+    .update(JSON.stringify(canonicalJson(value)))
+    .digest("hex");
+
+/**
+ * A copy of `value` with every object's keys sorted.
+ *
+ * Arrays keep their order — it is meaningful — while objects are rebuilt with
+ * their keys in lexical order at every depth, so two structurally equal values
+ * serialise identically. `JSON.stringify` drops an `undefined` value, so an
+ * absent optional property and one set to `undefined` hash the same.
+ */
+const canonicalJson = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value === null || typeof value !== "object") return value;
+
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.keys(record)
+      .sort()
+      .map((key) => [key, canonicalJson(record[key])]),
+  );
+};
