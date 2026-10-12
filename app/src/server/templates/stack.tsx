@@ -70,7 +70,7 @@ export const Stack = ({ user, csrfToken }: StackProps) => (
     <section>
       <h2>Feedback stack</h2>
       <p className="text-secondary">
-        Five layers of automated checks run before code reaches production.
+        Four layers of automated checks run before code reaches production.
       </p>
       <DataTable>
         <thead>
@@ -91,12 +91,6 @@ export const Stack = ({ user, csrfToken }: StackProps) => (
             <td>
               Code quality, unused variables, console statements, unsafe
               patterns
-            </td>
-          </tr>
-          <tr>
-            <td>Pre-commit hooks</td>
-            <td>
-              Formatting, lint errors, and type checks before every commit
             </td>
           </tr>
           <tr>

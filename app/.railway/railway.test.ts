@@ -78,6 +78,20 @@ describe("railway.ts", () => {
     }
   });
 
+  // The product is "Billet CMS", not upstream Billet. The default name reaches
+  // the page <title>, the nav and every email, so a half-done rename is visible
+  // to users; these are the deploy-time defaults the service would carry.
+  test("names the product Billet CMS", () => {
+    expect(app?.variables?.APP_NAME).toEqual({
+      type: "literal",
+      value: "Billet CMS",
+    });
+    expect(app?.variables?.FROM_NAME).toEqual({
+      type: "literal",
+      value: "Billet CMS",
+    });
+  });
+
   // Railway resolves this at deploy time. Without it APP_URL can't be set until
   // the domain exists, and the domain doesn't exist until the service does.
   test("derives APP_URL from the domain Railway assigns", () => {

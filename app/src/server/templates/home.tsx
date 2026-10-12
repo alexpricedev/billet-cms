@@ -137,12 +137,6 @@ export const Home = ({ user, csrfToken, message }: HomeProps) => (
           </span>
         </div>
         <div className="stack-row">
-          <span className="stack-layer">Pre-commit hooks</span>
-          <span className="stack-catches">
-            Anything that slipped past the editor
-          </span>
-        </div>
-        <div className="stack-row">
           <span className="stack-layer">Test suite</span>
           <span className="stack-catches">
             Behavioural regressions, broken templates, bad responses
@@ -207,10 +201,7 @@ export const Home = ({ user, csrfToken, message }: HomeProps) => (
         </div>
         <div className="feature-card">
           <h3>Code Quality</h3>
-          <p>
-            Biome linting, strict TypeScript, pre-commit hooks, structured
-            logging
-          </p>
+          <p>Biome linting, strict TypeScript, structured logging</p>
         </div>
       </div>
     </section>

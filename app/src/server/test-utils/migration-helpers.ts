@@ -140,6 +140,12 @@ export interface TempDatabase {
   name: string;
   url: string;
   open: () => SQL;
+  /**
+   * A single connection, for a test that needs session state — a `SET
+   * search_path`, a temporary table — to survive across queries. `open()`'s
+   * pool can hand the next query a different connection and lose it.
+   */
+  openOne: () => SQL;
   drop: () => Promise<void>;
 }
 
@@ -178,6 +184,11 @@ export const createTempDatabase = async (
     url,
     open: () => {
       const client = new SQL(url, { max: 3, idleTimeout: 5 });
+      clients.push(client);
+      return client;
+    },
+    openOne: () => {
+      const client = new SQL(url, { max: 1, idleTimeout: 5 });
       clients.push(client);
       return client;
     },
