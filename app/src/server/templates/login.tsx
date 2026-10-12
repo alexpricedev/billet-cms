@@ -44,13 +44,6 @@ export const Login = ({
       canonicalPath="/login"
       heading="Sign in to your account"
       subtitle="We'll send you a magic link to sign in instantly"
-      footer={
-        <>
-          <a href="/signup">Create an account</a>
-          {" · "}
-          <a href="/">Back to home</a>
-        </>
-      }
     >
       {message && (
         <Flash type={message.type}>

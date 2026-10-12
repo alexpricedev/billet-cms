@@ -26,6 +26,20 @@ import {
   getSessionContextFromDB,
 } from "./sessions";
 
+/**
+ * Provision the account, then mint its magic link.
+ *
+ * Sign-in is invite-only now: `createMagicLink` returns null for an email with
+ * no `cms_users` row, so every test that needs a live link seeds the account
+ * first.
+ */
+const magicLinkFor = async (email: string) => {
+  await findOrCreateUser(email);
+  const link = await createMagicLink(email);
+  if (!link) throw new Error(`no account for ${email}`);
+  return link;
+};
+
 describe("Auth Service with PostgreSQL", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
@@ -63,28 +77,29 @@ describe("Auth Service with PostgreSQL", () => {
   });
 
   describe("createMagicLink", () => {
-    test("creates magic link for existing user", async () => {
+    test("creates a magic link for an existing user", async () => {
       const user = await findOrCreateUser("test@example.com");
-      const { user: linkUser, rawToken } =
-        await createMagicLink("test@example.com");
+      const link = await createMagicLink("test@example.com");
 
-      expect(linkUser.id).toBe(user.id);
-      expect(linkUser.email).toBe(user.email);
-      expect(rawToken).toBeDefined();
-      expect(typeof rawToken).toBe("string");
-      expect(rawToken.length).toBeGreaterThan(20);
+      expect(link).not.toBeNull();
+      expect(link?.user.id).toBe(user.id);
+      expect(link?.user.email).toBe(user.email);
+      expect(typeof link?.rawToken).toBe("string");
+      expect(link?.rawToken.length).toBeGreaterThan(20);
     });
 
-    test("creates magic link for new user", async () => {
-      const { user, rawToken } = await createMagicLink("new@example.com");
+    // Sign-in is invite-only: an unknown address must not be provisioned.
+    test("returns null for an email with no account, creating nothing", async () => {
+      expect(await createMagicLink("stranger@example.com")).toBeNull();
 
-      expect(user.email).toBe("new@example.com");
-      expect(user.id).toBeDefined();
-      expect(rawToken).toBeDefined();
+      expect(
+        await db`SELECT id FROM cms_users WHERE email = 'stranger@example.com'`,
+      ).toHaveLength(0);
+      expect(await db`SELECT id FROM cms_user_tokens`).toHaveLength(0);
     });
 
     test("stores hashed token in database", async () => {
-      const { user } = await createMagicLink("hash@example.com");
+      const { user } = await magicLinkFor("hash@example.com");
 
       const tokens = await db`
         SELECT id, user_id, type, expires_at, used_at
@@ -108,7 +123,7 @@ describe("Auth Service with PostgreSQL", () => {
 
   describe("verifyMagicLink", () => {
     test("successfully verifies valid unused token", async () => {
-      const { user, rawToken } = await createMagicLink("verify@example.com");
+      const { user, rawToken } = await magicLinkFor("verify@example.com");
 
       const result = await verifyMagicLink(rawToken);
 
@@ -121,7 +136,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("marks token as used after verification", async () => {
-      const { user, rawToken } = await createMagicLink("used@example.com");
+      const { user, rawToken } = await magicLinkFor("used@example.com");
 
       await verifyMagicLink(rawToken);
 
@@ -135,7 +150,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("rejects already used token", async () => {
-      const { rawToken } = await createMagicLink("reuse@example.com");
+      const { rawToken } = await magicLinkFor("reuse@example.com");
 
       await verifyMagicLink(rawToken);
       const result = await verifyMagicLink(rawToken);
@@ -147,7 +162,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("prevents race condition with simultaneous verification attempts", async () => {
-      const { rawToken } = await createMagicLink("race@example.com");
+      const { rawToken } = await magicLinkFor("race@example.com");
 
       const [result1, result2] = await Promise.all([
         verifyMagicLink(rawToken),
@@ -176,7 +191,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("rejects expired token", async () => {
-      const { user, rawToken } = await createMagicLink("expired@example.com");
+      const { user, rawToken } = await magicLinkFor("expired@example.com");
 
       await db`
         UPDATE cms_user_tokens
@@ -195,7 +210,7 @@ describe("Auth Service with PostgreSQL", () => {
 
   describe("integration scenarios", () => {
     test("complete magic link auth flow", async () => {
-      const { user, rawToken } = await createMagicLink("complete@example.com");
+      const { user, rawToken } = await magicLinkFor("complete@example.com");
       expect(user.email).toBe("complete@example.com");
 
       const authResult = await verifyMagicLink(rawToken);
@@ -214,8 +229,8 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("multiple users can have separate sessions", async () => {
-      const { rawToken: token1 } = await createMagicLink("user1@example.com");
-      const { rawToken: token2 } = await createMagicLink("user2@example.com");
+      const { rawToken: token1 } = await magicLinkFor("user1@example.com");
+      const { rawToken: token2 } = await magicLinkFor("user2@example.com");
 
       const auth1 = await verifyMagicLink(token1);
       const auth2 = await verifyMagicLink(token2);
@@ -334,7 +349,7 @@ describe("Auth Service with PostgreSQL", () => {
 
   describe("HMAC security", () => {
     test("database compromise cannot enable login", async () => {
-      const { user, rawToken } = await createMagicLink("security@example.com");
+      const { user, rawToken } = await magicLinkFor("security@example.com");
 
       const tokens = await db`
         SELECT token_hash FROM cms_user_tokens
@@ -356,7 +371,7 @@ describe("Auth Service with PostgreSQL", () => {
     test("deletes guest session and creates new session on login", async () => {
       const guestSessionId = await createGuestSession();
 
-      const { user, rawToken } = await createMagicLink("upgrade@example.com");
+      const { user, rawToken } = await magicLinkFor("upgrade@example.com");
 
       const result = await verifyMagicLink(rawToken, guestSessionId);
 
@@ -375,7 +390,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("creates new session when no guestSessionId", async () => {
-      const { user, rawToken } = await createMagicLink("newuser@example.com");
+      const { user, rawToken } = await magicLinkFor("newuser@example.com");
 
       const result = await verifyMagicLink(rawToken);
 
@@ -391,7 +406,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("creates new session when guest upgrade fails", async () => {
-      const { user, rawToken } = await createMagicLink("fallback@example.com");
+      const { user, rawToken } = await magicLinkFor("fallback@example.com");
 
       const result = await verifyMagicLink(rawToken, "non-existent-session-id");
 

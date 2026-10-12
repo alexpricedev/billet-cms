@@ -13,8 +13,8 @@ interface AuthPageProps {
 }
 
 /**
- * Shared chrome for the signed-out auth pages: sign in, sign up, and the two
- * halves of the password reset.
+ * Shared chrome for the signed-out auth pages: sign in and the two halves of
+ * the password reset.
  *
  * Uses BaseLayout rather than Layout — no nav, no client bundle, and always
  * noindex. Nothing here should be crawled or invite a signed-out visitor to

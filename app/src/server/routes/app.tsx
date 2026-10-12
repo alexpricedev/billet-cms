@@ -8,7 +8,7 @@ import {
   stack,
   webmanifest,
 } from "../controllers/app";
-import { account, callback, login, logout, signup } from "../controllers/auth";
+import { account, callback, login, logout } from "../controllers/auth";
 import { createRouteHandler } from "../utils/route-handler";
 
 // `/health` is not here: it is answered by the catch-all fallback so it stays
@@ -28,10 +28,6 @@ export const appRoutes = {
   "/login": createRouteHandler({
     GET: login.index,
     POST: login.create,
-  }),
-  "/signup": createRouteHandler({
-    GET: signup.index,
-    POST: signup.create,
   }),
   "/account": account.index,
   // Both of these arrive as a link in an email, so both render a confirm step
