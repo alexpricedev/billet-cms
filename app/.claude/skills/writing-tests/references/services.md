@@ -45,13 +45,15 @@ Four things this shape is load-bearing on:
 
 ## Isolation
 
-`cleanupTestData(db)` truncates `cms_user_tokens`, `cms_sessions` and `cms_users` — and only
-those. The CMS shares its database with the site it serves, so the helper names the tables it
-owns rather than wiping the schema. Call it in `beforeEach`, not `afterEach` — a failed test then
-leaves its rows behind for inspection. Extend that helper when you add a table rather than
-truncating inline.
+`cleanupTestData(db)` truncates the CMS's own tables (`cms_handoff_tokens`, `cms_revisions`,
+`cms_user_tokens`, `cms_sessions`, `cms_block_types`, `cms_page_types`, `cms_slots`) plus the site
+`users` fixture the identity view reads, and only those. The CMS shares its database with the
+site it serves, so the helper names the tables it owns rather than wiping the schema. Call it in
+`beforeEach`, not `afterEach` — a failed test then leaves its rows behind for inspection. Extend
+that helper when you add a table rather than truncating inline.
 
-`randomEmail()` gives a collision-free address for user fixtures.
+`randomEmail()` gives a collision-free address for user fixtures, and `seedIdentity(db, email)`
+inserts a site admin for the CMS to sign in (pass `'user'` to seed a non-admin).
 
 ## Asserting that a query fails
 
