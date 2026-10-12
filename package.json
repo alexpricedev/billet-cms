@@ -1,0 +1,23 @@
+{
+  "name": "billet-cms",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "app",
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "bun run --cwd app lint && bun run --cwd packages/billet-cms lint",
+    "typecheck": "bun run --cwd app typecheck && bun run --cwd packages/billet-cms typecheck",
+    "check": "bun run --cwd app check && bun run --cwd packages/billet-cms check",
+    "test": "bun run --cwd app test && bun run --cwd packages/billet-cms test",
+    "build": "bun run --cwd app build",
+    "migrate:up": "bun run --cwd app migrate:up",
+    "migrate:status": "bun run --cwd app migrate:status"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/bun": "1.4.2",
+    "typescript": "^7.0.2"
+  }
+}
