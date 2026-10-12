@@ -81,6 +81,10 @@ const FORBIDDEN: Rule[] = [
       "src/server/test-utils/database.ts",
       "src/server/test-utils/bootstrap.ts",
       "src/server/test-utils/run-tests.ts",
+      // Prepares each worker database before the suite: creates the site-side
+      // `users` fixture and the identity view, against a database no guarded
+      // pool has been built for yet.
+      "src/server/test-utils/prepare-databases.ts",
       // Creates throwaway databases for the migration tests — a database that
       // doesn't exist yet, so no guarded pool could have been built for it.
       "src/server/test-utils/migration-helpers.ts",

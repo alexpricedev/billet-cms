@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { BunRequest } from "bun";
 import { testDatabase } from "../../test-utils/database";
-import { cleanupTestData } from "../../test-utils/helpers";
+import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
 
 const connection = testDatabase();
 
@@ -11,7 +11,7 @@ mock.module("../../services/database", () => ({
   },
 }));
 
-import { createMagicLink, findOrCreateUser } from "../../services/auth";
+import { createMagicLink } from "../../services/auth";
 import { db } from "../../services/database";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
 import { callback } from "./callback";
@@ -19,15 +19,16 @@ import { callback } from "./callback";
 const ORIGIN = process.env.APP_URL as string;
 
 /**
- * Provision the account, then mint its magic link.
+ * Seed the site identity, then mint its magic link.
  *
- * Sign-in is invite-only: `createMagicLink` returns null for an address with no
- * `cms_users` row, so the callback tests seed the account first.
+ * Sign-in is invite-only: `createMagicLink` returns null for an address
+ * `cms_identities` does not expose, so the callback tests seed the site user
+ * first.
  */
 const magicLinkFor = async (email: string) => {
-  await findOrCreateUser(email);
+  await seedIdentity(db, email);
   const link = await createMagicLink(email);
-  if (!link) throw new Error(`no account for ${email}`);
+  if (!link) throw new Error(`no identity for ${email}`);
   return link;
 };
 
@@ -66,7 +67,7 @@ const submitConfirm = async (opts: {
     headers: {
       "content-type": "application/x-www-form-urlencoded",
       Origin: opts.origin ?? ORIGIN,
-      ...(opts.sessionId ? { cookie: `session_id=${opts.sessionId}` } : {}),
+      ...(opts.sessionId ? { cookie: `cms_session=${opts.sessionId}` } : {}),
     },
     body: new URLSearchParams({
       _csrf: opts.csrfToken ?? "",
@@ -83,7 +84,7 @@ const signIn = async (rawToken: string) => {
   const submitted = await submitConfirm({
     token: rawToken,
     csrfToken: opened.csrfToken,
-    sessionId: cookieValue(opened.req, "session_id"),
+    sessionId: cookieValue(opened.req, "cms_session"),
   });
 
   return { ...submitted, opened };
@@ -180,8 +181,8 @@ describe("Callback Controller", () => {
       expect(res.status).toBe(303);
       expect(res.headers.get("location")).toBe("/");
 
-      const setCookie = findSetCookie(req, "session_id");
-      expect(setCookie).toContain("session_id=");
+      const setCookie = findSetCookie(req, "cms_session");
+      expect(setCookie).toContain("cms_session=");
       expect(setCookie).toContain("HttpOnly");
       expect(setCookie).toContain("SameSite=Lax");
     });
@@ -204,7 +205,7 @@ describe("Callback Controller", () => {
       const { user, rawToken } = await magicLinkFor("session@example.com");
 
       const { req } = await signIn(rawToken);
-      const sessionId = cookieValue(req, "session_id");
+      const sessionId = cookieValue(req, "cms_session");
 
       const { computeHMAC } = await import("../../utils/crypto");
       const sessions = await db`
@@ -230,7 +231,7 @@ describe("Callback Controller", () => {
 
       const { res } = await submitConfirm({
         token: rawToken,
-        sessionId: cookieValue(opened.req, "session_id"),
+        sessionId: cookieValue(opened.req, "cms_session"),
       });
 
       expect(res.status).toBe(403);
@@ -243,7 +244,7 @@ describe("Callback Controller", () => {
       const { res } = await submitConfirm({
         token: rawToken,
         csrfToken: opened.csrfToken,
-        sessionId: cookieValue(opened.req, "session_id"),
+        sessionId: cookieValue(opened.req, "cms_session"),
         origin: "https://evil.example",
       });
 
@@ -256,7 +257,7 @@ describe("Callback Controller", () => {
 
       await submitConfirm({
         token: rawToken,
-        sessionId: cookieValue(opened.req, "session_id"),
+        sessionId: cookieValue(opened.req, "cms_session"),
       });
 
       const tokens = await db`
@@ -273,7 +274,7 @@ describe("Callback Controller", () => {
       const { res } = await submitConfirm({
         token: "",
         csrfToken: opened.csrfToken,
-        sessionId: cookieValue(opened.req, "session_id"),
+        sessionId: cookieValue(opened.req, "cms_session"),
       });
 
       expect(res.status).toBe(303);
@@ -288,7 +289,7 @@ describe("Callback Controller", () => {
       const { res } = await submitConfirm({
         token: "invalid-token",
         csrfToken: opened.csrfToken,
-        sessionId: cookieValue(opened.req, "session_id"),
+        sessionId: cookieValue(opened.req, "cms_session"),
       });
 
       expect(res.status).toBe(303);
@@ -318,7 +319,7 @@ describe("Callback Controller", () => {
       const { res } = await submitConfirm({
         token: rawToken,
         csrfToken: opened.csrfToken,
-        sessionId: cookieValue(opened.req, "session_id"),
+        sessionId: cookieValue(opened.req, "cms_session"),
       });
 
       expect(res.status).toBe(303);
@@ -328,9 +329,9 @@ describe("Callback Controller", () => {
     test("handles database errors gracefully", async () => {
       const { user, rawToken } = await magicLinkFor("deleted@example.com");
       const opened = await openLink(rawToken);
-      const sessionId = cookieValue(opened.req, "session_id");
+      const sessionId = cookieValue(opened.req, "cms_session");
 
-      await db`DELETE FROM cms_users WHERE id = ${user.id}`;
+      await db`DELETE FROM users WHERE id = ${user.id}`;
 
       const { res } = await submitConfirm({
         token: rawToken,
@@ -339,7 +340,7 @@ describe("Callback Controller", () => {
       });
 
       expect(res.status).toBe(303);
-      expect(errorFrom(res)).toContain("Invalid or expired token");
+      expect(errorFrom(res)).toContain("User not found");
     });
   });
 });

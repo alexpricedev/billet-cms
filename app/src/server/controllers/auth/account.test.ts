@@ -1,7 +1,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createBunRequest } from "../../test-utils/bun-request";
 import { testDatabase } from "../../test-utils/database";
-import { cleanupTestData, withIndexingAllowed } from "../../test-utils/helpers";
+import {
+  cleanupTestData,
+  seedIdentity,
+  withIndexingAllowed,
+} from "../../test-utils/helpers";
 
 const connection = testDatabase();
 
@@ -11,7 +15,6 @@ mock.module("../../services/database", () => ({
   },
 }));
 
-import { findOrCreateUser } from "../../services/auth";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { account } from "./account";
@@ -21,7 +24,7 @@ const ORIGIN = process.env.APP_URL as string;
 const getAccount = (sessionId?: string) =>
   createBunRequest(`${ORIGIN}/account`, {
     method: "GET",
-    ...(sessionId ? { headers: { cookie: `session_id=${sessionId}` } } : {}),
+    ...(sessionId ? { headers: { cookie: `cms_session=${sessionId}` } } : {}),
   });
 
 describe("Account Controller", () => {
@@ -43,7 +46,7 @@ describe("Account Controller", () => {
     });
 
     test("shows the email and the sign-in method", async () => {
-      const user = await findOrCreateUser("me@example.com");
+      const user = await seedIdentity(db, "me@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
       const html = await (await account.index(getAccount(sessionId))).text();
 
@@ -55,7 +58,7 @@ describe("Account Controller", () => {
     });
 
     test("mints a CSRF token for the sign-out form", async () => {
-      const user = await findOrCreateUser("tokens@example.com");
+      const user = await seedIdentity(db, "tokens@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
       const html = await (await account.index(getAccount(sessionId))).text();
 
@@ -63,7 +66,7 @@ describe("Account Controller", () => {
     });
 
     test("is noindex", async () => {
-      const user = await findOrCreateUser("hidden@example.com");
+      const user = await seedIdentity(db, "hidden@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
       // Indexing opened so the noindex asserted below is the page's own.
       const html = await withIndexingAllowed(async () =>

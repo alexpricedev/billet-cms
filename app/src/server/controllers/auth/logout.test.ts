@@ -9,7 +9,7 @@ import {
   test,
 } from "bun:test";
 import { testDatabase } from "../../test-utils/database";
-import { cleanupTestData } from "../../test-utils/helpers";
+import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
 
 const connection = testDatabase();
 
@@ -55,7 +55,6 @@ mock.module("../../middleware/auth", () => {
   };
 });
 
-import { findOrCreateUser } from "../../services/auth";
 import { createCsrfToken, TIME_WINDOW_MINUTES } from "../../services/csrf";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
@@ -78,7 +77,7 @@ describe("Logout Controller", () => {
 
   describe("POST /auth/logout", () => {
     test("successfully logs out user with valid session", async () => {
-      const user = await findOrCreateUser("logout@example.com");
+      const user = await seedIdentity(db, "logout@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
       const csrfToken = await createCsrfToken(
         sessionId,
@@ -93,7 +92,7 @@ describe("Logout Controller", () => {
         method: "POST",
         headers: {
           Origin: "http://localhost:3000",
-          Cookie: `session_id=${sessionId}`,
+          Cookie: `cms_session=${sessionId}`,
         },
         body: formData,
       });
@@ -106,9 +105,9 @@ describe("Logout Controller", () => {
         '"cookies", "storage"',
       );
 
-      const setCookie = findSetCookie(request, "session_id");
+      const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
-      expect(setCookie).toContain("session_id=");
+      expect(setCookie).toContain("cms_session=");
       expect(setCookie).toContain("Max-Age=0");
 
       const { computeHMAC } = await import("../../utils/crypto");
@@ -129,9 +128,9 @@ describe("Logout Controller", () => {
       expect(response.status).toBe(303);
       expect(response.headers.get("location")).toBe("/login");
 
-      const setCookie = findSetCookie(request, "session_id");
+      const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
-      expect(setCookie).toContain("session_id=");
+      expect(setCookie).toContain("cms_session=");
       expect(setCookie).toContain("Max-Age=0");
     });
 
@@ -139,7 +138,7 @@ describe("Logout Controller", () => {
       const request = createBunRequest("http://localhost:3000/auth/logout", {
         method: "POST",
         headers: {
-          cookie: "session_id=invalid-session-id",
+          cookie: "cms_session=invalid-session-id",
         },
       });
 
@@ -148,7 +147,7 @@ describe("Logout Controller", () => {
       expect(response.status).toBe(303);
       expect(response.headers.get("location")).toBe("/login");
 
-      const setCookie = findSetCookie(request, "session_id");
+      const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
       expect(setCookie).toContain("Max-Age=0");
     });
@@ -167,8 +166,8 @@ describe("Logout Controller", () => {
       expect(response.headers.get("location")).toBe("/login");
     });
 
-    test("multiple session cookies - uses correct session_id", async () => {
-      const user = await findOrCreateUser("multi@example.com");
+    test("multiple session cookies - uses correct cms_session", async () => {
+      const user = await seedIdentity(db, "multi@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
       const csrfToken = await createCsrfToken(
         sessionId,
@@ -183,7 +182,7 @@ describe("Logout Controller", () => {
         method: "POST",
         headers: {
           Origin: "http://localhost:3000",
-          cookie: `other_cookie=value; session_id=${sessionId}; another=value`,
+          cookie: `other_cookie=value; cms_session=${sessionId}; another=value`,
         },
         body: formData,
       });
@@ -203,17 +202,17 @@ describe("Logout Controller", () => {
     });
 
     test("handles database error during session deletion gracefully", async () => {
-      // Create session then delete the user to cause foreign key issues
-      const user = await findOrCreateUser("dbError@example.com");
+      // Create session then remove the identity, so the session no longer
+      // resolves to a user.
+      const user = await seedIdentity(db, "dbError@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
-      // Delete user (this will cascade delete the session in real DB, but might cause errors in test)
-      await db`DELETE FROM cms_users WHERE id = ${user.id}`;
+      await db`DELETE FROM users WHERE id = ${user.id}`;
 
       const request = createBunRequest("http://localhost:3000/auth/logout", {
         method: "POST",
         headers: {
-          cookie: `session_id=${sessionId}`,
+          cookie: `cms_session=${sessionId}`,
         },
       });
 
@@ -223,7 +222,7 @@ describe("Logout Controller", () => {
       expect(response.status).toBe(303);
       expect(response.headers.get("location")).toBe("/login");
 
-      const setCookie = findSetCookie(request, "session_id");
+      const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
       expect(setCookie).toContain("Max-Age=0");
     });
@@ -243,9 +242,9 @@ describe("Logout Controller", () => {
     });
 
     test("requires CSRF token - rejects request without token", async () => {
-      const user = await findOrCreateUser("csrf-test@example.com");
+      const user = await seedIdentity(db, "csrf-test@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
 
       const request = createBunRequest("http://localhost:3000/auth/logout", {
         method: "POST",
@@ -262,9 +261,9 @@ describe("Logout Controller", () => {
     });
 
     test("requires CSRF token - rejects request with invalid token", async () => {
-      const user = await findOrCreateUser("csrf-test2@example.com");
+      const user = await seedIdentity(db, "csrf-test2@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
 
       const formData = new FormData();
       formData.append("_csrf", "invalid.token");
@@ -285,9 +284,9 @@ describe("Logout Controller", () => {
     });
 
     test("accepts request with valid CSRF token", async () => {
-      const user = await findOrCreateUser("csrf-test3@example.com");
+      const user = await seedIdentity(db, "csrf-test3@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
       const csrfToken = await createCsrfToken(
         sessionId,
         "POST",
@@ -311,14 +310,14 @@ describe("Logout Controller", () => {
       expect(response.status).toBe(303);
       expect(response.headers.get("location")).toBe("/login");
 
-      const setCookie = findSetCookie(request, "session_id");
+      const setCookie = findSetCookie(request, "cms_session");
       expect(setCookie).toBeTruthy();
-      expect(setCookie).toContain("session_id=");
+      expect(setCookie).toContain("cms_session=");
       expect(setCookie).toContain("Max-Age=0");
     });
 
     test("honours a stale but authentic token so sign-out never appears broken", async () => {
-      const user = await findOrCreateUser("csrf-stale@example.com");
+      const user = await seedIdentity(db, "csrf-stale@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       setSystemTime(new Date(Date.now() - TIME_WINDOW_MINUTES * 3 * 60 * 1000));
@@ -336,7 +335,7 @@ describe("Logout Controller", () => {
         method: "POST",
         headers: {
           Origin: "http://localhost:3000",
-          Cookie: `session_id=${sessionId}`,
+          Cookie: `cms_session=${sessionId}`,
         },
         body: formData,
       });
@@ -354,7 +353,7 @@ describe("Logout Controller", () => {
     });
 
     test("still rejects a stale token from a foreign origin", async () => {
-      const user = await findOrCreateUser("csrf-stale-origin@example.com");
+      const user = await seedIdentity(db, "csrf-stale-origin@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       setSystemTime(new Date(Date.now() - TIME_WINDOW_MINUTES * 3 * 60 * 1000));
@@ -372,7 +371,7 @@ describe("Logout Controller", () => {
         method: "POST",
         headers: {
           Origin: "http://evil.example",
-          Cookie: `session_id=${sessionId}`,
+          Cookie: `cms_session=${sessionId}`,
         },
         body: formData,
       });

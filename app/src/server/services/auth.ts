@@ -1,24 +1,21 @@
 import { randomUUID } from "node:crypto";
+import { TABLES } from "@alexpricedev/billet-cms/contract";
 import { computeHMAC, generateSecureToken } from "../utils/crypto";
 import { db } from "./database";
 import { createAuthenticatedSession, deleteSession } from "./sessions";
 
-// The platform operator flag. Deliberately a separate axis from any editor or
-// teammate role a site exposes through `cms_identities`, so "site admin who is
-// not a CMS operator" stays expressible.
-export type PlatformRole = "user" | "admin";
-
-export const PLATFORM_ROLES: readonly PlatformRole[] = ["user", "admin"];
-
-export const isPlatformRole = (
-  value: string | undefined,
-): value is PlatformRole => PLATFORM_ROLES.includes(value as PlatformRole);
-
+/**
+ * A CMS user: one row of `cms_identities`.
+ *
+ * The CMS does not own accounts. This is a site user the CMS is allowed to sign
+ * in, read through the view the site defines (the default exposes its admins).
+ * `role` is whatever the view exposes — the default leaves it `'admin'`, and a
+ * site that widens the view can add editor roles without the CMS knowing them.
+ */
 export interface User {
   id: string;
   email: string;
-  role: PlatformRole;
-  created_at: Date;
+  role: string;
 }
 
 export interface UserToken {
@@ -52,65 +49,50 @@ export type AuthResult =
   | { success: true; user: User; sessionId: string }
   | { success: false; error: string };
 
-// Every query that selects a user goes through this, so a row from the driver
-// can never reach a template with a timestamp still typed as a string.
-export const toUser = (row: {
+interface IdentityRow {
   id: string;
   email: string;
-  role: PlatformRole;
-  created_at: string | Date;
-}): User => ({
+  role: string;
+}
+
+// Every query that selects an identity goes through this, so a row from the
+// driver can never reach a template with a column missing its shape.
+const toUser = (row: IdentityRow): User => ({
   id: row.id,
   email: row.email,
   role: row.role,
-  created_at: new Date(row.created_at),
 });
 
 /**
- * Look up a user by email without creating one.
+ * Look up an identity by email without creating one.
+ *
+ * Reads `cms_identities`, the site's view. An email the view doesn't expose — a
+ * non-admin under the default view, or someone with no site account — is `null`
+ * and stays `null`: the CMS never writes the site's `users` table.
  */
 export const findUserByEmail = async (email: string): Promise<User | null> => {
   const normalizedEmail = email.toLowerCase().trim();
 
-  const results = await db`
-    SELECT id, email, role, created_at
-    FROM cms_users
-    WHERE email = ${normalizedEmail}
-  `;
+  const results = (await db.unsafe(
+    `SELECT id, email, role FROM ${TABLES.identities} WHERE email = $1`,
+    [normalizedEmail],
+  )) as IdentityRow[];
+
+  return results.length > 0 ? toUser(results[0]) : null;
+};
+
+/** Look up an identity by id, for a session whose user is no longer an editor. */
+export const findUserById = async (id: string): Promise<User | null> => {
+  const results = (await db.unsafe(
+    `SELECT id, email, role FROM ${TABLES.identities} WHERE id = $1`,
+    [id],
+  )) as IdentityRow[];
 
   return results.length > 0 ? toUser(results[0]) : null;
 };
 
 /**
- * Provision a CMS user: insert the email if it is new, return the existing row
- * if it is not.
- *
- * **Operator and test only — never a request path.** CMS sign-in is invite-only:
- * an unknown address at `POST /login` creates nothing (see `createMagicLink`).
- * The operator script `bun run cms:add-user` and the tests are the only callers.
- *
- * Phase 1 ships Billet's scaffold, so the CMS still owns a `cms_users` table
- * for its magic-link sign-in. Phase 3 moves sign-in onto the site's own
- * accounts through `cms_identities` and drops this function.
- */
-export const findOrCreateUser = async (email: string): Promise<User> => {
-  const normalizedEmail = email.toLowerCase().trim();
-
-  const existing = await findUserByEmail(normalizedEmail);
-  if (existing) return existing;
-
-  const userId = randomUUID();
-  const newUser = await db`
-    INSERT INTO cms_users (id, email)
-    VALUES (${userId}, ${normalizedEmail})
-    RETURNING id, email, role, created_at
-  `;
-
-  return toUser(newUser[0]);
-};
-
-/**
- * Mint a single-use token for a user and return the raw value.
+ * Mint a single-use token for an identity and return the raw value.
  *
  * Only the HMAC of the token is stored, so a database dump can't be replayed as
  * a login — the raw value exists only in the email that carries it.
@@ -137,7 +119,7 @@ export const createUserToken = async (
 };
 
 /**
- * Consume a token of a given type, returning the user it belongs to.
+ * Consume a token of a given type, returning the identity id it belongs to.
  *
  * The single UPDATE ... RETURNING is what makes this race-safe: two concurrent
  * requests with the same token both try to claim the row, and only the one that
@@ -182,12 +164,13 @@ export const regenerateSession = async (
 };
 
 /**
- * Create a magic-link token for an email that already has a `cms_users` row, or
- * `null` for an email that does not.
+ * Create a magic-link token for an email `cms_identities` exposes, or `null` for
+ * an email it does not.
  *
- * Sign-in is invite-only, so an unknown address gets no row, no token and no
- * email. The caller still shows the same "check your email" page it shows a
- * known address, so the form can never be used to enumerate accounts.
+ * Sign-in is invite-only: an unknown address — or one the site's view keeps out
+ * — gets no token and no email, and nothing is ever written to the site's
+ * `users` table. The caller still shows the same "check your email" page it
+ * shows a known address, so the form can't be used to enumerate accounts.
  */
 export const createMagicLink = async (
   email: string,
@@ -205,7 +188,9 @@ export const createMagicLink = async (
  * Verify a magic link token and consume it, then mint a session.
  *
  * The atomic UPDATE inside `consumeUserToken` is what prevents races: only an
- * unused, unexpired token is claimed.
+ * unused, unexpired token is claimed. The identity is then re-read from the
+ * view, so a token minted before the site removed the account no longer signs
+ * anyone in.
  */
 export const verifyMagicLink = async (
   rawToken: string,
@@ -217,26 +202,22 @@ export const verifyMagicLink = async (
     return { success: false, error: "Invalid or expired token" };
   }
 
-  const userResults = await db`
-    SELECT id, email, role, created_at
-    FROM cms_users
-    WHERE id = ${userId}
-  `;
+  const user = await findUserById(userId);
 
-  if (userResults.length === 0) {
+  if (!user) {
     return { success: false, error: "User not found" };
   }
 
   const sessionId = await regenerateSession(userId, previousSessionId);
 
-  return { success: true, user: toUser(userResults[0]), sessionId };
+  return { success: true, user, sessionId };
 };
 
 /**
  * Delete expired rows from the CMS's own auth tables.
  *
  * Not a correctness measure — every read filters `expires_at` — but it keeps
- * guest sessions and spent token hashes from accumulating.
+ * guest sessions, spent token hashes and handoff tokens from accumulating.
  *
  * Called on a timer by `startCleanupSweep`; safe to run concurrently with
  * anything, and safe to run twice.
@@ -244,6 +225,11 @@ export const verifyMagicLink = async (
 export const cleanupExpired = async (): Promise<void> => {
   await db`
     DELETE FROM cms_user_tokens
+    WHERE expires_at < CURRENT_TIMESTAMP
+  `;
+
+  await db`
+    DELETE FROM cms_handoff_tokens
     WHERE expires_at < CURRENT_TIMESTAMP
   `;
 

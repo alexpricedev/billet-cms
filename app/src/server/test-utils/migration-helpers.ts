@@ -15,14 +15,23 @@ import { databaseName, quoteIdent, withDatabase } from "./worker-database";
  * constraints below. The CMS's relations must not collide with any of them, so
  * a fixture that left the index names out would prove less than it looks.
  */
+/**
+ * The site's own `users` table, as a site would have it.
+ *
+ * Shared with the test-database setup, which creates the same table in every
+ * worker database so the CMS's `cms_identities` view has something to read.
+ * `IF NOT EXISTS` keeps the setup idempotent across runs.
+ */
+export const SITE_USERS_DDL = `CREATE TABLE IF NOT EXISTS users (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   email VARCHAR(255) NOT NULL UNIQUE,
+   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+   role VARCHAR(20) NOT NULL DEFAULT 'user'
+     CHECK (role IN ('user', 'admin'))
+ )`;
+
 const SITE_TABLES = [
-  `CREATE TABLE users (
-     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-     email VARCHAR(255) NOT NULL UNIQUE,
-     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-     role VARCHAR(20) NOT NULL DEFAULT 'user'
-       CHECK (role IN ('user', 'admin'))
-   )`,
+  SITE_USERS_DDL,
   `CREATE TABLE sessions (
      id_hash TEXT PRIMARY KEY,
      user_id UUID REFERENCES users(id) ON DELETE CASCADE,

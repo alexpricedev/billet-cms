@@ -27,8 +27,8 @@ import { workerDatabaseUrl } from "./worker-database";
 // the leak. Tests that exercise a non-default set the variable per case at
 // runtime, which happens long after preload.
 const TEST_ENV: Record<string, string> = {
-  // Tests hardcode `session_id=` when they build a cookie header.
-  SESSION_COOKIE_NAME: "session_id",
+  // Tests hardcode `cms_session=` when they build a cookie header.
+  SESSION_COOKIE_NAME: "cms_session",
 
   // Optional features at the defaults the app ships with. The captcha is the
   // only one left that a test flips per case.
