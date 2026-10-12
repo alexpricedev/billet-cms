@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
 import {
+  createPasswordSiteTables,
   createSiteTables,
   createTempDatabase,
   relationNames,
@@ -31,6 +32,50 @@ describe("cms_identities view", () => {
       const definition = await viewDefinition(sql);
       expect(definition).toContain("users");
       expect(definition).toContain("admin");
+    } finally {
+      await temp.drop();
+    }
+  });
+
+  // Password mode is the same `users` table with the credential columns on it.
+  // The default view still reads only the identity columns, which is what lets
+  // the CMS sign a password-mode site's admins in without ever reaching the
+  // hash the site stores there.
+  test("reads a password-mode users table without exposing the credential", async () => {
+    const temp = await createTempDatabase("identity-password-mode");
+
+    try {
+      const sql = temp.open();
+      await createPasswordSiteTables(sql);
+      await runMigrations(sql);
+      await sql`
+        INSERT INTO users (email, role, password_hash, email_verified_at)
+        VALUES
+          ('admin@example.com', 'admin', 'argon2id$test$hash', CURRENT_TIMESTAMP),
+          ('member@example.com', 'user', 'argon2id$test$hash', CURRENT_TIMESTAMP)
+      `;
+
+      await ensureIdentitiesView(sql);
+
+      expect(await relationNames(sql)).toContain("cms_identities");
+      const rows = await sql`
+        SELECT email, role FROM cms_identities ORDER BY email
+      `;
+      expect(rows).toEqual([{ email: "admin@example.com", role: "admin" }]);
+
+      // The view carries the identity columns and nothing else, so the password
+      // hash is not reachable through the one relation the CMS reads the site's
+      // accounts through.
+      const columns = await sql`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'cms_identities'
+        ORDER BY column_name
+      `;
+      expect(
+        (columns as { column_name: string }[]).map((c) => c.column_name),
+      ).toEqual(["email", "id", "role"]);
     } finally {
       await temp.drop();
     }
