@@ -467,6 +467,7 @@ Prefer the dashboard? These are the same values, to set by hand in the service's
 | `DATABASE_URL` | Yes | PostgreSQL connection string — auto-set when you link Railway's PostgreSQL plugin to your service |
 | `CRYPTO_PEPPER` | Yes | Secret key for session tokens — run `bun run generate:pepper` to get one (see below) |
 | `APP_URL` | Yes | Your app's public URL — you'll get this from Railway after your first deploy (e.g. `https://my-app.up.railway.app`) |
+| `SITE_APP_URL` | Yes | The site's own Billet app, where CMS sign-in happens. A signed-out visit is redirected to `<SITE_APP_URL>/cms/sign-in`; the server refuses to boot without it |
 | `SITE_URL` | No | Canonical origin for canonicals, Open Graph tags, the sitemap, and JSON-LD. Defaults to `APP_URL`'s origin — set it only when the canonical domain differs from the app domain |
 | `ALLOW_INDEXING` | No | Set to `true` to let search engines index the site. Unset, every response and page says `noindex` and `robots.txt` drops its `Sitemap:` line, so a preview or staging host can't be indexed by accident. Set it on production only |
 | `PORT` | No | Server port — auto-set by Railway, defaults to `3000` locally |
