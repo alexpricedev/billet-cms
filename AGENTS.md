@@ -49,13 +49,25 @@ repo. This file is only the invariants.
 - **The database is the runtime contract, not the source of truth.** Block and
   page definitions live in site code and are published into `cms_` rows on
   deploy; the CMS never imports site code.
-- **CMS sign-in is invite-only.** Magic-link sign-in only looks up an existing
-  `cms_users` row: an unknown email creates no row, sends no link and starts no
-  session, but gets the same "check your email" page a known one gets, so the
-  form can't be used to enumerate accounts. There is no self-serve sign-up.
-  Accounts are provisioned by an operator with `bun run cms:add-user <email>`
-  (idempotent), and only then can that address sign in. Phase 3 replaces
-  `cms_users` with the site's own accounts through `cms_identities`.
+- **CMS sign-in is invite-only, and the CMS never writes the site's accounts.**
+  Magic-link sign-in looks a person up in `cms_identities`, the view over the
+  site's own `users` table; an email the view does not expose — an unknown
+  address, or a site user the default view keeps out because they are not an
+  admin — creates no row, sends no link and starts no session, but gets the same
+  "check your email" page a known one gets, so the form can't be used to
+  enumerate accounts. The CMS never inserts into, updates or deletes `users`;
+  there is no self-serve sign-up and no `cms_users` table (Phase 3 dropped it).
+  A session stores the site user's id and re-reads the view on every request, so
+  a site that removes an account ends the session at the next request. There is
+  no CMS account to provision.
+- **The generated CMS form is the one recorded exception to server-rendered
+  interaction.** `src/client/cms-form.ts` is shipped for the block editor: rich
+  text is a `contenteditable` editor and repeatable lists are added and removed
+  without a round trip. The server renders the stored document into the page and
+  the script only walks that DOM back into a hidden `content` field, so with
+  JavaScript off the form still submits the stored content unchanged. Keep it to
+  that: no fetching, no `JSON.parse`, no markup built from data — the same rules
+  `client/boundaries.test.ts` enforces.
 
 ## Porting Billet upgrades
 
@@ -83,7 +95,12 @@ trailing `_idx` matches the site's own Billet app rather than an `idx_` prefix.
 The migration files were rewritten against the new names and now also create
 `cms_meta`; upstream migrations that add the removed columns do not apply.
 
-**Kept, but on a renamed table.** Magic-link sign-in is unchanged apart from the
-table names. It still authenticates against `cms_users` in this phase; Phase 3
-moves sign-in onto the site's accounts through `cms_identities` and drops
-`cms_users`.
+**Kept, but on a renamed table.** Magic-link sign-in is unchanged apart from
+the table names. `cms_users` was created by the verbatim-copy milestone and
+dropped by migration `009_identities_and_handoff.ts`: sign-in now reads the
+site's own accounts through `cms_identities`, `cms_sessions.user_id` and
+`cms_user_tokens.user_id` name an identity, and there is no foreign key because
+the view's rows belong to the site. `cms_user_tokens` (the magic-link tokens)
+is otherwise unchanged. When porting an upstream release, the sign-in service
+(`services/auth.ts`) will conflict where it read `cms_users`; point it at
+`cms_identities` as this fork does.
