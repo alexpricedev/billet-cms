@@ -145,7 +145,7 @@ export function Layout({
         <header>
           <a href="/" className="logo">
             <Logo />
-            <span>Billet</span>
+            <span>Billet CMS</span>
           </a>
           <Nav page={name} user={user} csrfToken={csrfToken} />
         </header>

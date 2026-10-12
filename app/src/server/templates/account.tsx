@@ -1,10 +1,9 @@
-import { CsrfField } from "../components/csrf-field";
 import { Layout } from "../components/layouts";
 import type { User } from "../services/users";
 
 export interface AccountProps {
   user: User;
-  // Token for the sign-out form, bound to this page's POST.
+  // Token for the nav's sign-out form, bound to its POST /auth/logout.
   csrfToken?: string;
 }
 
@@ -42,16 +41,6 @@ export const Account = ({ user, csrfToken }: AccountProps) => (
         <dt>Sign-in method</dt>
         <dd>Magic link</dd>
       </dl>
-    </section>
-
-    <section className="account-section card">
-      <h2>Sign out</h2>
-      <form method="POST" action="/auth/logout">
-        <CsrfField token={csrfToken ?? null} />
-        <button type="submit" className="btn-ghost">
-          Sign out
-        </button>
-      </form>
     </section>
   </Layout>
 );

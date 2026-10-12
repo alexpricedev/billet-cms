@@ -1,19 +1,10 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { testDatabase } from "../test-utils/database";
-import { createTempDatabase } from "../test-utils/migration-helpers";
-
-const connection = testDatabase();
-
-mock.module("./database", () => ({
-  get db() {
-    return connection;
-  },
-}));
-
 import { CONTRACT_VERSION } from "@alexpricedev/billet-cms/contract";
-import { runMigrations } from "./migrate";
+import type { SQL } from "bun";
+import { createTempDatabase } from "../test-utils/migration-helpers";
+import { MIGRATION_LOCK_KEY, runMigrations } from "./migrate";
 
 const migrationIds = (): string[] =>
   readdirSync(join(process.cwd(), "src/server/database/migrations"))
@@ -21,22 +12,61 @@ const migrationIds = (): string[] =>
     .map((file) => file.replace(".ts", ""))
     .sort();
 
-describe("concurrent boots", () => {
-  afterAll(async () => {
-    await connection.end();
-    mock.restore();
-  });
+/**
+ * Wait until `expected` sessions are queued on an advisory lock.
+ *
+ * Polling for the real condition is what makes the race deterministic: the test
+ * releases the lock only once both boots are provably inside their transaction
+ * and blocked, rather than hoping the two `runMigrations` calls overlap.
+ */
+const waitForLockWaiters = async (
+  sql: SQL,
+  expected: number,
+): Promise<void> => {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    // Scoped to this database: `pg_locks` is cluster-wide, and other workers
+    // running migration tests concurrently would otherwise inflate the count
+    // and release the lock before both boots have queued.
+    const rows = await sql`
+      SELECT count(*)::int AS waiters
+      FROM pg_locks l
+      JOIN pg_database d ON d.oid = l.database
+      WHERE l.locktype = 'advisory'
+        AND NOT l.granted
+        AND d.datname = current_database()
+    `;
+    if ((rows[0] as { waiters: number }).waiters >= expected) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${expected} advisory-lock waiters`);
+};
 
+describe("concurrent boots", () => {
   test("apply each migration exactly once", async () => {
     // Two connections in one transaction can't race on a session-scoped lock,
     // so this needs a database of its own and a client per boot.
     const temp = await createTempDatabase("concurrent");
 
     try {
+      // Hold the migration lock so both boots have to queue behind it. Without
+      // this they might run end to end with no overlap at all, and the test
+      // would pass whether or not the lock exists.
+      const blocker = temp.open();
+      await blocker`SELECT pg_advisory_lock(${MIGRATION_LOCK_KEY}::bigint)`;
+
       const bootA = temp.open();
       const bootB = temp.open();
+      const watcher = temp.open();
 
-      await Promise.all([runMigrations(bootA), runMigrations(bootB)]);
+      const migrations = Promise.all([
+        runMigrations(bootA),
+        runMigrations(bootB),
+      ]);
+      await waitForLockWaiters(watcher, 2);
+
+      await blocker`SELECT pg_advisory_unlock(${MIGRATION_LOCK_KEY}::bigint)`;
+      await migrations;
 
       const rows = await bootA`SELECT id FROM cms_migrations ORDER BY id`;
       const recorded = (rows as { id: string }[]).map((row) => row.id);

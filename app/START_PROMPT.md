@@ -1,5 +1,10 @@
 # First-Time Setup
 
+> **This prompt is upstream Billet's, kept here for reference.** It walks a new
+> fork through setup choices Billet CMS has already made or removed — including
+> `AUTH_MODE` and `TEAMS_ENABLED`, neither of which this app reads. For the
+> CMS's own setup, read the repo-root `AGENTS.md` and `app/CLAUDE.md`.
+
 Follow these steps to make this project your own. Ask me for a project name and a PostgreSQL connection URL before you start, along with the two feature questions in step 1 — one round of questions rather than several.
 
 ## 1. Create `.env` and `.env.test`

@@ -16,6 +16,9 @@ repo. This file is only the invariants.
   `bun run build`. They delegate into the workspaces.
 - `app/CLAUDE.md` is Billet's own guidance and still applies inside `app/`
   unless this file says otherwise.
+- `app/.github/` came in with the verbatim Billet v5.1.0 copy and is inert:
+  GitHub reads workflows, PR templates and dependabot only from the repository
+  root, so `.github/` here is what runs.
 - Never connect to a database other than the one named in `.env` /
   `.env.test`.
 
@@ -61,8 +64,11 @@ of this fork. The strip and the renames are the things that will conflict:
 the email-verification banner and flow; `templates/accept-invite.tsx`.
 
 **Renamed to `cms_`.** `users` → `cms_users`, `sessions` → `cms_sessions`,
-`user_tokens` → `cms_user_tokens`, `migrations` → `cms_migrations`. Their
-indexes follow: `idx_sessions_user_id` → `idx_cms_sessions_user_id`, and so on.
+`user_tokens` → `cms_user_tokens`, `migrations` → `cms_migrations`. Indexes
+carry the prefix first and end in `_idx`: `idx_sessions_user_id` →
+`cms_sessions_user_id_idx`, and so on. The prefix has to come first so a
+relation the CMS owns is recognisable in a list of `pg_class` names, and the
+trailing `_idx` matches the site's own Billet app rather than an `idx_` prefix.
 The migration files were rewritten against the new names and now also create
 `cms_meta`; upstream migrations that add the removed columns do not apply.
 

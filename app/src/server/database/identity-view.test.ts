@@ -1,20 +1,10 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
-import { testDatabase } from "../test-utils/database";
 import {
   createSiteTables,
   createTempDatabase,
   relationNames,
 } from "../test-utils/migration-helpers";
-
-const connection = testDatabase();
-
-mock.module("./database", () => ({
-  get db() {
-    return connection;
-  },
-}));
-
 import { ensureIdentitiesView } from "./identity-view";
 import { runMigrations } from "./migrate";
 
@@ -26,11 +16,6 @@ const viewDefinition = async (sql: SQL): Promise<string> => {
 };
 
 describe("cms_identities view", () => {
-  afterAll(async () => {
-    await connection.end();
-    mock.restore();
-  });
-
   test("is created from the site's admins when it is missing", async () => {
     const temp = await createTempDatabase("identity-create");
 
@@ -90,6 +75,38 @@ describe("cms_identities view", () => {
       await ensureIdentitiesView(sql);
 
       expect(await relationNames(sql)).not.toContain("cms_identities");
+    } finally {
+      await temp.drop();
+    }
+  });
+
+  // The documented setup order is CMS first, then the site. The first boot has
+  // no users table to build a view over, so it skips; the next boot, after the
+  // site's deploy, is where the view appears.
+  test("appears on a later boot once the site's tables exist", async () => {
+    const temp = await createTempDatabase("identity-late");
+
+    try {
+      const sql = temp.open();
+
+      await runMigrations(sql);
+      await ensureIdentitiesView(sql);
+      expect(await relationNames(sql)).not.toContain("cms_identities");
+
+      await createSiteTables(sql);
+      await sql`
+        INSERT INTO users (email, role)
+        VALUES ('admin@example.com', 'admin'), ('user@example.com', 'user')
+      `;
+
+      await ensureIdentitiesView(sql);
+
+      expect(await relationNames(sql)).toContain("cms_identities");
+      // The default exposes the site's admins and nothing else.
+      const rows = await sql`
+        SELECT email, role FROM cms_identities ORDER BY email
+      `;
+      expect(rows).toEqual([{ email: "admin@example.com", role: "admin" }]);
     } finally {
       await temp.drop();
     }

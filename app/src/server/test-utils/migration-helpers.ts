@@ -9,34 +9,54 @@ import { databaseName, quoteIdent, withDatabase } from "./worker-database";
 /**
  * The tables a site's own Billet app creates, as a site would have them.
  *
- * Only the shape the CMS interacts with matters here: `users` carries the
- * `role` column `cms_identities` filters on, and the rest exist to prove the
- * CMS's cms_-prefixed names can't collide with them.
+ * Reproduced from Billet v5.1.0's own migrations, names and all: the CMS's
+ * whole reason for the `cms_` prefix is that the site's `users`, `sessions`,
+ * `user_tokens` and `migrations` already exist, along with the indexes and
+ * constraints below. The CMS's relations must not collide with any of them, so
+ * a fixture that left the index names out would prove less than it looks.
  */
 const SITE_TABLES = [
   `CREATE TABLE users (
      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
      email VARCHAR(255) NOT NULL UNIQUE,
-     role VARCHAR(20) NOT NULL DEFAULT 'user',
-     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+     role VARCHAR(20) NOT NULL DEFAULT 'user'
+       CHECK (role IN ('user', 'admin'))
    )`,
   `CREATE TABLE sessions (
      id_hash TEXT PRIMARY KEY,
      user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-     expires_at TIMESTAMPTZ NOT NULL
+     expires_at TIMESTAMPTZ NOT NULL,
+     last_activity_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+     csrf_secret TEXT NULL,
+     session_type VARCHAR(20) NOT NULL DEFAULT 'authenticated'
    )`,
   `CREATE TABLE user_tokens (
      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
      token_hash TEXT NOT NULL UNIQUE,
      type VARCHAR(50) NOT NULL DEFAULT 'magic_link',
-     expires_at TIMESTAMPTZ NOT NULL
+     expires_at TIMESTAMPTZ NOT NULL,
+     used_at TIMESTAMPTZ NULL,
+     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
    )`,
   `CREATE TABLE migrations (
      id VARCHAR(255) PRIMARY KEY,
      name VARCHAR(255) NOT NULL,
      applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
    )`,
+  // Billet v5.1.0's indexes, under their upstream names. These are the ones a
+  // renamed CMS index could collide with if the rename were half-done.
+  "CREATE INDEX idx_sessions_user_id ON sessions(user_id)",
+  "CREATE INDEX idx_sessions_expires_at ON sessions(expires_at)",
+  "CREATE INDEX idx_sessions_last_activity ON sessions(last_activity_at)",
+  `CREATE INDEX idx_sessions_csrf_secret ON sessions(csrf_secret)
+     WHERE csrf_secret IS NOT NULL`,
+  "CREATE INDEX idx_sessions_session_type ON sessions(session_type)",
+  "CREATE INDEX idx_user_tokens_user_id ON user_tokens(user_id)",
+  "CREATE INDEX idx_user_tokens_type ON user_tokens(type)",
+  "CREATE INDEX idx_user_tokens_expires_at ON user_tokens(expires_at)",
 ] as const;
 
 export const createSiteTables = async (sql: SQL): Promise<void> => {
@@ -56,6 +76,64 @@ export const relationNames = async (sql: SQL): Promise<string[]> => {
     ORDER BY c.relname
   `;
   return (rows as { relname: string }[]).map((row) => row.relname);
+};
+
+/**
+ * Every named object in the current schema, as `kind:name` strings.
+ *
+ * Wider than `relationNames`: `pg_class` at every relkind (tables, views,
+ * indexes, sequences, materialised views), plus constraints, non-array types,
+ * functions and triggers. Diffing this before and after a CMS boot proves the
+ * CMS adds nothing that isn't `cms_`-prefixed — an index or a CHECK constraint
+ * with a hand-picked name is exactly the object a prefix review misses.
+ *
+ * Array types are excluded on purpose: Postgres names one `_<table>` for every
+ * table, so `cms_users` brings a `_cms_users` the CMS never chose and could not
+ * rename. Every other object in the schema is listed.
+ */
+export const schemaObjectNames = async (sql: SQL): Promise<string[]> => {
+  const rows = await sql`
+    SELECT kind, name FROM (
+      SELECT 'relation' AS kind, c.relname AS name
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = current_schema()
+      UNION
+      SELECT 'constraint', con.conname
+      FROM pg_constraint con
+      JOIN pg_class c ON c.oid = con.conrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = current_schema()
+      UNION
+      SELECT 'type', t.typname
+      FROM pg_type t
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = current_schema()
+        AND t.typcategory <> 'A'
+      UNION
+      SELECT 'function', p.proname
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = current_schema()
+      UNION
+      SELECT 'trigger', tg.tgname
+      FROM pg_trigger tg
+      JOIN pg_class c ON c.oid = tg.tgrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = current_schema()
+        AND NOT tg.tgisinternal
+    ) objects
+    ORDER BY kind, name
+  `;
+  return (rows as { kind: string; name: string }[]).map(
+    (row) => `${row.kind}:${row.name}`,
+  );
+};
+
+/** The bare object name out of a `kind:name` pair from `schemaObjectNames`. */
+export const objectName = (labelled: string): string => {
+  const separator = labelled.indexOf(":");
+  return separator === -1 ? labelled : labelled.slice(separator + 1);
 };
 
 export interface TempDatabase {

@@ -168,8 +168,7 @@ export const Home = ({ user, csrfToken, message }: HomeProps) => (
         <div className="feature-card">
           <h3>Authentication</h3>
           <p>
-            Magic-link or password login, session management, guest sessions,
-            admin roles
+            Magic-link login, session management, guest sessions, admin roles
           </p>
         </div>
         <div className="feature-card">
@@ -182,10 +181,7 @@ export const Home = ({ user, csrfToken, message }: HomeProps) => (
         </div>
         <div className="feature-card">
           <h3>Database</h3>
-          <p>
-            PostgreSQL via Bun.SQL, auto-migrations, seed scripts, parameterised
-            queries
-          </p>
+          <p>PostgreSQL via Bun.SQL, auto-migrations, parameterised queries</p>
         </div>
         <div className="feature-card">
           <h3>Testing</h3>
@@ -203,19 +199,10 @@ export const Home = ({ user, csrfToken, message }: HomeProps) => (
           </p>
         </div>
         <div className="feature-card">
-          <h3>Teams</h3>
-          <p>
-            Optional organisations: invite by email, manage members, and
-            owner/admin/member roles that stay separate from the platform admin
-            flag
-          </p>
-        </div>
-        <div className="feature-card">
           <h3>Email</h3>
           <p>
             Transactional mail through Resend, or a console provider in
-            development; magic links, verification and password resets already
-            wired
+            development; magic links already wired
           </p>
         </div>
         <div className="feature-card">

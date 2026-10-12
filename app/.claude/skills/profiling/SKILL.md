@@ -5,6 +5,12 @@ description: How to profile CPU, heap, and bundle size in this repo with Bun's m
 
 # Profiling
 
+> **This is the Billet CMS fork of Billet.** The repo-root `AGENTS.md` and
+> `app/CLAUDE.md` list what the strip removed from upstream (todos, teams,
+> password auth, the user admin dashboard, the seed script, `scripts/qa-session.ts`)
+> and which tables were renamed to `cms_`. The techniques below still apply;
+> examples naming removed surfaces do not.
+
 Bun 1.4 can emit profiles as Markdown instead of the binary formats that need
 Chrome DevTools — which means you can read them directly. Always measure before
 rewriting for performance; this repo has already banked one decision that way

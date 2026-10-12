@@ -18,7 +18,10 @@ export type Migration = {
 //
 // Bound as a string and cast: a JS number would be sent as a numeric and match
 // no overload of pg_advisory_xact_lock.
-const MIGRATION_LOCK_KEY = "8041000001";
+//
+// Exported so the concurrency test can hold the same lock and make the overlap
+// deterministic rather than hoped for.
+export const MIGRATION_LOCK_KEY = "8041000001";
 
 const MIGRATIONS_DIR = join(process.cwd(), "src/server/database/migrations");
 

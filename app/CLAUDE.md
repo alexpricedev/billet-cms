@@ -2,8 +2,15 @@
 
 > **This is the Billet CMS fork of Billet.** Read `../AGENTS.md` first: it lists
 > what was removed from upstream (todos, teams, password auth, the user admin
-> dashboard) and which tables were renamed to `cms_`. Sections below that
-> mention those features describe upstream Billet, not this app.
+> dashboard, the seed script, `scripts/qa-session.ts`) and which tables were
+> renamed to `cms_`. Sections below that mention those features describe upstream
+> Billet, not this app — `bun run seed` and `scripts/qa-session.ts` are gone.
+>
+> **Never write an unprefixed relation name.** This app shares its database with
+> the site's own Billet app, so a query naming `sessions` or `users` reaches the
+> *site's* table, not the CMS's. Every table, view, index and constraint the CMS
+> creates is `cms_`-prefixed — see `../AGENTS.md` and
+> `packages/billet-cms/src/contract` before adding one.
 
 Billet is a server-rendered full-stack TypeScript app on Bun + PostgreSQL. Requests flow
 route → controller → service → template. `README.md` has the directory tree; the code is the

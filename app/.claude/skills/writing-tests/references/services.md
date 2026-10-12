@@ -45,12 +45,13 @@ Four things this shape is load-bearing on:
 
 ## Isolation
 
-`cleanupTestData(db)` truncates `user_tokens`, `sessions`, `users`, and `todo`, and restarts
-`todo_id_seq`. Call it in `beforeEach`, not `afterEach` — a failed test then leaves its rows
-behind for inspection. Extend that helper when you add a table rather than truncating inline.
+`cleanupTestData(db)` truncates `cms_user_tokens`, `cms_sessions` and `cms_users` — and only
+those. The CMS shares its database with the site it serves, so the helper names the tables it
+owns rather than wiping the schema. Call it in `beforeEach`, not `afterEach` — a failed test then
+leaves its rows behind for inspection. Extend that helper when you add a table rather than
+truncating inline.
 
-`seedTestData(db)` inserts three known todos, the last one completed. `randomEmail()` gives a collision-free address
-for user fixtures.
+`randomEmail()` gives a collision-free address for user fixtures.
 
 ## Asserting that a query fails
 
