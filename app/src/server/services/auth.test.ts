@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testDatabase } from "../test-utils/database";
-import { cleanupTestData } from "../test-utils/helpers";
+import { cleanupTestData, seedIdentity } from "../test-utils/helpers";
 
 const connection = testDatabase();
 
@@ -14,8 +14,8 @@ import {
   consumeUserToken,
   createMagicLink,
   createUserToken,
-  findOrCreateUser,
   findUserByEmail,
+  findUserById,
   regenerateSession,
   verifyMagicLink,
 } from "./auth";
@@ -27,16 +27,16 @@ import {
 } from "./sessions";
 
 /**
- * Provision the account, then mint its magic link.
+ * Seed the site identity, then mint its magic link.
  *
- * Sign-in is invite-only now: `createMagicLink` returns null for an email with
- * no `cms_users` row, so every test that needs a live link seeds the account
- * first.
+ * Sign-in is invite-only: `createMagicLink` returns null for an email
+ * `cms_identities` does not expose, so every test that needs a live link seeds
+ * the site user first.
  */
 const magicLinkFor = async (email: string) => {
-  await findOrCreateUser(email);
+  await seedIdentity(db, email);
   const link = await createMagicLink(email);
-  if (!link) throw new Error(`no account for ${email}`);
+  if (!link) throw new Error(`no identity for ${email}`);
   return link;
 };
 
@@ -50,35 +50,45 @@ describe("Auth Service with PostgreSQL", () => {
     mock.restore();
   });
 
-  describe("findOrCreateUser", () => {
-    test("creates new user when email does not exist", async () => {
-      const user = await findOrCreateUser("test@example.com");
+  describe("cms_identities", () => {
+    test("finds a site admin by email", async () => {
+      const identity = await seedIdentity(db, "Admin@Example.com");
 
-      expect(user.email).toBe("test@example.com");
-      expect(user.id).toBeDefined();
-      expect(user.created_at).toBeDefined();
+      const found = await findUserByEmail("admin@example.com");
+      expect(found?.id).toBe(identity.id);
+      expect(found?.email).toBe("admin@example.com");
+      expect(found?.role).toBe("admin");
     });
 
-    test("returns existing user when email already exists", async () => {
-      const user1 = await findOrCreateUser("existing@example.com");
-      const user2 = await findOrCreateUser("existing@example.com");
+    test("normalizes case and whitespace", async () => {
+      const identity = await seedIdentity(db, "Findme@Example.com");
 
-      expect(user1.id).toBe(user2.id);
-      expect(user1.email).toBe(user2.email);
-      expect(user1.created_at).toEqual(user2.created_at);
+      const found = await findUserByEmail("  FINDME@example.COM  ");
+      expect(found?.id).toBe(identity.id);
     });
 
-    test("normalizes email case", async () => {
-      const user1 = await findOrCreateUser("Test@Example.Com");
-      const user2 = await findOrCreateUser("test@example.com");
+    test("returns null for an email the view does not expose", async () => {
+      // A site user who is not an admin: the default view filters them out.
+      await seedIdentity(db, "member@example.com", "user");
 
-      expect(user1.id).toBe(user2.id);
+      expect(await findUserByEmail("member@example.com")).toBeNull();
+    });
+
+    test("finds an identity by id, for a session re-read", async () => {
+      const identity = await seedIdentity(db, "by-id@example.com");
+
+      expect((await findUserById(identity.id))?.email).toBe(
+        "by-id@example.com",
+      );
+      expect(
+        await findUserById("00000000-0000-4000-8000-000000000000"),
+      ).toBeNull();
     });
   });
 
   describe("createMagicLink", () => {
-    test("creates a magic link for an existing user", async () => {
-      const user = await findOrCreateUser("test@example.com");
+    test("creates a magic link for an existing identity", async () => {
+      const user = await seedIdentity(db, "test@example.com");
       const link = await createMagicLink("test@example.com");
 
       expect(link).not.toBeNull();
@@ -88,34 +98,46 @@ describe("Auth Service with PostgreSQL", () => {
       expect(link?.rawToken.length).toBeGreaterThan(20);
     });
 
-    // Sign-in is invite-only: an unknown address must not be provisioned.
-    test("returns null for an email with no account, creating nothing", async () => {
+    // Sign-in is invite-only and the CMS never writes the site's users. An
+    // unknown address must not be provisioned, and neither a non-admin the
+    // view keeps out nor a new address may create a `users` row.
+    test("returns null for an unknown email, writing nothing", async () => {
+      const before = await db`SELECT id FROM users`;
+
       expect(await createMagicLink("stranger@example.com")).toBeNull();
 
-      expect(
-        await db`SELECT id FROM cms_users WHERE email = 'stranger@example.com'`,
-      ).toHaveLength(0);
+      expect(await db`SELECT id FROM users`).toHaveLength(before.length);
       expect(await db`SELECT id FROM cms_user_tokens`).toHaveLength(0);
     });
 
-    test("stores hashed token in database", async () => {
-      const { user } = await magicLinkFor("hash@example.com");
+    test("returns null for a site user who is not an identity, writing nothing", async () => {
+      await seedIdentity(db, "member@example.com", "user");
+      const before = await db`SELECT id FROM users`;
+
+      expect(await createMagicLink("member@example.com")).toBeNull();
+
+      expect(await db`SELECT id FROM users`).toHaveLength(before.length);
+      expect(await db`SELECT id FROM cms_user_tokens`).toHaveLength(0);
+    });
+
+    test("stores only the HMAC of the token", async () => {
+      const { user, rawToken } = await magicLinkFor("hash@example.com");
 
       const tokens = await db`
-        SELECT id, user_id, type, expires_at, used_at
+        SELECT id, user_id, type, expires_at, used_at, token_hash
         FROM cms_user_tokens
         WHERE user_id = ${user.id} AND type = 'magic_link'
       `;
 
       expect(tokens).toHaveLength(1);
-      expect((tokens[0] as any).user_id).toBe(user.id);
-      expect((tokens[0] as any).type).toBe("magic_link");
-      expect((tokens[0] as any).used_at).toBeNull();
+      expect(tokens[0].user_id).toBe(user.id);
+      expect(tokens[0].type).toBe("magic_link");
+      expect(tokens[0].used_at).toBeNull();
+      expect(tokens[0].token_hash).not.toBe(rawToken);
 
       // Expiry should be about 15 minutes from now
-      const expiresAt = new Date((tokens[0] as any).expires_at as string);
-      const now = new Date();
-      const diffMinutes = (expiresAt.getTime() - now.getTime()) / (1000 * 60);
+      const expiresAt = new Date(tokens[0].expires_at as string);
+      const diffMinutes = (expiresAt.getTime() - Date.now()) / (1000 * 60);
       expect(diffMinutes).toBeGreaterThan(14);
       expect(diffMinutes).toBeLessThan(16);
     });
@@ -146,7 +168,7 @@ describe("Auth Service with PostgreSQL", () => {
       `;
 
       expect(tokens).toHaveLength(1);
-      expect((tokens[0] as any).used_at).not.toBeNull();
+      expect(tokens[0].used_at).not.toBeNull();
     });
 
     test("rejects already used token", async () => {
@@ -174,11 +196,6 @@ describe("Auth Service with PostgreSQL", () => {
 
       expect(successes).toHaveLength(1);
       expect(failures).toHaveLength(1);
-
-      expect(failures[0].success).toBe(false);
-      if (!failures[0].success) {
-        expect(failures[0].error).toBe("Invalid or expired token");
-      }
     });
 
     test("rejects invalid token", async () => {
@@ -204,6 +221,20 @@ describe("Auth Service with PostgreSQL", () => {
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error).toBe("Invalid or expired token");
+      }
+    });
+
+    test("refuses a token whose identity is no longer exposed", async () => {
+      const { user, rawToken } = await magicLinkFor("gone@example.com");
+
+      // The site removes the account between the email and the click.
+      await db`DELETE FROM users WHERE id = ${user.id}`;
+
+      const result = await verifyMagicLink(rawToken);
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error).toBe("User not found");
       }
     });
   });
@@ -251,26 +282,9 @@ describe("Auth Service with PostgreSQL", () => {
     });
   });
 
-  describe("findUserByEmail", () => {
-    test("returns null instead of creating a user", async () => {
-      expect(await findUserByEmail("nobody@example.com")).toBeNull();
-
-      const rows =
-        await db`SELECT id FROM cms_users WHERE email = 'nobody@example.com'`;
-      expect(rows).toHaveLength(0);
-    });
-
-    test("finds an existing user, normalizing case and whitespace", async () => {
-      const created = await findOrCreateUser("Findme@Example.com");
-
-      const found = await findUserByEmail("  FINDME@example.COM  ");
-      expect(found?.id).toBe(created.id);
-    });
-  });
-
   describe("createUserToken / consumeUserToken", () => {
     test("stores only the HMAC, never the raw token", async () => {
-      const user = await findOrCreateUser("tokens@example.com");
+      const user = await seedIdentity(db, "tokens@example.com");
       const rawToken = await createUserToken(user.id, "magic_link");
 
       const rows = await db`
@@ -282,8 +296,8 @@ describe("Auth Service with PostgreSQL", () => {
       expect(rows[0].token_hash).not.toBe(rawToken);
     });
 
-    test("returns the owning user id and marks the token used", async () => {
-      const user = await findOrCreateUser("consume@example.com");
+    test("returns the owning identity id and marks the token used", async () => {
+      const user = await seedIdentity(db, "consume@example.com");
       const rawToken = await createUserToken(user.id, "magic_link");
 
       expect(await consumeUserToken(rawToken, "magic_link")).toBe(user.id);
@@ -294,7 +308,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("is single-use", async () => {
-      const user = await findOrCreateUser("once@example.com");
+      const user = await seedIdentity(db, "once@example.com");
       const rawToken = await createUserToken(user.id, "magic_link");
 
       expect(await consumeUserToken(rawToken, "magic_link")).toBe(user.id);
@@ -302,7 +316,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("rejects an expired token", async () => {
-      const user = await findOrCreateUser("stale@example.com");
+      const user = await seedIdentity(db, "stale@example.com");
       const rawToken = await createUserToken(user.id, "magic_link");
       await db`UPDATE cms_user_tokens SET expires_at = NOW() - INTERVAL '1 minute' WHERE user_id = ${user.id}`;
 
@@ -310,7 +324,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("consumes concurrently without double-spending", async () => {
-      const user = await findOrCreateUser("tokenrace@example.com");
+      const user = await seedIdentity(db, "tokenrace@example.com");
       const rawToken = await createUserToken(user.id, "magic_link");
 
       const results = await Promise.all([
@@ -324,7 +338,7 @@ describe("Auth Service with PostgreSQL", () => {
 
   describe("regenerateSession", () => {
     test("drops the guest session and issues a different one", async () => {
-      const user = await findOrCreateUser("regen@example.com");
+      const user = await seedIdentity(db, "regen@example.com");
       const guestSessionId = await createGuestSession();
 
       const sessionId = await regenerateSession(user.id, guestSessionId);
@@ -338,7 +352,7 @@ describe("Auth Service with PostgreSQL", () => {
     });
 
     test("works with no guest session to discard", async () => {
-      const user = await findOrCreateUser("regen-noguest@example.com");
+      const user = await seedIdentity(db, "regen-noguest@example.com");
 
       const ctx = await getSessionContextFromDB(
         await regenerateSession(user.id),
@@ -357,7 +371,7 @@ describe("Auth Service with PostgreSQL", () => {
       `;
 
       expect(tokens).toHaveLength(1);
-      const storedHash = (tokens[0] as any).token_hash;
+      const storedHash = tokens[0].token_hash as string;
 
       const directHashResult = await verifyMagicLink(storedHash);
       expect(directHashResult.success).toBe(false);

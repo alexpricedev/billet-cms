@@ -82,11 +82,13 @@ describe("migrations against a database that already has a site's tables", () =>
       // The whole point: nothing the CMS created can collide with the site —
       // not an index, not a CHECK constraint, not a generated type.
       expectNothingUnprefixed(added);
-      expect(added).toContain("relation:cms_users");
       expect(added).toContain("relation:cms_sessions");
       expect(added).toContain("relation:cms_user_tokens");
       expect(added).toContain("relation:cms_meta");
       expect(added).toContain("relation:cms_migrations");
+      expect(added).toContain("relation:cms_revisions");
+      expect(added).toContain("relation:cms_handoff_tokens");
+      expect(added).not.toContain("relation:cms_users");
 
       // And the site's tables, indexes and constraints are untouched.
       expectSiteObjectsIntact(after);

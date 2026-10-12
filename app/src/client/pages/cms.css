@@ -1,0 +1,123 @@
+/* The CMS content surface: the pages/slots list and the generated slot form. */
+
+.cms-breadcrumb {
+  color: var(--color-text-tertiary);
+  font-size: 0.9rem;
+}
+
+.cms-intro,
+.cms-slot-meta {
+  color: var(--color-text-secondary);
+}
+
+.cms-page {
+  margin-top: 2rem;
+}
+
+.cms-slot-list,
+.cms-page-type-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.cms-slot-list li,
+.cms-page-type-list li {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+}
+
+.cms-slot-block,
+.cms-removed {
+  color: var(--color-text-tertiary);
+  font-size: 0.85rem;
+}
+
+.cms-removed {
+  color: var(--color-warning);
+}
+
+.cms-fields {
+  display: grid;
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.cms-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.cms-field-label {
+  font-weight: 600;
+}
+
+.cms-required {
+  color: var(--color-danger);
+}
+
+.cms-field-help {
+  color: var(--color-text-tertiary);
+  font-size: 0.85rem;
+}
+
+.cms-field input[type="text"],
+.cms-field select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+}
+
+.cms-rich-text {
+  min-height: 6rem;
+  padding: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.cms-rte-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.cms-rte-toolbar button,
+.cms-list-add,
+.cms-list-remove {
+  padding: 0.25rem 0.6rem;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.cms-list-item {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+}
+
+.cms-save {
+  padding: 0.6rem 1.2rem;
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--radius);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cms-save:hover {
+  background: var(--color-primary-hover);
+}

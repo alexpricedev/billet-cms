@@ -6,6 +6,9 @@ const navLinks = [
   { href: "/forms", label: "Forms", name: "forms" },
 ];
 
+// The CMS's own surface, shown only to someone signed in.
+const contentLink = { href: "/cms", label: "Content", name: "cms" };
+
 interface NavProps {
   page: string;
   user?: User | null;
@@ -14,6 +17,7 @@ interface NavProps {
 
 export const Nav = ({ page, user, csrfToken }: NavProps) => (
   <nav data-component="nav" aria-label="Main navigation">
+    {" "}
     {/* Rendered hidden and unhidden by src/client/components/nav-menu.ts. Without
         that script — an error page ships none — the button would toggle nothing,
         so the nav keeps wrapping onto two rows instead. */}
@@ -39,17 +43,19 @@ export const Nav = ({ page, user, csrfToken }: NavProps) => (
         the auth actions as direct flex children of the nav on desktop. */}
     <div id="nav-menu" className="nav-panel">
       <ul>
-        {navLinks.map(({ href, label, name }) => (
-          <li key={name}>
-            <a
-              href={href}
-              className={page === name ? "active" : undefined}
-              aria-current={page === name ? "page" : undefined}
-            >
-              {label}
-            </a>
-          </li>
-        ))}
+        {(user ? [contentLink, ...navLinks] : navLinks).map(
+          ({ href, label, name }) => (
+            <li key={name}>
+              <a
+                href={href}
+                className={page === name ? "active" : undefined}
+                aria-current={page === name ? "page" : undefined}
+              >
+                {label}
+              </a>
+            </li>
+          ),
+        )}
       </ul>
       <div className="nav-auth">
         {user ? (

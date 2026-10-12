@@ -5,7 +5,7 @@ import {
   type DatabaseMutationResult,
   hasAffectedRows,
 } from "../utils/database";
-import type { PlatformRole, User } from "./auth";
+import type { User } from "./auth";
 import { db } from "./database";
 
 export type SessionType = "guest" | "authenticated";
@@ -24,7 +24,7 @@ const GUEST_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const AUTH_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const SESSION_COOKIE_NAME =
-  process.env.SESSION_COOKIE_NAME ?? "session_id";
+  process.env.SESSION_COOKIE_NAME ?? "cms_session";
 export const SESSION_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
@@ -86,10 +86,9 @@ export const getSessionContextFromDB = async (
       SELECT
         s.id_hash, s.user_id, s.session_type,
         s.expires_at, s.last_activity_at, s.created_at,
-        u.id as user_id_result, u.email, u.role,
-        u.created_at as user_created_at
+        i.id as identity_id, i.email, i.role
       FROM cms_sessions s
-      LEFT JOIN cms_users u ON s.user_id = u.id
+      LEFT JOIN cms_identities i ON s.user_id = i.id
       WHERE s.id_hash = ${sessionIdHash}
         AND s.expires_at > CURRENT_TIMESTAMP
     `;
@@ -103,20 +102,21 @@ export const getSessionContextFromDB = async (
       expires_at: string;
       last_activity_at: string;
       created_at: string;
-      user_id_result: string | null;
+      identity_id: string | null;
       email: string | null;
-      role: PlatformRole | null;
-      user_created_at: string | null;
+      role: string | null;
     };
 
+    // Re-read through the view on every request, so a site that removes an
+    // account or drops its role from `cms_identities` ends the session at the
+    // next request rather than when the cookie expires.
     const isAuthenticated =
-      data.session_type === "authenticated" && data.user_id_result !== null;
+      data.session_type === "authenticated" && data.identity_id !== null;
     const user: User | null = isAuthenticated
       ? {
-          id: data.user_id_result as string,
+          id: data.identity_id as string,
           email: data.email as string,
-          role: (data.role as PlatformRole) ?? "user",
-          created_at: new Date(data.user_created_at as string),
+          role: data.role ?? "user",
         }
       : null;
 

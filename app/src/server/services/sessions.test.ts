@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testDatabase } from "../test-utils/database";
-import { cleanupTestData } from "../test-utils/helpers";
+import { cleanupTestData, seedIdentity } from "../test-utils/helpers";
 
 const connection = testDatabase();
 
@@ -20,7 +20,6 @@ const {
   renewSession,
 } = await import("./sessions");
 
-const { findOrCreateUser } = await import("./auth");
 const { computeHMAC } = await import("../utils/crypto");
 
 const db = connection;
@@ -61,7 +60,7 @@ describe("createGuestSession", () => {
 
 describe("createAuthenticatedSession", () => {
   test("creates a session with type authenticated and user_id", async () => {
-    const user = await findOrCreateUser("test@example.com");
+    const user = await seedIdentity(db, "test@example.com");
     const rawId = await createAuthenticatedSession(user.id);
 
     const hash = computeHMAC(rawId);
@@ -72,7 +71,7 @@ describe("createAuthenticatedSession", () => {
   });
 
   test("authenticated session expires in ~30 days", async () => {
-    const user = await findOrCreateUser("test@example.com");
+    const user = await seedIdentity(db, "test@example.com");
     const rawId = await createAuthenticatedSession(user.id);
     const hash = computeHMAC(rawId);
     const rows =
@@ -105,7 +104,7 @@ describe("getSessionContextFromDB", () => {
   });
 
   test("returns authenticated context with user for authenticated session", async () => {
-    const user = await findOrCreateUser("auth@example.com");
+    const user = await seedIdentity(db, "auth@example.com");
     const rawId = await createAuthenticatedSession(user.id);
     const ctx = await getSessionContextFromDB(rawId);
 
@@ -131,7 +130,7 @@ describe("convertGuestToAuthenticated", () => {
   test("converts guest session to authenticated", async () => {
     const rawId = await createGuestSession();
     const hash = computeHMAC(rawId);
-    const user = await findOrCreateUser("upgrade@example.com");
+    const user = await seedIdentity(db, "upgrade@example.com");
 
     const result = await convertGuestToAuthenticated(hash, user.id);
     expect(result).toBe(true);
@@ -144,7 +143,7 @@ describe("convertGuestToAuthenticated", () => {
   test("extends expiry to 30 days on conversion", async () => {
     const rawId = await createGuestSession();
     const hash = computeHMAC(rawId);
-    const user = await findOrCreateUser("upgrade@example.com");
+    const user = await seedIdentity(db, "upgrade@example.com");
 
     await convertGuestToAuthenticated(hash, user.id);
 
@@ -156,7 +155,7 @@ describe("convertGuestToAuthenticated", () => {
   });
 
   test("returns false for already-authenticated session", async () => {
-    const user = await findOrCreateUser("auth@example.com");
+    const user = await seedIdentity(db, "auth@example.com");
     const rawId = await createAuthenticatedSession(user.id);
     const hash = computeHMAC(rawId);
 
@@ -169,7 +168,7 @@ describe("convertGuestToAuthenticated", () => {
     const hash = computeHMAC(rawId);
     await db`UPDATE cms_sessions SET expires_at = NOW() - INTERVAL '1 hour' WHERE id_hash = ${hash}`;
 
-    const user = await findOrCreateUser("upgrade@example.com");
+    const user = await seedIdentity(db, "upgrade@example.com");
     const result = await convertGuestToAuthenticated(hash, user.id);
     expect(result).toBe(false);
   });
@@ -194,7 +193,7 @@ describe("deleteSession", () => {
 
 describe("deleteUserSessions", () => {
   test("deletes every session for the user", async () => {
-    const user = await findOrCreateUser("many@example.com");
+    const user = await seedIdentity(db, "many@example.com");
     await createAuthenticatedSession(user.id);
     await createAuthenticatedSession(user.id);
     await createAuthenticatedSession(user.id);
@@ -208,7 +207,7 @@ describe("deleteUserSessions", () => {
   });
 
   test("spares the excepted session hash", async () => {
-    const user = await findOrCreateUser("spare@example.com");
+    const user = await seedIdentity(db, "spare@example.com");
     const keptRawId = await createAuthenticatedSession(user.id);
     await createAuthenticatedSession(user.id);
     const keptHash = computeHMAC(keptRawId);
@@ -223,8 +222,8 @@ describe("deleteUserSessions", () => {
   });
 
   test("leaves other users' sessions alone", async () => {
-    const mine = await findOrCreateUser("mine@example.com");
-    const theirs = await findOrCreateUser("theirs@example.com");
+    const mine = await seedIdentity(db, "mine@example.com");
+    const theirs = await seedIdentity(db, "theirs@example.com");
     await createAuthenticatedSession(mine.id);
     await createAuthenticatedSession(theirs.id);
 
@@ -236,14 +235,14 @@ describe("deleteUserSessions", () => {
   });
 
   test("returns 0 when the user has no sessions", async () => {
-    const user = await findOrCreateUser("none@example.com");
+    const user = await seedIdentity(db, "none@example.com");
     expect(await deleteUserSessions(user.id)).toBe(0);
   });
 });
 
 describe("renewSession", () => {
   test("updates last_activity_at", async () => {
-    const user = await findOrCreateUser("renew@example.com");
+    const user = await seedIdentity(db, "renew@example.com");
     const rawId = await createAuthenticatedSession(user.id);
     const hash = computeHMAC(rawId);
 

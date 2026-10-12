@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testDatabase } from "../test-utils/database";
-import { cleanupTestData } from "../test-utils/helpers";
+import { cleanupTestData, seedIdentity } from "../test-utils/helpers";
 
 const connection = testDatabase();
 
@@ -10,7 +10,6 @@ mock.module("../services/database", () => ({
   },
 }));
 
-import { findOrCreateUser } from "../services/auth";
 import { db } from "../services/database";
 import {
   createAuthenticatedSession,
@@ -46,7 +45,7 @@ describe("Auth Middleware", () => {
       const sessionId = await createGuestSession();
 
       const request = createBunRequest("http://localhost:3000/test", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
       const context = await getSessionContext(request);
 
@@ -59,11 +58,11 @@ describe("Auth Middleware", () => {
     });
 
     test("returns authenticated context with user data for valid authenticated session", async () => {
-      const user = await findOrCreateUser("valid@example.com");
+      const user = await seedIdentity(db, "valid@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       const request = createBunRequest("http://localhost:3000/test", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
       const context = await getSessionContext(request);
 
@@ -79,7 +78,7 @@ describe("Auth Middleware", () => {
 
     test("returns guest context with requiresSetCookie for invalid session cookie", async () => {
       const request = createBunRequest("http://localhost:3000/test", {
-        headers: { cookie: "session_id=invalid-session-id" },
+        headers: { cookie: "cms_session=invalid-session-id" },
       });
       const context = await getSessionContext(request);
 
@@ -90,7 +89,7 @@ describe("Auth Middleware", () => {
     });
 
     test("returns guest context with requiresSetCookie for expired session", async () => {
-      const user = await findOrCreateUser("expired@example.com");
+      const user = await seedIdentity(db, "expired@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       const { computeHMAC } = await import("../utils/crypto");
@@ -103,7 +102,7 @@ describe("Auth Middleware", () => {
       `;
 
       const request = createBunRequest("http://localhost:3000/test", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
       const context = await getSessionContext(request);
 
@@ -115,7 +114,7 @@ describe("Auth Middleware", () => {
 
     test("handles database errors gracefully", async () => {
       const request = createBunRequest("http://localhost:3000/test", {
-        headers: { cookie: "session_id=malformed-not-uuid" },
+        headers: { cookie: "cms_session=malformed-not-uuid" },
       });
       const context = await getSessionContext(request);
 
@@ -126,12 +125,12 @@ describe("Auth Middleware", () => {
     });
 
     test("handles multiple cookies correctly", async () => {
-      const user = await findOrCreateUser("cookies@example.com");
+      const user = await seedIdentity(db, "cookies@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       const request = createBunRequest("http://localhost:3000/test", {
         headers: {
-          cookie: `other=value; session_id=${sessionId}; another=value`,
+          cookie: `other=value; cms_session=${sessionId}; another=value`,
         },
       });
       const context = await getSessionContext(request);
@@ -143,11 +142,11 @@ describe("Auth Middleware", () => {
 
   describe("requireAuth", () => {
     test("returns null for authenticated user", async () => {
-      const user = await findOrCreateUser("authed@example.com");
+      const user = await seedIdentity(db, "authed@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       const request = createBunRequest("http://localhost:3000/protected", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
 
       const result = await requireAuth(request);
@@ -168,7 +167,7 @@ describe("Auth Middleware", () => {
       const sessionId = await createGuestSession();
 
       const request = createBunRequest("http://localhost:3000/protected", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
 
       const result = await requireAuth(request);
@@ -179,7 +178,7 @@ describe("Auth Middleware", () => {
     });
 
     test("returns redirect for expired session", async () => {
-      const user = await findOrCreateUser("expired2@example.com");
+      const user = await seedIdentity(db, "expired2@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       const { computeHMAC } = await import("../utils/crypto");
@@ -192,7 +191,7 @@ describe("Auth Middleware", () => {
       `;
 
       const request = createBunRequest("http://localhost:3000/protected", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
 
       const result = await requireAuth(request);
@@ -205,11 +204,11 @@ describe("Auth Middleware", () => {
 
   describe("guestPageContext", () => {
     test("returns redirect response for authenticated user", async () => {
-      const user = await findOrCreateUser("authredirect@example.com");
+      const user = await seedIdentity(db, "authredirect@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       const request = createBunRequest("http://localhost:3000/login", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
 
       const result = await guestPageContext(request);
@@ -231,7 +230,7 @@ describe("Auth Middleware", () => {
       const sessionId = await createGuestSession();
 
       const request = createBunRequest("http://localhost:3000/login", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
 
       const result = await guestPageContext(request);
@@ -239,7 +238,7 @@ describe("Auth Middleware", () => {
     });
 
     test("returns a context for an expired session", async () => {
-      const user = await findOrCreateUser("expiredredirect@example.com");
+      const user = await seedIdentity(db, "expiredredirect@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       const { computeHMAC } = await import("../utils/crypto");
@@ -252,7 +251,7 @@ describe("Auth Middleware", () => {
       `;
 
       const request = createBunRequest("http://localhost:3000/login", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
 
       const result = await guestPageContext(request);
@@ -261,7 +260,7 @@ describe("Auth Middleware", () => {
 
     test("returns a context for an invalid session", async () => {
       const request = createBunRequest("http://localhost:3000/login", {
-        headers: { cookie: "session_id=invalid-session-id" },
+        headers: { cookie: "cms_session=invalid-session-id" },
       });
 
       const result = await guestPageContext(request);
@@ -296,17 +295,17 @@ describe("Auth Middleware", () => {
       let guestResult = await guestPageContext(request);
       expect("ctx" in guestResult).toBe(true);
 
-      const user = await findOrCreateUser(email);
+      const user = await seedIdentity(db, email);
       const sessionId = await createAuthenticatedSession(user.id);
 
       request = createBunRequest("http://localhost:3000/protected", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
       authResult = await requireAuth(request);
       expect(authResult).toBeNull();
 
       request = createBunRequest("http://localhost:3000/login", {
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
       guestResult = await guestPageContext(request);
       expect("redirect" in guestResult).toBe(true);

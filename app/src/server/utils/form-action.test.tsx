@@ -9,7 +9,6 @@ import {
   test,
 } from "bun:test";
 import { CSRF_HEADER, FRAGMENT_HEADER } from "@shared/protocol";
-import { findOrCreateUser } from "../services/auth";
 import { createCsrfToken, TIME_WINDOW_MINUTES } from "../services/csrf";
 import {
   createAuthenticatedSession,
@@ -17,7 +16,11 @@ import {
 } from "../services/sessions";
 import { createBunRequest, findSetCookie } from "../test-utils/bun-request";
 import { testDatabase } from "../test-utils/database";
-import { cleanupTestData, randomEmail } from "../test-utils/helpers";
+import {
+  cleanupTestData,
+  randomEmail,
+  seedIdentity,
+} from "../test-utils/helpers";
 
 const connection = testDatabase();
 
@@ -48,7 +51,7 @@ const post = (
       method: "POST",
       headers: {
         Origin: ORIGIN,
-        ...(sessionId ? { Cookie: `session_id=${sessionId}` } : {}),
+        ...(sessionId ? { Cookie: `cms_session=${sessionId}` } : {}),
         ...(options.fragment ? { [FRAGMENT_HEADER]: "1" } : {}),
       },
       body,
@@ -68,7 +71,7 @@ const staleToken = async (sessionId: string) => {
 };
 
 const userSession = async () => {
-  const user = await findOrCreateUser(randomEmail());
+  const user = await seedIdentity(db, randomEmail());
   return createAuthenticatedSession(user.id);
 };
 

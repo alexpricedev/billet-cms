@@ -8,7 +8,6 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { findOrCreateUser } from "../../services/auth";
 import { createCsrfToken, TIME_WINDOW_MINUTES } from "../../services/csrf";
 import {
   createAuthenticatedSession,
@@ -17,7 +16,11 @@ import {
 import type { FormsState } from "../../templates/forms";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
 import { testDatabase } from "../../test-utils/database";
-import { cleanupTestData, randomEmail } from "../../test-utils/helpers";
+import {
+  cleanupTestData,
+  randomEmail,
+  seedIdentity,
+} from "../../test-utils/helpers";
 import { stateHelpers } from "../../utils/state";
 
 const connection = testDatabase();
@@ -55,7 +58,7 @@ describe("Forms Controller", () => {
   };
 
   const createTestSession = async () => {
-    const user = await findOrCreateUser(randomEmail());
+    const user = await seedIdentity(db, randomEmail());
     return createAuthenticatedSession(user.id);
   };
 
@@ -64,7 +67,7 @@ describe("Forms Controller", () => {
       const guestSessionId = await createGuestSession();
 
       const request = createBunRequest("http://localhost:3000/forms", {
-        headers: { Cookie: `session_id=${guestSessionId}` },
+        headers: { Cookie: `cms_session=${guestSessionId}` },
       });
       const response = await forms.index(request);
       const html = await response.text();
@@ -80,7 +83,7 @@ describe("Forms Controller", () => {
       const sessionId = await createTestSession();
 
       const request = createBunRequest("http://localhost:3000/forms", {
-        headers: { Cookie: `session_id=${sessionId}` },
+        headers: { Cookie: `cms_session=${sessionId}` },
       });
       const response = await forms.index(request);
       const html = await response.text();
@@ -103,7 +106,7 @@ describe("Forms Controller", () => {
       const sessionId = await createTestSession();
 
       const request = createBunRequest("http://localhost:3000/forms", {
-        headers: { Cookie: `session_id=${sessionId}` },
+        headers: { Cookie: `cms_session=${sessionId}` },
       });
 
       const { setFlash } = stateHelpers<FormsState>();
@@ -127,7 +130,7 @@ describe("Forms Controller", () => {
       const sessionId = await createTestSession();
 
       const request = createBunRequest("http://localhost:3000/forms", {
-        headers: { Cookie: `session_id=${sessionId}` },
+        headers: { Cookie: `cms_session=${sessionId}` },
       });
 
       const response = await forms.index(request);
@@ -140,7 +143,7 @@ describe("Forms Controller", () => {
   describe("POST /forms", () => {
     test("sets flash and redirects with valid submission", async () => {
       const sessionId = await createGuestSession();
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
       const csrfToken = await createCsrfToken(sessionId, "POST", "/forms");
 
       const mockFormData = new FormData();
@@ -171,7 +174,7 @@ describe("Forms Controller", () => {
 
     test("redirects with a validation flash when name is missing", async () => {
       const sessionId = await createGuestSession();
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
       const csrfToken = await createCsrfToken(sessionId, "POST", "/forms");
 
       const mockFormData = new FormData();
@@ -199,7 +202,7 @@ describe("Forms Controller", () => {
 
     test("preserves submitted values when name is too short", async () => {
       const sessionId = await createGuestSession();
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
       const csrfToken = await createCsrfToken(sessionId, "POST", "/forms");
 
       const mockFormData = new FormData();
@@ -230,7 +233,7 @@ describe("Forms Controller", () => {
 
     test("rejects request without CSRF token", async () => {
       const sessionId = await createGuestSession();
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
 
       const mockFormData = new FormData();
       mockFormData.append("name", "Alex");
@@ -270,7 +273,7 @@ describe("Forms Controller", () => {
 
     test("trims whitespace from submitted values", async () => {
       const sessionId = await createGuestSession();
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
       const csrfToken = await createCsrfToken(sessionId, "POST", "/forms");
 
       const mockFormData = new FormData();
@@ -300,7 +303,7 @@ describe("Forms Controller", () => {
 
     test("works with CSRF token in header", async () => {
       const sessionId = await createGuestSession();
-      const cookieHeader = `session_id=${sessionId}`;
+      const cookieHeader = `cms_session=${sessionId}`;
       const csrfToken = await createCsrfToken(sessionId, "POST", "/forms");
 
       const mockFormData = new FormData();
@@ -340,7 +343,7 @@ describe("Forms Controller", () => {
         method: "POST",
         headers: {
           Origin: "http://localhost:3000",
-          Cookie: `session_id=${sessionId}`,
+          Cookie: `cms_session=${sessionId}`,
         },
         body: mockFormData,
       });
@@ -372,7 +375,7 @@ describe("Forms Controller", () => {
         method: "POST",
         headers: {
           Origin: "http://evil.example",
-          Cookie: `session_id=${sessionId}`,
+          Cookie: `cms_session=${sessionId}`,
         },
         body: mockFormData,
       });
@@ -390,7 +393,7 @@ describe("Forms Controller", () => {
       const sessionId = await createGuestSession();
 
       const request = createBunRequest("http://localhost:3000/forms", {
-        headers: { Cookie: `session_id=${sessionId}` },
+        headers: { Cookie: `cms_session=${sessionId}` },
       });
 
       const { setFlash } = stateHelpers<FormsState>();
@@ -415,7 +418,7 @@ describe("Forms Controller", () => {
       const sessionId = await createGuestSession();
 
       const request = createBunRequest("http://localhost:3000/forms", {
-        headers: { Cookie: `session_id=${sessionId}` },
+        headers: { Cookie: `cms_session=${sessionId}` },
       });
 
       const { setFlash } = stateHelpers<FormsState>();

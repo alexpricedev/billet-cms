@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testDatabase } from "../test-utils/database";
-import { cleanupTestData } from "../test-utils/helpers";
+import { cleanupTestData, seedIdentity } from "../test-utils/helpers";
 
 const connection = testDatabase();
 
@@ -10,7 +10,6 @@ mock.module("./database", () => ({
   },
 }));
 
-import { findOrCreateUser } from "./auth";
 import { runCleanupSweep, startCleanupSweep } from "./cleanup";
 import { db } from "./database";
 
@@ -43,6 +42,17 @@ const insertToken = async (
   `;
 };
 
+const insertHandoffToken = async (tokenHash: string, expiresAt: Date) => {
+  await db`
+    INSERT INTO cms_handoff_tokens (user_id, token_hash, expires_at)
+    VALUES (
+      ${"00000000-0000-4000-8000-000000000000"},
+      ${tokenHash},
+      ${expiresAt.toISOString()}
+    )
+  `;
+};
+
 describe("Cleanup sweep", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
@@ -55,7 +65,7 @@ describe("Cleanup sweep", () => {
 
   describe("cms_user_tokens", () => {
     test("deletes expired tokens and keeps live ones", async () => {
-      const user = await findOrCreateUser("tokens@example.com");
+      const user = await seedIdentity(db, "tokens@example.com");
       await insertToken(user.id, "expired-hash", new Date(Date.now() - HOUR));
       await insertToken(user.id, "live-hash", new Date(Date.now() + HOUR));
 
@@ -68,7 +78,7 @@ describe("Cleanup sweep", () => {
     });
 
     test("deletes a spent token once it expires", async () => {
-      const user = await findOrCreateUser("spent@example.com");
+      const user = await seedIdentity(db, "spent@example.com");
       await insertToken(user.id, "spent-hash", new Date(Date.now() - HOUR));
       await db`UPDATE cms_user_tokens SET used_at = CURRENT_TIMESTAMP`;
 
@@ -79,9 +89,23 @@ describe("Cleanup sweep", () => {
     });
   });
 
+  describe("cms_handoff_tokens", () => {
+    test("deletes expired handoff tokens and keeps live ones", async () => {
+      await insertHandoffToken("expired-hash", new Date(Date.now() - HOUR));
+      await insertHandoffToken("live-hash", new Date(Date.now() + HOUR));
+
+      await runCleanupSweep();
+
+      const rows = await db`SELECT token_hash FROM cms_handoff_tokens`;
+      expect(rows.map((row: { token_hash: string }) => row.token_hash)).toEqual(
+        ["live-hash"],
+      );
+    });
+  });
+
   describe("cms_sessions", () => {
     test("deletes expired sessions and keeps live ones", async () => {
-      const user = await findOrCreateUser("sessions@example.com");
+      const user = await seedIdentity(db, "sessions@example.com");
       await insertSession("expired-auth", user.id, new Date(Date.now() - HOUR));
       await insertSession("live-auth", user.id, new Date(Date.now() + HOUR));
 
@@ -103,19 +127,19 @@ describe("Cleanup sweep", () => {
     });
 
     test("leaves the user the session belonged to alone", async () => {
-      const user = await findOrCreateUser("keepme@example.com");
+      const user = await seedIdentity(db, "keepme@example.com");
       await insertSession("expired-auth", user.id, new Date(Date.now() - HOUR));
 
       await runCleanupSweep();
 
-      const rows = await db`SELECT id FROM cms_users WHERE id = ${user.id}`;
+      const rows = await db`SELECT id FROM users WHERE id = ${user.id}`;
       expect(rows.length).toBe(1);
     });
   });
 
   describe("startCleanupSweep", () => {
     test("sweeps once immediately and returns a stop handle", async () => {
-      const user = await findOrCreateUser("timer@example.com");
+      const user = await seedIdentity(db, "timer@example.com");
       await insertToken(user.id, "expired-hash", new Date(Date.now() - HOUR));
 
       const stop = startCleanupSweep();

@@ -7,13 +7,6 @@ export interface AccountProps {
   csrfToken?: string;
 }
 
-const formatDate = (date: Date): string =>
-  date.toLocaleDateString("en-GB", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
 export const Account = ({ user, csrfToken }: AccountProps) => (
   <Layout
     title="Account - Billet CMS"
@@ -36,8 +29,6 @@ export const Account = ({ user, csrfToken }: AccountProps) => (
       <dl className="account-details">
         <dt>Role</dt>
         <dd>{user.role}</dd>
-        <dt>Member since</dt>
-        <dd>{formatDate(user.created_at)}</dd>
         <dt>Sign-in method</dt>
         <dd>Magic link</dd>
       </dl>

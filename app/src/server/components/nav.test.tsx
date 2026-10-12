@@ -7,7 +7,6 @@ const user: User = {
   id: "00000000-0000-0000-0000-000000000000",
   email: "member@example.com",
   role: "user",
-  created_at: new Date("2026-01-01"),
 };
 
 describe("Nav", () => {

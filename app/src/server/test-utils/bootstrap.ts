@@ -29,9 +29,10 @@ export async function bootstrap() {
   try {
     console.log("  Dropping CMS relations...");
     await db`DROP VIEW IF EXISTS cms_identities CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_handoff_tokens CASCADE`;
+    await db`DROP TABLE IF EXISTS cms_revisions CASCADE`;
     await db`DROP TABLE IF EXISTS cms_user_tokens CASCADE`;
     await db`DROP TABLE IF EXISTS cms_sessions CASCADE`;
-    await db`DROP TABLE IF EXISTS cms_users CASCADE`;
     await db`DROP TABLE IF EXISTS cms_slots CASCADE`;
     await db`DROP TABLE IF EXISTS cms_page_types CASCADE`;
     await db`DROP TABLE IF EXISTS cms_block_types CASCADE`;
@@ -41,6 +42,12 @@ export async function bootstrap() {
     console.log("  Running migrations...");
     const { runMigrations } = await import("../database/migrate");
     await runMigrations();
+
+    // The site-side fixture the CMS reads through: a `users` table and the
+    // `cms_identities` view over it. The CMS does not own either.
+    console.log("  Preparing the site fixture...");
+    const { prepareDatabase } = await import("./prepare-databases");
+    await prepareDatabase(db);
 
     console.log("✅ Test database bootstrap complete!");
   } catch (error) {

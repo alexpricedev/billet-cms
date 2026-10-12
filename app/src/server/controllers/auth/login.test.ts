@@ -9,7 +9,7 @@ import {
 import type { LoginState } from "../../templates/login";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
 import { testDatabase } from "../../test-utils/database";
-import { cleanupTestData } from "../../test-utils/helpers";
+import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
 import { stateHelpers } from "../../utils/state";
 
 // Solve a challenge the way the client would, for the captcha-enabled tests.
@@ -45,7 +45,6 @@ mock.module("../../services/database", () => ({
   },
 }));
 
-import { findOrCreateUser } from "../../services/auth";
 import { db } from "../../services/database";
 import {
   createAuthenticatedSession,
@@ -191,12 +190,12 @@ describe("Login Controller", () => {
     });
 
     test("redirects authenticated user to home", async () => {
-      const user = await findOrCreateUser("already-in@example.com");
+      const user = await seedIdentity(db, "already-in@example.com");
       const sessionId = await createAuthenticatedSession(user.id);
 
       const request = createBunRequest("http://localhost:3000/login", {
         method: "GET",
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
 
       const response = await login.index(request);
@@ -215,7 +214,7 @@ describe("Login Controller", () => {
       const html = await (await login.index(request)).text();
 
       expect(html).toContain('name="_csrf"');
-      expect(findSetCookie(request, "session_id")).toBeDefined();
+      expect(findSetCookie(request, "cms_session")).toBeDefined();
 
       const sessions = await db`SELECT session_type FROM cms_sessions`;
       expect(sessions).toHaveLength(1);
@@ -229,7 +228,7 @@ describe("Login Controller", () => {
 
       const request = createBunRequest("http://localhost:3000/login", {
         method: "GET",
-        headers: { cookie: `session_id=${sessionId}` },
+        headers: { cookie: `cms_session=${sessionId}` },
       });
 
       await login.index(request);
@@ -240,7 +239,7 @@ describe("Login Controller", () => {
 
   describe("POST /login", () => {
     test("mints a magic link for an existing user", async () => {
-      const user = await findOrCreateUser("test@example.com");
+      const user = await seedIdentity(db, "test@example.com");
 
       const { request, response } = await postEmail("test@example.com");
 
@@ -253,7 +252,7 @@ describe("Login Controller", () => {
 
       // The account was already there: sign-in mints a token, it does not
       // provision a new row.
-      expect(await db`SELECT id FROM cms_users`).toHaveLength(1);
+      expect(await db`SELECT id FROM users`).toHaveLength(1);
 
       const tokens = await db`
         SELECT id, user_id, type, expires_at
@@ -264,12 +263,12 @@ describe("Login Controller", () => {
     });
 
     test("normalizes the email it looks up", async () => {
-      const user = await findOrCreateUser("test@example.com");
+      const user = await seedIdentity(db, "test@example.com");
 
       const { request } = await postEmail("Test@Example.COM");
 
       expect(findSetCookie(request, "flash_state")).toContain("email-sent");
-      expect(await db`SELECT id FROM cms_users`).toHaveLength(1);
+      expect(await db`SELECT id FROM users`).toHaveLength(1);
 
       const tokens = await db`SELECT user_id FROM cms_user_tokens`;
       expect(tokens).toHaveLength(1);
@@ -280,7 +279,7 @@ describe("Login Controller", () => {
     // must be indistinguishable from the one a known address gets, or the form
     // becomes an account-enumeration oracle.
     test("an unknown email creates no user and no token, and looks identical to a known one", async () => {
-      const known = await findOrCreateUser("known@example.com");
+      const known = await seedIdentity(db, "known@example.com");
 
       const knownPost = await postEmail("known@example.com");
       const unknownPost = await postEmail("unknown@example.com");
@@ -296,9 +295,9 @@ describe("Login Controller", () => {
 
       // The unknown address got no account, no token and no session.
       expect(
-        await db`SELECT id FROM cms_users WHERE email = 'unknown@example.com'`,
+        await db`SELECT id FROM users WHERE email = 'unknown@example.com'`,
       ).toHaveLength(0);
-      expect(findSetCookie(unknownPost.request, "session_id")).toBeUndefined();
+      expect(findSetCookie(unknownPost.request, "cms_session")).toBeUndefined();
       const sessions =
         await db`SELECT user_id FROM cms_sessions WHERE user_id IS NOT NULL`;
       expect(sessions).toHaveLength(0);
@@ -308,6 +307,23 @@ describe("Login Controller", () => {
         SELECT user_id FROM cms_user_tokens WHERE user_id = ${known.id}
       `;
       expect(tokens).toHaveLength(1);
+    });
+
+    // A site user the view keeps out — an editor the site has not promoted, or
+    // a plain member — is a non-identity: no token, no email, no row written,
+    // and the same response a signed-in admin gets.
+    test("refuses a non-admin with the same response and no token", async () => {
+      await seedIdentity(db, "member@example.com", "user");
+      const before = await db`SELECT id FROM users`;
+
+      const { request, response } = await postEmail("member@example.com");
+
+      expect(response.status).toBe(303);
+      expect(response.headers.get("location")).toBe("/login");
+      expect(findSetCookie(request, "flash_state")).toContain("email-sent");
+
+      expect(await db`SELECT id FROM users`).toHaveLength(before.length);
+      expect(await db`SELECT id FROM cms_user_tokens`).toHaveLength(0);
     });
 
     test("redirects with error for invalid email", async () => {
@@ -343,13 +359,8 @@ describe("Login Controller", () => {
       expect(setCookie).toContain("Invalid email address");
     });
 
-    test("reuses existing user for same email", async () => {
-      // Create user first using proper UUID
-      const { randomUUID } = await import("node:crypto");
-      const userId = randomUUID();
-      const user = await db`
-        INSERT INTO cms_users (id, email) VALUES (${userId}, 'existing@example.com') RETURNING id
-      `;
+    test("reuses existing identity for same email", async () => {
+      const user = await seedIdentity(db, "existing@example.com");
 
       const formData = new FormData();
       formData.append("email", "existing@example.com");
@@ -358,16 +369,16 @@ describe("Login Controller", () => {
 
       await login.create(request);
 
-      // Should still be only one user
+      // Should still be only one site user
       const users =
-        await db`SELECT id FROM cms_users WHERE email = 'existing@example.com'`;
+        await db`SELECT id FROM users WHERE email = 'existing@example.com'`;
       expect(users).toHaveLength(1);
-      expect((users[0] as any).id).toBe((user[0] as any).id);
+      expect(users[0].id).toBe(user.id);
 
       // But should have created a new token
       const tokens = await db`
         SELECT id FROM cms_user_tokens
-        WHERE user_id = ${(user[0] as any).id} AND type = 'magic_link'
+        WHERE user_id = ${user.id} AND type = 'magic_link'
       `;
       expect(tokens).toHaveLength(1);
     });
@@ -386,7 +397,7 @@ describe("Login Controller", () => {
 
       expect(response.status).toBe(403);
       expect(
-        await db`SELECT id FROM cms_users WHERE email = 'notoken@example.com'`,
+        await db`SELECT id FROM users WHERE email = 'notoken@example.com'`,
       ).toHaveLength(0);
     });
 
@@ -400,7 +411,7 @@ describe("Login Controller", () => {
 
       expect(response.status).toBe(403);
       expect(
-        await db`SELECT id FROM cms_users WHERE email = 'forged@example.com'`,
+        await db`SELECT id FROM users WHERE email = 'forged@example.com'`,
       ).toHaveLength(0);
     });
 
@@ -418,7 +429,7 @@ describe("Login Controller", () => {
 
       expect(response.status).toBe(403);
       expect(
-        await db`SELECT id FROM cms_users WHERE email = 'crossorigin@example.com'`,
+        await db`SELECT id FROM users WHERE email = 'crossorigin@example.com'`,
       ).toHaveLength(0);
     });
 
@@ -445,7 +456,7 @@ describe("Login Controller", () => {
       );
 
       expect(
-        await db`SELECT id FROM cms_users WHERE email = 'staletab@example.com'`,
+        await db`SELECT id FROM users WHERE email = 'staletab@example.com'`,
       ).toHaveLength(0);
     });
   });
@@ -467,7 +478,7 @@ describe("Login Controller", () => {
 
       // ...but creates no user and issues no magic link.
       const users =
-        await db`SELECT id FROM cms_users WHERE email = 'bot@example.com'`;
+        await db`SELECT id FROM users WHERE email = 'bot@example.com'`;
       expect(users).toHaveLength(0);
     });
 
@@ -517,12 +528,12 @@ describe("Login Controller", () => {
         expect(setCookie).toContain("Verification failed");
 
         const users =
-          await db`SELECT id FROM cms_users WHERE email = 'human@example.com'`;
+          await db`SELECT id FROM users WHERE email = 'human@example.com'`;
         expect(users).toHaveLength(0);
       });
 
       test("issues the magic link when the captcha is solved", async () => {
-        const user = await findOrCreateUser("human@example.com");
+        const user = await seedIdentity(db, "human@example.com");
 
         const formData = new FormData();
         formData.append("email", "human@example.com");
@@ -536,7 +547,7 @@ describe("Login Controller", () => {
         const setCookie = findSetCookie(request, "flash_state");
         expect(setCookie).toContain("email-sent");
 
-        expect(await db`SELECT id FROM cms_users`).toHaveLength(1);
+        expect(await db`SELECT id FROM users`).toHaveLength(1);
         const tokens = await db`
           SELECT id FROM cms_user_tokens WHERE user_id = ${user.id}
         `;

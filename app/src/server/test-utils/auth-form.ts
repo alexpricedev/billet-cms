@@ -56,7 +56,7 @@ export const authFormPost = async (
   return createBunRequest(options.url ?? `${ORIGIN}${path}`, {
     method: "POST",
     headers: {
-      cookie: `session_id=${sessionId}`,
+      cookie: `cms_session=${sessionId}`,
       ...(origin ? { origin } : {}),
     },
     body: formData,

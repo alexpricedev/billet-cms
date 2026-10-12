@@ -9,8 +9,7 @@ import {
   test,
 } from "bun:test";
 import { testDatabase } from "../test-utils/database";
-import { cleanupTestData } from "../test-utils/helpers";
-import { findOrCreateUser } from "./auth";
+import { cleanupTestData, seedIdentity } from "../test-utils/helpers";
 import {
   CSRF_GRACE_WINDOWS,
   createCsrfToken,
@@ -47,7 +46,7 @@ describe("CSRF Service", () => {
   const createTestSession = async (
     email = `test-${Date.now()}-${Math.random()}@example.com`,
   ) => {
-    const user = await findOrCreateUser(email);
+    const user = await seedIdentity(db, email);
     return createAuthenticatedSession(user.id);
   };
 

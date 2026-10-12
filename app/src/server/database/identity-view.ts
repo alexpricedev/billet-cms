@@ -1,6 +1,5 @@
 import { TABLES } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
-import { db } from "../services/database";
 import { log } from "../services/logger";
 
 // Taken around the check-and-create so two instances booting at once cannot
@@ -53,8 +52,12 @@ const DEFAULT_IDENTITY_VIEW_QUERY = `SELECT id, email, role
  * recreate that definition in the same migration, or the next boot rebuilds the
  * admin-only default in its place.
  */
-export const ensureIdentitiesView = async (sql: SQL = db): Promise<void> => {
-  await sql.begin(async (tx) => {
+export const ensureIdentitiesView = async (sql?: SQL): Promise<void> => {
+  // Default to the app's pool, imported lazily so a test helper can create the
+  // view against its own connection without constructing the server's.
+  const target = sql ?? (await import("../services/database")).db;
+
+  await target.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(${IDENTITY_VIEW_LOCK_KEY}::bigint)`;
 
     const existing = await tx`

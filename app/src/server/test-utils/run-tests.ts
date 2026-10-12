@@ -99,19 +99,20 @@ const migrateAll = async (): Promise<void> => {
   // after the first run they all no-op and the cost is process startup.
   const results = await Promise.all(
     names.map(async (name) => {
-      const proc = Bun.spawn(
-        ["bun", "run", "src/server/database/cli.ts", "up"],
-        {
-          env: {
-            ...process.env,
-            NODE_ENV: "test",
-            DATABASE_URL: withDatabase(baseUrl, name),
-          },
-          stdout: "pipe",
-          stderr: "inherit",
-        },
+      const databaseUrl = withDatabase(baseUrl, name);
+      const migrated = await runScript(
+        "src/server/database/cli.ts",
+        ["up"],
+        databaseUrl,
       );
-      return (await proc.exited) === 0;
+      if (!migrated) return false;
+      // Then the site-side fixture: a `users` table and the `cms_identities`
+      // view over it, which the CMS's sign-in reads but does not own.
+      return await runScript(
+        "src/server/test-utils/prepare-databases.ts",
+        [],
+        databaseUrl,
+      );
     }),
   );
 
@@ -119,6 +120,24 @@ const migrateAll = async (): Promise<void> => {
     console.error("Migration failed");
     process.exit(1);
   }
+};
+
+/** Run a Bun script against one database, returning whether it exited cleanly. */
+const runScript = async (
+  script: string,
+  args: string[],
+  databaseUrl: string,
+): Promise<boolean> => {
+  const proc = Bun.spawn(["bun", "run", script, ...args], {
+    env: {
+      ...process.env,
+      NODE_ENV: "test",
+      DATABASE_URL: databaseUrl,
+    },
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  return (await proc.exited) === 0;
 };
 
 await migrateAll();
