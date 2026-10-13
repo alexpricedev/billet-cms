@@ -9,10 +9,12 @@ import {
   text,
 } from "@alexpricedev/billet-cms/fields";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
+import { formatIssues } from "./drafts";
 import {
   asPageContent,
   checkPageLimits,
   findUnavailableBlocks,
+  mergeUnavailableBlocks,
   validatePageContent,
 } from "./page-content";
 
@@ -217,5 +219,66 @@ describe("findUnavailableBlocks", () => {
         registry,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("formatIssues", () => {
+  test("names a page-mode link's missing page", () => {
+    expect(
+      formatIssues([
+        { path: ["hero", "cta", "pageId"], message: "Invalid UUID" },
+      ]),
+    ).toEqual([{ path: "hero.cta.pageId", message: "Choose a page." }]);
+  });
+
+  test("keeps an ordinary field message", () => {
+    expect(
+      formatIssues([
+        {
+          path: ["heading"],
+          message: "Too big: expected string to have <=80 characters",
+        },
+      ]),
+    ).toEqual([{ path: "heading", message: "Use 80 characters or fewer." }]);
+  });
+});
+
+describe("mergeUnavailableBlocks", () => {
+  test("re-inserts a carried block at its original position", () => {
+    const base = [
+      { type: "hero", heading: "Top" },
+      { type: "prose", body: { type: "doc", content: [] } },
+      { type: "cta", label: "Go" },
+    ];
+    const submitted = [
+      { type: "prose", body: { type: "doc", content: [] } },
+      { type: "cta", label: "Go" },
+    ];
+    const unavailable = [
+      { index: 0, type: "hero", reason: "removed" as const },
+    ];
+
+    expect(mergeUnavailableBlocks(submitted, base, unavailable)).toEqual(base);
+  });
+
+  test("keeps a middle position rather than appending to the end", () => {
+    const base = [{ type: "prose" }, { type: "hero" }, { type: "cta" }];
+    const submitted = [{ type: "prose" }, { type: "cta" }];
+    const unavailable = [
+      { index: 1, type: "hero", reason: "removed" as const },
+    ];
+
+    expect(
+      mergeUnavailableBlocks(submitted, base, unavailable).map(
+        (block) => block.type,
+      ),
+    ).toEqual(["prose", "hero", "cta"]);
+  });
+
+  test("returns the submitted list when nothing was carried", () => {
+    const submitted = [{ type: "hero" }];
+    expect(mergeUnavailableBlocks(submitted, [{ type: "hero" }], [])).toBe(
+      submitted,
+    );
   });
 });

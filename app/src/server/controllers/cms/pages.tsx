@@ -20,10 +20,11 @@ import {
   listRedirects,
   type PageBlock,
   type PageRecord,
+  type PageSettingsInput,
   type PageTypeRecord,
   type RevisionConflict,
-  savePageDraft,
-  updatePageSettings,
+  resolveWritablePageType,
+  savePage,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import type { SessionContext } from "../../services/sessions";
@@ -109,10 +110,14 @@ const blockErrors = (
     }
     const index = Number(match[1]);
     const field = match[2];
+    // A control is looked up by its own field name, so a nested issue
+    // (`link.pageId`) is keyed under the top-level field (`link`) that owns the
+    // control the message belongs beside (review round 1).
+    const group = field.split(".")[0];
     const fields = byBlock.get(index) ?? new Map<string, FieldError[]>();
-    const errors = fields.get(field) ?? [];
+    const errors = fields.get(group) ?? [];
     errors.push({ path: field, message: issue.message });
-    fields.set(field, errors);
+    fields.set(group, errors);
     byBlock.set(index, fields);
     list.push(issue);
   }
@@ -124,6 +129,12 @@ interface FormExtras {
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
   notice?: Notice | null;
+  /**
+   * The settings the editor typed, when a save failed. Without it the form
+   * re-renders the stored settings and silently discards their input (review
+   * round 1).
+   */
+  settings?: PageSettingsInput & { pageType: string };
 }
 
 /**
@@ -207,6 +218,7 @@ export const renderPageForm = async (
       contentIssues={list}
       conflict={extras.conflict ?? null}
       notice={extras.notice ?? null}
+      values={extras.settings}
     />,
   );
 };
@@ -447,52 +459,47 @@ export const pages = {
     }
 
     const settings = settingsFrom(formData);
-    const updated = await updatePageSettings({
-      pageId: page.id,
-      pageType: settings.pageType === "" ? page.pageType : settings.pageType,
+    const pageTypeName =
+      settings.pageType === "" ? page.pageType : settings.pageType;
+    const typed: PageSettingsInput & { pageType: string } = {
+      pageType: pageTypeName,
       url: settings.url,
       title: settings.title,
       seoDescription: settings.seoDescription,
       socialImage: settings.socialImage,
-    });
-    if (!updated.ok) {
-      return renderPageForm(ctx, page, pageType, content, baseRevisionId, {
-        errors: updated.issues,
-      });
-    }
+    };
 
-    const result = await savePageDraft({
+    // Settings and content are validated together and written in one
+    // transaction: an invalid block must not leave the URL renamed or a 301
+    // behind.
+    const result = await savePage({
       pageId: page.id,
-      page: updated.page,
+      page,
+      settings: typed,
       content: { blocks: content },
       baseRevisionId,
       actorId: ctx.user.id,
     });
 
-    if (!result.ok && result.reason === "invalid") {
-      return renderPageForm(
-        ctx,
-        updated.page,
-        pageType,
-        content,
-        baseRevisionId,
-        {
-          errors: result.issues,
-        },
-      );
-    }
-
     if (!result.ok) {
-      return renderPageForm(
-        ctx,
-        updated.page,
-        pageType,
-        content,
-        result.newer.revisionId,
-        {
-          conflict: result.newer,
-        },
-      );
+      // The blocks were checked against the page type the editor chose; render
+      // the editor against that type so their work stays in the right shape.
+      const formType =
+        (await resolveWritablePageType(pageTypeName)) ?? pageType;
+      if (result.reason === "conflict") {
+        return renderPageForm(
+          ctx,
+          page,
+          formType,
+          content,
+          result.newer.revisionId,
+          { conflict: result.newer, settings: typed },
+        );
+      }
+      return renderPageForm(ctx, page, formType, content, baseRevisionId, {
+        errors: result.issues,
+        settings: typed,
+      });
     }
 
     return redirect(`/cms/pages/${page.id}?saved=1`);

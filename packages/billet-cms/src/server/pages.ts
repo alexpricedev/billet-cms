@@ -19,8 +19,11 @@
  *
  * Reads are cached per process and invalidated on `cms_meta.content_version`
  * (Q3), the same cache the slot reader uses, so a publish shows within a second.
- * A removed block, an unpublished page or a missing CMS table is a skip and a
- * log, never a 500 on a public page.
+ * The routes a path can take — every published page's URL and every redirect —
+ * are loaded as one table and cached under one key, so a 404 runs no per-path
+ * query and adds no per-path cache entry (review round 1). A removed block, an
+ * unpublished page or a missing CMS table is a skip and a log, never a 500 on a
+ * public page.
  */
 import type { SQL } from "bun";
 import { TABLES } from "../contract";
@@ -96,6 +99,23 @@ interface BlockTypeRow {
   removed_at: Date | null;
 }
 
+/**
+ * Every route a request can take, in one read.
+ *
+ * `byUrl` answers "what page is at this path?" and `redirects` answers "where
+ * did this path move to?". Both are built from the *published* pages only
+ * (review round 1): a draft is not served and a redirect to it resolves to
+ * nothing, so a page becomes live when it is published and not before.
+ */
+interface RouteTable {
+  /** Published path to page id. */
+  byUrl: Map<string, string>;
+  /** Page id to its published path, for resolving a stored link. */
+  byId: Map<string, string>;
+  /** Old path to the current path of its *published* target page. */
+  redirects: Map<string, string>;
+}
+
 /** Trailing slashes are stripped before a lookup; `/` stays as it is. */
 const canonicalPath = (path: string): string => {
   if (path === "/") return "/";
@@ -113,22 +133,57 @@ const describe = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 /**
+ * Read every published page's URL and every redirect into one table.
+ *
+ * Loading the whole table once — rather than looking a path up as it arrives —
+ * is what keeps the catch-all cheap: the table has one cache entry, and a path
+ * that matches nothing (a 404) is a lookup that misses rather than a query and
+ * a cache entry keyed by the missing path.
+ */
+const loadRoutes = async (sql: SQL): Promise<RouteTable> => {
+  const pages = (await sql.unsafe(
+    `SELECT id, url FROM ${TABLES.pages} WHERE published_revision_id IS NOT NULL`,
+  )) as { id: string; url: string }[];
+
+  const byUrl = new Map<string, string>();
+  const byId = new Map<string, string>();
+  for (const page of pages) {
+    byUrl.set(page.url, page.id);
+    byId.set(page.id, page.url);
+  }
+
+  const rows = (await sql.unsafe(
+    `SELECT from_path, to_page_id FROM ${TABLES.redirects}`,
+  )) as { from_path: string; to_page_id: string }[];
+
+  const redirects = new Map<string, string>();
+  for (const row of rows) {
+    // A redirect whose page isn't published resolves to nothing, so the site
+    // never 301s to a page it wouldn't serve.
+    const url = byId.get(row.to_page_id);
+    if (url) redirects.set(row.from_path, url);
+  }
+
+  return { byUrl, byId, redirects };
+};
+
+/**
  * Build a page reader, cached per pool.
  *
- * `getPage`, `getRedirect` and `resolveLink` share one cache keyed per query
- * (`page:`, `redirect:`, `link:`), so the version is read once a second no
- * matter which of them a page used.
+ * `getPage`, `getRedirect` and `resolveLink` share one cache: the routes are one
+ * entry, and one page's blocks are another, so the version is read once a second
+ * no matter how many of them a request used.
  */
 export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
   const { sql } = options;
   const onSkip = options.onSkip ?? defaultSkipLogger;
 
-  const loadPage = async (path: string): Promise<CmsPage | null> => {
+  const loadPage = async (pageId: string): Promise<CmsPage | null> => {
     const pages = (await sql.unsafe(
       `SELECT id, page_type, url, title, seo_description, social_image,
               published_revision_id, updated_at
-       FROM ${TABLES.pages} WHERE url = $1`,
-      [path],
+       FROM ${TABLES.pages} WHERE id = $1`,
+      [pageId],
     )) as PageRow[];
 
     const page = pages[0];
@@ -142,7 +197,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     const revision = revisions[0];
     if (!revision) {
       onSkip(
-        `page "${path}" points at a published revision that no longer exists`,
+        `page "${page.url}" points at a published revision that no longer exists`,
       );
       return null;
     }
@@ -159,24 +214,26 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
 
     for (const raw of blocks) {
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-        onSkip(`page "${path}" has a block that isn't an object`);
+        onSkip(`page "${page.url}" has a block that isn't an object`);
         continue;
       }
       const block = raw as Record<string, unknown>;
       const type = block.type;
       if (typeof type !== "string") {
-        onSkip(`page "${path}" has a block with no type`);
+        onSkip(`page "${page.url}" has a block with no type`);
         continue;
       }
 
       const blockType = byName.get(type);
       if (!blockType) {
-        onSkip(`page "${path}" uses block "${type}", which is not published`);
+        onSkip(
+          `page "${page.url}" uses block "${type}", which is not published`,
+        );
         continue;
       }
       if (blockType.removed_at !== null) {
         onSkip(
-          `page "${path}" uses block "${type}", which was removed by a deploy`,
+          `page "${page.url}" uses block "${type}", which was removed by a deploy`,
         );
         continue;
       }
@@ -195,7 +252,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
           )
           .join("; ");
         onSkip(
-          `page "${path}" block "${type}" no longer validates — ${detail}`,
+          `page "${page.url}" block "${type}" no longer validates — ${detail}`,
         );
         continue;
       }
@@ -215,35 +272,12 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     };
   };
 
-  const loadRedirect = async (path: string): Promise<string | null> => {
-    const rows = (await sql.unsafe(
-      `SELECT p.url AS url
-       FROM ${TABLES.redirects} r
-       JOIN ${TABLES.pages} p ON p.id = r.to_page_id
-       WHERE r.from_path = $1`,
-      [path],
-    )) as { url: string }[];
-    return rows[0]?.url ?? null;
-  };
-
-  const loadLink = async (pageId: string): Promise<string | null> => {
-    const rows = (await sql.unsafe(
-      `SELECT url FROM ${TABLES.pages} WHERE id = $1`,
-      [pageId],
-    )) as { url: string }[];
-    return rows[0]?.url ?? null;
-  };
-
-  // One loader dispatching on the key's prefix: `ContentCache` caches one value
-  // per key but has a single `load`, so the key is what tells it which query to
-  // run on a miss.
+  // One loader dispatching on the key: `ContentCache` caches one value per key
+  // but has a single `load`, so the key is what tells it what to read on a miss.
   const loadByKey = async (key: string): Promise<unknown> => {
-    const separator = key.indexOf(":");
-    const kind = key.slice(0, separator);
-    const rest = key.slice(separator + 1);
-    if (kind === "page") return await loadPage(rest);
-    if (kind === "redirect") return await loadRedirect(rest);
-    if (kind === "link") return await loadLink(rest);
+    if (key === "routes") return await loadRoutes(sql);
+    const prefix = "page:";
+    if (key.startsWith(prefix)) return await loadPage(key.slice(prefix.length));
     return null;
   };
 
@@ -263,7 +297,12 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async getPage(path: string): Promise<CmsPage | null> {
       const canonical = canonicalPath(path);
       try {
-        return (await cache.get(`page:${canonical}`)) as CmsPage | null;
+        const routes = (await cache.get("routes")) as RouteTable;
+        const pageId = routes.byUrl.get(canonical);
+        // A miss is a 404, not a query: no page is loaded and no cache entry is
+        // keyed by the path that wasn't there.
+        if (!pageId) return null;
+        return (await cache.get(`page:${pageId}`)) as CmsPage | null;
       } catch (error) {
         onSkip(`could not read page "${canonical}": ${describe(error)}`);
         return null;
@@ -273,7 +312,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async getRedirect(path: string): Promise<string | null> {
       const canonical = canonicalPath(path);
       try {
-        return (await cache.get(`redirect:${canonical}`)) as string | null;
+        const routes = (await cache.get("routes")) as RouteTable;
+        return routes.redirects.get(canonical) ?? null;
       } catch (error) {
         onSkip(`could not read redirect "${canonical}": ${describe(error)}`);
         return null;
@@ -283,7 +323,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async resolveLink(link: LinkValue): Promise<string | null> {
       if (link.type === "url") return link.url;
       try {
-        return (await cache.get(`link:${link.pageId}`)) as string | null;
+        const routes = (await cache.get("routes")) as RouteTable;
+        return routes.byId.get(link.pageId) ?? null;
       } catch (error) {
         onSkip(
           `could not resolve a link to page "${link.pageId}": ${describe(error)}`,
@@ -324,6 +365,22 @@ export interface CmsPageRouteOptions extends CmsPagesOptions {
 }
 
 /**
+ * A path the browser will follow on this site, or `null`.
+ *
+ * A `Location` built from stored content is the one place the plugin can send a
+ * browser somewhere, so the value is constrained to a same-origin path: it must
+ * start with `/` and not `//` (protocol-relative navigates off-site) or carry a
+ * backslash (browsers read `\` as `/`, so `/\host` is `//host` in disguise).
+ * Anything else is not a redirect and the catch-all moves on to the page lookup.
+ */
+export const sameOriginPath = (path: string): string | null => {
+  if (!path.startsWith("/")) return null;
+  if (path.startsWith("//")) return null;
+  if (path.includes("\\")) return null;
+  return path;
+};
+
+/**
  * The catch-all a site mounts in its fallback, just before its 404.
  *
  * Order is the spec's: a redirect answers first (a 301 to the page's current
@@ -343,10 +400,11 @@ export const createCmsPageRoute = (
     const url = new URL(req.url);
 
     const redirected = await reader.getRedirect(url.pathname);
-    if (redirected !== null) {
+    const location = redirected === null ? null : sameOriginPath(redirected);
+    if (location !== null) {
       return new Response("", {
         status: 301,
-        headers: { Location: `${redirected}${url.search}` },
+        headers: { Location: `${location}${url.search}` },
       });
     }
 

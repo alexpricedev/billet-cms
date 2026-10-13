@@ -56,7 +56,7 @@ export const PagesList = ({
     )}
 
     {pages.length === 0 ? (
-      <div className="flash-warning" role="status">
+      <div className="cms-empty-card" role="status">
         No pages yet. Create one to add content the site serves at its own URL.
       </div>
     ) : (

@@ -86,15 +86,26 @@ const hasControlCharacters = (value: string): boolean => {
   return false;
 };
 
+/** The origin `new URL` resolves a page path against. Never stored. */
+const URL_BASE = "http://cms.local";
+
 /**
  * Turn what an editor typed into the canonical path a page is stored at.
  *
  * Accepts a bare segment (`about`) or a path (`/about`), collapses repeated
  * slashes and drops a trailing slash, so every spelling of one URL normalises
  * to the same row and the unique index catches a genuine duplicate rather than
- * a formatting difference. A query string or fragment is refused rather than
- * silently dropped: a page's URL is a path, and quietly discarding half of what
- * someone typed is how a redirect ends up pointing somewhere unexpected.
+ * a formatting difference. The result is then run through `new URL` and kept as
+ * `pathname`, so `.`/`..` segments are resolved and non-ASCII characters are
+ * percent-encoded the same way a browser's `url.pathname` is — the exact string
+ * the site's catch-all compares against (review round 1).
+ *
+ * A backslash is refused rather than normalised: browsers treat `\` as `/`, so
+ * `/\evil.example` is `//evil.example` in disguise and would become a
+ * protocol-relative (off-site) redirect target. A query string or fragment is
+ * refused rather than silently dropped: a page's URL is a path, and quietly
+ * discarding half of what someone typed is how a redirect ends up pointing
+ * somewhere unexpected.
  */
 export const normalisePageUrl = (raw: string): UrlResult => {
   const trimmed = raw.trim();
@@ -108,14 +119,44 @@ export const normalisePageUrl = (raw: string): UrlResult => {
       message: "A URL can't contain spaces, a query string or a fragment.",
     };
   }
+  if (trimmed.includes("\\")) {
+    return { ok: false, message: "A URL can't contain a backslash." };
+  }
   if (hasControlCharacters(trimmed)) {
     return { ok: false, message: "That URL contains characters we can't use." };
   }
 
   const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
   const collapsed = withSlash.replace(/\/{2,}/g, "/");
-  const url = collapsed.length > 1 ? collapsed.replace(/\/+$/, "") : "/";
+
+  let pathname: string;
+  try {
+    pathname = new URL(collapsed, URL_BASE).pathname;
+  } catch {
+    return { ok: false, message: "That URL isn't valid." };
+  }
+
+  const url = pathname.length > 1 ? pathname.replace(/\/+$/, "") : "/";
   return { ok: true, url };
+};
+
+/**
+ * True for a social image the site can safely put in a tag.
+ *
+ * A site-relative path (`/og/about.png`) or an absolute http(s) URL. A
+ * protocol-relative `//host` and a backslash are refused for the same reason the
+ * link field refuses them: they navigate off-site, whatever they look like.
+ */
+const isUsableImageUrl = (value: string): boolean => {
+  if (value.includes("\\")) return false;
+  if (value.startsWith("//")) return false;
+  if (value.startsWith("/")) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 };
 
 export interface FieldSettingIssue {
@@ -174,6 +215,13 @@ export const validatePageSettings = (
   }
 
   const socialImage = input.socialImage?.trim() ?? "";
+  if (socialImage !== "" && !isUsableImageUrl(socialImage)) {
+    issues.push({
+      path: "socialImage",
+      message:
+        "Enter an http(s) image URL, or a path on this site starting with /.",
+    });
+  }
 
   if (issues.length > 0 || !url.ok) return { ok: false, issues };
 
@@ -311,14 +359,86 @@ export interface UpdatePageSettingsInput extends PageSettingsInput {
   pageType: string;
 }
 
+export interface AppliedSettings {
+  /** The page as it now stands (the stored row when nothing changed). */
+  page: PageRecord;
+  /** Whether the settings write (and the version bump) happened. */
+  changed: boolean;
+}
+
 /**
- * Update a page's settings, writing a 301 when the URL changes.
+ * Write a page's settings inside a transaction, writing the 301 a URL change
+ * leaves behind.
  *
- * The redirect points at the page id, not the new URL, so it survives a second
- * rename: the catch-all asks the page where it is now. The update, the redirect
- * upsert and the removal of any redirect on the *new* URL all share one
- * transaction with a row lock, so two renames can't leave the table describing
- * a URL no page answers.
+ * One transaction, one row lock, so two renames can't leave `cms_redirects`
+ * describing a URL no page answers. The `UPDATE` and the `cms_meta.content_version`
+ * bump are skipped when nothing changed (review round 1): a title saved back
+ * unchanged shouldn't churn every site's cache. A URL change always writes the
+ * redirect and bumps the version, because the site's routing changed.
+ *
+ * Shared by `updatePageSettings` and the atomic page save, so the two can't
+ * disagree about what a rename means.
+ */
+export const applyPageSettings = async (
+  tx: SQL,
+  pageId: string,
+  settings: PageSettingsValues,
+  pageType: string,
+): Promise<AppliedSettings> => {
+  const locked = (await tx`
+    SELECT id, page_type, url, title, seo_description, social_image,
+           published_revision_id, created_at, updated_at
+    FROM cms_pages WHERE id = ${pageId} FOR UPDATE
+  `) as PageRow[];
+  if (locked.length === 0) throw new Error(`Page ${pageId} not found`);
+  const previous = toPage(locked[0]);
+
+  const urlChanged = previous.url !== settings.url;
+  if (urlChanged) {
+    // A page now owns the new path, so any redirect from it goes: the catch-all
+    // checks redirects first, and a stale one would shadow the page.
+    await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
+    await tx`
+      INSERT INTO cms_redirects (id, from_path, to_page_id)
+      VALUES (${randomUUID()}, ${previous.url}, ${pageId})
+      ON CONFLICT (from_path) DO UPDATE
+        SET to_page_id = EXCLUDED.to_page_id
+    `;
+  }
+
+  const changed =
+    urlChanged ||
+    previous.pageType !== pageType ||
+    previous.title !== settings.title ||
+    previous.seoDescription !== settings.seoDescription ||
+    previous.socialImage !== settings.socialImage;
+
+  if (!changed) return { page: previous, changed: false };
+
+  const rows = (await tx`
+    UPDATE cms_pages
+    SET page_type = ${pageType},
+        url = ${settings.url},
+        title = ${settings.title},
+        seo_description = ${settings.seoDescription},
+        social_image = ${settings.socialImage},
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ${pageId}
+    RETURNING id, page_type, url, title, seo_description, social_image,
+              published_revision_id, created_at, updated_at
+  `) as PageRow[];
+  // Settings are cached by the site too (a title, a description, a redirect from
+  // the old URL), so a settings change moves the version and the site's cache
+  // drops within a second.
+  await bumpContentVersion(tx);
+  return { page: toPage(rows[0]), changed: true };
+};
+
+/**
+ * Update a page's settings outside a caller's transaction.
+ *
+ * Validates first, then hands the write to `applyPageSettings`. The redirect
+ * points at the page id, not the new URL, so it survives a second rename.
  */
 export const updatePageSettings = async (
   input: UpdatePageSettingsInput,
@@ -330,47 +450,10 @@ export const updatePageSettings = async (
   if (typeIssue) return { ok: false, issues: [typeIssue] };
 
   try {
-    const page = await db.begin(async (tx) => {
-      const locked = (await tx`
-        SELECT url FROM cms_pages WHERE id = ${input.pageId} FOR UPDATE
-      `) as { url: string }[];
-      if (locked.length === 0) {
-        throw new Error(`Page ${input.pageId} not found`);
-      }
-      const previousUrl = locked[0].url;
-
-      // A page now owns the new path, so any redirect from it goes: the
-      // catch-all checks redirects first, and a stale one would shadow the page.
-      await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
-
-      if (previousUrl !== settings.url) {
-        await tx`
-          INSERT INTO cms_redirects (id, from_path, to_page_id)
-          VALUES (${randomUUID()}, ${previousUrl}, ${input.pageId})
-          ON CONFLICT (from_path) DO UPDATE
-            SET to_page_id = EXCLUDED.to_page_id
-        `;
-      }
-
-      const rows = (await tx`
-        UPDATE cms_pages
-        SET page_type = ${input.pageType},
-            url = ${settings.url},
-            title = ${settings.title},
-            seo_description = ${settings.seoDescription},
-            social_image = ${settings.socialImage},
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ${input.pageId}
-        RETURNING id, page_type, url, title, seo_description, social_image,
-                  published_revision_id, created_at, updated_at
-      `) as PageRow[];
-      // Settings are cached by the site too (a title, a description, a redirect
-      // from the old URL), so any settings change moves the version and the
-      // site's cache drops within a second.
-      await bumpContentVersion(tx);
-      return toPage(rows[0]);
-    });
-    return { ok: true, page };
+    const page = await db.begin(async (tx) =>
+      applyPageSettings(tx, input.pageId, settings, input.pageType),
+    );
+    return { ok: true, page: page.page };
   } catch (error) {
     const message = duplicateUrlMessage(error);
     if (message) return { ok: false, issues: [{ path: "url", message }] };

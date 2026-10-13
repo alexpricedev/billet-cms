@@ -22,15 +22,29 @@
 import type { SQL } from "bun";
 import { findUserById } from "../auth";
 import { db } from "../database";
-import { type BlockTypeRecord, getPageTypeByName } from "./definitions";
+import {
+  type BlockTypeRecord,
+  getPageTypeByName,
+  listBlockTypes,
+} from "./definitions";
 import type { FieldIssue, RevisionConflict } from "./drafts";
 import {
   asPageContent,
   findUnavailableBlocks,
+  mergeUnavailableBlocks,
   type PageContent,
   validatePageContent,
 } from "./page-content";
-import { getPageById, type PageRecord } from "./pages";
+import {
+  applyPageSettings,
+  type FieldSettingIssue,
+  getPageById,
+  type PageRecord,
+  type PageSettingsInput,
+  type PageSettingsValues,
+  resolveWritablePageType,
+  validatePageSettings,
+} from "./pages";
 import { bumpContentVersion, readContentVersion } from "./publishing";
 import {
   createRevision,
@@ -40,35 +54,10 @@ import {
 } from "./revisions";
 
 /** All published block types, keyed by name, for one page's validation. */
-const loadBlockTypes = async (
-  sql: SQL,
-): Promise<Map<string, BlockTypeRecord>> => {
-  const rows = (await sql`
-    SELECT id, name, json_schema, fields, schema_hash, removed_at
-    FROM cms_block_types
-  `) as {
-    id: string;
-    name: string;
-    json_schema: Record<string, unknown>;
-    fields: BlockTypeRecord["fields"];
-    schema_hash: string;
-    removed_at: Date | null;
-  }[];
-
-  return new Map(
-    rows.map((row) => [
-      row.name,
-      {
-        id: row.id,
-        name: row.name,
-        jsonSchema: row.json_schema,
-        fields: row.fields,
-        schemaHash: row.schema_hash,
-        removedAt: row.removed_at,
-      },
-    ]),
+const blockTypesByName = async (): Promise<Map<string, BlockTypeRecord>> =>
+  new Map(
+    (await listBlockTypes()).map((blockType) => [blockType.name, blockType]),
   );
-};
 
 export type SavePageDraftResult =
   | { ok: true; revision: RevisionRecord }
@@ -136,12 +125,9 @@ const carryUnavailableBlocks = async (
 
   const baseBlocks = asPageContent(base.content).blocks;
   const unavailable = findUnavailableBlocks(pageType, baseBlocks, blockTypes);
-  const missing = unavailable
-    .map((entry) => baseBlocks[entry.index])
-    .filter((block) => !submitted.blocks.some((b) => b.type === block.type));
-
-  if (missing.length === 0) return submitted;
-  return { blocks: [...submitted.blocks, ...missing] };
+  return {
+    blocks: mergeUnavailableBlocks(submitted.blocks, baseBlocks, unavailable),
+  };
 };
 
 /**
@@ -159,7 +145,7 @@ export const savePageDraft = async (
   if (!page) throw new Error(`Page ${input.pageId} not found`);
 
   const pageType = await pageTypeForWrite(page);
-  const blockTypes = await loadBlockTypes(db);
+  const blockTypes = await blockTypesByName();
 
   const validation = validatePageContent(pageType, blockTypes, input.content, {
     allowUnavailableBlocks: true,
@@ -216,6 +202,160 @@ export const savePageDraft = async (
   return { ok: true, revision: outcome.revision };
 };
 
+export type SavePageResult =
+  | { ok: true; revision: RevisionRecord; page: PageRecord }
+  | { ok: false; reason: "settings"; issues: FieldSettingIssue[] }
+  | { ok: false; reason: "invalid"; issues: FieldIssue[] }
+  | { ok: false; reason: "conflict"; newer: RevisionConflict };
+
+export interface SavePageInput {
+  pageId: string;
+  /** The page row, when the caller already has it. */
+  page?: PageRecord;
+  /** The settings the editor typed, including the page type they chose. */
+  settings: PageSettingsInput & { pageType: string };
+  content: PageContent;
+  /** The revision the editor loaded; null when there was none. */
+  baseRevisionId: string | null;
+  actorId: string | null;
+}
+
+/**
+ * Save a page's settings and its content together, atomically.
+ *
+ * The form submits both halves, and the editor expects one Save: the settings
+ * must not be written, and a 301 must not be left behind, when the content half
+ * the same submit carries is invalid (review round 1). So everything is
+ * validated first — the settings, the page type the editor chose, the blocks
+ * against it — and only then does one transaction write the settings, the
+ * redirect, the new revision and the version bump. A conflict with a newer
+ * revision is reported and writes nothing.
+ */
+export const savePage = async (
+  input: SavePageInput,
+): Promise<SavePageResult> => {
+  const page = input.page ?? (await getPageById(input.pageId));
+  if (!page) throw new Error(`Page ${input.pageId} not found`);
+
+  const settings = validatePageSettings(input.settings);
+  if (!settings.ok) {
+    return { ok: false, reason: "settings", issues: settings.issues };
+  }
+
+  const pageType = await resolveWritablePageType(input.settings.pageType);
+  if (!pageType) {
+    return {
+      ok: false,
+      reason: "settings",
+      issues: [{ path: "pageType", message: "Choose a published page type." }],
+    };
+  }
+
+  const blockTypes = await blockTypesByName();
+  const validation = validatePageContent(pageType, blockTypes, input.content, {
+    allowUnavailableBlocks: true,
+  });
+  if (!validation.ok) {
+    return { ok: false, reason: "invalid", issues: validation.issues };
+  }
+
+  const outcome = await writePage(page, pageType, blockTypes, settings, input);
+
+  if (outcome.kind === "duplicate") {
+    return { ok: false, reason: "settings", issues: [outcome.issue] };
+  }
+
+  if (outcome.kind === "conflict") {
+    return {
+      ok: false,
+      reason: "conflict",
+      newer: await describeConflict(outcome.newer),
+    };
+  }
+
+  return { ok: true, revision: outcome.revision, page: outcome.page };
+};
+
+type PageWriteOutcome =
+  | { kind: "saved"; revision: RevisionRecord; page: PageRecord }
+  | { kind: "conflict"; newer: RevisionRecord }
+  | { kind: "duplicate"; issue: FieldSettingIssue };
+
+/**
+ * The one transaction an atomic page save runs: lock, check the conflict, write
+ * the settings and the redirect, insert the revision, carry any uneditable
+ * block back into place. A unique-URL violation becomes a settings issue rather
+ * than an uncaught throw, so the editor sees it beside the URL field.
+ */
+const writePage = async (
+  page: PageRecord,
+  pageType: Awaited<ReturnType<typeof pageTypeForWrite>>,
+  blockTypes: Map<string, BlockTypeRecord>,
+  settings: PageSettingsValues,
+  input: SavePageInput,
+): Promise<PageWriteOutcome> => {
+  try {
+    return await db.begin(async (tx) => {
+      const locked = await tx`
+        SELECT id FROM cms_pages WHERE id = ${page.id} FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new Error(`Page ${page.id} not found`);
+      }
+
+      // The conflict is checked before anything is written: a newer revision
+      // means this save is refused whole, not half-applied.
+      const latest = await getLatestRevision("page", page.id, tx);
+      if (latest && latest.id !== input.baseRevisionId) {
+        return { kind: "conflict" as const, newer: latest };
+      }
+
+      const applied = await applyPageSettings(
+        tx,
+        page.id,
+        settings,
+        pageType.name,
+      );
+
+      const carried = await carryUnavailableBlocks(
+        page,
+        pageType,
+        blockTypes,
+        input.content,
+        input.baseRevisionId,
+        tx,
+      );
+
+      const revision = await createRevision(
+        {
+          targetType: "page",
+          targetId: page.id,
+          content: { blocks: carried.blocks },
+          createdBy: input.actorId,
+        },
+        tx,
+      );
+
+      return { kind: "saved" as const, revision, page: applied.page };
+    });
+  } catch (error) {
+    const duplicate = duplicatePageUrl(error);
+    if (duplicate) return { kind: "duplicate", issue: duplicate };
+    throw error;
+  }
+};
+
+/** A unique violation on `cms_pages.url`, as an editor-facing issue. */
+const duplicatePageUrl = (error: unknown): FieldSettingIssue | null => {
+  if (typeof error !== "object" || error === null) return null;
+  const code = (error as { errno?: unknown }).errno;
+  const constraint = (error as { constraint?: unknown }).constraint;
+  if (code === "23505" && constraint === "cms_pages_url_idx") {
+    return { path: "url", message: "Another page already uses this URL." };
+  }
+  return null;
+};
+
 export type PublishPageResult =
   | { ok: true; revisionId: string; contentVersion: number; changed: boolean }
   | { ok: false; reason: "no-draft" }
@@ -246,7 +386,7 @@ export const publishPage = async (
   if (!page) throw new Error(`Page ${input.pageId} not found`);
 
   const pageType = await pageTypeForWrite(page);
-  const blockTypes = await loadBlockTypes(db);
+  const blockTypes = await blockTypesByName();
 
   return await db.begin(async (tx) => {
     const locked = (await tx`

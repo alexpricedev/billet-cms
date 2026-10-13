@@ -41,9 +41,22 @@ export interface PageSeoOptions {
   fallbackDescription?: string;
 }
 
-/** Resolve a path or URL against the canonical origin. */
-const absolute = (siteUrl: string, path: string): string =>
-  new URL(path, siteUrl.endsWith("/") ? siteUrl : `${siteUrl}/`).href;
+/**
+ * Resolve a path or URL against the canonical origin, or return it unchanged.
+ *
+ * A page's stored settings are validated on write, but the site can call these
+ * helpers with anything — an unset `siteUrl`, a hand-edited row, a value from a
+ * database the CMS doesn't own. `new URL` throws on a malformed base or path,
+ * and a thrown error inside a render is a 500 on a public page, so resolution
+ * falls back to the value as given (escaped by the caller) instead.
+ */
+const absolute = (siteUrl: string, path: string): string => {
+  try {
+    return new URL(path, siteUrl.endsWith("/") ? siteUrl : `${siteUrl}/`).href;
+  } catch {
+    return path;
+  }
+};
 
 /**
  * The page's SEO values.

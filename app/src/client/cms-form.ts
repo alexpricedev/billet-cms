@@ -226,10 +226,13 @@ const linkValue = (control: Element): unknown => {
       control.querySelector<HTMLInputElement | HTMLSelectElement>(
         "[data-link-page]",
       )?.value ?? "";
-    if (pageId === "") return undefined;
+    // Keep the page mode and label even with no page chosen yet, so a failed
+    // save re-renders what the editor typed instead of resetting the field to a
+    // URL link. A page-mode link that carries nothing at all is still dropped.
+    if (pageId === "" && label === "" && !newTab) return undefined;
     return {
       type: "page",
-      pageId,
+      ...(pageId ? { pageId } : {}),
       ...(label ? { label } : {}),
       ...(newTab ? { newTab } : {}),
     };

@@ -7,6 +7,7 @@ import type {
   PageBlock,
   PageOption,
   PageRecord,
+  PageSettingsInput,
   PageTypeRecord,
   RevisionConflict,
   UnavailableBlock,
@@ -45,6 +46,11 @@ export interface PageFormProps {
   contentIssues?: FieldIssue[];
   conflict?: RevisionConflict | null;
   notice?: { kind: "success" | "warning"; message: string } | null;
+  /**
+   * The settings to show in the fields. Defaults to the page's stored settings;
+   * a failed save passes what the editor typed so their input isn't discarded.
+   */
+  values?: PageSettingsInput & { pageType: string };
 }
 
 const formatWhen = (date: Date): string =>
@@ -149,7 +155,15 @@ export const PageForm = ({
   contentIssues,
   conflict,
   notice,
+  values,
 }: PageFormProps) => {
+  const settings = values ?? {
+    pageType: page.pageType,
+    url: page.url,
+    title: page.title,
+    seoDescription: page.seoDescription,
+    socialImage: page.socialImage,
+  };
   const hasDraft = latestRevisionId !== null;
   const upToDate =
     latestRevisionId !== null && latestRevisionId === publishedRevisionId;
@@ -258,18 +272,21 @@ export const PageForm = ({
                 aria-invalid={
                   settingsErrors?.get("pageType") ? "true" : undefined
                 }
+                aria-describedby={
+                  settingsErrors?.get("pageType") ? "pageType-error" : undefined
+                }
               >
                 {pageTypes
                   .filter(
                     (candidate) =>
                       candidate.removedAt === null ||
-                      candidate.name === page.pageType,
+                      candidate.name === settings.pageType,
                   )
                   .map((candidate) => (
                     <option
                       value={candidate.name}
                       key={candidate.id}
-                      selected={candidate.name === page.pageType}
+                      selected={candidate.name === settings.pageType}
                     >
                       {candidate.label ?? candidate.name}
                     </option>
@@ -277,8 +294,10 @@ export const PageForm = ({
                 {/* A page whose type a deploy removed still has to show its
                     current type rather than silently switching on save. */}
                 {pageTypes.every(
-                  (candidate) => candidate.name !== page.pageType,
-                ) && <option value={page.pageType}>{page.pageType}</option>}
+                  (candidate) => candidate.name !== settings.pageType,
+                ) && (
+                  <option value={settings.pageType}>{settings.pageType}</option>
+                )}
               </select>
               {settingsErrors?.get("pageType") && (
                 <ul className="cms-field-errors" id="pageType-error">
@@ -292,14 +311,14 @@ export const PageForm = ({
               name="url"
               label="URL"
               help="The path the page is served at, e.g. /about."
-              value={page.url}
+              value={settings.url}
               errors={settingsErrors?.get("url")}
               required
             />
             <SettingsControl
               name="title"
               label="Title"
-              value={page.title}
+              value={settings.title}
               errors={settingsErrors?.get("title")}
               required
             />
@@ -307,7 +326,7 @@ export const PageForm = ({
               name="seoDescription"
               label="SEO description"
               help="Used for the meta description and social cards."
-              value={page.seoDescription ?? ""}
+              value={settings.seoDescription ?? ""}
               errors={settingsErrors?.get("seoDescription")}
               textarea
             />
@@ -315,7 +334,7 @@ export const PageForm = ({
               name="socialImage"
               label="Social image URL"
               help="An absolute or site-relative image URL for social cards."
-              value={page.socialImage ?? ""}
+              value={settings.socialImage ?? ""}
               errors={settingsErrors?.get("socialImage")}
             />
           </section>
@@ -443,14 +462,25 @@ export const NewPageForm = ({
           publish step ran against this database.
         </div>
       ) : (
-        <form method="POST" action="/cms/pages/new" className="cms-page-form">
+        <form
+          method="POST"
+          action="/cms/pages/new"
+          className="cms-page-form cms-new-page-form"
+        >
           <input type="hidden" name="_csrf" value={csrfToken} />
           <div className="cms-field" data-field-kind="setting">
             <label className="cms-field-label" htmlFor="pageType">
               Page type
               <span className="cms-required"> *</span>
             </label>
-            <select id="pageType" name="pageType">
+            <select
+              id="pageType"
+              name="pageType"
+              aria-invalid={errorsByField.get("pageType") ? "true" : undefined}
+              aria-describedby={
+                errorsByField.get("pageType") ? "pageType-error" : undefined
+              }
+            >
               {pageTypes
                 .filter((candidate) => candidate.removedAt === null)
                 .map((candidate) => (
@@ -489,6 +519,7 @@ export const NewPageForm = ({
           <SettingsControl
             name="seoDescription"
             label="SEO description"
+            help="Used for the meta description and social cards."
             value={values.seoDescription}
             errors={errorsByField.get("seoDescription")}
             textarea
@@ -496,6 +527,7 @@ export const NewPageForm = ({
           <SettingsControl
             name="socialImage"
             label="Social image URL"
+            help="An absolute or site-relative image URL for social cards."
             value={values.socialImage}
             errors={errorsByField.get("socialImage")}
           />
