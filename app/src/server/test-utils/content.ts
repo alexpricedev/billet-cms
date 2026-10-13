@@ -1,5 +1,11 @@
-import type { BlockDefinitionShape } from "@alexpricedev/billet-cms/fields";
-import { blockStoredSchema } from "@alexpricedev/billet-cms/fields";
+import type {
+  BlockDefinitionShape,
+  PageTypeDefinition,
+} from "@alexpricedev/billet-cms/fields";
+import {
+  blockStoredSchema,
+  pageTypeStoredSchema,
+} from "@alexpricedev/billet-cms/fields";
 import type { SQL } from "bun";
 
 /**
@@ -46,5 +52,36 @@ export const seedSlot = async (
     )
     RETURNING id
   `) as { id: string }[];
+  return rows[0].id;
+};
+
+/**
+ * Publish a page type into `cms_page_types` the way a site's deploy would.
+ *
+ * Built from the plugin's `pageTypeStoredSchema`, so the allowed/required blocks,
+ * the limits and the JSON Schema are exactly what a publish writes.
+ */
+export const seedPageType = async (
+  db: SQL,
+  definition: PageTypeDefinition,
+): Promise<string> => {
+  const stored = pageTypeStoredSchema(definition);
+  const rows = (await db.unsafe(
+    `INSERT INTO cms_page_types
+       (name, label, help, allowed_blocks, required_blocks, block_limits,
+        json_schema, schema_hash)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id`,
+    [
+      stored.name,
+      stored.label ?? null,
+      stored.help ?? null,
+      stored.allowedBlocks,
+      stored.requiredBlocks,
+      stored.limits,
+      stored.jsonSchema,
+      stored.schemaHash,
+    ],
+  )) as { id: string }[];
   return rows[0].id;
 };

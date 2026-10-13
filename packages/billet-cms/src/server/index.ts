@@ -8,5 +8,7 @@
  */
 export * from "./cache";
 export * from "./log";
+export * from "./pages";
 export * from "./rich-text";
+export * from "./seo";
 export * from "./slots";

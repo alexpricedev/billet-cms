@@ -66,14 +66,22 @@ interface LockedSlotRow {
   published_revision_id: string | null;
 }
 
-const readContentVersion = async (sql: SQL): Promise<number> => {
+/**
+ * Read `cms_meta.content_version`, the counter the site's cache polls.
+ *
+ * Exported for the page publish path, which bumps the same counter: a page and a
+ * slot share one version, because a site's cache is invalidated per process and
+ * not per target.
+ */
+export const readContentVersion = async (sql: SQL): Promise<number> => {
   const rows = (await sql`
     SELECT content_version FROM cms_meta WHERE id = 1
   `) as { content_version: string | number }[];
   return rows.length > 0 ? Number(rows[0].content_version) : 0;
 };
 
-const bumpContentVersion = async (sql: SQL): Promise<number> => {
+/** Bump `content_version` by one inside a transaction; returns the new value. */
+export const bumpContentVersion = async (sql: SQL): Promise<number> => {
   const rows = (await sql`
     UPDATE cms_meta
     SET content_version = content_version + 1, updated_at = CURRENT_TIMESTAMP

@@ -413,3 +413,160 @@ h1 {
   border-color: var(--color-text-tertiary);
   color: var(--color-text);
 }
+
+/* ---- Pages --------------------------------------------------------------
+   The pages list, the page editor's settings and its block list. */
+
+.cms-new-page {
+  margin: 1.5rem 0;
+}
+
+.cms-new-page-link {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-hover);
+  font-weight: 600;
+}
+
+.cms-page-list,
+.cms-redirect-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.cms-page-list li,
+.cms-redirect-list li {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+}
+
+.cms-page-link {
+  font-weight: 600;
+}
+
+.cms-page-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  color: var(--color-text-tertiary);
+  font-size: 0.85rem;
+}
+
+.cms-page-link,
+.cms-page-meta code,
+.cms-redirect-list code {
+  overflow-wrap: anywhere;
+}
+
+.cms-published-badge,
+.cms-draft-badge {
+  font-size: 0.8rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+.cms-published-badge {
+  color: var(--color-success, #4ade80);
+  border-color: var(--color-success, #4ade80);
+}
+
+/* The page editor: settings, then blocks. A block is a card so a long page
+   stays scannable and the Remove button sits with the block it removes. */
+.cms-page-settings,
+.cms-page-content-section {
+  margin: 2rem 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.cms-page-settings h2,
+.cms-page-content-section h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.cms-block {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin: 0 0 1rem;
+  background: var(--color-surface);
+  min-inline-size: 0;
+}
+
+.cms-block-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+}
+
+.cms-block-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.cms-block-move,
+.cms-block-remove,
+.cms-block-add-button,
+.cms-delete-button {
+  padding: 0.35rem 0.8rem;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cms-block-move:hover,
+.cms-block-move:focus,
+.cms-block-remove:hover,
+.cms-block-remove:focus,
+.cms-block-add-button:hover,
+.cms-block-add-button:focus,
+.cms-delete-button:hover,
+.cms-delete-button:focus {
+  background: var(--color-surface);
+  border-color: var(--color-text-tertiary);
+  color: var(--color-text);
+}
+
+.cms-block-remove,
+.cms-delete-button {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.cms-block-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cms-blocks-empty {
+  color: var(--color-text-secondary);
+}
+
+.cms-block-unavailable {
+  background: var(--color-surface-hover);
+}
+
+.cms-danger {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}

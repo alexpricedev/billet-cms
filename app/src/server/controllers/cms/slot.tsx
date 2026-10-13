@@ -18,7 +18,7 @@ import type { SessionContext } from "../../services/sessions";
 import { SlotForm, SlotUnavailable } from "../../templates/cms/slot-form";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
-import { UUID_PATTERN } from "./params";
+import { nonEmpty, parseJsonObject, UUID_PATTERN } from "./params";
 
 /**
  * A one-line outcome shown above the form after a save, a publish or a restore.
@@ -66,29 +66,6 @@ export const formNotice = (params: URLSearchParams): Notice | null => {
   }
   return null;
 };
-
-/** Parse a JSON object out of a form field, or null when it isn't one. */
-const parseJsonObject = (
-  value: FormDataEntryValue | null,
-): Record<string, unknown> | null => {
-  if (typeof value !== "string" || value === "") return null;
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      Array.isArray(parsed)
-    ) {
-      return null;
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-};
-
-const nonEmpty = (value: FormDataEntryValue | null): string | null =>
-  typeof value === "string" && value !== "" ? value : null;
 
 interface FormExtras {
   errors?: FieldIssue[];
