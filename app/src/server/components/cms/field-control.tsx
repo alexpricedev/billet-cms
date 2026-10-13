@@ -1,6 +1,7 @@
 import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
+import type { PageOption } from "../../services/content/pages";
 import { RichTextView } from "./rich-text";
 
 /**
@@ -66,6 +67,8 @@ export interface FieldControlProps {
    * where ids stop, because a cloned row would repeat them.
    */
   labelOverride?: string;
+  /** The CMS pages a `link` field may point at, for the internal-link picker. */
+  pages?: PageOption[];
 }
 
 const describedBy = (...ids: (string | undefined)[]): string | undefined => {
@@ -219,14 +222,21 @@ const ListItemControl = ({
   field,
   value,
   listLabel,
+  pages,
 }: {
   field: FieldMetadata;
   value: unknown;
   /** The list's own label, so every Add/Remove names the list it belongs to. */
   listLabel: string;
+  pages?: PageOption[];
 }): JSX.Element => (
   <div className="cms-list-item" data-list-item>
-    <FieldControl field={field} value={value} labelOverride={listLabel} />
+    <FieldControl
+      field={field}
+      value={value}
+      labelOverride={listLabel}
+      pages={pages}
+    />
     <button
       type="button"
       className="cms-list-remove"
@@ -244,6 +254,7 @@ export const FieldControl = ({
   idBase,
   errors,
   labelOverride,
+  pages,
 }: FieldControlProps): JSX.Element => {
   const required = field.required;
   const invalid = errors && errors.length > 0;
@@ -407,10 +418,13 @@ export const FieldControl = ({
             id={idFor("type")}
             data-link-type
             aria-label={controlId ? undefined : "Link type"}
-            value={type}
           >
-            <option value="url">External URL</option>
-            <option value="page">CMS page</option>
+            <option value="url" selected={type === "url"}>
+              External URL
+            </option>
+            <option value="page" selected={type === "page"}>
+              CMS page
+            </option>
           </select>
           <div className="cms-link-url">
             <SubControlLabel htmlFor={idFor("url")}>
@@ -429,16 +443,26 @@ export const FieldControl = ({
           </div>
           <div className="cms-link-page">
             <SubControlLabel htmlFor={idFor("page")}>CMS page</SubControlLabel>
-            <input
-              type="text"
+            <select
               id={idFor("page")}
               data-link-page
-              placeholder="Page id"
               aria-label={controlId ? undefined : "CMS page"}
-              value={asString(link.pageId)}
-              aria-invalid={invalid ? "true" : undefined}
-              aria-describedby={described}
-            />
+            >
+              <option value="" selected={!link.pageId}>
+                Choose a page…
+              </option>
+              {/* The link stores the page id, so a rename changes what this
+                  resolves to without touching the saved content. */}
+              {(pages ?? []).map((option) => (
+                <option
+                  key={option.id}
+                  value={option.id}
+                  selected={option.id === link.pageId}
+                >
+                  {option.title} ({option.url})
+                </option>
+              ))}
+            </select>
           </div>
           <SubControlLabel htmlFor={idFor("label")}>Label</SubControlLabel>
           <input
@@ -517,6 +541,7 @@ export const FieldControl = ({
                 field={itemField}
                 value={item}
                 listLabel={listLabel}
+                pages={pages}
               />
             ))}
           </div>
@@ -527,6 +552,7 @@ export const FieldControl = ({
               field={itemField}
               value={undefined}
               listLabel={listLabel}
+              pages={pages}
             />
           </template>
           <button

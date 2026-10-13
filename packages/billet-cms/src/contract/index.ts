@@ -24,9 +24,12 @@ import { createHash } from "node:crypto";
  * revisions a CMS save writes, the published-revision pointer on `cms_slots`
  * and the single-use handoff tokens a site mints for the Edit content link and
  * CMS sign-in, and drops `cms_users` — sign-in now reads the site's own accounts through
- * `cms_identities` — so an older CMS cannot read a Phase 3 database.
+ * `cms_identities` — so an older CMS cannot read a Phase 3 database. Phase 5 adds
+ * `cms_pages` (the pages an editor creates against a page type) and `cms_redirects`
+ * (the 301s a URL change writes), so the site's catch-all and the plugin's page
+ * reader need both before they can serve a page at its URL.
  */
-export const CONTRACT_VERSION = "0.3.0";
+export const CONTRACT_VERSION = "0.4.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -65,6 +68,12 @@ export const CMS_SIGN_IN_PATH = "/cms/sign-in";
  * tokens a site mints, written by the plugin and spent by the CMS — the Edit
  * content link and the CMS sign-in route both use it, so the CMS can hand a
  * signed-in site admin a session without a shared secret.
+ *
+ * `pages` is the CMS's own content: one row per page an editor created against
+ * a page type, with its settings (URL, title, SEO description, social image)
+ * and a pointer at the published revision. `redirects` is what a page's URL
+ * change writes — the old path points at the page id, so it survives a second
+ * rename and the site's catch-all answers it before it looks for a page.
  */
 export const TABLES = {
   migrations: "cms_migrations",
@@ -77,6 +86,8 @@ export const TABLES = {
   slots: "cms_slots",
   revisions: "cms_revisions",
   handoffTokens: "cms_handoff_tokens",
+  pages: "cms_pages",
+  redirects: "cms_redirects",
 } as const;
 
 export type TableName = (typeof TABLES)[keyof typeof TABLES];

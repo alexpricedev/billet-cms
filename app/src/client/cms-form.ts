@@ -223,7 +223,9 @@ const linkValue = (control: Element): unknown => {
 
   if (type === "page") {
     const pageId =
-      control.querySelector<HTMLInputElement>("[data-link-page]")?.value ?? "";
+      control.querySelector<HTMLInputElement | HTMLSelectElement>(
+        "[data-link-page]",
+      )?.value ?? "";
     if (pageId === "") return undefined;
     return {
       type: "page",
@@ -313,18 +315,61 @@ const readControl = (control: Element): unknown => {
   }
 };
 
-export const buildContent = (
-  form: HTMLFormElement,
+/**
+ * Read the field controls in a scope into a block's content object.
+ *
+ * `excludeBlocks` is for the slot form, whose fields sit at the top level: a
+ * page form's block fields would otherwise be read twice — once here and once
+ * per block below.
+ */
+const readFieldsIn = (
+  scope: Element,
+  excludeBlocks: boolean,
 ): Record<string, unknown> => {
   const content: Record<string, unknown> = {};
-  for (const control of Array.from(form.querySelectorAll("[data-field]"))) {
+  for (const control of Array.from(scope.querySelectorAll("[data-field]"))) {
     if (control.closest("[data-list-item]")) continue;
+    if (excludeBlocks && control.closest("[data-cms-block]")) continue;
     const name = control.getAttribute("data-field-name");
     if (!name) continue;
     const value = readControl(control);
     if (value !== undefined) content[name] = value;
   }
   return content;
+};
+
+export const buildContent = (form: HTMLFormElement): Record<string, unknown> =>
+  readFieldsIn(form, true);
+
+/**
+ * Read a page form into `{ blocks: [...] }`.
+ *
+ * One entry per `[data-cms-block]` the editor kept, in the order they appear.
+ * A block with nothing in it — one added and left alone — is dropped rather
+ * than saved as an empty block. A block the server flagged as unavailable has
+ * no controls and no `data-field`s; it is skipped here and carried through by
+ * the write layer, so a deploy's removed block is never lost by a save.
+ */
+export const buildPageContent = (
+  form: HTMLFormElement,
+): Record<string, unknown> => {
+  const container = form.querySelector("[data-cms-page-content]");
+  const list = container?.querySelector(":scope > [data-cms-blocks]");
+  const blocks: Record<string, unknown>[] = [];
+  if (!list) return { blocks };
+
+  for (const block of Array.from(
+    list.querySelectorAll(":scope > [data-cms-block]"),
+  )) {
+    if (block.hasAttribute("data-block-unavailable")) continue;
+    const type = block.getAttribute("data-block-type");
+    if (!type) continue;
+    const fields = readFieldsIn(block, false);
+    if (!Object.values(fields).some((value) => !isEmptyValue(value))) continue;
+    blocks.push({ type, ...fields });
+  }
+
+  return { blocks };
 };
 
 const runRichTextCommand = (command: string, editor: HTMLElement): void => {
@@ -400,6 +445,62 @@ const wireControls = (form: HTMLFormElement): void => {
       return;
     }
 
+    const addBlock = target.closest("[data-block-add]");
+    if (addBlock) {
+      event.preventDefault();
+      const container = addBlock.closest("[data-cms-page-content]");
+      const list = container?.querySelector(":scope > [data-cms-blocks]");
+      const type = addBlock.getAttribute("data-block-add");
+      if (!container || !list || !type) return;
+
+      // Matched by attribute rather than a selector: the block name could
+      // contain a character a CSS selector would read as syntax, and iterating
+      // a handful of templates costs nothing.
+      const template = Array.from(
+        container.querySelectorAll<HTMLTemplateElement>(
+          "template[data-cms-block-template]",
+        ),
+      ).find((candidate) => candidate.getAttribute("data-block-type") === type);
+      if (!template) return;
+
+      list.append(template.content.cloneNode(true));
+      const added = list.lastElementChild;
+      // `:scope >` so a nested control (a list row) is not what gets focused.
+      firstControl(added)?.focus();
+      return;
+    }
+
+    const removeBlock = target.closest("[data-block-remove]");
+    if (removeBlock) {
+      event.preventDefault();
+      removeBlock.closest("[data-cms-block]")?.remove();
+      return;
+    }
+
+    const moveUp = target.closest("[data-block-up]");
+    if (moveUp) {
+      event.preventDefault();
+      const block = moveUp.closest("[data-cms-block]");
+      const previous = block?.previousElementSibling;
+      if (block && previous) {
+        block.parentElement?.insertBefore(block, previous);
+        firstControl(block)?.focus();
+      }
+      return;
+    }
+
+    const moveDown = target.closest("[data-block-down]");
+    if (moveDown) {
+      event.preventDefault();
+      const block = moveDown.closest("[data-cms-block]");
+      const next = block?.nextElementSibling;
+      if (block && next) {
+        block.parentElement?.insertBefore(next, block);
+        firstControl(block)?.focus();
+      }
+      return;
+    }
+
     const remove = target.closest("[data-list-remove]");
     if (!remove) return;
     event.preventDefault();
@@ -430,7 +531,13 @@ const wireForm = (form: HTMLFormElement): void => {
 
   form.addEventListener("submit", () => {
     const hidden = form.querySelector<HTMLInputElement>("[data-cms-content]");
-    if (hidden) hidden.value = JSON.stringify(buildContent(form));
+    if (!hidden) return;
+    // A page form's content is `{ blocks: [...] }`; a slot form's is its fields.
+    hidden.value = JSON.stringify(
+      form.querySelector("[data-cms-page-content]")
+        ? buildPageContent(form)
+        : buildContent(form),
+    );
   });
 };
 

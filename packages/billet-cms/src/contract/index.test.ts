@@ -44,6 +44,8 @@ describe("TABLES", () => {
       slots: "cms_slots",
       revisions: "cms_revisions",
       handoffTokens: "cms_handoff_tokens",
+      pages: "cms_pages",
+      redirects: "cms_redirects",
     });
   });
 });

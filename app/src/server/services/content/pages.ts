@@ -1,0 +1,409 @@
+/**
+ * Pages: the CMS's own content, created against a page type.
+ *
+ * A page is not something a deploy publishes. The site declares page *types*
+ * (which blocks a page may contain, which it must, and their limits) and an
+ * editor builds pages here. A page carries its settings — URL, title, SEO
+ * description, social image — and points at the published revision the site
+ * renders, the same way a slot does.
+ *
+ * Two rules this module owns:
+ *
+ * 1. **A URL is a canonical path.** The site's catch-all matches `url.pathname`,
+ *    so a page's URL is stored as a slash-free path with a leading slash
+ *    (`/about`), which is exactly the form Billet's trailing-slash
+ *    canonicalisation leaves in place. `normalisePageUrl` is the one place that
+ *    shape is decided.
+ * 2. **Changing a URL writes a 301.** The old path goes into `cms_redirects`
+ *    pointing at the page *id*, so the redirect keeps working after a second
+ *    rename and a link stored by id (`link()` fields) never has to change. A
+ *    page created at a path a redirect currently owns takes the path back, and
+ *    the redirect is removed so the new page is reachable.
+ */
+import { randomUUID } from "node:crypto";
+import type { SQL } from "bun";
+import { db } from "../database";
+import { bumpContentVersion } from "./publishing";
+
+export interface PageRecord {
+  id: string;
+  /** The page type's name, a loose reference to `cms_page_types.name`. */
+  pageType: string;
+  /** The canonical path, e.g. `/about`. */
+  url: string;
+  title: string;
+  seoDescription: string | null;
+  socialImage: string | null;
+  publishedRevisionId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface PageRow {
+  id: string;
+  page_type: string;
+  url: string;
+  title: string;
+  seo_description: string | null;
+  social_image: string | null;
+  published_revision_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+const toPage = (row: PageRow): PageRecord => ({
+  id: row.id,
+  pageType: row.page_type,
+  url: row.url,
+  title: row.title,
+  seoDescription: row.seo_description,
+  socialImage: row.social_image,
+  publishedRevisionId: row.published_revision_id,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+/** The longest a page URL may be. Generous; a real path is far shorter. */
+export const MAX_PAGE_URL_LENGTH = 2048;
+
+/** The longest a page title may be, matching a sane `<title>` before truncation. */
+export const MAX_PAGE_TITLE_LENGTH = 200;
+
+/** The longest an SEO description may be, in the runbook's ~150-char range. */
+export const MAX_SEO_DESCRIPTION_LENGTH = 320;
+
+export type UrlResult =
+  | { ok: true; url: string }
+  | { ok: false; message: string };
+
+/** True for a C0/C1 control character, which a path must never carry. */
+const hasControlCharacters = (value: string): boolean => {
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+};
+
+/**
+ * Turn what an editor typed into the canonical path a page is stored at.
+ *
+ * Accepts a bare segment (`about`) or a path (`/about`), collapses repeated
+ * slashes and drops a trailing slash, so every spelling of one URL normalises
+ * to the same row and the unique index catches a genuine duplicate rather than
+ * a formatting difference. A query string or fragment is refused rather than
+ * silently dropped: a page's URL is a path, and quietly discarding half of what
+ * someone typed is how a redirect ends up pointing somewhere unexpected.
+ */
+export const normalisePageUrl = (raw: string): UrlResult => {
+  const trimmed = raw.trim();
+  if (trimmed === "") return { ok: false, message: "Enter a URL." };
+  if (trimmed.length > MAX_PAGE_URL_LENGTH) {
+    return { ok: false, message: "That URL is too long." };
+  }
+  if (/[\s?#]/.test(trimmed)) {
+    return {
+      ok: false,
+      message: "A URL can't contain spaces, a query string or a fragment.",
+    };
+  }
+  if (hasControlCharacters(trimmed)) {
+    return { ok: false, message: "That URL contains characters we can't use." };
+  }
+
+  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  const collapsed = withSlash.replace(/\/{2,}/g, "/");
+  const url = collapsed.length > 1 ? collapsed.replace(/\/+$/, "") : "/";
+  return { ok: true, url };
+};
+
+export interface FieldSettingIssue {
+  path: string;
+  message: string;
+}
+
+export interface PageSettingsValues {
+  url: string;
+  title: string;
+  seoDescription: string | null;
+  socialImage: string | null;
+}
+
+export type PageSettingsValidation =
+  | ({ ok: true } & PageSettingsValues)
+  | { ok: false; issues: FieldSettingIssue[] };
+
+export interface PageSettingsInput {
+  url: string;
+  title: string;
+  seoDescription?: string | null;
+  socialImage?: string | null;
+}
+
+/**
+ * Validate the settings half of a page, independent of its content.
+ *
+ * Shared by create and update so the two can't drift: the editor sees the same
+ * message whichever save it came from.
+ */
+export const validatePageSettings = (
+  input: PageSettingsInput,
+): PageSettingsValidation => {
+  const issues: FieldSettingIssue[] = [];
+
+  const title = input.title.trim();
+  if (title === "") {
+    issues.push({ path: "title", message: "Enter a title." });
+  } else if (title.length > MAX_PAGE_TITLE_LENGTH) {
+    issues.push({
+      path: "title",
+      message: `Use ${MAX_PAGE_TITLE_LENGTH} characters or fewer.`,
+    });
+  }
+
+  const url = normalisePageUrl(input.url);
+  if (!url.ok) issues.push({ path: "url", message: url.message });
+
+  const seoDescription = input.seoDescription?.trim() ?? "";
+  if (seoDescription.length > MAX_SEO_DESCRIPTION_LENGTH) {
+    issues.push({
+      path: "seoDescription",
+      message: `Use ${MAX_SEO_DESCRIPTION_LENGTH} characters or fewer.`,
+    });
+  }
+
+  const socialImage = input.socialImage?.trim() ?? "";
+
+  if (issues.length > 0 || !url.ok) return { ok: false, issues };
+
+  return {
+    ok: true,
+    url: url.url,
+    title,
+    seoDescription: seoDescription === "" ? null : seoDescription,
+    socialImage: socialImage === "" ? null : socialImage,
+  };
+};
+
+export type PageResult =
+  | { ok: true; page: PageRecord }
+  | { ok: false; issues: FieldSettingIssue[] };
+
+export const listPages = async (): Promise<PageRecord[]> => {
+  const rows = (await db`
+    SELECT id, page_type, url, title, seo_description, social_image,
+           published_revision_id, created_at, updated_at
+    FROM cms_pages
+    ORDER BY url
+  `) as PageRow[];
+  return rows.map(toPage);
+};
+
+export const getPageById = async (id: string): Promise<PageRecord | null> => {
+  const rows = (await db`
+    SELECT id, page_type, url, title, seo_description, social_image,
+           published_revision_id, created_at, updated_at
+    FROM cms_pages
+    WHERE id = ${id}
+  `) as PageRow[];
+  return rows.length > 0 ? toPage(rows[0]) : null;
+};
+
+export const getPageByUrl = async (url: string): Promise<PageRecord | null> => {
+  const rows = (await db`
+    SELECT id, page_type, url, title, seo_description, social_image,
+           published_revision_id, created_at, updated_at
+    FROM cms_pages
+    WHERE url = ${url}
+  `) as PageRow[];
+  return rows.length > 0 ? toPage(rows[0]) : null;
+};
+
+export interface CreatePageInput extends PageSettingsInput {
+  pageType: string;
+}
+
+/**
+ * Create a page, or report the settings that stopped it.
+ *
+ * A redirect already sitting on the new URL is removed: the page now owns that
+ * path, and leaving the redirect in place would send the site's catch-all
+ * somewhere else before it ever looked for the page. Both run in one
+ * transaction so a failure can't leave the path without its page.
+ */
+export const createPage = async (
+  input: CreatePageInput,
+): Promise<PageResult> => {
+  const settings = validatePageSettings(input);
+  if (!settings.ok) return { ok: false, issues: settings.issues };
+
+  try {
+    const page = await db.begin(async (tx) => {
+      await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
+      const rows = (await tx`
+        INSERT INTO cms_pages
+          (id, page_type, url, title, seo_description, social_image)
+        VALUES (
+          ${randomUUID()},
+          ${input.pageType},
+          ${settings.url},
+          ${settings.title},
+          ${settings.seoDescription},
+          ${settings.socialImage}
+        )
+        RETURNING id, page_type, url, title, seo_description, social_image,
+                  published_revision_id, created_at, updated_at
+      `) as PageRow[];
+      // The site caches pages, redirects and links against `content_version`.
+      // A new page changes what its paths resolve to, so the counter moves and
+      // the site's cache drops within a second — the same signal a publish uses.
+      await bumpContentVersion(tx);
+      return toPage(rows[0]);
+    });
+    return { ok: true, page };
+  } catch (error) {
+    const message = duplicateUrlMessage(error);
+    if (message) return { ok: false, issues: [{ path: "url", message }] };
+    throw error;
+  }
+};
+
+/** A unique violation on the URL, as an editor-facing message. */
+const duplicateUrlMessage = (error: unknown): string | null => {
+  if (typeof error !== "object" || error === null) return null;
+  const code = (error as { errno?: unknown }).errno;
+  const constraint = (error as { constraint?: unknown }).constraint;
+  if (code === "23505" && constraint === "cms_pages_url_idx") {
+    return "Another page already uses this URL.";
+  }
+  return null;
+};
+
+export interface UpdatePageSettingsInput extends PageSettingsInput {
+  pageId: string;
+  pageType: string;
+}
+
+/**
+ * Update a page's settings, writing a 301 when the URL changes.
+ *
+ * The redirect points at the page id, not the new URL, so it survives a second
+ * rename: the catch-all asks the page where it is now. The update, the redirect
+ * upsert and the removal of any redirect on the *new* URL all share one
+ * transaction with a row lock, so two renames can't leave the table describing
+ * a URL no page answers.
+ */
+export const updatePageSettings = async (
+  input: UpdatePageSettingsInput,
+): Promise<PageResult> => {
+  const settings = validatePageSettings(input);
+  if (!settings.ok) return { ok: false, issues: settings.issues };
+
+  try {
+    const page = await db.begin(async (tx) => {
+      const locked = (await tx`
+        SELECT url FROM cms_pages WHERE id = ${input.pageId} FOR UPDATE
+      `) as { url: string }[];
+      if (locked.length === 0) {
+        throw new Error(`Page ${input.pageId} not found`);
+      }
+      const previousUrl = locked[0].url;
+
+      // A page now owns the new path, so any redirect from it goes: the
+      // catch-all checks redirects first, and a stale one would shadow the page.
+      await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
+
+      if (previousUrl !== settings.url) {
+        await tx`
+          INSERT INTO cms_redirects (id, from_path, to_page_id)
+          VALUES (${randomUUID()}, ${previousUrl}, ${input.pageId})
+          ON CONFLICT (from_path) DO UPDATE
+            SET to_page_id = EXCLUDED.to_page_id
+        `;
+      }
+
+      const rows = (await tx`
+        UPDATE cms_pages
+        SET page_type = ${input.pageType},
+            url = ${settings.url},
+            title = ${settings.title},
+            seo_description = ${settings.seoDescription},
+            social_image = ${settings.socialImage},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${input.pageId}
+        RETURNING id, page_type, url, title, seo_description, social_image,
+                  published_revision_id, created_at, updated_at
+      `) as PageRow[];
+      // Settings are cached by the site too (a title, a description, a redirect
+      // from the old URL), so any settings change moves the version and the
+      // site's cache drops within a second.
+      await bumpContentVersion(tx);
+      return toPage(rows[0]);
+    });
+    return { ok: true, page };
+  } catch (error) {
+    const message = duplicateUrlMessage(error);
+    if (message) return { ok: false, issues: [{ path: "url", message }] };
+    throw error;
+  }
+};
+
+/**
+ * Delete a page. Its redirects cascade; its revisions stay as history.
+ *
+ * The content version moves too: a deleted page's URL now 404s (or resolves to
+ * whatever a remaining redirect says), and the site's cache has to drop for that
+ * to happen within a second rather than at its next restart.
+ */
+export const deletePage = async (id: string): Promise<boolean> => {
+  return await db.begin(async (tx) => {
+    const rows = (await tx`
+      DELETE FROM cms_pages WHERE id = ${id} RETURNING id
+    `) as { id: string }[];
+    if (rows.length === 0) return false;
+    await bumpContentVersion(tx);
+    return true;
+  });
+};
+
+export interface RedirectRecord {
+  id: string;
+  fromPath: string;
+  toPageId: string;
+}
+
+export const listRedirects = async (): Promise<RedirectRecord[]> => {
+  const rows = (await db`
+    SELECT id, from_path, to_page_id FROM cms_redirects ORDER BY from_path
+  `) as { id: string; from_path: string; to_page_id: string }[];
+  return rows.map((row) => ({
+    id: row.id,
+    fromPath: row.from_path,
+    toPageId: row.to_page_id,
+  }));
+};
+
+/** A page as the link picker needs it: enough to tell two options apart. */
+export interface PageOption {
+  id: string;
+  title: string;
+  url: string;
+}
+
+export const listPageOptions = async (): Promise<PageOption[]> => {
+  const rows = (await db`
+    SELECT id, title, url FROM cms_pages ORDER BY title, url
+  `) as PageOption[];
+  return rows;
+};
+
+/** The current URL of a page link target, or `null` when it no longer exists. */
+export const resolvePageUrl = async (
+  pageId: string,
+  sql: SQL = db,
+): Promise<string | null> => {
+  const rows = (await sql`
+    SELECT url FROM cms_pages WHERE id = ${pageId}
+  `) as { url: string }[];
+  return rows.length > 0 ? rows[0].url : null;
+};

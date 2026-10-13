@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { buildContent, init, serializeRichText } from "./cms-form";
+import {
+  buildContent,
+  buildPageContent,
+  init,
+  serializeRichText,
+} from "./cms-form";
 
 const MEDIA_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -25,7 +30,10 @@ const markup = `
         <option value="page">CMS page</option>
       </select>
       <input type="text" data-link-url value="https://example.com">
-      <input type="text" data-link-page value="">
+      <select data-link-page>
+        <option value="">Choose a page…</option>
+        <option value="${MEDIA_ID}">About us (/about)</option>
+      </select>
       <input type="text" data-link-label value="Go">
       <input type="checkbox" data-link-newtab checked>
     </div>
@@ -618,5 +626,104 @@ describe("empty list rows", () => {
     `);
 
     expect(buildContent(form()).groups).toEqual([]);
+  });
+});
+
+const PAGE_MARKUP = `
+  <form data-cms-form>
+    <input type="hidden" name="content" data-cms-content value="{}">
+    <div data-cms-page-content>
+      <div data-cms-blocks>
+        <fieldset data-cms-block data-block-type="hero">
+          <div data-field data-field-kind="text" data-field-name="heading">
+            <input type="text" data-text-input value="Hello">
+          </div>
+        </fieldset>
+        <fieldset data-cms-block data-block-unavailable data-block-type="gone">
+          <p>No longer editable</p>
+        </fieldset>
+      </div>
+      <template data-cms-block-template data-block-type="prose">
+        <fieldset data-cms-block data-block-type="prose">
+          <div data-field data-field-kind="text" data-field-name="heading">
+            <input type="text" data-text-input value="">
+          </div>
+        </fieldset>
+      </template>
+      <div class="cms-block-add">
+        <button type="button" data-block-add="prose">Add prose</button>
+      </div>
+    </div>
+  </form>
+`;
+
+const click = (target: Element) => {
+  target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+};
+
+describe("page block editor", () => {
+  beforeEach(() => {
+    mount(PAGE_MARKUP);
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("reads the blocks in order, skipping an unavailable one", () => {
+    expect(buildPageContent(form())).toEqual({
+      blocks: [{ type: "hero", heading: "Hello" }],
+    });
+  });
+
+  test("adds a block from the type's template", () => {
+    const add = document.querySelector("[data-block-add]");
+    if (!add) throw new Error("no add button");
+    click(add);
+
+    const blocks = document.querySelectorAll("[data-cms-block]");
+    // The stored hero, the unavailable block, and the added prose.
+    expect(blocks).toHaveLength(3);
+
+    // Filling the new block makes it part of the saved content.
+    const added = blocks[2];
+    const input = added?.querySelector("input");
+    if (input) input.value = "Body";
+    expect(buildPageContent(form())).toEqual({
+      blocks: [
+        { type: "hero", heading: "Hello" },
+        { type: "prose", heading: "Body" },
+      ],
+    });
+  });
+
+  test("removes a block", () => {
+    const remove = document.createElement("button");
+    remove.setAttribute("data-block-remove", "");
+    const hero = document.querySelector(
+      '[data-cms-block][data-block-type="hero"]',
+    );
+    hero?.append(remove);
+    click(remove);
+
+    expect(
+      document.querySelectorAll('[data-cms-block][data-block-type="hero"]'),
+    ).toHaveLength(0);
+    expect(buildPageContent(form())).toEqual({ blocks: [] });
+  });
+
+  test("moves a block down past the next one", () => {
+    const down = document.createElement("button");
+    down.setAttribute("data-block-down", "");
+    const hero = document.querySelector(
+      '[data-cms-block][data-block-type="hero"]',
+    );
+    hero?.append(down);
+    click(down);
+
+    const blocks = Array.from(
+      document.querySelectorAll("[data-cms-block]"),
+    ).map((block) => block.getAttribute("data-block-type"));
+    expect(blocks[0]).not.toBe("hero");
   });
 });

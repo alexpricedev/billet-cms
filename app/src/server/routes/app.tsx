@@ -11,6 +11,8 @@ import {
 import { account, handoff, logout, signIn } from "../controllers/auth";
 import {
   dashboard,
+  pagePublish,
+  pages,
   slotForm,
   slotHistory,
   slotPublish,
@@ -52,6 +54,28 @@ export const appRoutes = {
     POST: slotPublish.restore,
   }),
   "/cms/slots/:id/history": slotHistory.index,
+  // The CMS's own pages: created against a page type, served by the site's
+  // catch-all at their URL, with the 301 a rename writes shown alongside.
+  // `/cms/pages/new` is declared so the static segment wins over `:id`.
+  "/cms/pages": pages.index,
+  "/cms/pages/new": createRouteHandler({
+    GET: pages.newPage,
+    POST: pages.create,
+  }),
+  "/cms/pages/:id": createRouteHandler({
+    GET: pages.form,
+    POST: pages.save,
+  }),
+  "/cms/pages/:id/publish": createRouteHandler({
+    POST: pagePublish.publish,
+  }),
+  "/cms/pages/:id/restore": createRouteHandler({
+    POST: pagePublish.restore,
+  }),
+  "/cms/pages/:id/delete": createRouteHandler({
+    POST: pages.destroy,
+  }),
+  "/cms/pages/:id/history": pagePublish.history,
   // The Edit content handoff and CMS sign-in both arrive as a single-use token
   // the site minted, so both render a confirm step on GET and spend the token on
   // POST: a token a browser prefetch or a link scanner could burn by fetching

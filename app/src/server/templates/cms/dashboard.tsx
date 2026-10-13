@@ -31,6 +31,12 @@ export const Dashboard = ({
       one here; changes are saved as drafts.
     </p>
 
+    <p className="cms-new-page">
+      <a className="cms-new-page-link" href="/cms/pages">
+        Pages
+      </a>
+    </p>
+
     {groups.length === 0 ? (
       <div className="flash-warning" role="status">
         No slots are published yet. Deploy the site, or check that its publish

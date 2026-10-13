@@ -1,0 +1,102 @@
+import { Layout } from "../../components/layouts";
+import type { PageRecord, PageRevisionSummary } from "../../services/content";
+import type { User } from "../../services/users";
+
+export interface PageHistoryProps {
+  user: User;
+  page: PageRecord;
+  revisions: PageRevisionSummary[];
+  /** The CSRF token bound to the restore POST. */
+  restoreCsrfToken: string;
+  navCsrfToken?: string;
+  notice?: string | null;
+}
+
+const formatWhen = (date: Date): string =>
+  date.toLocaleString("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  });
+
+/**
+ * A page's revision history. Restoring copies an older revision into a new
+ * draft; nothing is rewritten or deleted.
+ */
+export const PageHistory = ({
+  user,
+  page,
+  revisions,
+  restoreCsrfToken,
+  navCsrfToken,
+  notice,
+}: PageHistoryProps) => (
+  <Layout
+    title={`${page.title} history - Billet CMS`}
+    name="cms"
+    description="A page's revision history."
+    canonicalPath={`/cms/pages/${page.id}/history`}
+    user={user}
+    csrfToken={navCsrfToken}
+    noindex
+  >
+    <p className="cms-breadcrumb">
+      <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
+      <a href={`/cms/pages/${page.id}`}>{page.title}</a> / <span>History</span>
+    </p>
+    <h1>History</h1>
+    <p className="cms-slot-meta">
+      Page <code>{page.url}</code>
+    </p>
+
+    {notice && (
+      <div className="flash-warning" role="status">
+        {notice}
+      </div>
+    )}
+
+    {revisions.length === 0 ? (
+      <div className="cms-history-empty" role="status">
+        This page has no saved revisions yet.
+      </div>
+    ) : (
+      <ol className="cms-history">
+        {revisions.map((revision) => (
+          <li className="cms-history-item" key={revision.id}>
+            <div className="cms-history-meta">
+              <span className="cms-history-when">
+                {formatWhen(revision.createdAt)} UTC
+              </span>
+              <span className="cms-history-author">
+                {revision.authorEmail ?? "Unknown"}
+              </span>
+              {revision.isPublished && (
+                <span className="cms-history-badge cms-history-published">
+                  Published
+                </span>
+              )}
+              {revision.isLatest && (
+                <span className="cms-history-badge cms-history-draft">
+                  Current draft
+                </span>
+              )}
+            </div>
+            {!revision.isLatest && (
+              <form
+                method="POST"
+                action={`/cms/pages/${page.id}/restore`}
+                className="cms-history-restore"
+              >
+                <input type="hidden" name="_csrf" value={restoreCsrfToken} />
+                <input type="hidden" name="revision" value={revision.id} />
+                <button type="submit" className="cms-restore-button">
+                  Restore as draft
+                </button>
+              </form>
+            )}
+          </li>
+        ))}
+      </ol>
+    )}
+  </Layout>
+);
