@@ -299,11 +299,12 @@ h1 {
   cursor: pointer;
 }
 
-/* The global button hover turns the background purple, which leaves the light
-   text at 2.25:1. These states keep the neutral surface and make the change of
-   state read through the border and a slight lift instead. */
+/* The global button hover and focus turn the background purple, which leaves
+   the light text at 2.25:1. A mouse press or a tap only sets `:focus`, so these
+   states keep the neutral surface and make the change of state read through the
+   border and a slight lift instead. */
 .cms-publish-button:hover,
-.cms-publish-button:focus-visible {
+.cms-publish-button:focus {
   background: var(--color-surface);
   border-color: var(--color-text-tertiary);
   color: var(--color-text);
@@ -311,7 +312,7 @@ h1 {
 
 .cms-publish-button:disabled,
 .cms-publish-button:disabled:hover,
-.cms-publish-button:disabled:focus-visible {
+.cms-publish-button:disabled:focus {
   background: var(--color-surface-hover);
   border-color: var(--color-border);
   color: var(--color-text-secondary);
@@ -332,7 +333,7 @@ h1 {
    different widths and the buttons zigzagged down the list. */
 .cms-history-item {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.75rem;
   border: 1px solid var(--color-border);
@@ -343,8 +344,14 @@ h1 {
 
 @media (max-width: 480px) {
   .cms-history-item {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
+  }
+
+  /* Stacked, the restore button would otherwise sit at the end of the grid
+     track and drift from the meta above it. */
+  .cms-history-restore {
+    justify-self: start;
   }
 }
 
@@ -364,6 +371,12 @@ h1 {
   gap: 0.5rem;
   color: var(--color-text-secondary);
   font-size: 0.9rem;
+}
+
+/* A long author email is one unbroken token; without this it overflows its
+   `minmax(0, 1fr)` track and widens the row past a 390px viewport. */
+.cms-history-author {
+  overflow-wrap: anywhere;
 }
 
 .cms-history-badge {
@@ -395,7 +408,7 @@ h1 {
 }
 
 .cms-restore-button:hover,
-.cms-restore-button:focus-visible {
+.cms-restore-button:focus {
   background: var(--color-surface);
   border-color: var(--color-text-tertiary);
   color: var(--color-text);

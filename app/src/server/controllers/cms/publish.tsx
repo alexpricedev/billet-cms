@@ -52,6 +52,13 @@ export const slotPublish = {
     // colleague's newer draft live without the editor ever seeing it.
     const formData = await req.formData();
     const revisionId = nonEmpty(formData.get("revision"));
+    // The id lands in a UUID column when a revision is named, so a malformed
+    // one would be a Postgres cast error and surface as a 500. A form that no
+    // longer names a real revision is exactly what the stale check reports, so
+    // send the editor back to re-check rather than crash.
+    if (revisionId && !UUID_PATTERN.test(revisionId)) {
+      return redirect(`/cms/slots/${slotId}?publish=stale`);
+    }
 
     const result = await publishSlot({
       slotId,

@@ -167,6 +167,28 @@ describe("slot publish and history controllers", () => {
       expect(slot?.publishedRevisionId).toBeNull();
     });
 
+    // A malformed id used to reach the UUID column through the stale check and
+    // 500; it now reads as a form that no longer names a live revision.
+    test("treats a revision id that is not a UUID as stale", async () => {
+      await draft("Live");
+
+      const res = await slotPublish.publish(
+        await postForm(
+          publishPath(slotId),
+          slotId,
+          { revision: "not-a-uuid" },
+          sessionId,
+        ),
+      );
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `/cms/slots/${slotId}?publish=stale`,
+      );
+      const slot = await getSlotById(slotId);
+      expect(slot?.publishedRevisionId).toBeNull();
+    });
+
     test("says so when there is no draft to publish", async () => {
       const res = await slotPublish.publish(
         await postForm(publishPath(slotId), slotId, {}, sessionId),
