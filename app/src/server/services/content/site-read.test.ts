@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
-import { block, richText, text } from "@alexpricedev/billet-cms/fields";
+import { block, image, richText, text } from "@alexpricedev/billet-cms/fields";
 import {
   createContentReader,
   renderRichText,
@@ -110,6 +110,32 @@ describe("site content reader", () => {
     expect(await reader().getSlot("home.hero")).toBeNull();
     expect(renderHero(await reader().getSlot("home.hero"))).toContain(
       "Hero coming soon",
+    );
+  });
+
+  // The stored schema is the published contract; the block's own Zod schema is
+  // what the site's render function was written for. Passing `{ block }` checks
+  // both, so a site whose code has moved past what was published skips the slot
+  // instead of handing its renderer content it never expected.
+  test("checks a published slot against the site's own block schema", async () => {
+    await draft("Live hero");
+    await publishSlot({ slotId });
+
+    const matched = await reader().getSlot("home.hero", { block: hero });
+    expect(matched?.heading).toBe("Live hero");
+    expect(matched?.body).toEqual(doc("Hello"));
+
+    // This definition expects an image where the stored revision holds text.
+    const expectsImage = block("hero", { heading: image() }, () => null);
+    const skipped: string[] = [];
+    const stale = await reader((message) => skipped.push(message)).getSlot(
+      "home.hero",
+      { block: expectsImage },
+    );
+
+    expect(stale).toBeNull();
+    expect(skipped.some((line) => line.includes("block's own schema"))).toBe(
+      true,
     );
   });
 

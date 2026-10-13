@@ -50,13 +50,6 @@ export const formNotice = (params: URLSearchParams): Notice | null => {
   if (params.get("publish") === "empty") {
     return { kind: "warning", message: "There is no draft to publish yet." };
   }
-  if (params.get("publish") === "invalid") {
-    return {
-      kind: "warning",
-      message:
-        "This draft can't be published because it no longer matches the block's fields. Update the content and save it again.",
-    };
-  }
   if (params.get("publish") === "stale") {
     return {
       kind: "warning",
@@ -106,12 +99,14 @@ interface FormExtras {
 /**
  * Render the generated form for a slot.
  *
- * Shared by the GET and by the POST outcomes that render instead of redirect
- * (a validation failure, a conflict, an expired page), so all of them show the
- * same controls around the same content. Every call mints a fresh CSRF token,
- * which is what lets a stale-token re-render be submitted again.
+ * Shared by the GET, by the POST outcomes that render instead of redirect (a
+ * validation failure, a conflict, an expired page), and by the publish route
+ * when a draft is refused for no longer validating — so all of them show the
+ * same controls around the same content and the same inline field errors. Every
+ * call mints a fresh CSRF token, which is what lets a stale-token re-render be
+ * submitted again.
  */
-const renderSlotForm = async (
+export const renderSlotForm = async (
   ctx: SessionContext,
   slot: SlotRecord,
   blockType: BlockTypeRecord,

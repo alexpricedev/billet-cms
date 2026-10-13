@@ -200,9 +200,11 @@ describe("slot publish and history controllers", () => {
       );
     });
 
-    test("refuses a draft that no longer validates", async () => {
-      // Written directly so the save layer's validation doesn't reject it: a
-      // deploy can change a block under a draft that was saved when it passed.
+    // A deploy can change a block under a draft that was saved when it passed.
+    // Publish then re-renders the form with the failing fields inline — the same
+    // treatment a refused save gets — rather than a generic notice.
+    test("re-renders with the failing field when the draft no longer validates", async () => {
+      // Written directly so the save layer's validation doesn't reject it.
       const invalid = await createRevision({
         targetType: "slot",
         targetId: slotId,
@@ -219,10 +221,13 @@ describe("slot publish and history controllers", () => {
         ),
       );
 
-      expect(res.status).toBe(303);
-      expect(res.headers.get("location")).toBe(
-        `/cms/slots/${slotId}?publish=invalid`,
-      );
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      // The save form's own banner and per-field error state, not `?publish=`.
+      expect(html).toMatch(/can.{0,5}t be saved/);
+      expect(html).toContain('aria-invalid="true"');
+      expect(html).toContain('href="#cms-field-heading"');
+
       const slot = await getSlotById(slotId);
       expect(slot?.publishedRevisionId).toBeNull();
     });

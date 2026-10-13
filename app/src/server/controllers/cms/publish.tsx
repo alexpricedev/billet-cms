@@ -3,6 +3,8 @@ import { getSessionContext, requireAuth } from "../../middleware/auth";
 import { checkCsrf } from "../../middleware/csrf";
 import {
   getBlockTypeByName,
+  getLatestRevision,
+  getRevisionById,
   getSlotById,
   publishSlot,
   restoreSlotRevision,
@@ -10,6 +12,7 @@ import {
 import { render404 } from "../../utils/errors";
 import { redirect } from "../../utils/response";
 import { UUID_PATTERN } from "./params";
+import { renderSlotForm } from "./slot";
 
 const nonEmpty = (value: FormDataEntryValue | null): string | null =>
   typeof value === "string" && value !== "" ? value : null;
@@ -70,9 +73,23 @@ export const slotPublish = {
       if (result.reason === "stale") {
         return redirect(`/cms/slots/${slotId}?publish=stale`);
       }
-      return redirect(
-        `/cms/slots/${slotId}?publish=${result.reason === "no-draft" ? "empty" : "invalid"}`,
-      );
+      if (result.reason === "invalid") {
+        // The draft no longer matches the block's fields. Show it back with the
+        // failing fields inline, exactly as a refused save does, rather than a
+        // generic notice: the editor can see what to fix and save again.
+        const revision = revisionId
+          ? await getRevisionById(revisionId)
+          : await getLatestRevision("slot", slotId);
+        return renderSlotForm(
+          ctx,
+          slot,
+          blockType,
+          revision?.content ?? {},
+          revision?.id ?? null,
+          { errors: result.issues },
+        );
+      }
+      return redirect(`/cms/slots/${slotId}?publish=empty`);
     }
 
     return redirect(`/cms/slots/${slotId}?published=1`);

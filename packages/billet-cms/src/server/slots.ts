@@ -9,6 +9,9 @@
  * 1. **The database is the runtime contract.** The reader validates the stored
  *    revision against the block's published JSON Schema before returning it, so
  *    a render function is only ever handed content its own vocabulary accepts.
+ *    Pass `{ block }` to `getSlot` and it is checked against the site's own Zod
+ *    schema too, so a block whose code has moved past what was published is a
+ *    skip rather than content the render function never expected.
  * 2. **A bad row is skipped, never a 500.** A removed slot or block, a revision
  *    that no longer validates, a missing CMS table or an unreachable database
  *    all log a line and return `null`. A page that has lost one slot's content
@@ -20,6 +23,13 @@
  */
 import type { SQL } from "bun";
 import { TABLES } from "../contract";
+import {
+  type BlockContent,
+  type BlockDefinition,
+  type BlockDefinitionShape,
+  type BlockFields,
+  blockContentSchema,
+} from "../fields/definition";
 import { validateContent } from "../schema";
 import { ContentCache } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
@@ -38,9 +48,26 @@ export interface ContentReaderOptions {
   onSkip?: SkipLogger;
 }
 
+/**
+ * A site's own block definition, passed to `getSlot` to check the stored
+ * content against the code, not just the JSON Schema published from it.
+ */
+export interface SlotReadOptions {
+  block: BlockDefinitionShape;
+}
+
 export interface ContentReader {
-  /** The published content of `name`, or `null` when there is none to render. */
-  getSlot<T = SlotContent>(name: string): Promise<T | null>;
+  /**
+   * The published content of `name`, or `null` when there is none to render.
+   *
+   * Pass `{ block }` to parse the row against the site's own block definition
+   * as well, so content its render function was not written for is skipped. The
+   * top-level `getSlot` infers the content type from the definition.
+   */
+  getSlot<T = SlotContent>(
+    name: string,
+    options?: SlotReadOptions,
+  ): Promise<T | null>;
   /** Drop the cache and force the next read to re-check `content_version`. */
   invalidate(): void;
 }
@@ -156,6 +183,12 @@ export const createContentReader = (
   const cache = new ContentCache<SlotContent | null>({
     readVersion: () => readContentVersion(sql),
     load: loadSlot,
+    // A failed version check keeps serving what is cached (see `ContentCache`);
+    // the site hears about it through its skip logger like any other drop.
+    onVersionError: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      onSkip(`could not check the CMS content version: ${message}`);
+    },
     ...(options.now ? { now: options.now } : {}),
     ...(options.versionPollMs !== undefined
       ? { intervalMs: options.versionPollMs }
@@ -163,9 +196,38 @@ export const createContentReader = (
   });
 
   return {
-    async getSlot<T = SlotContent>(name: string): Promise<T | null> {
+    async getSlot<T = SlotContent>(
+      name: string,
+      options?: SlotReadOptions,
+    ): Promise<T | null> {
       try {
-        return (await cache.get(name)) as T | null;
+        const content = await cache.get(name);
+        if (content === null) return null;
+
+        // The stored schema is the published contract; the site's own block
+        // schema is what its render function was actually written for. Running
+        // it too catches the case the stored schema can't: a deploy changed a
+        // field's type, so the content is valid by the old contract but not by
+        // the code that would render it. Invalid content is skipped and
+        // reported, exactly like a row the stored schema has already rejected.
+        if (options?.block) {
+          const parsed = blockContentSchema(options.block).safeParse(content);
+          if (!parsed.success) {
+            const detail = parsed.error.issues
+              .map(
+                (issue) =>
+                  `${issue.path.join(".") || "(content)"}: ${issue.message}`,
+              )
+              .join("; ");
+            onSkip(
+              `slot "${name}" content failed the block's own schema — ${detail}`,
+            );
+            return null;
+          }
+          return parsed.data as T;
+        }
+
+        return content as T;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         onSkip(`could not read slot "${name}": ${message}`);
@@ -188,21 +250,42 @@ export const createContentReader = (
  */
 const readers = new WeakMap<SQL, ContentReader>();
 
+const readerFor = (sql: SQL): ContentReader => {
+  const existing = readers.get(sql);
+  if (existing) return existing;
+
+  const reader = createContentReader({ sql });
+  readers.set(sql, reader);
+  return reader;
+};
+
 /**
  * Read a published slot using a process-wide reader for `sql`.
  *
  * For a site that would rather not hold a reader itself. A caller that needs to
  * inject a clock (tests) or a logger should build one with
  * `createContentReader`.
+ *
+ * Pass the site's own `block` to have the content parsed against its Zod
+ * schema too; the result is typed from that definition, so a render function
+ * gets the content its own fields declare.
  */
-export const getSlot = <T = SlotContent>(
+export function getSlot<T = SlotContent>(
   sql: SQL,
   name: string,
-): Promise<T | null> => {
-  let reader = readers.get(sql);
-  if (!reader) {
-    reader = createContentReader({ sql });
-    readers.set(sql, reader);
-  }
-  return reader.getSlot<T>(name);
-};
+): Promise<T | null>;
+export function getSlot<F extends BlockFields>(
+  sql: SQL,
+  name: string,
+  options: { block: BlockDefinition<F> },
+): Promise<BlockContent<F> | null>;
+export function getSlot(
+  sql: SQL,
+  name: string,
+  options?: SlotReadOptions,
+): Promise<SlotContent | null> {
+  const reader = readerFor(sql);
+  return options
+    ? reader.getSlot<SlotContent>(name, options)
+    : reader.getSlot<SlotContent>(name);
+}
