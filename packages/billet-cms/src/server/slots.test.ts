@@ -18,7 +18,7 @@ const HERO_CONTENT = { heading: "Cached hero" };
  * CMS becoming unreachable between two reads: the content the cache already
  * holds is still the last published revision the site saw.
  */
-const fakeSql = () => {
+const fakeSql = (content: Record<string, unknown> = HERO_CONTENT) => {
   const state = { now: 0, version: 1, versionReads: 0, versionFails: false };
   const sql = {
     unsafe: (query: string) => {
@@ -47,7 +47,7 @@ const fakeSql = () => {
         ]);
       }
       if (query.includes("cms_revisions")) {
-        return Promise.resolve([{ content: HERO_CONTENT }]);
+        return Promise.resolve([{ content }]);
       }
       return Promise.resolve([]);
     },
@@ -157,6 +157,23 @@ describe("getSlot with the site's own block", () => {
     expect(skipped.some((line) => line.includes("block's own schema"))).toBe(
       true,
     );
+  });
+
+  // Q4: a deploy drops a field, the stored content keeps it, and the read side
+  // must return the declared fields rather than skipping the whole slot.
+  test("keeps the declared fields when the stored content has an extra key", async () => {
+    const { sql } = fakeSql({ ...HERO_CONTENT, dropped: "old field" });
+    const skipped: string[] = [];
+    const reader = createContentReader({
+      sql,
+      onSkip: (message) => skipped.push(message),
+    });
+
+    const content = await reader.getSlot("home.hero", { block: hero });
+
+    expect(content).toEqual(HERO_CONTENT);
+    expect(content).not.toHaveProperty("dropped");
+    expect(skipped).toEqual([]);
   });
 
   // The convenience helper is the documented entry point; this asserts the

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   block,
+  blockContentReadSchema,
   blockContentSchema,
   blockStoredSchema,
   pageType,
@@ -46,6 +47,20 @@ describe("block", () => {
     // The site-side rejection only matches the CMS if the stored JSON Schema
     // says the same thing, which is what `additionalProperties: false` is.
     expect(blockStoredSchema(hero).jsonSchema.additionalProperties).toBe(false);
+  });
+
+  test("the read schema strips an unknown key instead of rejecting it (Q4)", () => {
+    const schema = blockContentReadSchema(hero);
+
+    // A field the block has since dropped stays in the stored content; the read
+    // path must strip it, not fail the whole block.
+    expect(schema.safeParse({ heading: "Hi", extra: true }).success).toBe(true);
+    expect(schema.parse({ heading: "Hi", extra: true })).toEqual({
+      heading: "Hi",
+    });
+
+    // A genuine mismatch — a missing required field — still fails.
+    expect(schema.safeParse({}).success).toBe(false);
   });
 
   test("rejects an unknown key inside a page's block variant", () => {
