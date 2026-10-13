@@ -18,12 +18,54 @@ import type { SessionContext } from "../../services/sessions";
 import { SlotForm, SlotUnavailable } from "../../templates/cms/slot-form";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
+import { UUID_PATTERN } from "./params";
 
-// A slot id reaches `getSlotById` straight from the URL. Postgres answers a
-// non-UUID with `invalid input syntax for type uuid`, which would surface as a
-// 500 for what is really a missing page.
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * A one-line outcome shown above the form after a save, a publish or a restore.
+ *
+ * Publish and restore redirect back here with a query flag rather than
+ * re-rendering, so a refresh repeats the state instead of the action.
+ */
+export interface Notice {
+  kind: "success" | "warning";
+  message: string;
+}
+
+export const formNotice = (params: URLSearchParams): Notice | null => {
+  if (params.get("saved") === "1") {
+    return { kind: "success", message: "Draft saved." };
+  }
+  if (params.get("published") === "1") {
+    return {
+      kind: "success",
+      message: "Published. The site picks the change up within seconds.",
+    };
+  }
+  if (params.get("restored") === "1") {
+    return {
+      kind: "success",
+      message: "Restored as a new draft. Publish to make it live.",
+    };
+  }
+  if (params.get("publish") === "empty") {
+    return { kind: "warning", message: "There is no draft to publish yet." };
+  }
+  if (params.get("publish") === "invalid") {
+    return {
+      kind: "warning",
+      message:
+        "This draft can't be published because it no longer matches the block's fields. Update the content and save it again.",
+    };
+  }
+  if (params.get("unavailable") === "1") {
+    return {
+      kind: "warning",
+      message:
+        "The block type for this slot is no longer published, so it can't be published.",
+    };
+  }
+  return null;
+};
 
 /** Parse a JSON object out of a form field, or null when it isn't one. */
 const parseJsonObject = (
@@ -51,7 +93,7 @@ const nonEmpty = (value: FormDataEntryValue | null): string | null =>
 interface FormExtras {
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
-  saved?: boolean;
+  notice?: Notice | null;
 }
 
 /**
@@ -81,8 +123,9 @@ const renderSlotForm = async (
     Object.entries(content).filter(([key]) => declared.has(key)),
   );
 
-  const [formCsrfToken, navCsrfToken] = await Promise.all([
+  const [formCsrfToken, publishCsrfToken, navCsrfToken] = await Promise.all([
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
+    createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
     createCsrfToken(sessionId, "POST", "/auth/logout"),
   ]);
 
@@ -90,15 +133,18 @@ const renderSlotForm = async (
     <SlotForm
       user={ctx.user as NonNullable<SessionContext["user"]>}
       formCsrfToken={formCsrfToken}
+      publishCsrfToken={publishCsrfToken}
       navCsrfToken={navCsrfToken}
       slot={slot}
       blockType={blockType}
       content={declaredContent}
       baseRevisionId={baseRevisionId}
+      latestRevisionId={baseRevisionId}
+      publishedRevisionId={slot.publishedRevisionId}
       removedFieldNames={removed.names}
       errors={extras.errors}
       conflict={extras.conflict ?? null}
-      saved={extras.saved}
+      notice={extras.notice ?? null}
     />,
   );
 };
@@ -158,7 +204,7 @@ export const slotForm = {
     if (blockType.removedAt) return renderUnavailable(ctx, slot);
 
     const latest = await getLatestRevision("slot", slot.id);
-    const saved = new URL(req.url).searchParams.get("saved") === "1";
+    const notice = formNotice(new URL(req.url).searchParams);
 
     return renderSlotForm(
       ctx,
@@ -166,7 +212,7 @@ export const slotForm = {
       blockType,
       latest?.content ?? {},
       latest?.id ?? null,
-      { saved },
+      { notice },
     );
   },
 

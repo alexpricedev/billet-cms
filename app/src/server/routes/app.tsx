@@ -9,7 +9,12 @@ import {
   webmanifest,
 } from "../controllers/app";
 import { account, handoff, logout, signIn } from "../controllers/auth";
-import { dashboard, slotForm } from "../controllers/cms";
+import {
+  dashboard,
+  slotForm,
+  slotHistory,
+  slotPublish,
+} from "../controllers/cms";
 import { createRouteHandler } from "../utils/route-handler";
 
 // `/health` is not here: it is answered by the catch-all fallback so it stays
@@ -32,12 +37,21 @@ export const appRoutes = {
   "/sign-in": signIn.index,
   "/account": account.index,
   // The CMS's own surface. /cms lists the pages and slots a site published;
-  // /cms/slots/:id is the generated editor for one slot.
+  // /cms/slots/:id is the generated editor for one slot, with publish and
+  // history alongside it. Each write is its own path so a refresh repeats a
+  // redirect, and carries a CSRF token bound to that path.
   "/cms": dashboard.index,
   "/cms/slots/:id": createRouteHandler({
     GET: slotForm.index,
     POST: slotForm.create,
   }),
+  "/cms/slots/:id/publish": createRouteHandler({
+    POST: slotPublish.publish,
+  }),
+  "/cms/slots/:id/restore": createRouteHandler({
+    POST: slotPublish.restore,
+  }),
+  "/cms/slots/:id/history": slotHistory.index,
   // The Edit content handoff and CMS sign-in both arrive as a single-use token
   // the site minted, so both render a confirm step on GET and spend the token on
   // POST: a token a browser prefetch or a link scanner could burn by fetching
