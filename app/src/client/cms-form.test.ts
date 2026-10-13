@@ -792,3 +792,102 @@ describe("page block editor", () => {
     expect(blocks[0]).not.toBe("hero");
   });
 });
+
+describe("media picker", () => {
+  test("choosing an upload writes its id into the media-id input", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="image" data-field-name="photo">
+          <select data-image-picker>
+            <option value="">Choose an image…</option>
+            <option value="${MEDIA_ID}">A photo (800×400)</option>
+          </select>
+          <input type="text" data-image-id value="">
+          <input type="text" data-image-alt value="">
+        </div>
+      </form>
+    `);
+
+    const picker = document.querySelector<HTMLSelectElement>(
+      "[data-image-picker]",
+    );
+    if (!picker) throw new Error("no picker");
+    picker.value = MEDIA_ID;
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(
+      form().querySelector<HTMLInputElement>("[data-image-id]")?.value,
+    ).toBe(MEDIA_ID);
+    expect(buildContent(form()).photo).toEqual({ mediaId: MEDIA_ID });
+  });
+});
+
+describe("focal point picker", () => {
+  const focalMarkup = `
+    <form data-cms-form>
+      <input type="hidden" data-focal-x value="0.5">
+      <input type="hidden" data-focal-y value="0.5">
+      <button type="button" data-focal-picker>
+        <img data-focal-image alt="">
+        <span data-focal-marker></span>
+      </button>
+      <img data-focal-preview alt="">
+    </form>
+  `;
+
+  const picker = () => {
+    const element = document.querySelector<HTMLElement>("[data-focal-picker]");
+    if (!element) throw new Error("no focal picker");
+    return element;
+  };
+
+  test("a click sets the focal point from where the pointer landed", () => {
+    mount(focalMarkup);
+    picker().getBoundingClientRect = (() =>
+      ({
+        left: 100,
+        top: 50,
+        width: 200,
+        height: 100,
+        right: 300,
+        bottom: 150,
+      }) as DOMRect) as () => DOMRect;
+
+    picker().dispatchEvent(
+      new MouseEvent("click", {
+        clientX: 150,
+        clientY: 100,
+        bubbles: true,
+      }),
+    );
+
+    expect(
+      form().querySelector<HTMLInputElement>("[data-focal-x]")?.value,
+    ).toBe("0.25");
+    expect(
+      form().querySelector<HTMLInputElement>("[data-focal-y]")?.value,
+    ).toBe("0.5");
+    expect(
+      picker().querySelector<HTMLElement>("[data-focal-marker]")?.style.left,
+    ).toBe("25%");
+    expect(
+      form().querySelector<HTMLElement>("[data-focal-preview]")?.style
+        .objectPosition,
+    ).toBe("25% 50%");
+  });
+
+  test("arrow keys nudge the focal point", () => {
+    mount(focalMarkup);
+
+    picker().dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+    expect(
+      form().querySelector<HTMLInputElement>("[data-focal-x]")?.value,
+    ).toBe("0.51");
+    expect(
+      form().querySelector<HTMLElement>("[data-focal-preview]")?.style
+        .objectPosition,
+    ).toBe("51% 50%");
+  });
+});

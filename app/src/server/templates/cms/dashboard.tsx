@@ -34,6 +34,9 @@ export const Dashboard = ({
     <p className="cms-new-page">
       <a className="cms-new-page-link" href="/cms/pages">
         Pages
+      </a>{" "}
+      <a className="cms-new-page-link" href="/cms/media">
+        Media
       </a>
     </p>
 

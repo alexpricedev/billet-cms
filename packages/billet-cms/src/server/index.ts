@@ -10,6 +10,7 @@
 export * from "../preview";
 export * from "./cache";
 export * from "./log";
+export * from "./media";
 export * from "./pages";
 export * from "./rich-text";
 export * from "./seo";

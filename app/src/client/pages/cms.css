@@ -630,3 +630,113 @@ h1 {
   gap: 0.35rem;
   padding: 0;
 }
+
+/* The media library. A flat grid of uploads, newest first — no folders yet. */
+.cms-media-upload {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+  max-width: 32rem;
+}
+
+.cms-media-grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 1rem;
+  padding: 0;
+}
+
+.cms-media-card {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.cms-media-card img {
+  width: 100%;
+  height: 10rem;
+  object-fit: cover;
+  background: var(--color-surface);
+  border-radius: 0.5rem;
+}
+
+.cms-media-meta {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+/* The click-to-set focal point: a picture with a marker, and the same crop
+   previewed at the three shapes a page is most likely to want. */
+.cms-focal {
+  position: relative;
+  display: block;
+  max-width: 32rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: crosshair;
+}
+
+.cms-focal-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+.cms-focal-marker {
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  margin: -0.5rem 0 0 -0.5rem;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.cms-focal:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+
+.cms-focal-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.cms-focal-preview {
+  margin: 0;
+  width: 10rem;
+}
+
+.cms-focal-preview img {
+  display: block;
+  width: 100%;
+}
+
+.cms-focal-preview figcaption {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+.cms-media-usage {
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0;
+}
+
+.cms-media-delete {
+  margin-top: 1.5rem;
+}
+
+.cms-media-delete-preview {
+  display: block;
+  max-width: 24rem;
+  height: auto;
+  border-radius: 0.5rem;
+}

@@ -81,3 +81,33 @@ The catch-all (`createCmsPageRoute`) does this for a CMS-served page: it hands
 its `render` function `{ preview, req }`, so a page that also mounts a slot can
 forward the access and show that slot's draft inside it.
 
+## Images
+
+An `image()` field stores only a `mediaId`. Read the upload row and render it:
+
+```ts
+import { getMedia, renderCmsImage } from "@alexpricedev/billet-cms/server";
+
+const media = await getMedia(sql, content.photo.mediaId);
+const html = media
+  ? renderCmsImage(media, { alt: content.photo.alt })
+  : "";
+```
+
+`renderCmsImage` (the plugin's `<CmsImage>`) emits a `<picture>` with a WebP
+`<source>`, the original format as the fallback, a full `srcset` at the widths
+the CMS generated, `width`/`height` so the browser reserves the right space, and
+`object-fit: cover` with `object-position` from the editor's focal point. Pass
+`{ alt }` with a use's own override (the image field's `alt`), or omit it to use
+the media item's own; pass `{ sizes }` to match your layout (it defaults to
+`100vw`). A row that is missing or has no renditions reads as `null`, and
+`renderCmsImage` returns `""`, so a page never shows a broken image.
+
+Reads are cached against `cms_meta.content_version` exactly like `getSlot`, so a
+focal-point or alt change shows within about a second.
+
+> **CSP:** images are served from your bucket, not this app, so the site's
+> `img-src` must allow the bucket's host (the origin in `MEDIA_PUBLIC_BASE_URL`).
+> Without it the browser blocks every CMS image — the markup is correct and the
+> network tab is the only place it shows.
+

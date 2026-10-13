@@ -91,6 +91,7 @@ describe("migrations against a database that already has a site's tables", () =>
       expect(added).toContain("relation:cms_preview_tokens");
       expect(added).toContain("relation:cms_pages");
       expect(added).toContain("relation:cms_redirects");
+      expect(added).toContain("relation:cms_media");
       expect(added).not.toContain("relation:cms_users");
 
       // And the site's tables, indexes and constraints are untouched.

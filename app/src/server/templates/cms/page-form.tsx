@@ -12,6 +12,7 @@ import type {
   RevisionConflict,
   UnavailableBlock,
 } from "../../services/content";
+import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
 import { PageBlocks } from "./page-blocks";
 
@@ -43,6 +44,8 @@ export interface PageFormProps {
   /** The revision the site is currently rendering, when there is one. */
   publishedRevisionId: string | null;
   pages: PageOption[];
+  /** The uploads an `image` field's picker offers. */
+  media: MediaOption[];
   /** Validation messages for the settings fields, keyed by field name. */
   settingsErrors?: Map<string, FieldError[]>;
   /** Validation messages for a block's fields, keyed by the block's index. */
@@ -156,6 +159,7 @@ export const PageForm = ({
   latestRevisionId,
   publishedRevisionId,
   pages,
+  media,
   settingsErrors,
   blockErrors,
   contentIssues,
@@ -370,6 +374,7 @@ export const PageForm = ({
                 unavailable={unavailable}
                 errorsByBlock={blockErrors}
                 pages={pages}
+                media={media}
               />
             ) : (
               <p className="cms-blocks-empty">

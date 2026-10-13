@@ -4,6 +4,7 @@ import {
   type FieldError,
 } from "../../components/cms/field-control";
 import type { PageOption } from "../../services/content/pages";
+import type { MediaOption } from "../../services/media";
 
 export interface ContentFieldsProps {
   fields: FieldMetadata[];
@@ -12,6 +13,8 @@ export interface ContentFieldsProps {
   errorsByField?: Map<string, FieldError[]>;
   /** The CMS pages a `link` field's picker offers. */
   pages?: PageOption[];
+  /** The uploads an `image` field's picker offers. */
+  media?: MediaOption[];
   /**
    * Id prefix for the controls. A page renders one block per `ContentFields`,
    * and two blocks can declare the same field name, so the block's own prefix
@@ -26,6 +29,7 @@ export const ContentFields = ({
   content,
   errorsByField,
   pages,
+  media,
   idPrefix = "cms-field",
 }: ContentFieldsProps) => (
   <div className="cms-fields" data-cms-fields>
@@ -37,6 +41,7 @@ export const ContentFields = ({
         idBase={`${idPrefix}-${field.name}`}
         errors={errorsByField?.get(field.name)}
         pages={pages}
+        media={media}
       />
     ))}
   </div>

@@ -14,6 +14,7 @@ import {
   saveSlotDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
+import { listMediaOptions } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import { SlotForm, SlotUnavailable } from "../../templates/cms/slot-form";
 import { render404 } from "../../utils/errors";
@@ -122,13 +123,19 @@ export const renderSlotForm = async (
     Object.entries(content).filter(([key]) => declared.has(key)),
   );
 
-  const [formCsrfToken, publishCsrfToken, previewCsrfToken, navCsrfToken] =
-    await Promise.all([
-      createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
-      createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
-      createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/preview`),
-      createCsrfToken(sessionId, "POST", "/auth/logout"),
-    ]);
+  const [
+    formCsrfToken,
+    publishCsrfToken,
+    previewCsrfToken,
+    navCsrfToken,
+    media,
+  ] = await Promise.all([
+    createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
+    createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
+    createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/preview`),
+    createCsrfToken(sessionId, "POST", "/auth/logout"),
+    listMediaOptions(),
+  ]);
 
   return render(
     <SlotForm
@@ -144,6 +151,7 @@ export const renderSlotForm = async (
       latestRevisionId={latest?.id ?? null}
       publishedRevisionId={slot.publishedRevisionId}
       removedFieldNames={removed.names}
+      media={media}
       errors={extras.errors}
       conflict={extras.conflict ?? null}
       notice={extras.notice ?? null}

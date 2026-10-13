@@ -476,6 +476,12 @@ Prefer the dashboard? These are the same values, to set by hand in the service's
 | `CAPTCHA_ENABLED` | No | Set to `true` to add a proof-of-work captcha to the login form. Off by default; `/login` is unchanged when unset |
 | `CAPTCHA_DIFFICULTY` | No | Tunes the captcha's client-side work (search-space size). Defaults to `100000` (~sub-second for a real browser) |
 | `TEAMS_ENABLED` | No | Set to `true` for org-level user management — invite by email, member list, org roles. Off by default; `/team` and `/invites/accept` 404 when unset. Any value other than `true`/`false` stops the server at boot |
+| `S3_BUCKET` | No | The S3-compatible bucket image uploads are stored in. Uploads are disabled (with a clear message) until this, the credentials and `MEDIA_PUBLIC_BASE_URL` are all set |
+| `S3_ACCESS_KEY_ID` | No | Bucket access key. Required with `S3_BUCKET` for uploads |
+| `S3_SECRET_ACCESS_KEY` | No | Bucket secret. Required with `S3_BUCKET` for uploads |
+| `S3_REGION` | No | Bucket region, when the provider needs one (Railway buckets and R2 don't) |
+| `S3_ENDPOINT` | No | The S3-compatible endpoint, e.g. a R2 or Railway bucket URL. Omit for AWS |
+| `MEDIA_PUBLIC_BASE_URL` | No | The origin rendered images are served from (a bucket public URL or custom domain). Required with `S3_BUCKET` for uploads |
 
 > **Generating `CRYPTO_PEPPER`:** This is a secret key used to secure session tokens. Run `bun run generate:pepper` to get a value. Use a different value for each environment (development, production, etc).
 
