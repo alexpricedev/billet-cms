@@ -2,6 +2,8 @@ import type { BunRequest } from "bun";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
 import { checkCsrf } from "../../middleware/csrf";
 import {
+  buildPreviewUrl,
+  createPreviewToken,
   getBlockTypeByName,
   getLatestRevision,
   getRevisionById,
@@ -25,6 +27,49 @@ const nonEmpty = (value: FormDataEntryValue | null): string | null =>
  * path — a token minted for the form can't be replayed against publish.
  */
 export const slotPublish = {
+  /**
+   * Mint a preview token and open the slot's page on the site with it.
+   *
+   * A slot has no URL of its own: it is rendered inside one of the site's own
+   * pages, so the slot is declared with a `previewPath` (publish writes it to
+   * `cms_slots.preview_path`) and the CMS opens that path. The plugin then
+   * renders this slot's draft inside the page it already renders.
+   */
+  async preview(req: BunRequest): Promise<Response> {
+    const authRedirect = await requireAuth(req);
+    if (authRedirect) return authRedirect;
+
+    const ctx = await getSessionContext(req);
+    if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
+
+    const slotId = (req.params as { id: string }).id;
+    if (!UUID_PATTERN.test(slotId)) return render404();
+
+    const csrf = await checkCsrf(req, {
+      method: "POST",
+      path: `/cms/slots/${slotId}/preview`,
+    });
+    if (!csrf.ok) return csrf.response;
+
+    const slot = await getSlotById(slotId);
+    if (!slot) return render404();
+
+    const token = await createPreviewToken({
+      subjectType: "slot",
+      subjectId: slot.id,
+      createdBy: ctx.user.id,
+    });
+
+    const url = buildPreviewUrl({
+      baseUrl: process.env.SITE_APP_URL,
+      path: slot.previewPath,
+      rawToken: token.rawToken,
+    });
+    if (!url) return redirect(`/cms/slots/${slot.id}?preview=unavailable`);
+
+    return redirect(url);
+  },
+
   /** Make a draft the revision the site renders, refusing if a newer one exists. */
   async publish(req: BunRequest): Promise<Response> {
     const authRedirect = await requireAuth(req);

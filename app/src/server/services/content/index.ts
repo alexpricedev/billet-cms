@@ -3,6 +3,7 @@ export * from "./drafts";
 export * from "./page-content";
 export * from "./page-writes";
 export * from "./pages";
+export * from "./preview";
 export * from "./publishing";
 export * from "./removed";
 export * from "./revisions";

@@ -64,6 +64,7 @@ interface PageTypeRow extends DefinitionRow {
 interface SlotRow extends DefinitionRow {
   block_name: string;
   page: string;
+  preview_path: string;
   label: string | null;
   help: string | null;
 }
@@ -435,6 +436,7 @@ const syncPageTypes = async (
 const slotMatches = (row: SlotRow, definition: SlotDefinition): boolean =>
   row.block_name === definition.blockName &&
   row.page === definition.page &&
+  row.preview_path === definition.previewPath &&
   (row.label ?? null) === (definition.label ?? null) &&
   (row.help ?? null) === (definition.help ?? null);
 
@@ -444,7 +446,8 @@ const syncSlots = async (
   removedAt: Date,
 ): Promise<SyncResult> => {
   const existing = (await tx.unsafe(
-    `SELECT name, block_name, page, label, help, removed_at FROM ${TABLES.slots}`,
+    `SELECT name, block_name, page, preview_path, label, help, removed_at
+     FROM ${TABLES.slots}`,
   )) as SlotRow[];
 
   let changed = false;
@@ -452,12 +455,14 @@ const syncSlots = async (
     const current = existing.find((row) => row.name === definition.name);
     if (current === undefined) {
       await tx.unsafe(
-        `INSERT INTO ${TABLES.slots} (name, block_name, page, label, help)
-         VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO ${TABLES.slots}
+           (name, block_name, page, preview_path, label, help)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           definition.name,
           definition.blockName,
           definition.page,
+          definition.previewPath,
           definition.label ?? null,
           definition.help ?? null,
         ],
@@ -469,12 +474,13 @@ const syncSlots = async (
     ) {
       await tx.unsafe(
         `UPDATE ${TABLES.slots}
-         SET block_name = $1, page = $2, label = $3, help = $4,
-             removed_at = NULL, updated_at = CURRENT_TIMESTAMP
-         WHERE name = $5`,
+         SET block_name = $1, page = $2, preview_path = $3, label = $4,
+             help = $5, removed_at = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE name = $6`,
         [
           definition.blockName,
           definition.page,
+          definition.previewPath,
           definition.label ?? null,
           definition.help ?? null,
           definition.name,

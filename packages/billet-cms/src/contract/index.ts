@@ -27,9 +27,13 @@ import { createHash } from "node:crypto";
  * `cms_identities` — so an older CMS cannot read a Phase 3 database. Phase 5 adds
  * `cms_pages` (the pages an editor creates against a page type) and `cms_redirects`
  * (the 301s a URL change writes), so the site's catch-all and the plugin's page
- * reader need both before they can serve a page at its URL.
+ * reader need both before they can serve a page at its URL. Phase 6 adds
+ * `cms_preview_tokens` (the short-lived, single-subject tokens the CMS mints and
+ * the plugin checks to render drafts) and `cms_slots.preview_path` (the site page
+ * a slot lives on, so the CMS's Preview button opens the real page), so an older
+ * CMS cannot mint or read a preview.
  */
-export const CONTRACT_VERSION = "0.4.0";
+export const CONTRACT_VERSION = "0.5.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -49,6 +53,18 @@ export const TABLE_PREFIX = "cms_";
  * here is what lets both sides agree on it without importing each other.
  */
 export const CMS_SIGN_IN_PATH = "/cms/sign-in";
+
+/**
+ * The query parameter the CMS puts a preview token in, and the plugin reads.
+ *
+ * The token is what turns a normal published read into a draft read on the
+ * *site*, so the parameter is part of the contract: the CMS builds the URL, the
+ * plugin parses it, and neither imports the other.
+ */
+export const PREVIEW_QUERY_PARAM = "cms_preview";
+
+/** How long a preview token lives: about half an hour. */
+export const PREVIEW_TOKEN_TTL_SECONDS = 30 * 60;
 
 /**
  * Every table and view the CMS owns.
@@ -74,6 +90,12 @@ export const CMS_SIGN_IN_PATH = "/cms/sign-in";
  * and a pointer at the published revision. `redirects` is what a page's URL
  * change writes — the old path points at the page id, so it survives a second
  * rename and the site's catch-all answers it before it looks for a page.
+ *
+ * `preview_tokens` is the other half of Preview: the CMS mints a short-lived,
+ * single-subject token (one page or one slot) and opens the site with it in the
+ * query string; the plugin reads the row to decide whether to render drafts. It
+ * is never listed, revoked row by row or single-use — it expires after half an
+ * hour and a sweep deletes it.
  */
 export const TABLES = {
   migrations: "cms_migrations",
@@ -88,6 +110,7 @@ export const TABLES = {
   handoffTokens: "cms_handoff_tokens",
   pages: "cms_pages",
   redirects: "cms_redirects",
+  previewTokens: "cms_preview_tokens",
 } as const;
 
 export type TableName = (typeof TABLES)[keyof typeof TABLES];

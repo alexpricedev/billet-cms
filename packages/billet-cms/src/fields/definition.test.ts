@@ -116,19 +116,22 @@ describe("slot", () => {
       name: "home.hero",
       blockName: "hero",
       page: "home",
+      previewPath: "/",
     });
   });
 
-  test("takes a label, help and page override", () => {
+  test("takes a label, help, page and preview path override", () => {
     const definition = slot("footer.legal", prose, {
       label: "Legal",
       help: "The small print",
       page: "footer",
+      previewPath: "/terms",
     });
     expect(definition).toMatchObject({
       label: "Legal",
       help: "The small print",
       page: "footer",
+      previewPath: "/terms",
     });
   });
 });

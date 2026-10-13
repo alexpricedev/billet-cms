@@ -17,7 +17,7 @@ export const cleanupTestData = async (db: SQL): Promise<void> => {
   await db`
     TRUNCATE TABLE
       cms_redirects, cms_pages,
-      cms_handoff_tokens, cms_revisions,
+      cms_preview_tokens, cms_handoff_tokens, cms_revisions,
       cms_user_tokens, cms_sessions,
       cms_block_types, cms_page_types, cms_slots
     RESTART IDENTITY CASCADE

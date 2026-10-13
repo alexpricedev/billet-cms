@@ -24,10 +24,16 @@
  * query and adds no per-path cache entry (review round 1). A removed block, an
  * unpublished page or a missing CMS table is a skip and a log, never a 500 on a
  * public page.
+ *
+ * A valid preview token (`./preview`, Phase 6) is the one thing that leaves that
+ * cache: `getPage(path, { preview })` reads the draft directly, and the catch-all
+ * wraps the rendered page in the banner and the no-cache headers.
  */
 import type { SQL } from "bun";
 import { TABLES } from "../contract";
 import type { LinkValue } from "../fields/field";
+import type { PreviewAccess } from "../preview";
+import { applyPreview, getPreviewAccess } from "../preview";
 import { validateContent } from "../schema";
 import { ContentCache } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
@@ -70,8 +76,19 @@ export interface CmsPagesOptions {
 }
 
 export interface CmsPagesReader {
-  /** The published page at `path`, or `null` when there is none. */
-  getPage(path: string): Promise<CmsPage | null>;
+  /**
+   * The published page at `path`, or `null` when there is none.
+   *
+   * Pass `{ preview }` with valid preview access to read the *draft* the token
+   * covers. The read bypasses the content-version cache entirely (a preview must
+   * never be served from, or written to, the published cache), and only the page
+   * the token names as its subject uses its newest revision — any other page
+   * still reads as published.
+   */
+  getPage(
+    path: string,
+    options?: { preview?: PreviewAccess },
+  ): Promise<CmsPage | null>;
   /** The current URL a redirect at `path` points at, or `null`. */
   getRedirect(path: string): Promise<string | null>;
   /** The href a stored link resolves to, or `null` when its page is gone. */
@@ -178,35 +195,36 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
   const { sql } = options;
   const onSkip = options.onSkip ?? defaultSkipLogger;
 
-  const loadPage = async (pageId: string): Promise<CmsPage | null> => {
-    const pages = (await sql.unsafe(
-      `SELECT id, page_type, url, title, seo_description, social_image,
-              published_revision_id, updated_at
-       FROM ${TABLES.pages} WHERE id = $1`,
-      [pageId],
-    )) as PageRow[];
-
-    const page = pages[0];
-    // Never published: nothing to render, and nothing wrong.
-    if (!page?.published_revision_id) return null;
-
-    const revisions = (await sql.unsafe(
-      `SELECT content FROM ${TABLES.revisions} WHERE id = $1`,
-      [page.published_revision_id],
-    )) as { content: Record<string, unknown> }[];
-    const revision = revisions[0];
-    if (!revision) {
-      onSkip(
-        `page "${page.url}" points at a published revision that no longer exists`,
-      );
-      return null;
-    }
-
+  /** The block types, by name, loaded once per page render. */
+  const loadBlockTypes = async (): Promise<Map<string, BlockTypeRow>> => {
     const blockTypes = (await sql.unsafe(
       `SELECT name, json_schema, removed_at FROM ${TABLES.blockTypes}`,
     )) as BlockTypeRow[];
-    const byName = new Map(blockTypes.map((row) => [row.name, row]));
+    return new Map(blockTypes.map((row) => [row.name, row]));
+  };
 
+  /**
+   * Build a page from a row and a revision, validating every block.
+   *
+   * Shared by the published read and the preview read so a draft and a published
+   * revision go through exactly the same validation — a block a deploy removed
+   * or one that no longer validates is skipped and logged either way.
+   */
+  const renderPage = async (
+    page: PageRow,
+    revisionId: string,
+  ): Promise<CmsPage | null> => {
+    const revisions = (await sql.unsafe(
+      `SELECT content FROM ${TABLES.revisions} WHERE id = $1`,
+      [revisionId],
+    )) as { content: Record<string, unknown> }[];
+    const revision = revisions[0];
+    if (!revision) {
+      onSkip(`page "${page.url}" points at a revision that no longer exists`);
+      return null;
+    }
+
+    const byName = await loadBlockTypes();
     const blocks = Array.isArray(revision.content.blocks)
       ? revision.content.blocks
       : [];
@@ -272,6 +290,57 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     };
   };
 
+  const loadPage = async (pageId: string): Promise<CmsPage | null> => {
+    const pages = (await sql.unsafe(
+      `SELECT id, page_type, url, title, seo_description, social_image,
+              published_revision_id, updated_at
+       FROM ${TABLES.pages} WHERE id = $1`,
+      [pageId],
+    )) as PageRow[];
+
+    const page = pages[0];
+    // Never published: nothing to render, and nothing wrong.
+    if (!page?.published_revision_id) return null;
+    return await renderPage(page, page.published_revision_id);
+  };
+
+  /**
+   * The draft read a valid preview token triggers, uncached and by URL.
+   *
+   * The page is looked up by its path regardless of whether it is published —
+   * a page previewed before it ever goes live has no published revision to find
+   * — and only the token's own subject uses its newest revision. Every other
+   * page, and every page reached with a slot's token, reads as published.
+   */
+  const loadPreviewPage = async (
+    path: string,
+    access: PreviewAccess,
+  ): Promise<CmsPage | null> => {
+    const pages = (await sql.unsafe(
+      `SELECT id, page_type, url, title, seo_description, social_image,
+              published_revision_id, updated_at
+       FROM ${TABLES.pages} WHERE url = $1`,
+      [path],
+    )) as PageRow[];
+
+    const page = pages[0];
+    if (!page) return null;
+
+    let revisionId = page.published_revision_id;
+    if (access.subjectType === "page" && access.subjectId === page.id) {
+      const latest = (await sql.unsafe(
+        `SELECT id FROM ${TABLES.revisions}
+         WHERE target_type = 'page' AND target_id = $1
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+        [page.id],
+      )) as { id: string }[];
+      revisionId = latest[0]?.id ?? null;
+    }
+
+    if (!revisionId) return null;
+    return await renderPage(page, revisionId);
+  };
+
   // One loader dispatching on the key: `ContentCache` caches one value per key
   // but has a single `load`, so the key is what tells it what to read on a miss.
   const loadByKey = async (key: string): Promise<unknown> => {
@@ -294,9 +363,18 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
   });
 
   return {
-    async getPage(path: string): Promise<CmsPage | null> {
+    async getPage(
+      path: string,
+      readOptions?: { preview?: PreviewAccess },
+    ): Promise<CmsPage | null> {
       const canonical = canonicalPath(path);
+      const preview = readOptions?.preview;
       try {
+        // Preview bypasses the cache both ways: a draft must not be written
+        // into the published cache, and a published page must not be served
+        // from it while the editor is looking at an unpublished change.
+        if (preview) return await loadPreviewPage(canonical, preview);
+
         const routes = (await cache.get("routes")) as RouteTable;
         const pageId = routes.byUrl.get(canonical);
         // A miss is a 404, not a query: no page is loaded and no cache entry is
@@ -392,12 +470,25 @@ export const createCmsPageRoute = (
   options: CmsPageRouteOptions,
 ): ((req: Request) => Promise<Response | null>) => {
   const reader = createCmsPages(options);
+  const onSkip = options.onSkip ?? defaultSkipLogger;
 
   return async (req: Request): Promise<Response | null> => {
     const method = req.method.toUpperCase();
     if (method !== "GET" && method !== "HEAD") return null;
 
     const url = new URL(req.url);
+
+    // Preview first: a valid token bypasses redirects and reads the draft.
+    // Redirects are skipped on purpose — the editor asked for the page at this
+    // path, and a 301 written for that path would navigate them away from what
+    // they are previewing. A token that is unknown or expired resolves to `null`
+    // and the request takes the published path below, unchanged.
+    const preview = await getPreviewAccess(options.sql, req, { onSkip });
+    if (preview) {
+      const page = await reader.getPage(url.pathname, { preview });
+      if (page) return await applyPreview(await options.render(page), preview);
+      return null;
+    }
 
     const redirected = await reader.getRedirect(url.pathname);
     const location = redirected === null ? null : sameOriginPath(redirected);
@@ -432,8 +523,11 @@ export const getCmsPagesReader = (sql: SQL): CmsPagesReader => {
 };
 
 /** The published page at `path`, using a process-wide reader for `sql`. */
-export const getPage = (sql: SQL, path: string): Promise<CmsPage | null> =>
-  getCmsPagesReader(sql).getPage(path);
+export const getPage = (
+  sql: SQL,
+  path: string,
+  options?: { preview?: PreviewAccess },
+): Promise<CmsPage | null> => getCmsPagesReader(sql).getPage(path, options);
 
 /** The published pages a site merges into its sitemap. */
 export const listSitemapEntries = (sql: SQL): Promise<CmsSitemapEntry[]> =>

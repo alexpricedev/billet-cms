@@ -79,6 +79,13 @@ export const pageNotice = (params: URLSearchParams): Notice | null => {
         "Someone saved a newer draft while this page was open, so nothing was published. Reload the page to see and publish the newest version.",
     };
   }
+  if (params.get("preview") === "unavailable") {
+    return {
+      kind: "warning",
+      message:
+        "Preview isn't available: the CMS isn't pointed at a site URL, so it has nowhere to open the page.",
+    };
+  }
   return null;
 };
 
@@ -178,10 +185,13 @@ export const renderPageForm = async (
     );
   }
 
-  const [formCsrfToken, publishCsrfToken] = await Promise.all([
-    createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}`),
-    createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}/publish`),
-  ]);
+  const [formCsrfToken, publishCsrfToken, previewCsrfToken] = await Promise.all(
+    [
+      createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}`),
+      createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}/publish`),
+      createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}/preview`),
+    ],
+  );
 
   const issues = extras.errors ?? [];
   const settingsIssues = issues.filter((issue) =>
@@ -204,6 +214,7 @@ export const renderPageForm = async (
       user={user}
       formCsrfToken={formCsrfToken}
       publishCsrfToken={publishCsrfToken}
+      previewCsrfToken={previewCsrfToken}
       navCsrfToken={navCsrfToken}
       page={page}
       pageTypes={pageTypes}

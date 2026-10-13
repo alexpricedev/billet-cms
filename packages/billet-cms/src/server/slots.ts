@@ -19,7 +19,10 @@
  *
  * Reads are cached in memory and re-checked against `cms_meta.content_version`
  * at most once a second (Q3, `./cache.ts`), so a publish is visible on the site
- * within seconds and the steady state costs no queries.
+ * within seconds and the steady state costs no queries. A valid preview token
+ * (`./preview`, Phase 6) bypasses that cache for its own subject: pass the
+ * access `getPreviewAccess` returned to `getSlot` and the slot's draft is read
+ * instead, uncached.
  */
 import type { SQL } from "bun";
 import { TABLES } from "../contract";
@@ -30,6 +33,7 @@ import {
   type BlockFields,
   blockContentReadSchema,
 } from "../fields/definition";
+import type { PreviewAccess } from "../preview";
 import { validateContent } from "../schema";
 import { ContentCache } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
@@ -53,7 +57,13 @@ export interface ContentReaderOptions {
  * content against the code, not just the JSON Schema published from it.
  */
 export interface SlotReadOptions {
-  block: BlockDefinitionShape;
+  block?: BlockDefinitionShape;
+  /**
+   * The preview access the request carried, from `getPreviewAccess`. When the
+   * token's subject is this slot, the newest draft is read instead of the
+   * published revision, and the read bypasses the content-version cache.
+   */
+  preview?: PreviewAccess;
 }
 
 export interface ContentReader {
@@ -74,6 +84,7 @@ export interface ContentReader {
 
 interface SlotRow {
   id: string;
+  name: string;
   block_name: string;
   removed_at: Date | null;
   published_revision_id: string | null;
@@ -110,7 +121,7 @@ export const createContentReader = (
 
   const loadSlot = async (name: string): Promise<SlotContent | null> => {
     const slots = (await sql.unsafe(
-      `SELECT id, block_name, removed_at, published_revision_id
+      `SELECT id, name, block_name, removed_at, published_revision_id
        FROM ${TABLES.slots} WHERE name = $1`,
       [name],
     )) as SlotRow[];
@@ -124,7 +135,55 @@ export const createContentReader = (
 
     // Never published: nothing to render, and nothing wrong.
     if (!slot.published_revision_id) return null;
+    return await readSlotRevision(slot, slot.published_revision_id);
+  };
 
+  /**
+   * Read a draft when the preview token's subject is this slot.
+   *
+   * The slot is found by name, then its newest revision is read uncached — a
+   * preview must reflect the editor's latest save, not a value held against
+   * `content_version`. A token for a different subject (or a page token) falls
+   * through to the published revision, so previewing one slot does not show
+   * drafts for every other slot on the page.
+   */
+  const loadPreviewSlot = async (
+    name: string,
+    access: PreviewAccess,
+  ): Promise<SlotContent | null> => {
+    const slots = (await sql.unsafe(
+      `SELECT id, name, block_name, removed_at, published_revision_id
+       FROM ${TABLES.slots} WHERE name = $1`,
+      [name],
+    )) as SlotRow[];
+
+    const slot = slots[0];
+    if (!slot) return null;
+    if (slot.removed_at !== null) {
+      onSkip(`slot "${name}" is no longer declared in the site's templates`);
+      return null;
+    }
+
+    let revisionId = slot.published_revision_id;
+    if (access.subjectType === "slot" && access.subjectId === slot.id) {
+      const latest = (await sql.unsafe(
+        `SELECT id FROM ${TABLES.revisions}
+         WHERE target_type = 'slot' AND target_id = $1
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+        [slot.id],
+      )) as { id: string }[];
+      revisionId = latest[0]?.id ?? null;
+    }
+
+    if (!revisionId) return null;
+    return await readSlotRevision(slot, revisionId);
+  };
+
+  /** Validate one stored revision against the block type's published contract. */
+  const readSlotRevision = async (
+    slot: SlotRow,
+    revisionId: string,
+  ): Promise<SlotContent | null> => {
     const blockTypes = (await sql.unsafe(
       `SELECT json_schema, removed_at FROM ${TABLES.blockTypes} WHERE name = $1`,
       [slot.block_name],
@@ -133,27 +192,25 @@ export const createContentReader = (
     const blockType = blockTypes[0];
     if (!blockType) {
       onSkip(
-        `slot "${name}" uses block "${slot.block_name}", which is not published`,
+        `slot "${slot.name}" uses block "${slot.block_name}", which is not published`,
       );
       return null;
     }
     if (blockType.removed_at !== null) {
       onSkip(
-        `slot "${name}" uses block "${slot.block_name}", which was removed by a deploy`,
+        `slot "${slot.name}" uses block "${slot.block_name}", which was removed by a deploy`,
       );
       return null;
     }
 
     const revisions = (await sql.unsafe(
       `SELECT content FROM ${TABLES.revisions} WHERE id = $1`,
-      [slot.published_revision_id],
+      [revisionId],
     )) as RevisionRow[];
 
     const revision = revisions[0];
     if (!revision) {
-      onSkip(
-        `slot "${name}" points at a published revision that no longer exists`,
-      );
+      onSkip(`slot "${slot.name}" points at a revision that no longer exists`);
       return null;
     }
 
@@ -173,7 +230,7 @@ export const createContentReader = (
           (issue) => `${issue.path.join(".") || "(content)"}: ${issue.message}`,
         )
         .join("; ");
-      onSkip(`slot "${name}" content no longer validates — ${detail}`);
+      onSkip(`slot "${slot.name}" content no longer validates — ${detail}`);
       return null;
     }
 
@@ -201,7 +258,11 @@ export const createContentReader = (
       options?: SlotReadOptions,
     ): Promise<T | null> {
       try {
-        const content = await cache.get(name);
+        // A preview bypasses the cache: the draft must not be served from, or
+        // written to, the published cache, and must reflect the newest save.
+        const content = options?.preview
+          ? await loadPreviewSlot(name, options.preview)
+          : await cache.get(name);
         if (content === null) return null;
 
         // The stored schema is the published contract; the site's own block
@@ -283,8 +344,13 @@ export function getSlot<T = SlotContent>(
 export function getSlot<F extends BlockFields>(
   sql: SQL,
   name: string,
-  options: { block: BlockDefinition<F> },
+  options: { block: BlockDefinition<F>; preview?: PreviewAccess },
 ): Promise<BlockContent<F> | null>;
+export function getSlot(
+  sql: SQL,
+  name: string,
+  options: { preview: PreviewAccess; block?: BlockDefinitionShape },
+): Promise<SlotContent | null>;
 export function getSlot(
   sql: SQL,
   name: string,

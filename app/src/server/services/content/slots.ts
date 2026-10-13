@@ -12,6 +12,8 @@ export interface SlotRecord {
   name: string;
   blockName: string;
   page: string;
+  /** The site path whose Preview opens this slot, e.g. `/` or `/contact`. */
+  previewPath: string;
   label: string | null;
   help: string | null;
   removedAt: Date | null;
@@ -23,6 +25,7 @@ interface SlotRow {
   name: string;
   block_name: string;
   page: string;
+  preview_path: string;
   label: string | null;
   help: string | null;
   removed_at: Date | null;
@@ -34,6 +37,7 @@ const toSlot = (row: SlotRow): SlotRecord => ({
   name: row.name,
   blockName: row.block_name,
   page: row.page,
+  previewPath: row.preview_path,
   label: row.label,
   help: row.help,
   removedAt: row.removed_at,
@@ -42,7 +46,7 @@ const toSlot = (row: SlotRow): SlotRecord => ({
 
 export const listSlots = async (): Promise<SlotRecord[]> => {
   const rows = (await db`
-    SELECT id, name, block_name, page, label, help, removed_at,
+    SELECT id, name, block_name, page, preview_path, label, help, removed_at,
            published_revision_id
     FROM cms_slots
     ORDER BY page, name
@@ -52,7 +56,7 @@ export const listSlots = async (): Promise<SlotRecord[]> => {
 
 export const getSlotById = async (id: string): Promise<SlotRecord | null> => {
   const rows = (await db`
-    SELECT id, name, block_name, page, label, help, removed_at,
+    SELECT id, name, block_name, page, preview_path, label, help, removed_at,
            published_revision_id
     FROM cms_slots
     WHERE id = ${id}

@@ -53,6 +53,19 @@ const insertHandoffToken = async (tokenHash: string, expiresAt: Date) => {
   `;
 };
 
+const insertPreviewToken = async (tokenHash: string, expiresAt: Date) => {
+  await db`
+    INSERT INTO cms_preview_tokens
+      (subject_type, subject_id, token_hash, expires_at)
+    VALUES (
+      ${"page"},
+      ${"00000000-0000-4000-8000-000000000000"},
+      ${tokenHash},
+      ${expiresAt.toISOString()}
+    )
+  `;
+};
+
 describe("Cleanup sweep", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
@@ -97,6 +110,20 @@ describe("Cleanup sweep", () => {
       await runCleanupSweep();
 
       const rows = await db`SELECT token_hash FROM cms_handoff_tokens`;
+      expect(rows.map((row: { token_hash: string }) => row.token_hash)).toEqual(
+        ["live-hash"],
+      );
+    });
+  });
+
+  describe("cms_preview_tokens", () => {
+    test("deletes expired preview tokens and keeps live ones", async () => {
+      await insertPreviewToken("expired-hash", new Date(Date.now() - HOUR));
+      await insertPreviewToken("live-hash", new Date(Date.now() + HOUR));
+
+      await runCleanupSweep();
+
+      const rows = await db`SELECT token_hash FROM cms_preview_tokens`;
       expect(rows.map((row: { token_hash: string }) => row.token_hash)).toEqual(
         ["live-hash"],
       );

@@ -19,12 +19,14 @@ mock.module("../../services/database", () => ({
   },
 }));
 
+import { hashPreviewToken } from "@alexpricedev/billet-cms/preview";
 import { createRevision, saveSlotDraft } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { staleCsrfToken } from "../../test-utils/auth-form";
 import { createBunRequest } from "../../test-utils/bun-request";
+import { slotPublish } from "./publish";
 import { slotForm } from "./slot";
 
 const ORIGIN = process.env.APP_URL as string;
@@ -425,6 +427,48 @@ describe("Slot form controller", () => {
         SELECT content FROM cms_revisions ORDER BY created_at DESC LIMIT 1
       `;
       expect(latest[0].content.heading).toBe("Mine");
+    });
+  });
+
+  describe("preview", () => {
+    test("offers a Preview button and mints a token for the slot's page", async () => {
+      const html = await (await slotForm.index(get())).text();
+      expect(html).toContain(`action="${path(slotId)}/preview"`);
+
+      const formData = new FormData();
+      formData.append(
+        "_csrf",
+        await createCsrfToken(sessionId, "POST", `${path(slotId)}/preview`),
+      );
+      const res = await slotPublish.preview(
+        createBunRequest(
+          `${ORIGIN}${path(slotId)}/preview`,
+          {
+            method: "POST",
+            headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+            body: formData,
+          },
+          { id: slotId },
+        ),
+      );
+
+      expect(res.status).toBe(303);
+      const location = res.headers.get("location") ?? "";
+      // `seedSlot` defaults the preview path to the site root.
+      expect(location.startsWith("http://localhost:4000/?cms_preview=")).toBe(
+        true,
+      );
+      const raw = new URL(location).searchParams.get("cms_preview") ?? "";
+      expect(raw).not.toBe("");
+
+      const rows = (await db`
+        SELECT subject_type, subject_id, token_hash FROM cms_preview_tokens
+      `) as { subject_type: string; subject_id: string; token_hash: string }[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].subject_type).toBe("slot");
+      expect(rows[0].subject_id).toBe(slotId);
+      // Only the hash is stored, never the raw token.
+      expect(rows[0].token_hash).toBe(hashPreviewToken(raw));
     });
   });
 });

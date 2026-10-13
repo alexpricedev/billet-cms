@@ -5,6 +5,8 @@ import {
   hashJson,
   isCmsRelation,
   META_KEYS,
+  PREVIEW_QUERY_PARAM,
+  PREVIEW_TOKEN_TTL_SECONDS,
   STORED_SCHEMA_FORMAT,
   STORED_SCHEMA_FORMAT_VERSION,
   type StoredSchema,
@@ -22,6 +24,16 @@ describe("CMS_SIGN_IN_PATH", () => {
   test("is the site path both services agree on, and is site-relative", () => {
     expect(CMS_SIGN_IN_PATH).toBe("/cms/sign-in");
     expect(CMS_SIGN_IN_PATH.startsWith("/")).toBe(true);
+  });
+});
+
+describe("preview contract", () => {
+  test("fixes the query parameter both sides agree on", () => {
+    expect(PREVIEW_QUERY_PARAM).toBe("cms_preview");
+  });
+
+  test("is short-lived: about half an hour", () => {
+    expect(PREVIEW_TOKEN_TTL_SECONDS).toBe(30 * 60);
   });
 });
 
@@ -46,6 +58,7 @@ describe("TABLES", () => {
       handoffTokens: "cms_handoff_tokens",
       pages: "cms_pages",
       redirects: "cms_redirects",
+      previewTokens: "cms_preview_tokens",
     });
   });
 });
