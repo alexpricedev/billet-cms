@@ -11,13 +11,14 @@ import {
 } from "../src/server/test-utils/helpers";
 import { prepareDatabase } from "../src/server/test-utils/prepare-databases";
 
-// Real-browser smoke tests, run via `bun run test:browser` — deliberately NOT
-// part of `bun run test`, which globs `src` only. Bun.WebView is experimental
-// and the engine differs by platform, so these journeys must never gate the
-// deterministic suite. The `chrome` backend is required off macOS (the default
-// `webkit` backend throws there) and is what CI installs, so every run is
-// pinned to it rather than to whatever the platform defaults to. What they
-// cover is exactly what happy-dom can't:
+// Real-browser smoke tests, run via `bun run test:browser`. CI runs them in a
+// job of their own — the repository-root `.github/workflows/ci.yml`, "Browser
+// smoke tests" — rather than inside `bun run test`, which globs `src` only.
+// Bun.WebView is experimental and the engine differs by platform: system WebKit
+// on macOS, an installed Chrome on the Linux runner. Folding them into the
+// deterministic suite would let a platform difference read as a broken diff; as
+// their own job, a failure here is its own signal. What they cover is exactly
+// what happy-dom can't:
 //
 // - the client bundle executing in a real page (running, not just parsing)
 // - CSP: a blocked script passes every unit test and fails only here
@@ -88,6 +89,41 @@ const bodyText = (): Promise<string> =>
  */
 const clickThrough = (selector: string): Promise<void> =>
   view.click(selector).catch(() => {});
+
+/**
+ * Click something that may sit below the fold. Bun's selector click waits for
+ * the element to be "actionable", and Chrome treats in-viewport as part of
+ * that — WebKit scrolls to it, Chrome refuses — so a target that is off-screen
+ * times out rather than being brought into view. The generated slot form grows
+ * as list rows are added, so scroll the target to the middle first. A no-op
+ * when it is already visible.
+ */
+const clickIntoView = async (selector: string): Promise<void> => {
+  await view.scrollTo(selector, { block: "center" });
+  await view.click(selector);
+};
+
+/**
+ * Navigate, tolerating a page that is still settling. A redirect paints its
+ * flash before the document finishes loading, and a navigate() issued in that
+ * window is cancelled rather than failed — Chrome reports net::ERR_ABORTED,
+ * WebKit waits it out. So let the current document finish first, then load,
+ * retrying once if the first attempt was cancelled anyway. `readyState` is
+ * `complete` on the initial about:blank, so the first navigation pays nothing.
+ */
+const goto = async (url: string): Promise<void> => {
+  await until(
+    () => view.evaluate<string>("document.readyState").catch(() => "loading"),
+    (state) => state === "complete",
+    5_000,
+  );
+  try {
+    await view.navigate(url);
+  } catch (error) {
+    if (!String(error).includes("ERR_ABORTED")) throw error;
+    await view.navigate(url);
+  }
+};
 
 const escapeHtml = (value: string): string =>
   value
@@ -246,16 +282,31 @@ beforeAll(async () => {
   startSite();
 
   view = new Bun.WebView({
-    // Chrome, not the platform default: `webkit` (the default) throws on
-    // non-macOS, and CI is Linux. Pinning it means local and CI run the same
-    // engine. Bun auto-detects the binary, or takes BUN_CHROME_PATH when CI's
-    // setup-chrome sets it.
-    backend: "chrome",
     width: 1280,
     height: 900,
     console: (type, ...args) => {
       if (type === "error") pageErrors.push(args.map(String).join(" "));
     },
+    // Bun drives an installed Chrome over CDP off macOS; macOS uses the system
+    // WebKit, which is why this file runs on a Mac with no browser installed.
+    // The Chrome the CI job installs is not the distro package: its sandbox
+    // helper isn't root-owned, while Ubuntu 23.10+ — the runner image — forbids
+    // the unprivileged user namespace Chrome otherwise builds its sandbox from
+    // (`kernel.apparmor_restrict_unprivileged_userns=1`). Headless Chrome there
+    // then exits before the first page — "Chrome process closed the pipe" —
+    // unless it skips the sandbox, which is fine for a browser that only ever
+    // loads the two localhost servers below. A small `/dev/shm` kills it the
+    // same way, hence the second flag. Neither applies to WebKit, so they are
+    // set only off macOS; passing `argv` also forces spawn mode, so a run never
+    // attaches to a Chrome another process left open.
+    ...(process.platform === "darwin"
+      ? {}
+      : {
+          backend: {
+            type: "chrome" as const,
+            argv: ["--no-sandbox", "--disable-dev-shm-usage"],
+          },
+        }),
   });
 });
 
@@ -271,7 +322,7 @@ afterAll(async () => {
 
 describe("browser smoke", () => {
   test("home renders with a title and an applied stylesheet", async () => {
-    await view.navigate(`${CMS_BASE}/`);
+    await goto(`${CMS_BASE}/`);
 
     const title = await view.evaluate<string>("document.title");
     expect(title.length).toBeGreaterThan(0);
@@ -285,7 +336,7 @@ describe("browser smoke", () => {
   });
 
   test("the client bundle runs the forms page script", async () => {
-    await view.navigate(`${CMS_BASE}/forms`);
+    await goto(`${CMS_BASE}/forms`);
 
     // set only by src/client/pages/forms.ts at init — proves main.js was
     // served, passed CSP, executed, and the page registry dispatched.
@@ -300,7 +351,7 @@ describe("browser smoke", () => {
   });
 
   test("a guest submits the form through the CSRF round-trip", async () => {
-    await view.navigate(`${CMS_BASE}/forms`);
+    await goto(`${CMS_BASE}/forms`);
 
     await view.click("input[name='name']");
     await view.type("Smoke Tester");
@@ -325,7 +376,7 @@ describe("browser smoke", () => {
   test("a signed-out CMS visit signs in through the site and back", async () => {
     // No cookie yet: /cms answers a redirect chain out to the site's sign-in
     // route and then to the site's own login.
-    await view.navigate(`${CMS_BASE}/cms`);
+    await goto(`${CMS_BASE}/cms`);
 
     const loginUrl = await until(
       async () => view.url,
@@ -359,7 +410,7 @@ describe("browser smoke", () => {
 
   test("the CMS form script rebuilds the content field on save", async () => {
     // Continues signed in from the journey above.
-    await view.navigate(`${CMS_BASE}/cms/slots/${slotId}`);
+    await goto(`${CMS_BASE}/cms/slots/${slotId}`);
 
     // The server rendered one empty list row; the client script appends a
     // second on click. That only happens if cms-form.js loaded, passed CSP and
@@ -369,7 +420,7 @@ describe("browser smoke", () => {
         `document.querySelectorAll("[data-list-items] > [data-list-item]").length`,
       );
     const before = await rowCount();
-    await view.click("[data-list-add]");
+    await clickIntoView("[data-list-add]");
     // Bun's Chrome backend can leave a click's completion handler pending, and
     // a `evaluate` issued straight after stalls behind it. A beat, then read.
     await Bun.sleep(300);
@@ -380,7 +431,7 @@ describe("browser smoke", () => {
     // heading proves the script ran on submit too. `requestSubmit()` fires the
     // same submit event a click would — the script's listener included — without
     // waiting on a click's navigation, which stalls the same way.
-    await view.click("#cms-field-heading");
+    await clickIntoView("#cms-field-heading");
     await view.type("Hero heading from the smoke test");
     await Bun.sleep(300);
     await view
@@ -396,13 +447,13 @@ describe("browser smoke", () => {
   test("the Edit content link signs in through /handoff", async () => {
     // Sign out first: /handoff sends an already-signed-in visitor straight to
     // /cms, so the token would never be spent.
-    await view.navigate(`${CMS_BASE}/cms`);
+    await goto(`${CMS_BASE}/cms`);
     await clickThrough("form[action='/auth/logout'] button");
     await until(bodyText, (text) => text.includes("Sign in"));
 
     // The site's home renders the link from the plugin helper — same token
     // mechanism, minted by the site and spent by the CMS.
-    await view.navigate(`${SITE_BASE}/`);
+    await goto(`${SITE_BASE}/`);
     const href = await view.evaluate<string>(
       `document.querySelector("a.edit-content")?.getAttribute("href") ?? ""`,
     );
