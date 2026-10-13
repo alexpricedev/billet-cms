@@ -104,6 +104,38 @@ export const findUnavailableBlocks = (
   return unavailable;
 };
 
+/**
+ * Put the blocks a save couldn't carry back where they were.
+ *
+ * The editor's form has no controls for a block whose type isn't editable, so
+ * with JavaScript on the client drops it from what it submits. Appending the
+ * missing blocks at the end would move a removed hero below the blocks that
+ * followed it, so each is re-inserted at its original index (clamped to the
+ * submitted list) instead (review round 1). The submitted blocks keep their own
+ * order; only the blocks the client couldn't send are restored.
+ */
+export const mergeUnavailableBlocks = (
+  submitted: PageBlock[],
+  base: PageBlock[],
+  unavailable: UnavailableBlock[],
+): PageBlock[] => {
+  const missing: { index: number; block: PageBlock }[] = [];
+  for (const entry of unavailable) {
+    const block = base[entry.index];
+    if (!block) continue;
+    if (submitted.some((candidate) => candidate.type === block.type)) continue;
+    missing.push({ index: entry.index, block });
+  }
+  if (missing.length === 0) return submitted;
+
+  missing.sort((a, b) => a.index - b.index);
+  const merged = [...submitted];
+  for (const { index, block } of missing) {
+    merged.splice(Math.min(index, merged.length), 0, block);
+  }
+  return merged;
+};
+
 export interface ValidatePageOptions {
   /** Carry a block whose type isn't published instead of refusing it (Q4). */
   allowUnavailableBlocks?: boolean;

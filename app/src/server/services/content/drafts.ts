@@ -117,10 +117,16 @@ const plainMessage = (message: string): string => {
  * a save does and shows the same field-level messages.
  */
 export const formatIssues = (issues: ValidationIssue[]): FieldIssue[] =>
-  issues.map((issue) => ({
-    path: issue.path.length > 0 ? issue.path.join(".") : "(content)",
-    message: plainMessage(issue.message),
-  }));
+  issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join(".") : "(content)";
+    // A page-mode link with no page chosen fails on `pageId`; name the problem
+    // rather than leaving the generic "This value isn't valid" (review round 1).
+    const message =
+      issue.path[issue.path.length - 1] === "pageId"
+        ? "Choose a page."
+        : plainMessage(issue.message);
+    return { path, message };
+  });
 
 const describeConflict = async (
   revision: RevisionRecord,

@@ -430,6 +430,23 @@ h1 {
   font-weight: 600;
 }
 
+/* The create form is a flat list of fields (no settings/blocks sections), so it
+   carries its own grid gap. */
+.cms-new-page-form {
+  display: grid;
+  gap: 1rem;
+}
+
+/* An empty list is a state, not a warning: a neutral card, the same one the
+   empty history uses. */
+.cms-empty-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
 .cms-page-list,
 .cms-redirect-list {
   list-style: none;
@@ -438,10 +455,22 @@ h1 {
   gap: 0.5rem;
 }
 
-.cms-page-list li,
-.cms-redirect-list li {
+.cms-page-list li {
   display: grid;
   gap: 0.2rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+}
+
+/* A redirect is one line of `from → to`; flex keeps the two values and the
+   arrow together rather than stacking them the way a page row does. */
+.cms-redirect-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
@@ -504,12 +533,19 @@ h1 {
   min-inline-size: 0;
 }
 
+/* The block already spaces its own controls; the shared field list's margin
+   would add a second, uneven gap inside the card. */
+.cms-block .cms-fields {
+  margin: 0;
+}
+
 .cms-block-legend {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: var(--color-text-secondary);
-  font-size: 0.9rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
 }
 
 .cms-block-actions {

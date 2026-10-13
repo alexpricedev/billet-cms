@@ -50,6 +50,21 @@ describe("normalisePageUrl", () => {
     expect(normalisePageUrl("/about#top").ok).toBe(false);
     expect(normalisePageUrl("/a b").ok).toBe(false);
   });
+
+  test("refuses a backslash, which a browser reads as a slash", () => {
+    expect(normalisePageUrl("/\\evil.example").ok).toBe(false);
+    expect(normalisePageUrl("\\evil.example").ok).toBe(false);
+  });
+
+  test("resolves dot segments and percent-encodes non-ASCII", () => {
+    // `/a/../b` is `/b`, and `url.pathname` is what the catch-all compares.
+    expect(normalisePageUrl("/a/../b")).toEqual({ ok: true, url: "/b" });
+    expect(normalisePageUrl("/café")).toEqual({ ok: true, url: "/caf%C3%A9" });
+    expect(normalisePageUrl("/caf%C3%A9")).toEqual({
+      ok: true,
+      url: "/caf%C3%A9",
+    });
+  });
 });
 
 describe("page CRUD", () => {
@@ -118,6 +133,31 @@ describe("page CRUD", () => {
     expect(await listPages()).toEqual([]);
   });
 
+  test("refuses a social image that isn't an http(s) URL or a path", async () => {
+    const result = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImage: "javascript:alert(1)",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.path).toBe("socialImage");
+    expect(await listPages()).toEqual([]);
+  });
+
+  test("accepts an absolute or site-relative social image", async () => {
+    // The `create` helper uses `/og/about.png`.
+    expect((await create("/relative")).ok).toBe(true);
+    const absolute = await createPage({
+      pageType: "landing",
+      url: "/absolute",
+      title: "Absolute",
+      socialImage: "https://cdn.example/og.png",
+    });
+    expect(absolute.ok).toBe(true);
+  });
+
   test("refuses a page type that isn't published", async () => {
     const result = await createPage({
       pageType: "nope",
@@ -159,6 +199,39 @@ describe("page CRUD", () => {
     expect(changed.ok).toBe(true);
     if (!changed.ok) return;
     expect(changed.page.pageType).toBe("article");
+  });
+
+  test("skips the write and the version bump when the settings didn't change", async () => {
+    const created = await create("/about");
+    if (!created.ok) throw new Error("create failed");
+
+    const version = async (): Promise<number> =>
+      Number(
+        (await db`SELECT content_version FROM cms_meta WHERE id = 1`)[0]
+          .content_version,
+      );
+    const before = await version();
+
+    // The `create` helper's own settings, saved back unchanged.
+    const same = await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      seoDescription: "Who we are.",
+      socialImage: "/og/about.png",
+    });
+    expect(same.ok).toBe(true);
+    expect(await version()).toBe(before);
+
+    const changed = await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "landing",
+      url: "/about",
+      title: "A new title",
+    });
+    expect(changed.ok).toBe(true);
+    expect(await version()).toBe(before + 1);
   });
 
   test("deletes a page and its redirects", async () => {
@@ -261,6 +334,36 @@ describe("redirects on URL change", () => {
       title: "About us, really",
     });
     expect(await listRedirects()).toEqual([]);
+  });
+
+  test("renaming back to an earlier URL takes it back from its own redirect", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+
+    await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "landing",
+      url: "/about-us",
+      title: "About us",
+    });
+    await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+
+    // The page is at /about again, and /about is no longer a redirect.
+    expect((await getPageByUrl("/about"))?.title).toBe("About us");
+    expect(await getPageByUrl("/about-us")).toBeNull();
+    const redirects = await listRedirects();
+    expect(redirects.map((redirect) => redirect.fromPath)).toEqual([
+      "/about-us",
+    ]);
   });
 
   test("a page created at a redirected path takes the path back", async () => {

@@ -363,6 +363,7 @@ export const FieldControl = ({
               <FieldLabelText field={field} />
             </legend>
           )}
+          <FieldHelp help={field.help} id={helpId} />
           <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>
           <input
             type="text"
@@ -384,7 +385,6 @@ export const FieldControl = ({
             value={asString(image.alt)}
           />
           <FieldErrors errors={errors} id={errorId} />
-          <FieldHelp help={field.help} id={helpId} />
           {field.image?.minWidth && (
             <span className="cms-field-help">
               Needs at least {field.image.minWidth}px wide
@@ -413,6 +413,7 @@ export const FieldControl = ({
               <FieldLabelText field={field} />
             </legend>
           )}
+          <FieldHelp help={field.help} id={helpId} />
           <SubControlLabel htmlFor={idFor("type")}>Link type</SubControlLabel>
           <select
             id={idFor("type")}
@@ -447,6 +448,8 @@ export const FieldControl = ({
               id={idFor("page")}
               data-link-page
               aria-label={controlId ? undefined : "CMS page"}
+              aria-invalid={invalid ? "true" : undefined}
+              aria-describedby={described}
             >
               <option value="" selected={!link.pageId}>
                 Choose a page…
@@ -483,7 +486,6 @@ export const FieldControl = ({
             Open in a new tab
           </label>
           <FieldErrors errors={errors} id={errorId} />
-          <FieldHelp help={field.help} id={helpId} />
         </fieldset>
       );
     }

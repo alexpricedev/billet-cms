@@ -39,6 +39,16 @@ describe("pageSeo", () => {
     });
     expect(seo.socialImage).toBe("https://example.com/og/about.png");
   });
+
+  // A page's settings are validated on write, but the site can hand these
+  // helpers anything; a malformed value must not throw inside a render.
+  test("leaves an unparseable social image as it is, without throwing", () => {
+    const seo = pageSeo(page({ socialImage: "http://[" }), { siteUrl: SITE });
+    expect(seo.socialImage).toBe("http://[");
+    expect(() =>
+      pageSeo(page({ socialImage: "/og.png" }), { siteUrl: "" }),
+    ).not.toThrow();
+  });
 });
 
 describe("renderSeoTags", () => {
@@ -85,6 +95,10 @@ describe("renderSeoTags", () => {
     expect(html).not.toContain("<script>");
     expect(html).toContain("&quot;&gt;&lt;script&gt;");
   });
+
+  test("does not throw when the canonical origin can't resolve a path", () => {
+    expect(() => renderSeoTags(pageSeo(page()), { siteUrl: "" })).not.toThrow();
+  });
 });
 
 describe("renderSitemapEntries", () => {
@@ -105,5 +119,13 @@ describe("renderSitemapEntries", () => {
 
   test("renders nothing for no pages", () => {
     expect(renderSitemapEntries([], { siteUrl: SITE })).toBe("");
+  });
+
+  test("does not throw on a URL it can't resolve", () => {
+    expect(() =>
+      renderSitemapEntries([{ url: "::", lastModified: new Date(0) }], {
+        siteUrl: "",
+      }),
+    ).not.toThrow();
   });
 });

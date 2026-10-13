@@ -139,6 +139,34 @@ describe("cms form editor", () => {
     expect(buildContent(form()).heading).toBeUndefined();
   });
 
+  // A page-mode link with no page chosen yet used to serialize to nothing, so a
+  // failed save re-rendered it as an empty URL link and lost the label.
+  test("keeps a page-mode link's mode and label with no page chosen", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="link" data-field-name="cta">
+          <select data-link-type>
+            <option value="url">External URL</option>
+            <option value="page" selected>CMS page</option>
+          </select>
+          <input type="text" data-link-url value="">
+          <select data-link-page>
+            <option value="">Choose a page…</option>
+          </select>
+          <input type="text" data-link-label value="Go">
+          <input type="checkbox" data-link-newtab>
+        </div>
+      </form>
+    `);
+
+    expect(buildContent(form()).cta).toEqual({ type: "page", label: "Go" });
+
+    // A page-mode link that carries nothing at all is still dropped.
+    const label = form().querySelector<HTMLInputElement>("[data-link-label]");
+    if (label) label.value = "";
+    expect(buildContent(form()).cta).toBeUndefined();
+  });
+
   test("writes the rebuilt document into the hidden field on submit", () => {
     const hidden = form().querySelector<HTMLInputElement>("[data-cms-content]");
     form().dispatchEvent(new Event("submit"));
