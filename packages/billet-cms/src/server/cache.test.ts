@@ -76,6 +76,69 @@ describe("ContentCache", () => {
     expect(state.versionReads).toBe(2);
   });
 
+  // A failed version check must not cost the process content it already has.
+  test("serves the last version when the check fails, and backs off", async () => {
+    const state = { now: 0, version: 1, reads: 0, fails: false };
+    const errors: unknown[] = [];
+    const cache = new ContentCache<string>({
+      readVersion: async () => {
+        state.reads += 1;
+        if (state.fails) throw new Error("cms_meta is gone");
+        return state.version;
+      },
+      load: async (key) => `${state.version}:${key}`,
+      now: () => state.now,
+      intervalMs: 1000,
+      onVersionError: (error) => errors.push(error),
+    });
+
+    expect(await cache.get("a")).toBe("1:a");
+
+    // The CMS goes away between reads.
+    state.fails = true;
+    state.now = 1000;
+    expect(await cache.get("a")).toBe("1:a");
+    expect(errors).toHaveLength(1);
+
+    // Backed off for one interval.
+    state.now = 1100;
+    expect(await cache.get("a")).toBe("1:a");
+    expect(state.reads).toBe(2);
+
+    // Recovered: the version moves and the cache drops.
+    state.fails = false;
+    state.version = 2;
+    state.now = 2000;
+    expect(await cache.get("a")).toBe("2:a");
+    expect(state.reads).toBe(3);
+  });
+
+  test("backs off when the check fails before any version was read", async () => {
+    const state = { now: 0, reads: 0 };
+    const cache = new ContentCache<string>({
+      readVersion: async () => {
+        state.reads += 1;
+        throw new Error("cms_meta is gone");
+      },
+      load: async (key) => key,
+      now: () => state.now,
+      intervalMs: 1000,
+    });
+
+    await expect(cache.version()).rejects.toThrow("cms_meta is gone");
+    expect(state.reads).toBe(1);
+
+    // Inside the interval, the stored error is re-thrown without re-querying.
+    state.now = 100;
+    await expect(cache.version()).rejects.toThrow("cms_meta is gone");
+    expect(state.reads).toBe(1);
+
+    // Past the interval, it tries again.
+    state.now = 1000;
+    await expect(cache.version()).rejects.toThrow("cms_meta is gone");
+    expect(state.reads).toBe(2);
+  });
+
   // A load can outlive the interval it started in. If it were cached anyway it
   // would take the place of fresher content, so the write is tagged with the
   // generation it started under and dropped once the version has moved.

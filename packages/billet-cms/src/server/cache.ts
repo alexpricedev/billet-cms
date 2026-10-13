@@ -27,6 +27,11 @@ export interface ContentCacheOptions<V> {
   now?: () => number;
   /** How often to re-read the version. Defaults to `CONTENT_VERSION_POLL_MS`. */
   intervalMs?: number;
+  /**
+   * Called when the version check fails but the cache can fall back to the last
+   * version it read. The site's reader wires this to its skip logger.
+   */
+  onVersionError?: (error: unknown) => void;
 }
 
 export class ContentCache<V> {
@@ -34,10 +39,18 @@ export class ContentCache<V> {
   readonly #load: (key: string) => Promise<V>;
   readonly #now: () => number;
   readonly #intervalMs: number;
+  readonly #onVersionError: ((error: unknown) => void) | undefined;
 
   #version: number | null = null;
   #checkedAt = Number.NEGATIVE_INFINITY;
   #entries = new Map<string, V>();
+  /**
+   * The error from the last failed version read, kept so a process that has
+   * never read a version can back off too: with nothing cached there is no
+   * value to serve, but the broken database should still not be re-queried on
+   * every request. The error is re-thrown until the next interval.
+   */
+  #versionError: { error: unknown } | null = null;
   /**
    * Bumped whenever the version moves. A `get` that started under one
    * generation must not write its value after the version has changed: the
@@ -52,6 +65,7 @@ export class ContentCache<V> {
     this.#load = options.load;
     this.#now = options.now ?? Date.now;
     this.#intervalMs = options.intervalMs ?? CONTENT_VERSION_POLL_MS;
+    this.#onVersionError = options.onVersionError;
   }
 
   /**
@@ -61,21 +75,49 @@ export class ContentCache<V> {
    * so a single publish can invalidate any cached slot, not just the one that
    * changed. A no-op re-read keeps the cache warm, which is what makes the
    * steady state free.
+   *
+   * A failed re-read is not allowed to take away content the process already
+   * has. The counter lives in the same database a public page reads from, so
+   * "could not read `cms_meta`" is a transient condition — the CMS is down, or
+   * mid-migration — and the site must keep rendering. When there is a last
+   * known version the cache keeps serving it, backs off for one interval so a
+   * broken database isn't re-queried on every request, and reports the failure.
+   * With nothing read yet there is nothing cached to serve either, so the error
+   * surfaces to the caller — but the same back-off applies, so a database that
+   * is down when the process first looks isn't hit once per request either.
    */
   async version(): Promise<number> {
     const now = this.#now();
     if (this.#version !== null && now - this.#checkedAt < this.#intervalMs) {
       return this.#version;
     }
-
-    const next = await this.#readVersion();
-    if (next !== this.#version) {
-      this.#entries.clear();
-      this.#version = next;
-      this.#generation += 1;
+    if (
+      this.#version === null &&
+      this.#versionError !== null &&
+      now - this.#checkedAt < this.#intervalMs
+    ) {
+      throw this.#versionError.error;
     }
-    this.#checkedAt = now;
-    return this.#version;
+
+    try {
+      const next = await this.#readVersion();
+      if (next !== this.#version) {
+        this.#entries.clear();
+        this.#version = next;
+        this.#generation += 1;
+      }
+      this.#checkedAt = now;
+      this.#versionError = null;
+      return this.#version;
+    } catch (error) {
+      this.#checkedAt = now;
+      if (this.#version !== null) {
+        this.#onVersionError?.(error);
+        return this.#version;
+      }
+      this.#versionError = { error };
+      throw error;
+    }
   }
 
   /** The cached value for `key`, loading and caching it when absent or stale. */
