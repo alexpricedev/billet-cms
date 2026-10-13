@@ -470,5 +470,49 @@ describe("Slot form controller", () => {
       // Only the hash is stored, never the raw token.
       expect(rows[0].token_hash).toBe(hashPreviewToken(raw));
     });
+
+    test("a failed mint redirects with a notice, not an HTML 500", async () => {
+      const formData = new FormData();
+      formData.append(
+        "_csrf",
+        await createCsrfToken(sessionId, "POST", `${path(slotId)}/preview`),
+      );
+
+      // Break the mint the way an unreachable database would. Renamed rather
+      // than dropped so every later test finds the table where it left it.
+      await db`ALTER TABLE cms_preview_tokens RENAME TO cms_preview_tokens_broken`;
+      let res: Response;
+      try {
+        res = await slotPublish.preview(
+          createBunRequest(
+            `${ORIGIN}${path(slotId)}/preview`,
+            {
+              method: "POST",
+              headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+              body: formData,
+            },
+            { id: slotId },
+          ),
+        );
+      } finally {
+        await db`ALTER TABLE cms_preview_tokens_broken RENAME TO cms_preview_tokens`;
+      }
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `${path(slotId)}?preview=failed`,
+      );
+
+      const html = await (
+        await slotForm.index(
+          createBunRequest(
+            `${ORIGIN}${path(slotId)}?preview=failed`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: slotId },
+          ),
+        )
+      ).text();
+      expect(html).toContain("create a preview link");
+    });
   });
 });

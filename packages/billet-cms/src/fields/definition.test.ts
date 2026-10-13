@@ -134,6 +134,30 @@ describe("slot", () => {
       previewPath: "/terms",
     });
   });
+
+  // `previewPath` is opened in the editor's browser by the CMS, so a value that
+  // isn't a same-origin path would navigate them off-site. It is caught at the
+  // declaration, next to the mistake.
+  test("accepts a same-origin previewPath", () => {
+    expect(() =>
+      slot("home.hero", hero, { previewPath: "/contact" }),
+    ).not.toThrow();
+    expect(() => slot("home.hero", hero, { previewPath: "/" })).not.toThrow();
+  });
+
+  test("refuses a previewPath that isn't a same-origin path", () => {
+    for (const previewPath of [
+      "//evil.example/phish",
+      "/\\evil.example",
+      "https://evil.example",
+      "about",
+      "",
+    ]) {
+      expect(() => slot("home.hero", hero, { previewPath })).toThrow(
+        /invalid previewPath/,
+      );
+    }
+  });
 });
 
 describe("pageType", () => {

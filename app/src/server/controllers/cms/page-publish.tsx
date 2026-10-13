@@ -13,6 +13,7 @@ import {
   restorePageRevision,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
+import { log } from "../../services/logger";
 import { PageHistory } from "../../templates/cms/page-history";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
@@ -54,16 +55,30 @@ export const pagePublish = {
     const page = await getPageById(pageId);
     if (!page) return render404();
 
-    const token = await createPreviewToken({
-      subjectType: "page",
-      subjectId: page.id,
-      createdBy: ctx.user.id,
-    });
+    // Minting writes a row, so an unreachable database or a missing
+    // `cms_preview_tokens` is the one thing that can fail here. That is a
+    // notice, not the styled HTML 500 an uncaught throw would become.
+    let rawToken: string;
+    try {
+      ({ rawToken } = await createPreviewToken({
+        subjectType: "page",
+        subjectId: page.id,
+        createdBy: ctx.user.id,
+      }));
+    } catch (error) {
+      log.error(
+        "preview",
+        `Could not mint a preview token for page "${page.id}": ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return redirect(`/cms/pages/${page.id}?preview=failed`);
+    }
 
     const url = buildPreviewUrl({
       baseUrl: process.env.SITE_APP_URL,
       path: page.url,
-      rawToken: token.rawToken,
+      rawToken,
     });
     if (!url) return redirect(`/cms/pages/${page.id}?preview=unavailable`);
 

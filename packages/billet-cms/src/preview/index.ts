@@ -124,14 +124,40 @@ export const PREVIEW_BANNER_ID = "cms-preview-banner";
  * The banner a previewed page shows, so an editor never mistakes a draft for
  * the live site. Inline styles: it appears on the *site's* page, whose CSS the
  * plugin does not own.
+ *
+ * `position: sticky` rather than `fixed`: the banner is injected as the first
+ * child of `<body>` (see `injectPreviewBanner`), so sticky keeps it in the flow
+ * — an editor scrolling the draft never has it cover the site's own header.
+ * `role="region"` with a label, not `role="status"`: the banner is a persistent
+ * landmark, not a transient announcement, so it should not be read out by a
+ * screen reader on every page load.
  */
 export const renderPreviewBanner = (): string =>
-  `<div id="${PREVIEW_BANNER_ID}" role="status" ` +
-  'style="position:fixed;inset:0 0 auto 0;z-index:2147483647;' +
+  `<div id="${PREVIEW_BANNER_ID}" role="region" aria-label="Preview" ` +
+  'style="position:sticky;top:0;z-index:2147483647;' +
   "background:#b45309;color:#fff;font:600 14px/1.4 system-ui,sans-serif;" +
   'padding:8px 16px;text-align:center">' +
   "Preview — showing unpublished draft content. This is not the live site." +
   "</div>";
+
+/** The opening `<body>` tag, whatever case the site wrote it in. */
+const BODY_OPEN = /<body[^>]*>/i;
+
+/**
+ * Put the banner at the top of the rendered page.
+ *
+ * Right after the opening `<body>` tag, whatever its case, so it is the first
+ * thing in the flow. A page with no `<body>` tag gets the banner appended
+ * rather than prepended: an insertion before the document would land ahead of
+ * `<!doctype html>` and force quirks mode. Neither path can be fooled by a
+ * `</body>` inside a `<script>`, which prepending-to-the-end used to hit.
+ */
+const injectPreviewBanner = (html: string, banner: string): string => {
+  const match = BODY_OPEN.exec(html);
+  if (!match) return `${html}${banner}`;
+  const end = match.index + match[0].length;
+  return `${html.slice(0, end)}${banner}${html.slice(end)}`;
+};
 
 /**
  * Wrap a response in preview: the no-cache headers, and the banner for HTML.
@@ -161,14 +187,26 @@ export const applyPreview = async (
     });
   }
 
+  // A body the producer already compressed can't be rewritten: reading it as
+  // text would hand back the compressed bytes, not the markup, so injecting a
+  // banner into it would corrupt the page. Apply the preview headers only and
+  // leave the body — and its encoding — alone.
+  if (headers.has("Content-Encoding")) {
+    headers.delete("ETag");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
   const html = await response.text();
-  const banner = renderPreviewBanner();
-  // The body is about to change, so a length the producer set would be wrong.
+  const body = injectPreviewBanner(html, renderPreviewBanner());
+  // The body was re-serialised, so the producer's framing headers no longer
+  // describe it: the length, the ETag, and any encoding have all gone stale.
   headers.delete("Content-Length");
+  headers.delete("ETag");
   headers.delete("Content-Encoding");
-  const body = html.includes("</body>")
-    ? html.replace("</body>", `${banner}</body>`)
-    : `${banner}${html}`;
 
   return new Response(body, {
     status: response.status,

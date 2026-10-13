@@ -34,12 +34,11 @@ export const up = async (db: SQL): Promise<void> => {
     )
   `;
 
-  // The two reads the table serves: the plugin looks a token up by hash, and the
-  // cleanup sweep deletes expired rows.
-  await db`
-    CREATE INDEX cms_preview_tokens_subject_idx
-    ON cms_preview_tokens(subject_type, subject_id)
-  `;
+  // The two reads the table serves: the plugin looks a token up by
+  // `token_hash` — the UNIQUE constraint already indexes it — and the cleanup
+  // sweep deletes expired rows by `expires_at`. There is deliberately no index
+  // on the subject: nothing queries the table by subject, so one would only
+  // cost writes.
   await db`
     CREATE INDEX cms_preview_tokens_expires_at_idx
     ON cms_preview_tokens(expires_at)

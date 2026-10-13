@@ -249,6 +249,51 @@ describe("Pages controller", () => {
     expect(rows[0].subject_id).toBe(pageId);
   });
 
+  test("a failed mint redirects with a notice, not an HTML 500", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    // Break the mint the way an unreachable database would: the INSERT has
+    // nowhere to land. Renamed rather than dropped so every later test finds
+    // the table where it left it.
+    await db`ALTER TABLE cms_preview_tokens RENAME TO cms_preview_tokens_broken`;
+    let res: Response;
+    try {
+      res = await pagePublish.preview(
+        await post(
+          `/cms/pages/${pageId}/preview`,
+          {},
+          `/cms/pages/${pageId}/preview`,
+          { id: pageId },
+        ),
+      );
+    } finally {
+      await db`ALTER TABLE cms_preview_tokens_broken RENAME TO cms_preview_tokens`;
+    }
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?preview=failed`,
+    );
+
+    // The redirect lands on the editor with the notice, not a server error page.
+    const html = await (
+      await pages.form(
+        createBunRequest(
+          `${ORIGIN}/cms/pages/${pageId}?preview=failed`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id: pageId },
+        ),
+      )
+    ).text();
+    expect(html).toContain("create a preview link");
+  });
+
   test("an invalid content save writes neither settings nor a redirect", async () => {
     const created = await createPage({
       pageType: "landing",

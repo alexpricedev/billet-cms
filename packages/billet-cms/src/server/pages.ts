@@ -32,11 +32,18 @@
 import type { SQL } from "bun";
 import { TABLES } from "../contract";
 import type { LinkValue } from "../fields/field";
+import { sameOriginPath } from "../fields/path";
 import type { PreviewAccess } from "../preview";
 import { applyPreview, getPreviewAccess } from "../preview";
 import { validateContent } from "../schema";
 import { ContentCache } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
+import { latestRevisionId } from "./revisions";
+
+// Re-exported for the sites and tests that imported it from here before it
+// moved to the field vocabulary (`../fields/path`), where `slot()` can also
+// apply the same rule to a declared `previewPath`.
+export { sameOriginPath };
 
 /** One block of a page's content: its fields plus the `type` discriminator. */
 export interface CmsPageBlock {
@@ -80,14 +87,15 @@ export interface CmsPagesReader {
    * The published page at `path`, or `null` when there is none.
    *
    * Pass `{ preview }` with valid preview access to read the *draft* the token
-   * covers. The read bypasses the content-version cache entirely (a preview must
-   * never be served from, or written to, the published cache), and only the page
-   * the token names as its subject uses its newest revision — any other page
-   * still reads as published.
+   * covers; `null` is the published read, so a caller can forward the access a
+   * request carried without branching. The read bypasses the content-version
+   * cache entirely (a preview must never be served from, or written to, the
+   * published cache), and only the page the token names as its subject uses its
+   * newest revision — any other page still reads as published.
    */
   getPage(
     path: string,
-    options?: { preview?: PreviewAccess },
+    options?: { preview?: PreviewAccess | null },
   ): Promise<CmsPage | null>;
   /** The current URL a redirect at `path` points at, or `null`. */
   getRedirect(path: string): Promise<string | null>;
@@ -109,6 +117,11 @@ interface PageRow {
   published_revision_id: string | null;
   updated_at: Date;
 }
+
+// The columns both page reads select. Shared so the published read and the
+// preview read cannot drift into selecting different fields.
+const PAGE_COLUMNS = `id, page_type, url, title, seo_description, social_image,
+              published_revision_id, updated_at`;
 
 interface BlockTypeRow {
   name: string;
@@ -292,8 +305,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
 
   const loadPage = async (pageId: string): Promise<CmsPage | null> => {
     const pages = (await sql.unsafe(
-      `SELECT id, page_type, url, title, seo_description, social_image,
-              published_revision_id, updated_at
+      `SELECT ${PAGE_COLUMNS}
        FROM ${TABLES.pages} WHERE id = $1`,
       [pageId],
     )) as PageRow[];
@@ -317,8 +329,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     access: PreviewAccess,
   ): Promise<CmsPage | null> => {
     const pages = (await sql.unsafe(
-      `SELECT id, page_type, url, title, seo_description, social_image,
-              published_revision_id, updated_at
+      `SELECT ${PAGE_COLUMNS}
        FROM ${TABLES.pages} WHERE url = $1`,
       [path],
     )) as PageRow[];
@@ -328,13 +339,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
 
     let revisionId = page.published_revision_id;
     if (access.subjectType === "page" && access.subjectId === page.id) {
-      const latest = (await sql.unsafe(
-        `SELECT id FROM ${TABLES.revisions}
-         WHERE target_type = 'page' AND target_id = $1
-         ORDER BY created_at DESC, id DESC LIMIT 1`,
-        [page.id],
-      )) as { id: string }[];
-      revisionId = latest[0]?.id ?? null;
+      revisionId = await latestRevisionId(sql, "page", page.id);
     }
 
     if (!revisionId) return null;
@@ -365,7 +370,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
   return {
     async getPage(
       path: string,
-      readOptions?: { preview?: PreviewAccess },
+      readOptions?: { preview?: PreviewAccess | null },
     ): Promise<CmsPage | null> {
       const canonical = canonicalPath(path);
       const preview = readOptions?.preview;
@@ -434,29 +439,34 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
   };
 };
 
+/**
+ * What the catch-all hands the site's render function alongside the page.
+ *
+ * The render function may itself read slots (a CMS page whose template also
+ * mounts `slot("…")`). Passing the request's preview access through is what lets
+ * a slot previewed inside a CMS-served page render its draft: the site forwards
+ * `preview` to `getSlot`, and `null` means the published read, so a caller can
+ * pass it on without branching.
+ */
+export interface CmsPageRenderContext {
+  /** The preview access the request carried, or `null` for a published read. */
+  preview: PreviewAccess | null;
+  /** The request being served. */
+  req: Request;
+}
+
 export interface CmsPageRouteOptions extends CmsPagesOptions {
   /**
    * Render a resolved page to a Response. The site owns the layout and the block
    * render functions; the plugin owns the redirect/page/404 decision around it.
+   * The context carries the preview access, so the page can forward it to any
+   * slot it mounts — which is how a slot preview works on a CMS-served page.
    */
-  render: (page: CmsPage) => Response | Promise<Response>;
+  render: (
+    page: CmsPage,
+    context: CmsPageRenderContext,
+  ) => Response | Promise<Response>;
 }
-
-/**
- * A path the browser will follow on this site, or `null`.
- *
- * A `Location` built from stored content is the one place the plugin can send a
- * browser somewhere, so the value is constrained to a same-origin path: it must
- * start with `/` and not `//` (protocol-relative navigates off-site) or carry a
- * backslash (browsers read `\` as `/`, so `/\host` is `//host` in disguise).
- * Anything else is not a redirect and the catch-all moves on to the page lookup.
- */
-export const sameOriginPath = (path: string): string | null => {
-  if (!path.startsWith("/")) return null;
-  if (path.startsWith("//")) return null;
-  if (path.includes("\\")) return null;
-  return path;
-};
 
 /**
  * The catch-all a site mounts in its fallback, just before its 404.
@@ -486,7 +496,12 @@ export const createCmsPageRoute = (
     const preview = await getPreviewAccess(options.sql, req, { onSkip });
     if (preview) {
       const page = await reader.getPage(url.pathname, { preview });
-      if (page) return await applyPreview(await options.render(page), preview);
+      if (page) {
+        return await applyPreview(
+          await options.render(page, { preview, req }),
+          preview,
+        );
+      }
       return null;
     }
 
@@ -500,7 +515,7 @@ export const createCmsPageRoute = (
     }
 
     const page = await reader.getPage(url.pathname);
-    if (page) return await options.render(page);
+    if (page) return await options.render(page, { preview: null, req });
 
     return null;
   };
@@ -526,7 +541,7 @@ export const getCmsPagesReader = (sql: SQL): CmsPagesReader => {
 export const getPage = (
   sql: SQL,
   path: string,
-  options?: { preview?: PreviewAccess },
+  options?: { preview?: PreviewAccess | null },
 ): Promise<CmsPage | null> => getCmsPagesReader(sql).getPage(path, options);
 
 /** The published pages a site merges into its sitemap. */
