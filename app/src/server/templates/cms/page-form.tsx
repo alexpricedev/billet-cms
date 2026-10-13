@@ -401,8 +401,9 @@ export const PageForm = ({
         </form>
         {/* Preview mints a short-lived token and opens the site in a new tab
             with it, so the editor sees the draft without leaving the CMS.
-            Disabled with no draft: with nothing saved there is nothing to show
-            that isn't already the live page. */}
+            Disabled with no draft, and when the draft is already the live
+            revision: there is no unpublished change to preview. Matches
+            Publish, which is disabled in the same two cases. */}
         <form
           method="POST"
           action={`/cms/pages/${page.id}/preview`}
@@ -413,7 +414,7 @@ export const PageForm = ({
           <button
             type="submit"
             className="cms-preview-button"
-            disabled={!hasDraft}
+            disabled={!hasDraft || upToDate}
           >
             Preview draft <span aria-hidden="true">↗</span>
             <span className="sr-only">(opens in a new tab)</span>
