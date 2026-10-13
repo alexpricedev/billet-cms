@@ -106,9 +106,14 @@ jobs:
           bun-version-file: .bun-version
       # Bun.WebView drives an installed Chrome on Linux. setup-chrome installs
       # it and exposes the binary path, which BUN_CHROME_PATH points Bun at
-      # (PATH is where it looks otherwise).
+      # (PATH is where it looks otherwise). Pin the stable channel: v1's default
+      # `latest` is a Chromium *nightly* snapshot, free to break between runs —
+      # 157.0.8102.0, what the first run of this job installed, exited before it
+      # loaded a page.
       - id: chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
       - run: bun install --frozen-lockfile
       # Builds the client bundles, then runs the smoke test against them.
       - run: bun run --cwd app test:browser
