@@ -57,6 +57,13 @@ export const formNotice = (params: URLSearchParams): Notice | null => {
         "This draft can't be published because it no longer matches the block's fields. Update the content and save it again.",
     };
   }
+  if (params.get("publish") === "stale") {
+    return {
+      kind: "warning",
+      message:
+        "Someone saved a newer draft while this page was open, so nothing was published. Reload the page to see and publish the newest version.",
+    };
+  }
   if (params.get("unavailable") === "1") {
     return {
       kind: "warning",
@@ -115,6 +122,12 @@ const renderSlotForm = async (
   const sessionId = ctx.sessionId as string;
   const removed = findRemovedFields(content, blockType.fields);
 
+  // The newest revision, looked up rather than inferred from what the editor
+  // posted: the hidden `base_revision` can point at an older revision (a
+  // validation failure re-renders with the posted base), and the form's status
+  // and Publish button have to reflect what is actually newest.
+  const latest = await getLatestRevision("slot", slot.id);
+
   // The hidden `content` field carries only the declared fields. Removed ones
   // are re-attached server-side from the base revision, so a save with
   // JavaScript off — which posts the hidden field unchanged — still validates.
@@ -139,7 +152,7 @@ const renderSlotForm = async (
       blockType={blockType}
       content={declaredContent}
       baseRevisionId={baseRevisionId}
-      latestRevisionId={baseRevisionId}
+      latestRevisionId={latest?.id ?? null}
       publishedRevisionId={slot.publishedRevisionId}
       removedFieldNames={removed.names}
       errors={extras.errors}

@@ -223,6 +223,10 @@ export const SlotForm = ({
         </p>
         <form method="POST" action={`/cms/slots/${slot.id}/publish`}>
           <input type="hidden" name="_csrf" value={publishCsrfToken} />
+          {/* The revision this form rendered. Publishing it — rather than the
+              newest at submit time — is what makes a stale click a warning
+              instead of someone else's draft going live unseen. */}
+          <input type="hidden" name="revision" value={latestRevisionId ?? ""} />
           <button
             type="submit"
             className="cms-publish-button"

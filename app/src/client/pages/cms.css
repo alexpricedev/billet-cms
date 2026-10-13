@@ -299,7 +299,22 @@ h1 {
   cursor: pointer;
 }
 
-.cms-publish-button:disabled {
+/* The global button hover turns the background purple, which leaves the light
+   text at 2.25:1. These states keep the neutral surface and make the change of
+   state read through the border and a slight lift instead. */
+.cms-publish-button:hover,
+.cms-publish-button:focus-visible {
+  background: var(--color-surface);
+  border-color: var(--color-text-tertiary);
+  color: var(--color-text);
+}
+
+.cms-publish-button:disabled,
+.cms-publish-button:disabled:hover,
+.cms-publish-button:disabled:focus-visible {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
   opacity: 0.5;
   cursor: default;
 }
@@ -312,16 +327,34 @@ h1 {
   gap: 0.5rem;
 }
 
+/* Two columns so every Restore button lines up: with flex and
+   `space-between`, a row with a button and a row without put their meta at
+   different widths and the buttons zigzagged down the list. */
 .cms-history-item {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
   gap: 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
   background: var(--color-surface);
+}
+
+@media (max-width: 480px) {
+  .cms-history-item {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+}
+
+/* An empty history is a state, not a warning: a neutral card. */
+.cms-history-empty {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
 }
 
 .cms-history-meta {
@@ -347,4 +380,23 @@ h1 {
 
 .cms-history-restore {
   margin: 0;
+}
+
+/* Restore is a secondary action, not the page's primary one: the default
+   button is the purple primary, whose white-on-purple text is 3.25:1. */
+.cms-restore-button {
+  padding: 0.4rem 0.9rem;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cms-restore-button:hover,
+.cms-restore-button:focus-visible {
+  background: var(--color-surface);
+  border-color: var(--color-text-tertiary);
+  color: var(--color-text);
 }

@@ -22,7 +22,7 @@ const nonEmpty = (value: FormDataEntryValue | null): string | null =>
  * path — a token minted for the form can't be replayed against publish.
  */
 export const slotPublish = {
-  /** Make the newest draft the revision the site renders. */
+  /** Make a draft the revision the site renders, refusing if a newer one exists. */
   async publish(req: BunRequest): Promise<Response> {
     const authRedirect = await requireAuth(req);
     if (authRedirect) return authRedirect;
@@ -47,8 +47,22 @@ export const slotPublish = {
       return redirect(`/cms/slots/${slotId}?unavailable=1`);
     }
 
-    const result = await publishSlot({ slotId, slot, blockType });
+    // The revision the editor's form rendered. Posting it (rather than letting
+    // the service pick the newest) is what stops a publish from putting a
+    // colleague's newer draft live without the editor ever seeing it.
+    const formData = await req.formData();
+    const revisionId = nonEmpty(formData.get("revision"));
+
+    const result = await publishSlot({
+      slotId,
+      slot,
+      blockType,
+      ...(revisionId ? { revisionId, requireLatest: true } : {}),
+    });
     if (!result.ok) {
+      if (result.reason === "stale") {
+        return redirect(`/cms/slots/${slotId}?publish=stale`);
+      }
       return redirect(
         `/cms/slots/${slotId}?publish=${result.reason === "no-draft" ? "empty" : "invalid"}`,
       );
@@ -81,6 +95,12 @@ export const slotPublish = {
     const revisionId = nonEmpty(formData.get("revision"));
     if (!revisionId) {
       return redirect(`/cms/slots/${slotId}/history?error=missing`);
+    }
+    // A revision id goes straight into a UUID column, where a non-UUID is a
+    // Postgres cast error and would surface as a 500. Treat a malformed one as
+    // an unavailable revision and send the editor back to the history.
+    if (!UUID_PATTERN.test(revisionId)) {
+      return redirect(`/cms/slots/${slotId}/history?error=not-found`);
     }
 
     const result = await restoreSlotRevision({
