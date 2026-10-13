@@ -8,6 +8,7 @@ import {
   PREVIEW_HEADERS,
   PREVIEW_QUERY_PARAM,
   readPreviewAccess,
+  renderPreviewBanner,
 } from "./index";
 
 /** A pool whose only table is a map of token hash to subject. */
@@ -176,5 +177,108 @@ describe("applyPreview", () => {
     expect(html.indexOf(PREVIEW_BANNER_ID)).toBeLessThan(
       html.indexOf("</body>"),
     );
+  });
+
+  test("is a labelled region, sticky so it never covers the site header", () => {
+    const banner = renderPreviewBanner();
+
+    expect(banner).toContain('role="region"');
+    expect(banner).toContain('aria-label="Preview"');
+    expect(banner).not.toContain('role="status"');
+    expect(banner).toContain("position:sticky;top:0");
+  });
+
+  test("injects the banner as the first child of the body", async () => {
+    const response = new Response(
+      "<html><head><title>x</title></head><body><header>H</header></body></html>",
+      { headers: { "Content-Type": "text/html" } },
+    );
+    const html = await (await applyPreview(response, access)).text();
+
+    // Before the site's own header, so sticky keeps it at the top of the flow
+    // instead of a fixed banner covering that header.
+    expect(html.indexOf(PREVIEW_BANNER_ID)).toBeGreaterThan(
+      html.indexOf("<body>"),
+    );
+    expect(html.indexOf(PREVIEW_BANNER_ID)).toBeLessThan(
+      html.indexOf("<header>"),
+    );
+  });
+
+  test("matches the body tag whatever case it is written in", async () => {
+    const response = new Response("<HTML><BODY><h1>Hi</h1></BODY></HTML>", {
+      headers: { "Content-Type": "text/html" },
+    });
+    const html = await (await applyPreview(response, access)).text();
+
+    expect(html.indexOf(PREVIEW_BANNER_ID)).toBeLessThan(
+      html.indexOf("<h1>Hi</h1>"),
+    );
+  });
+
+  test("appends the banner when there is no body tag", async () => {
+    const response = new Response("<p>Fragment</p>", {
+      headers: { "Content-Type": "text/html" },
+    });
+    const html = await (await applyPreview(response, access)).text();
+
+    // Appended, not prepended: an insertion ahead of the document would land
+    // before `<!doctype html>` and force quirks mode.
+    expect(html).toBe(`<p>Fragment</p>${renderPreviewBanner()}`);
+  });
+
+  test("is not fooled by a </body> spelled inside a script", async () => {
+    const source =
+      '<html><body><script>const s = "</body>";</script><h1>Hi</h1></body></html>';
+    const response = new Response(source, {
+      headers: { "Content-Type": "text/html" },
+    });
+    const html = await (await applyPreview(response, access)).text();
+
+    // The banner goes right after `<body>`, not where the script's string
+    // happens to spell the closing tag.
+    expect(html.indexOf(PREVIEW_BANNER_ID)).toBeLessThan(
+      html.indexOf("<script>"),
+    );
+    expect(html).toContain('<script>const s = "</body>";</script>');
+  });
+
+  test("strips the framing headers it invalidates", async () => {
+    const response = new Response("<html><body><h1>Hi</h1></body></html>", {
+      headers: {
+        "Content-Type": "text/html",
+        "Content-Length": "999",
+        ETag: 'W/"stale"',
+      },
+    });
+    const previewed = await applyPreview(response, access);
+
+    expect(previewed.headers.get("Content-Length")).toBeNull();
+    expect(previewed.headers.get("ETag")).toBeNull();
+  });
+
+  test("leaves an already-encoded body alone, headers only", async () => {
+    const encoded = Bun.gzipSync(
+      new TextEncoder().encode("<html><body><h1>Hi</h1></body></html>"),
+    );
+    const response = new Response(encoded, {
+      headers: {
+        "Content-Type": "text/html",
+        "Content-Encoding": "gzip",
+        "Content-Length": String(encoded.byteLength),
+        ETag: 'W/"stale"',
+      },
+    });
+    const previewed = await applyPreview(response, access);
+
+    // The headers say no-cache, noindex — but reading the compressed bytes as
+    // text would corrupt the page, so the body and its encoding are untouched.
+    expect(previewed.headers.get("Cache-Control")).toBe("no-store");
+    expect(previewed.headers.get("Content-Encoding")).toBe("gzip");
+    expect(previewed.headers.get("Content-Length")).toBe(
+      String(encoded.byteLength),
+    );
+    expect(previewed.headers.get("ETag")).toBeNull();
+    expect(new Uint8Array(await previewed.arrayBuffer())).toEqual(encoded);
   });
 });

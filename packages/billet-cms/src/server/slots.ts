@@ -37,6 +37,7 @@ import type { PreviewAccess } from "../preview";
 import { validateContent } from "../schema";
 import { ContentCache } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
+import { latestRevisionId } from "./revisions";
 
 /** The validated content of one published slot, keyed by field/block name. */
 export type SlotContent = Record<string, unknown>;
@@ -59,11 +60,13 @@ export interface ContentReaderOptions {
 export interface SlotReadOptions {
   block?: BlockDefinitionShape;
   /**
-   * The preview access the request carried, from `getPreviewAccess`. When the
-   * token's subject is this slot, the newest draft is read instead of the
-   * published revision, and the read bypasses the content-version cache.
+   * The preview access the request carried, from `getPreviewAccess`, or `null`
+   * for a published read. When the token's subject is this slot, the newest
+   * draft is read instead of the published revision, and the read bypasses the
+   * content-version cache. `null` is accepted so a site can forward the access
+   * the catch-all handed its render function without branching.
    */
-  preview?: PreviewAccess;
+  preview?: PreviewAccess | null;
 }
 
 export interface ContentReader {
@@ -119,14 +122,18 @@ export const createContentReader = (
   const { sql } = options;
   const onSkip = options.onSkip ?? defaultSkipLogger;
 
-  const loadSlot = async (name: string): Promise<SlotContent | null> => {
+  /** The slot row for `name`, shared by the published and preview reads. */
+  const readSlotRow = async (name: string): Promise<SlotRow | null> => {
     const slots = (await sql.unsafe(
       `SELECT id, name, block_name, removed_at, published_revision_id
        FROM ${TABLES.slots} WHERE name = $1`,
       [name],
     )) as SlotRow[];
+    return slots[0] ?? null;
+  };
 
-    const slot = slots[0];
+  const loadSlot = async (name: string): Promise<SlotContent | null> => {
+    const slot = await readSlotRow(name);
     if (!slot) return null;
     if (slot.removed_at !== null) {
       onSkip(`slot "${name}" is no longer declared in the site's templates`);
@@ -151,13 +158,7 @@ export const createContentReader = (
     name: string,
     access: PreviewAccess,
   ): Promise<SlotContent | null> => {
-    const slots = (await sql.unsafe(
-      `SELECT id, name, block_name, removed_at, published_revision_id
-       FROM ${TABLES.slots} WHERE name = $1`,
-      [name],
-    )) as SlotRow[];
-
-    const slot = slots[0];
+    const slot = await readSlotRow(name);
     if (!slot) return null;
     if (slot.removed_at !== null) {
       onSkip(`slot "${name}" is no longer declared in the site's templates`);
@@ -166,13 +167,7 @@ export const createContentReader = (
 
     let revisionId = slot.published_revision_id;
     if (access.subjectType === "slot" && access.subjectId === slot.id) {
-      const latest = (await sql.unsafe(
-        `SELECT id FROM ${TABLES.revisions}
-         WHERE target_type = 'slot' AND target_id = $1
-         ORDER BY created_at DESC, id DESC LIMIT 1`,
-        [slot.id],
-      )) as { id: string }[];
-      revisionId = latest[0]?.id ?? null;
+      revisionId = await latestRevisionId(sql, "slot", slot.id);
     }
 
     if (!revisionId) return null;
@@ -336,6 +331,10 @@ const readerFor = (sql: SQL): ContentReader => {
  * Pass the site's own `block` to have the content parsed against its Zod
  * schema too; the result is typed from that definition, so a render function
  * gets the content its own fields declare.
+ *
+ * Pass `{ preview }` with the access `getPreviewAccess` returned — or the
+ * `null` the catch-all hands a render function — to read the draft a token
+ * covers, uncached. `null` is the published read.
  */
 export function getSlot<T = SlotContent>(
   sql: SQL,
@@ -344,12 +343,12 @@ export function getSlot<T = SlotContent>(
 export function getSlot<F extends BlockFields>(
   sql: SQL,
   name: string,
-  options: { block: BlockDefinition<F>; preview?: PreviewAccess },
+  options: { block: BlockDefinition<F>; preview?: PreviewAccess | null },
 ): Promise<BlockContent<F> | null>;
 export function getSlot(
   sql: SQL,
   name: string,
-  options: { preview: PreviewAccess; block?: BlockDefinitionShape },
+  options: SlotReadOptions,
 ): Promise<SlotContent | null>;
 export function getSlot(
   sql: SQL,

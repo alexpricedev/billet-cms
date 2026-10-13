@@ -415,7 +415,8 @@ export const PageForm = ({
             className="cms-preview-button"
             disabled={!hasDraft}
           >
-            Preview draft
+            Preview draft <span aria-hidden="true">↗</span>
+            <span className="sr-only">(opens in a new tab)</span>
           </button>
         </form>
         <a className="cms-history-link" href={`/cms/pages/${page.id}/history`}>

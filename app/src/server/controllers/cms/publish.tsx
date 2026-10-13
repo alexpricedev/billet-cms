@@ -11,6 +11,7 @@ import {
   publishSlot,
   restoreSlotRevision,
 } from "../../services/content";
+import { log } from "../../services/logger";
 import { render404 } from "../../utils/errors";
 import { redirect } from "../../utils/response";
 import { UUID_PATTERN } from "./params";
@@ -54,16 +55,30 @@ export const slotPublish = {
     const slot = await getSlotById(slotId);
     if (!slot) return render404();
 
-    const token = await createPreviewToken({
-      subjectType: "slot",
-      subjectId: slot.id,
-      createdBy: ctx.user.id,
-    });
+    // Minting writes a row, so an unreachable database or a missing
+    // `cms_preview_tokens` is the one thing that can fail here. That is a
+    // notice, not the styled HTML 500 an uncaught throw would become.
+    let rawToken: string;
+    try {
+      ({ rawToken } = await createPreviewToken({
+        subjectType: "slot",
+        subjectId: slot.id,
+        createdBy: ctx.user.id,
+      }));
+    } catch (error) {
+      log.error(
+        "preview",
+        `Could not mint a preview token for slot "${slot.id}": ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return redirect(`/cms/slots/${slot.id}?preview=failed`);
+    }
 
     const url = buildPreviewUrl({
       baseUrl: process.env.SITE_APP_URL,
       path: slot.previewPath,
-      rawToken: token.rawToken,
+      rawToken,
     });
     if (!url) return redirect(`/cms/slots/${slot.id}?preview=unavailable`);
 

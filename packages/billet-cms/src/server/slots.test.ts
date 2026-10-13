@@ -185,6 +185,19 @@ describe("getSlot with the site's own block", () => {
     const heading: string | undefined = content?.heading;
     expect(heading).toBe("Cached hero");
   });
+
+  // A site forwards `preview` straight from the catch-all's render context,
+  // where it is `null` for a published read. That must be the same read as
+  // omitting it, not a type error the site has to branch around.
+  test("the convenience getSlot forwards a null preview as published", async () => {
+    const { sql } = fakeSql();
+    const content = await getSlot(sql, "home.hero", {
+      block: hero,
+      preview: null,
+    });
+
+    expect(content?.heading).toBe("Cached hero");
+  });
 });
 
 describe("getSlot with preview access", () => {
@@ -265,5 +278,12 @@ describe("getSlot with preview access", () => {
 
     // And it must not have written the draft into the published cache.
     expect((await slots.getSlot("home.hero"))?.heading).toBe("Published");
+  });
+
+  test("a null preview is the published read", async () => {
+    const content = await reader(previewSql()).getSlot("home.hero", {
+      preview: null,
+    });
+    expect(content).toEqual({ heading: "Published" });
   });
 });

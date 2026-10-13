@@ -40,3 +40,44 @@ Pass `{ block }` to check the content against the block's own Zod schema as
 well. The content type is inferred from the definition, so a render function is
 handed exactly what its fields declare, and content the schema rejects is
 logged and returned as `null`.
+
+## Preview
+
+Preview is a token row, not an API. The CMS mints a short-lived token for one
+subject — a page or a slot — and opens the real page with `?cms_preview=…`; the
+plugin checks the row and renders that subject's newest draft. Three calls make
+up the site half, in order:
+
+```ts
+import {
+  applyPreview,
+  getPreviewAccess,
+  getSlot,
+} from "@alexpricedev/billet-cms/server";
+
+const preview = await getPreviewAccess(sql, req); // null without a valid token
+const content = await getSlot(sql, "home.hero", { block: hero, preview });
+const response = await applyPreview(render(content), preview);
+```
+
+`getPreviewAccess` reads `?cms_preview=` and returns `{ subjectType, subjectId }`
+for a live token, or `null` for a missing, unknown, expired or unreadable one —
+so a caller never branches on an error. Pass that access to `getSlot` (or
+`getPage`) as `{ preview }`: when the token's subject is that slot or page the
+newest draft is read, uncached; `null` is the published read, so it can be
+forwarded without a check. `applyPreview` sets `Cache-Control: no-store` and
+`X-Robots-Tag: noindex`, and injects the Preview banner into an HTML response —
+the headers alone for anything else, and the response untouched when the access
+is `null`.
+
+A slot has no URL of its own, so it declares the site path whose Preview opens
+it, and the CMS opens that page:
+
+```ts
+export const homeHero = slot("home.hero", hero, { previewPath: "/" });
+```
+
+The catch-all (`createCmsPageRoute`) does this for a CMS-served page: it hands
+its `render` function `{ preview, req }`, so a page that also mounts a slot can
+forward the access and show that slot's draft inside it.
+

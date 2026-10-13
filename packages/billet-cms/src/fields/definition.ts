@@ -18,6 +18,7 @@ import {
 import type { Field } from "./field";
 import { assertName, SLOT_NAME_PATTERN } from "./name";
 import { assertMinMax, assertNonNegativeInteger } from "./options";
+import { sameOriginPath } from "./path";
 
 export type BlockFields = Record<string, Field>;
 
@@ -85,7 +86,8 @@ export interface SlotOptions {
   /**
    * The site path that renders this slot, opened by the CMS's Preview button.
    * For example `"/"` for a header slot, `"/contact"` for one on the contact
-   * page. Defaults to the site root when the deploy doesn't set one.
+   * page. Must be a same-origin path (check the `sameOriginPath` rule) or `slot()`
+   * throws. Defaults to the site root when the deploy doesn't set one.
    */
   previewPath?: string;
 }
@@ -112,12 +114,24 @@ export const slot = (
 ): SlotDefinition => {
   assertName(name, "slot", { pattern: SLOT_NAME_PATTERN });
 
+  const previewPath = options.previewPath ?? "/";
+  // The CMS opens this path in the editor's browser, so a config mistake that
+  // sends them off-site — a bare host, `//host`, or a backslash the browser
+  // reads as one — is refused where it is written, not on the first preview.
+  if (sameOriginPath(previewPath) === null) {
+    throw new Error(
+      `Slot "${name}" has an invalid previewPath ` +
+        `${JSON.stringify(options.previewPath)}: it must be a same-origin ` +
+        'path starting with "/" (not "//" and without a backslash)',
+    );
+  }
+
   return {
     kind: "slot",
     name,
     blockName: definition.name,
     page: options.page ?? name.split(".")[0],
-    previewPath: options.previewPath ?? "/",
+    previewPath,
     ...(options.label !== undefined ? { label: options.label } : {}),
     ...(options.help !== undefined ? { help: options.help } : {}),
   };

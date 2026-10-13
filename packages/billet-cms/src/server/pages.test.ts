@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
+import { block, text } from "../fields";
 import { hashPreviewToken } from "../preview";
 import {
   type CmsPage,
@@ -7,6 +8,7 @@ import {
   createCmsPages,
   sameOriginPath,
 } from "./pages";
+import { getSlot } from "./slots";
 
 const PAGE_ROW: {
   id: string;
@@ -513,5 +515,139 @@ describe("preview reads", () => {
     // The published read is unaffected and still separate.
     const published = await pages.getPage("/about");
     expect(published?.blocks).toEqual([{ type: "hero", heading: "Published" }]);
+  });
+
+  test("serves a HEAD request that carries a token", async () => {
+    const sql = previewSql({ tokens: pageToken("page-1") });
+    const route = createCmsPageRoute({
+      sql,
+      render: bannerRender,
+      onSkip: () => {},
+    });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good", {
+        method: "HEAD",
+      }),
+    );
+
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+    expect(res?.headers.get("X-Robots-Tag")).toBe("noindex");
+  });
+});
+
+describe("the catch-all's render context", () => {
+  test("hands the published path a null preview and the request", async () => {
+    const { sql } = fakeSql();
+    const seen: { preview?: unknown; req?: unknown } = {};
+    const route = createCmsPageRoute({
+      sql,
+      onSkip: () => {},
+      render: (page, context) => {
+        seen.preview = context.preview;
+        seen.req = context.req;
+        return new Response(`<h1>${page.title}</h1>`, {
+          headers: { "Content-Type": "text/html" },
+        });
+      },
+    });
+
+    const req = new Request("http://localhost/about");
+    await route(req);
+
+    expect(seen.preview).toBeNull();
+    expect(seen.req).toBe(req);
+  });
+
+  /**
+   * The bug review round 1 found: a slot's previewPath can be a CMS-served page,
+   * and the slot's draft must render inside it. The catch-all has to hand its
+   * render function the preview access so the page can forward it to `getSlot`.
+   */
+  test("a slot token renders that slot's draft inside a CMS page", async () => {
+    const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+    const tokens = {
+      [hashPreviewToken("good")]: {
+        subject_type: "slot" as const,
+        subject_id: "slot-1",
+        expires_at: new Date("2099-01-01T00:00:00Z"),
+      },
+    };
+
+    const sql = {
+      unsafe: (query: string, params: unknown[] = []) => {
+        if (query.includes("cms_preview_tokens")) {
+          const row = tokens[params[0] as string];
+          if (!row) return Promise.resolve([]);
+          return Promise.resolve(
+            (params[1] as Date) > row.expires_at ? [] : [row],
+          );
+        }
+        if (query.includes("cms_meta")) {
+          return Promise.resolve([{ content_version: 1 }]);
+        }
+        if (query.includes("cms_pages")) {
+          return Promise.resolve([PAGE_ROW]);
+        }
+        if (query.includes("cms_slots")) {
+          return Promise.resolve([
+            {
+              id: "slot-1",
+              name: "home.hero",
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: "slot-rev-1",
+            },
+          ]);
+        }
+        if (query.includes("cms_revisions")) {
+          if (query.includes("LIMIT 1") && query.includes("target_id")) {
+            return Promise.resolve([{ id: "slot-rev-2" }]);
+          }
+          const id = params[0] as string;
+          const heading =
+            id === "slot-rev-2"
+              ? "Draft hero"
+              : id === "slot-rev-1"
+                ? "Published hero"
+                : "Page";
+          return Promise.resolve([{ content: { heading } }]);
+        }
+        if (query.includes("cms_block_types")) {
+          return Promise.resolve([
+            { name: "hero", json_schema: { type: "object" }, removed_at: null },
+          ]);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+
+    const route = createCmsPageRoute({
+      sql,
+      onSkip: () => {},
+      render: async (page, { preview }) => {
+        const heroContent = await getSlot(sql, "home.hero", {
+          block: hero,
+          preview,
+        });
+        return new Response(
+          `<html><body><h1>${page.title}</h1><p>${String(heroContent?.heading)}</p></body></html>`,
+          { headers: { "Content-Type": "text/html" } },
+        );
+      },
+    });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good"),
+    );
+
+    const html = await res?.text();
+    // The page itself is published — the token is for a slot — but the slot's
+    // draft is rendered inside it, under the banner and no-cache headers.
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+    expect(html).toContain("<h1>About us</h1>");
+    expect(html).toContain("<p>Draft hero</p>");
+    expect(html).toContain("cms-preview-banner");
   });
 });

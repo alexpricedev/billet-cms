@@ -71,6 +71,13 @@ export const formNotice = (params: URLSearchParams): Notice | null => {
         "Preview isn't available: the CMS isn't pointed at a site URL, so it has nowhere to open the page.",
     };
   }
+  if (params.get("preview") === "failed") {
+    return {
+      kind: "warning",
+      message:
+        "Preview couldn't start: the CMS couldn't create a preview link. Try again.",
+    };
+  }
   return null;
 };
 
