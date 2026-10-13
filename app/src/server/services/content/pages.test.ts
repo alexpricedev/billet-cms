@@ -1,4 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { block, pageType, text } from "@alexpricedev/billet-cms/fields";
+import { seedPageType } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData } from "../../test-utils/helpers";
 
@@ -22,6 +24,10 @@ import {
   normalisePageUrl,
   updatePageSettings,
 } from "./pages";
+
+const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+const landing = pageType("landing", { allowedBlocks: [hero] });
+const article = pageType("article", { allowedBlocks: [hero] });
 
 describe("normalisePageUrl", () => {
   test("adds the leading slash a bare segment is missing", () => {
@@ -49,6 +55,7 @@ describe("normalisePageUrl", () => {
 describe("page CRUD", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
+    await seedPageType(db, landing);
   });
 
   const create = (url: string, title = "About us") =>
@@ -111,6 +118,49 @@ describe("page CRUD", () => {
     expect(await listPages()).toEqual([]);
   });
 
+  test("refuses a page type that isn't published", async () => {
+    const result = await createPage({
+      pageType: "nope",
+      url: "/about",
+      title: "About us",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.path).toBe("pageType");
+    expect(result.issues[0]?.message).toContain("published page type");
+    expect(await listPages()).toEqual([]);
+  });
+
+  test("refuses a page type a deploy removed", async () => {
+    await seedPageType(db, article);
+    await db`UPDATE cms_page_types SET removed_at = NOW() WHERE name = 'article'`;
+
+    const result = await createPage({
+      pageType: "article",
+      url: "/news",
+      title: "News",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.path).toBe("pageType");
+  });
+
+  test("allows changing a page to another published page type", async () => {
+    await seedPageType(db, article);
+    const created = await create("/about");
+    if (!created.ok) throw new Error("create failed");
+
+    const changed = await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "article",
+      url: "/about",
+      title: "About us",
+    });
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) return;
+    expect(changed.page.pageType).toBe("article");
+  });
+
   test("deletes a page and its redirects", async () => {
     const created = await create("/about");
     if (!created.ok) throw new Error("create failed");
@@ -131,6 +181,7 @@ describe("page CRUD", () => {
 describe("redirects on URL change", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
+    await seedPageType(db, landing);
   });
 
   afterAll(async () => {

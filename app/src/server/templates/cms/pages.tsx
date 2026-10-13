@@ -12,6 +12,8 @@ export interface PagesListProps {
   pages: PageRecord[];
   pageTypes: PageTypeRecord[];
   redirects: RedirectRecord[];
+  /** A one-line outcome shown above the list, e.g. after a delete. */
+  notice?: string | null;
 }
 
 /** The CMS's pages: what's published, what's a draft, and where old URLs go. */
@@ -21,6 +23,7 @@ export const PagesList = ({
   pages,
   pageTypes,
   redirects,
+  notice,
 }: PagesListProps) => (
   <Layout
     title="Pages - Billet CMS"
@@ -45,6 +48,12 @@ export const PagesList = ({
         New page
       </a>
     </p>
+
+    {notice && (
+      <div className="flash-success" role="status">
+        {notice}
+      </div>
+    )}
 
     {pages.length === 0 ? (
       <div className="flash-warning" role="status">
