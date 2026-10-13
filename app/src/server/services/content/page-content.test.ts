@@ -138,6 +138,40 @@ describe("validatePageContent", () => {
     if (published.ok) return;
     expect(published.issues[0]?.message).toContain("no longer published");
   });
+
+  // Review round 2: a page type can drop a block it once allowed, and the block
+  // type is still published and renderable, so a page that holds one must still
+  // save and publish rather than being stranded.
+  test("tolerates a not-allowed block when asked", () => {
+    const strict = pageTypeRecord(
+      pageType("landing", { allowedBlocks: [prose] }),
+    );
+    const content = { blocks: [{ type: "hero", heading: "Hi" }] };
+
+    expect(
+      validatePageContent(strict, registry, content, {
+        allowNotAllowedBlocks: true,
+      }).ok,
+    ).toBe(true);
+
+    // Without the tolerance the page type's rule still bites.
+    expect(validatePageContent(strict, registry, content).ok).toBe(false);
+  });
+
+  test("still checks a tolerated not-allowed block's own fields", () => {
+    const strict = pageTypeRecord(
+      pageType("landing", { allowedBlocks: [prose] }),
+    );
+    const result = validatePageContent(
+      strict,
+      registry,
+      { blocks: [{ type: "hero", heading: 42 }] },
+      { allowNotAllowedBlocks: true },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.path).toBe("blocks.0.heading");
+  });
 });
 
 describe("checkPageLimits", () => {
@@ -280,5 +314,34 @@ describe("mergeUnavailableBlocks", () => {
     expect(mergeUnavailableBlocks(submitted, [{ type: "hero" }], [])).toBe(
       submitted,
     );
+  });
+
+  // Review round 2: the Remove control on a flagged block sends its base index;
+  // a block the editor removed on purpose must not be re-attached by the save.
+  test("does not carry a block the editor explicitly removed", () => {
+    const base = [
+      { type: "prose", body: { type: "doc", content: [] } },
+      { type: "hero", heading: "Gone" },
+    ];
+    const unavailable = [
+      { index: 1, type: "hero", reason: "removed" as const },
+    ];
+
+    const merged = mergeUnavailableBlocks(
+      [{ type: "prose", body: { type: "doc", content: [] } }],
+      base,
+      unavailable,
+      [1],
+    );
+    expect(merged.map((block) => block.type)).toEqual(["prose"]);
+  });
+
+  test("still carries a flagged block the editor did not remove", () => {
+    const base = [{ type: "hero", heading: "Kept" }];
+    const unavailable = [
+      { index: 0, type: "hero", reason: "removed" as const },
+    ];
+
+    expect(mergeUnavailableBlocks([], base, unavailable, [2])).toEqual(base);
   });
 });

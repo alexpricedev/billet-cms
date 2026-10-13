@@ -606,3 +606,21 @@ h1 {
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
 }
+
+/* The delete control is a link to the confirm step on the editor, and a
+   submit button on the confirm page itself. */
+.cms-delete-button {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.cms-delete-cancel {
+  margin-left: 0.75rem;
+}
+
+.cms-delete-usage {
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0;
+}

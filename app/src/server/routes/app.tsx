@@ -73,6 +73,7 @@ export const appRoutes = {
     POST: pagePublish.restore,
   }),
   "/cms/pages/:id/delete": createRouteHandler({
+    GET: pages.confirmDelete,
     POST: pages.destroy,
   }),
   "/cms/pages/:id/history": pagePublish.history,

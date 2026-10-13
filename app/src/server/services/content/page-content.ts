@@ -15,10 +15,14 @@
  *    are not in the JSON Schema (it describes one block at a time), which is why
  *    they live here.
  *
- * `allowUnavailableBlocks` is the save/publish split (Q4). A save carries a
- * block whose type a deploy removed so the editor never loses the rest of the
- * page; a publish refuses it, because turning it live would put a page up that
- * the site then skips. The same tolerance a save grants a removed *field*.
+ * The two tolerances are separate because the two kinds of flag are not alike.
+ * A block whose type a deploy *removed* (`allowUnavailableBlocks`) can't be
+ * rendered by the site, so a save carries it and a publish refuses it. A block
+ * the page type no longer *allows* (`allowNotAllowedBlocks`) is still a
+ * published, renderable block — only the page type's own rule changed — so both
+ * a save and a publish tolerate it, or a page that holds one could never be
+ * saved or published again (review round 2). A save additionally tolerates a
+ * removed *field*, the same way it tolerates a removed block.
  */
 import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
@@ -113,14 +117,22 @@ export const findUnavailableBlocks = (
  * followed it, so each is re-inserted at its original index (clamped to the
  * submitted list) instead (review round 1). The submitted blocks keep their own
  * order; only the blocks the client couldn't send are restored.
+ *
+ * `removedIndexes` names the flagged blocks the editor explicitly removed with
+ * the form's Remove control (review round 2). The client can't serialize those
+ * blocks' fields, so their removal is a separate marker; the block at such an
+ * index is *not* carried back. The data stays in the older revisions.
  */
 export const mergeUnavailableBlocks = (
   submitted: PageBlock[],
   base: PageBlock[],
   unavailable: UnavailableBlock[],
+  removedIndexes: number[] = [],
 ): PageBlock[] => {
+  const removed = new Set(removedIndexes);
   const missing: { index: number; block: PageBlock }[] = [];
   for (const entry of unavailable) {
+    if (removed.has(entry.index)) continue;
     const block = base[entry.index];
     if (!block) continue;
     if (submitted.some((candidate) => candidate.type === block.type)) continue;
@@ -139,6 +151,12 @@ export const mergeUnavailableBlocks = (
 export interface ValidatePageOptions {
   /** Carry a block whose type isn't published instead of refusing it (Q4). */
   allowUnavailableBlocks?: boolean;
+  /**
+   * Tolerate a block the page type no longer allows. Only the page type's own
+   * rule changed — the block type is still published and renderable — so a save
+   * and a publish both allow it (review round 2).
+   */
+  allowNotAllowedBlocks?: boolean;
 }
 
 export type ValidatePageResult =
@@ -176,7 +194,9 @@ export const validatePageContent = (
       return;
     }
 
-    if (!allowed.has(block.type)) {
+    // A tolerated not-allowed block falls through to the field check below: the
+    // page type's rule is waived, but the block type's own schema still holds.
+    if (!allowed.has(block.type) && !options.allowNotAllowedBlocks) {
       issues.push({
         path: at,
         message: `The "${block.type}" block isn't allowed on this page type.`,

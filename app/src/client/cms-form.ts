@@ -400,6 +400,33 @@ const firstControl = (row: Element | null): HTMLElement | null =>
   row ? row.querySelector<HTMLElement>(FOCUSABLE) : null;
 
 /**
+ * Record a flagged block's removal in the form's `removed_blocks` field.
+ *
+ * A flagged block has no field controls, so the client can't rebuild it into
+ * the hidden `content` field; removing it has to be an explicit marker instead.
+ * The index is the block's position in the revision the editor loaded — the
+ * same index the server's carry-back uses to put an uneditable block back. The
+ * block is hidden rather than detached so the marker stays with it until submit.
+ */
+const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
+  const index = Number.parseInt(
+    block.getAttribute("data-block-index") ?? "",
+    10,
+  );
+  const hidden = form.querySelector<HTMLInputElement>("[data-cms-removed]");
+  if (hidden && Number.isSafeInteger(index) && index >= 0) {
+    const indexes = hidden.value
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => part !== "");
+    if (!indexes.includes(String(index))) indexes.push(String(index));
+    hidden.value = indexes.join(",");
+  }
+  block.setAttribute("data-block-removed", "");
+  block.setAttribute("hidden", "");
+};
+
+/**
  * Wire the rich text toolbars and the repeatable lists through one delegated
  * listener on the form.
  *
@@ -476,7 +503,15 @@ const wireControls = (form: HTMLFormElement): void => {
     const removeBlock = target.closest("[data-block-remove]");
     if (removeBlock) {
       event.preventDefault();
-      removeBlock.closest("[data-cms-block]")?.remove();
+      const block = removeBlock.closest("[data-cms-block]");
+      if (!block) return;
+      // A flagged block is uneditable, so its removal is recorded as a marker
+      // rather than by serializing it; everything else is simply detached.
+      if (block.hasAttribute("data-block-unavailable")) {
+        markBlockRemoved(form, block);
+      } else {
+        block.remove();
+      }
       return;
     }
 

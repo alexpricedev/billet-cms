@@ -660,6 +660,7 @@ describe("empty list rows", () => {
 const PAGE_MARKUP = `
   <form data-cms-form>
     <input type="hidden" name="content" data-cms-content value="{}">
+    <input type="hidden" name="removed_blocks" data-cms-removed value="">
     <div data-cms-page-content>
       <div data-cms-blocks>
         <fieldset data-cms-block data-block-type="hero">
@@ -667,8 +668,9 @@ const PAGE_MARKUP = `
             <input type="text" data-text-input value="Hello">
           </div>
         </fieldset>
-        <fieldset data-cms-block data-block-unavailable data-block-type="gone">
+        <fieldset data-cms-block data-block-unavailable data-block-type="gone" data-block-index="1">
           <p>No longer editable</p>
+          <button type="button" data-block-remove>Remove</button>
         </fieldset>
       </div>
       <template data-cms-block-template data-block-type="prose">
@@ -738,6 +740,41 @@ describe("page block editor", () => {
       document.querySelectorAll('[data-cms-block][data-block-type="hero"]'),
     ).toHaveLength(0);
     expect(buildPageContent(form())).toEqual({ blocks: [] });
+  });
+
+  // A flagged block has no field controls, so the client can't serialize its
+  // removal into `content`: it records the block's base index in the form's
+  // `removed_blocks` field instead (review round 2).
+  test("marks a flagged block removed with its base-revision index", () => {
+    const flagged = document.querySelector(
+      '[data-cms-block][data-block-type="gone"]',
+    );
+    const remove = flagged?.querySelector("[data-block-remove]");
+    if (!remove) throw new Error("no remove button");
+    click(remove);
+
+    const marker = form().querySelector<HTMLInputElement>("[data-cms-removed]");
+    expect(marker?.value).toBe("1");
+    // Hidden, not detached: the marker rides with the block until submit, and
+    // the block is still skipped from the rebuilt content.
+    expect(flagged?.hasAttribute("data-block-removed")).toBe(true);
+    expect(flagged?.hasAttribute("hidden")).toBe(true);
+    expect(buildPageContent(form())).toEqual({
+      blocks: [{ type: "hero", heading: "Hello" }],
+    });
+  });
+
+  test("accumulates several removed flagged blocks without repeating one", () => {
+    const flagged = document.querySelector(
+      '[data-cms-block][data-block-type="gone"]',
+    );
+    const remove = flagged?.querySelector("[data-block-remove]");
+    if (!remove) throw new Error("no remove button");
+    click(remove);
+    click(remove);
+
+    const marker = form().querySelector<HTMLInputElement>("[data-cms-removed]");
+    expect(marker?.value).toBe("1");
   });
 
   test("moves a block down past the next one", () => {

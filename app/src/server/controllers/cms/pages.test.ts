@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import {
   block,
+  link,
   type PageTypeDefinition,
   pageType,
   richText,
@@ -36,15 +38,24 @@ const ORIGIN = process.env.APP_URL as string;
 
 const hero = block(
   "hero",
-  { heading: text({ max: 80, label: "Heading" }), body: richText() },
+  {
+    heading: text({ max: 80, label: "Heading" }),
+    body: richText(),
+    cta: link({ required: false, label: "Call to action" }),
+  },
   () => null,
 );
+const prose = block("prose", { body: richText() }, () => null);
 
 const landing: PageTypeDefinition = pageType("landing", {
   allowedBlocks: [hero],
   requiredBlocks: [hero],
   limits: { hero: { max: 1, position: "top" } },
 });
+
+// A page type whose allowed blocks a deploy can change out from under a saved
+// page — the flag review round 2 makes savable and publishable.
+const notes: PageTypeDefinition = pageType("notes", { allowedBlocks: [prose] });
 
 const document = {
   type: "doc" as const,
@@ -445,6 +456,211 @@ describe("Pages controller", () => {
     expect(res.headers.get("location")).toBe(
       `/cms/pages/${pageId}?published=1`,
     );
+  });
+
+  test("saves and publishes a page that holds a not-allowed block", async () => {
+    await seedBlockType(db, prose);
+    await seedPageType(db, notes);
+
+    const created = await createPage({
+      pageType: "notes",
+      url: "/notes",
+      title: "Notes",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    // The page type disallows hero, but the block type is published and
+    // renderable, so the save and the publish both let it through (review
+    // round 2) rather than stranding the page.
+    const save = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "notes",
+          url: "/notes",
+          title: "Notes",
+          content: JSON.stringify(pageContent("Hello")),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+    expect(save.status).toBe(303);
+
+    const published = await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    expect(published.status).toBe(303);
+    expect(published.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?published=1`,
+    );
+    expect((await getPageById(pageId))?.publishedRevisionId).not.toBeNull();
+  });
+
+  test("removing a flagged block drops it and lets the page publish", async () => {
+    await seedBlockType(db, prose);
+    await seedPageType(db, notes);
+
+    const created = await createPage({
+      pageType: "notes",
+      url: "/notes",
+      title: "Notes",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const first = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "notes",
+          url: "/notes",
+          title: "Notes",
+          content: JSON.stringify(pageContent("Hello")),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+    expect(first.status).toBe(303);
+    const base = (
+      await db`SELECT id FROM cms_revisions ORDER BY created_at DESC LIMIT 1`
+    )[0].id as string;
+
+    // A deploy removes the hero block type, so the saved block is flagged and
+    // the client can no longer serialize it.
+    await db`UPDATE cms_block_types SET removed_at = NOW() WHERE name = 'hero'`;
+
+    // The Remove control sends the block's base index; the block must not be
+    // carried back into the new revision.
+    const removed = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "notes",
+          url: "/notes",
+          title: "Notes",
+          content: JSON.stringify({ blocks: [] }),
+          base_revision: base,
+          removed_blocks: "0",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+    expect(removed.status).toBe(303);
+
+    const latest = await db`
+      SELECT content FROM cms_revisions ORDER BY created_at DESC LIMIT 1
+    `;
+    expect(latest[0].content.blocks).toEqual([]);
+
+    // The removal only affects the new revision: the block's data is still in
+    // the revision it was saved in.
+    const oldest = await db`
+      SELECT content FROM cms_revisions ORDER BY created_at ASC, id ASC LIMIT 1
+    `;
+    expect(oldest[0].content.blocks).toHaveLength(1);
+    expect(oldest[0].content.blocks[0].type).toBe("hero");
+
+    const published = await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    expect(published.status).toBe(303);
+    expect((await getPageById(pageId))?.publishedRevisionId).not.toBeNull();
+  });
+
+  test("the delete confirm step names the page, its redirects and its linkers", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    await db`
+      INSERT INTO cms_redirects (id, from_path, to_page_id)
+      VALUES (${randomUUID()}, '/old-about', ${pageId})
+    `;
+
+    const other = await createPage({
+      pageType: "landing",
+      url: "/other",
+      title: "Other",
+    });
+    if (!other.ok) throw new Error("create failed");
+    await savePageDraft({
+      pageId: other.page.id,
+      content: {
+        blocks: [
+          {
+            type: "hero",
+            heading: "Go",
+            body: document,
+            cta: { type: "page", pageId },
+          },
+        ],
+      },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    const res = await pages.confirmDelete(
+      createBunRequest(
+        `${ORIGIN}/cms/pages/${pageId}/delete`,
+        {
+          method: "GET",
+          headers: { cookie: `cms_session=${sessionId}` },
+        },
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("<code>/about</code>");
+    expect(html).toContain("<strong>1</strong> redirect points");
+    expect(html).toContain("<strong>1</strong> page links");
+    expect(html).toContain("Other");
+    expect(html).toContain("<code>/other</code>");
+    // It confirms rather than blocks: the button posts to the delete route.
+    expect(html).toContain(`action="/cms/pages/${pageId}/delete"`);
+  });
+
+  test("the confirm step's button deletes the page", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.destroy(
+      await post(
+        `/cms/pages/${pageId}/delete`,
+        {},
+        `/cms/pages/${pageId}/delete`,
+        { id: pageId },
+      ),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/cms/pages?deleted=1");
+    expect(await getPageById(pageId)).toBeNull();
   });
 
   describe("CSRF on every POST route", () => {

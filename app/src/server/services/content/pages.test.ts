@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { block, pageType, text } from "@alexpricedev/billet-cms/fields";
 import { seedPageType } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
@@ -18,12 +19,14 @@ import {
   deletePage,
   getPageById,
   getPageByUrl,
+  getPageUsage,
   listPageOptions,
   listPages,
   listRedirects,
   normalisePageUrl,
   updatePageSettings,
 } from "./pages";
+import { createRevision } from "./revisions";
 
 const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
 const landing = pageType("landing", { allowedBlocks: [hero] });
@@ -248,6 +251,92 @@ describe("page CRUD", () => {
     expect(await deletePage(created.page.id)).toBe(true);
     expect(await getPageById(created.page.id)).toBeNull();
     expect(await listRedirects()).toEqual([]);
+  });
+});
+
+describe("getPageUsage", () => {
+  beforeEach(async () => {
+    await cleanupTestData(db);
+    await seedPageType(db, landing);
+  });
+
+  test("counts the redirects pointing here and names the pages linking here", async () => {
+    const target = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!target.ok) throw new Error("create failed");
+    const other = await createPage({
+      pageType: "landing",
+      url: "/other",
+      title: "Other",
+    });
+    if (!other.ok) throw new Error("create failed");
+
+    await db`
+      INSERT INTO cms_redirects (id, from_path, to_page_id)
+      VALUES (${randomUUID()}, '/old-about', ${target.page.id})
+    `;
+    // A page-mode link stored by page id, the way a `link()` field writes one.
+    await createRevision({
+      targetType: "page",
+      targetId: other.page.id,
+      content: {
+        blocks: [
+          {
+            type: "hero",
+            heading: "Go",
+            cta: { type: "page", pageId: target.page.id },
+          },
+        ],
+      },
+      createdBy: null,
+    });
+
+    const usage = await getPageUsage(target.page.id);
+    expect(usage.redirectCount).toBe(1);
+    expect(usage.linkingPages.map((page) => page.title)).toEqual(["Other"]);
+  });
+
+  test("reports nothing for a page nothing points at", async () => {
+    const page = await createPage({
+      pageType: "landing",
+      url: "/lonely",
+      title: "Lonely",
+    });
+    if (!page.ok) throw new Error("create failed");
+
+    expect(await getPageUsage(page.page.id)).toEqual({
+      redirectCount: 0,
+      linkingPages: [],
+    });
+  });
+
+  test("a free URL link to the same path is not a page link", async () => {
+    const target = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!target.ok) throw new Error("create failed");
+    const other = await createPage({
+      pageType: "landing",
+      url: "/other",
+      title: "Other",
+    });
+    if (!other.ok) throw new Error("create failed");
+
+    await createRevision({
+      targetType: "page",
+      targetId: other.page.id,
+      content: {
+        blocks: [{ type: "hero", cta: { type: "url", url: "/about" } }],
+      },
+      createdBy: null,
+    });
+
+    expect((await getPageUsage(target.page.id)).linkingPages).toEqual([]);
   });
 });
 
