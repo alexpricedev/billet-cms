@@ -76,6 +76,15 @@ repo. This file is only the invariants.
   JavaScript off the form still submits the stored content unchanged. Keep it to
   that: no fetching, no `JSON.parse`, no markup built from data — the same rules
   `client/boundaries.test.ts` enforces.
+- **Preview is a token row, not an API.** `cms_preview_tokens` holds a hashed,
+  30-minute, single-subject token (a page or a slot). The CMS mints one and opens
+  `<SITE_APP_URL><path>?cms_preview=…`; the plugin
+  (`packages/billet-cms/src/preview`, re-exported from `./server`) checks it and,
+  for that subject only, renders the newest draft with a Preview banner and
+  `Cache-Control: no-store` / `X-Robots-Tag: noindex`. A slot's `previewPath`
+  (declared on `slot()`, published to `cms_slots.preview_path`) is the site page
+  the CMS opens for it. An unknown, expired or missing token is the published
+  view; a preview read always bypasses the `content_version` cache.
 
 ## Porting Billet upgrades
 

@@ -35,6 +35,7 @@ export interface SeedSlotInput {
   name: string;
   blockName: string;
   page: string;
+  previewPath?: string;
   label?: string;
 }
 
@@ -43,11 +44,12 @@ export const seedSlot = async (
   input: SeedSlotInput,
 ): Promise<string> => {
   const rows = (await db`
-    INSERT INTO cms_slots (name, block_name, page, label)
+    INSERT INTO cms_slots (name, block_name, page, preview_path, label)
     VALUES (
       ${input.name},
       ${input.blockName},
       ${input.page},
+      ${input.previewPath ?? "/"},
       ${input.label ?? null}
     )
     RETURNING id

@@ -206,6 +206,49 @@ describe("Pages controller", () => {
     expect(html).toContain("data-cms-content");
   });
 
+  test("the editor offers a Preview button that mints a token", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const html = await (
+      await pages.form(
+        createBunRequest(
+          `${ORIGIN}/cms/pages/${pageId}`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id: pageId },
+        ),
+      )
+    ).text();
+    expect(html).toContain(`action="/cms/pages/${pageId}/preview"`);
+
+    const res = await pagePublish.preview(
+      await post(
+        `/cms/pages/${pageId}/preview`,
+        {},
+        `/cms/pages/${pageId}/preview`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(303);
+    const location = res.headers.get("location") ?? "";
+    expect(
+      location.startsWith("http://localhost:4000/about?cms_preview="),
+    ).toBe(true);
+
+    const rows = (await db`
+      SELECT subject_type, subject_id FROM cms_preview_tokens
+    `) as { subject_type: string; subject_id: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].subject_type).toBe("page");
+    expect(rows[0].subject_id).toBe(pageId);
+  });
+
   test("an invalid content save writes neither settings nor a redirect", async () => {
     const created = await createPage({
       pageType: "landing",

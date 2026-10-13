@@ -186,3 +186,84 @@ describe("getSlot with the site's own block", () => {
     expect(heading).toBe("Cached hero");
   });
 });
+
+describe("getSlot with preview access", () => {
+  /**
+   * A pool with a published revision and a newer draft. Preview reads must
+   * bypass the cache, so the version check it queries is deliberately left to
+   * return a value the cache would otherwise keep serving from.
+   */
+  const previewSql = (published = "Published", draft = "Draft") =>
+    ({
+      unsafe: (query: string, params: unknown[] = []) => {
+        if (query.includes("cms_meta")) {
+          return Promise.resolve([{ content_version: 1 }]);
+        }
+        if (query.includes("cms_slots")) {
+          return Promise.resolve([
+            {
+              id: "slot-1",
+              name: "home.hero",
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: "rev-1",
+            },
+          ]);
+        }
+        if (query.includes("cms_block_types")) {
+          return Promise.resolve([
+            { json_schema: { type: "object" }, removed_at: null },
+          ]);
+        }
+        if (query.includes("cms_revisions")) {
+          if (query.includes("LIMIT 1") && query.includes("target_id")) {
+            return Promise.resolve([{ id: "rev-2" }]);
+          }
+          return Promise.resolve([
+            { content: { heading: params[0] === "rev-2" ? draft : published } },
+          ]);
+        }
+        return Promise.resolve([]);
+      },
+    }) as unknown as SQL;
+
+  const reader = (sql: SQL) => createContentReader({ sql, onSkip: () => {} });
+
+  test("the token's own slot reads its newest draft", async () => {
+    const content = await reader(previewSql()).getSlot("home.hero", {
+      preview: { subjectType: "slot", subjectId: "slot-1" },
+    });
+    expect(content).toEqual({ heading: "Draft" });
+  });
+
+  test("previewing another slot leaves this one published", async () => {
+    const content = await reader(previewSql()).getSlot("home.hero", {
+      preview: { subjectType: "slot", subjectId: "slot-2" },
+    });
+    expect(content).toEqual({ heading: "Published" });
+  });
+
+  test("a page token never shows a slot's draft", async () => {
+    const content = await reader(previewSql()).getSlot("home.hero", {
+      preview: { subjectType: "page", subjectId: "slot-1" },
+    });
+    expect(content).toEqual({ heading: "Published" });
+  });
+
+  test("a preview read bypasses the cache", async () => {
+    const sql = previewSql();
+    const slots = reader(sql);
+
+    // Warm the published cache.
+    expect((await slots.getSlot("home.hero"))?.heading).toBe("Published");
+
+    // The preview read must not be served from it.
+    const draft = await slots.getSlot("home.hero", {
+      preview: { subjectType: "slot", subjectId: "slot-1" },
+    });
+    expect(draft).toEqual({ heading: "Draft" });
+
+    // And it must not have written the draft into the published cache.
+    expect((await slots.getSlot("home.hero"))?.heading).toBe("Published");
+  });
+});

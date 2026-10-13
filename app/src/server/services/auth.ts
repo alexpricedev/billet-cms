@@ -81,6 +81,11 @@ export const cleanupExpired = async (): Promise<void> => {
   `;
 
   await db`
+    DELETE FROM cms_preview_tokens
+    WHERE expires_at < CURRENT_TIMESTAMP
+  `;
+
+  await db`
     DELETE FROM cms_sessions
     WHERE expires_at < CURRENT_TIMESTAMP
   `;

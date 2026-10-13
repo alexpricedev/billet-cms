@@ -50,6 +50,9 @@ export const appRoutes = {
   "/cms/slots/:id/publish": createRouteHandler({
     POST: slotPublish.publish,
   }),
+  "/cms/slots/:id/preview": createRouteHandler({
+    POST: slotPublish.preview,
+  }),
   "/cms/slots/:id/restore": createRouteHandler({
     POST: slotPublish.restore,
   }),
@@ -68,6 +71,9 @@ export const appRoutes = {
   }),
   "/cms/pages/:id/publish": createRouteHandler({
     POST: pagePublish.publish,
+  }),
+  "/cms/pages/:id/preview": createRouteHandler({
+    POST: pagePublish.preview,
   }),
   "/cms/pages/:id/restore": createRouteHandler({
     POST: pagePublish.restore,

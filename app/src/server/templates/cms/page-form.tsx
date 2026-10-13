@@ -21,6 +21,8 @@ export interface PageFormProps {
   formCsrfToken: string;
   /** The CSRF token bound to the publish POST. */
   publishCsrfToken: string;
+  /** The CSRF token bound to the preview POST that mints a token. */
+  previewCsrfToken: string;
   /** The CSRF token bound to the nav's sign-out POST. */
   navCsrfToken?: string;
   page: PageRecord;
@@ -141,6 +143,7 @@ export const PageForm = ({
   user,
   formCsrfToken,
   publishCsrfToken,
+  previewCsrfToken,
   navCsrfToken,
   page,
   pageTypes,
@@ -394,6 +397,25 @@ export const PageForm = ({
             disabled={!hasDraft || upToDate}
           >
             Publish
+          </button>
+        </form>
+        {/* Preview mints a short-lived token and opens the site in a new tab
+            with it, so the editor sees the draft without leaving the CMS.
+            Disabled with no draft: with nothing saved there is nothing to show
+            that isn't already the live page. */}
+        <form
+          method="POST"
+          action={`/cms/pages/${page.id}/preview`}
+          target="_blank"
+          rel="noopener"
+        >
+          <input type="hidden" name="_csrf" value={previewCsrfToken} />
+          <button
+            type="submit"
+            className="cms-preview-button"
+            disabled={!hasDraft}
+          >
+            Preview draft
           </button>
         </form>
         <a className="cms-history-link" href={`/cms/pages/${page.id}/history`}>

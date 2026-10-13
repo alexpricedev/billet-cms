@@ -16,6 +16,8 @@ export interface SlotFormProps {
   formCsrfToken: string;
   /** The CSRF token bound to the publish POST. */
   publishCsrfToken: string;
+  /** The CSRF token bound to the preview POST that mints a token. */
+  previewCsrfToken: string;
   /** The CSRF token bound to the nav's sign-out POST. */
   navCsrfToken?: string;
   slot: SlotRecord;
@@ -49,6 +51,7 @@ export const SlotForm = ({
   user,
   formCsrfToken,
   publishCsrfToken,
+  previewCsrfToken,
   navCsrfToken,
   slot,
   blockType,
@@ -233,6 +236,25 @@ export const SlotForm = ({
             disabled={!hasDraft || upToDate}
           >
             Publish
+          </button>
+        </form>
+        {/* Preview mints a short-lived token and opens the slot's declared
+            page on the site in a new tab, so the editor sees the draft inside
+            the real page. Disabled with no draft: nothing saved, nothing to
+            show that isn't already live. */}
+        <form
+          method="POST"
+          action={`/cms/slots/${slot.id}/preview`}
+          target="_blank"
+          rel="noopener"
+        >
+          <input type="hidden" name="_csrf" value={previewCsrfToken} />
+          <button
+            type="submit"
+            className="cms-preview-button"
+            disabled={!hasDraft}
+          >
+            Preview draft
           </button>
         </form>
         <a className="cms-history-link" href={`/cms/slots/${slot.id}/history`}>

@@ -82,6 +82,12 @@ export interface SlotOptions {
    * the first segment of the slot name: `slot("home.hero", hero)` is on `home`.
    */
   page?: string;
+  /**
+   * The site path that renders this slot, opened by the CMS's Preview button.
+   * For example `"/"` for a header slot, `"/contact"` for one on the contact
+   * page. Defaults to the site root when the deploy doesn't set one.
+   */
+  previewPath?: string;
 }
 
 export interface SlotDefinition {
@@ -92,6 +98,8 @@ export interface SlotDefinition {
   readonly blockName: string;
   /** The page the slot is listed under in the CMS. */
   readonly page: string;
+  /** The site path whose Preview opens this slot. */
+  readonly previewPath: string;
   readonly label?: string;
   readonly help?: string;
 }
@@ -109,6 +117,7 @@ export const slot = (
     name,
     blockName: definition.name,
     page: options.page ?? name.split(".")[0],
+    previewPath: options.previewPath ?? "/",
     ...(options.label !== undefined ? { label: options.label } : {}),
     ...(options.help !== undefined ? { help: options.help } : {}),
   };

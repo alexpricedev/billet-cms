@@ -289,7 +289,8 @@ h1 {
   margin: 0;
 }
 
-.cms-publish-button {
+.cms-publish-button,
+.cms-preview-button {
   padding: 0.6rem 1.2rem;
   background: var(--color-surface-hover);
   border: 1px solid var(--color-border);
@@ -304,7 +305,9 @@ h1 {
    states keep the neutral surface and make the change of state read through the
    border and a slight lift instead. */
 .cms-publish-button:hover,
-.cms-publish-button:focus {
+.cms-publish-button:focus,
+.cms-preview-button:hover,
+.cms-preview-button:focus {
   background: var(--color-surface);
   border-color: var(--color-text-tertiary);
   color: var(--color-text);
@@ -312,7 +315,10 @@ h1 {
 
 .cms-publish-button:disabled,
 .cms-publish-button:disabled:hover,
-.cms-publish-button:disabled:focus {
+.cms-publish-button:disabled:focus,
+.cms-preview-button:disabled,
+.cms-preview-button:disabled:hover,
+.cms-preview-button:disabled:focus {
   background: var(--color-surface-hover);
   border-color: var(--color-border);
   color: var(--color-text-secondary);

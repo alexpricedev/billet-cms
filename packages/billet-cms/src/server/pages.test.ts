@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
-import { createCmsPageRoute, createCmsPages, sameOriginPath } from "./pages";
+import { hashPreviewToken } from "../preview";
+import {
+  type CmsPage,
+  createCmsPageRoute,
+  createCmsPages,
+  sameOriginPath,
+} from "./pages";
 
 const PAGE_ROW: {
   id: string;
@@ -324,5 +330,188 @@ describe("sameOriginPath", () => {
     expect(sameOriginPath("/\\evil.example")).toBeNull();
     expect(sameOriginPath("https://evil.example")).toBeNull();
     expect(sameOriginPath("about")).toBeNull();
+  });
+});
+
+describe("preview reads", () => {
+  /**
+   * A pool with a page, a published revision and a newer draft, plus preview
+   * token rows. The page query branches on the column it filters by, the way the
+   * real reader's do: the catch-all's `id = $1` against the preview read's
+   * `url = $1`.
+   */
+  const previewSql = (options: {
+    page?: typeof PAGE_ROW | null;
+    published?: string;
+    draft?: string;
+    tokens?: Record<
+      string,
+      { subject_type: "page" | "slot"; subject_id: string; expires_at: Date }
+    >;
+  }) => {
+    const page = options.page === undefined ? PAGE_ROW : options.page;
+    const published = options.published ?? "Published";
+    const draft = options.draft ?? "Draft";
+    const tokens = options.tokens ?? {};
+    const revisions: Record<string, { content: { blocks: unknown[] } }> = {
+      "rev-1": { content: { blocks: [{ type: "hero", heading: published }] } },
+      "rev-2": { content: { blocks: [{ type: "hero", heading: draft }] } },
+    };
+
+    const sql = {
+      unsafe: (query: string, params: unknown[] = []) => {
+        if (query.includes("cms_preview_tokens")) {
+          const row = tokens[params[0] as string];
+          if (!row) return Promise.resolve([]);
+          const now = params[1] as Date;
+          return Promise.resolve(now > row.expires_at ? [] : [row]);
+        }
+        if (query.includes("cms_pages")) {
+          if (!page) return Promise.resolve([]);
+          if (query.includes("WHERE url = $1")) {
+            return Promise.resolve(page.url === params[0] ? [page] : []);
+          }
+          if (query.includes("WHERE id = $1")) {
+            return Promise.resolve(page.id === params[0] ? [page] : []);
+          }
+          return Promise.resolve([{ id: page.id, url: page.url }]);
+        }
+        if (query.includes("cms_revisions")) {
+          if (query.includes("LIMIT 1") && query.includes("target_id")) {
+            return Promise.resolve([{ id: "rev-2" }]);
+          }
+          return Promise.resolve([revisions[params[0] as string] ?? null]);
+        }
+        if (query.includes("cms_block_types"))
+          return Promise.resolve(BLOCK_TYPES);
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+
+    return sql;
+  };
+
+  const bannerRender = (page: CmsPage) =>
+    new Response(
+      `<html><body><h1>${page.title}</h1><p>${String(page.blocks[0]?.heading)}</p></body></html>`,
+      { headers: { "Content-Type": "text/html" } },
+    );
+
+  const pageToken = (subjectId: string) => ({
+    [hashPreviewToken("good")]: {
+      subject_type: "page" as const,
+      subject_id: subjectId,
+      expires_at: new Date("2099-01-01T00:00:00Z"),
+    },
+  });
+
+  test("renders the newest draft, with the banner and no cache", async () => {
+    const sql = previewSql({ tokens: pageToken("page-1") });
+    const route = createCmsPageRoute({
+      sql,
+      render: bannerRender,
+      onSkip: () => {},
+    });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good"),
+    );
+
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+    expect(res?.headers.get("X-Robots-Tag")).toBe("noindex");
+    const html = await res?.text();
+    expect(html).toContain("<p>Draft</p>");
+    expect(html).toContain("cms-preview-banner");
+  });
+
+  test("previews a page that was never published", async () => {
+    const sql = previewSql({
+      page: { ...PAGE_ROW, published_revision_id: null },
+      tokens: pageToken("page-1"),
+    });
+    const route = createCmsPageRoute({
+      sql,
+      render: bannerRender,
+      onSkip: () => {},
+    });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good"),
+    );
+    expect(await res?.text()).toContain("<p>Draft</p>");
+  });
+
+  test("a token for another page leaves this one published", async () => {
+    const sql = previewSql({ tokens: pageToken("page-2") });
+    const route = createCmsPageRoute({
+      sql,
+      render: bannerRender,
+      onSkip: () => {},
+    });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good"),
+    );
+    // Preview access is present, so headers still apply, but the content is the
+    // published revision — the token's subject is elsewhere.
+    const html = await res?.text();
+    expect(html).toContain("<p>Published</p>");
+  });
+
+  test("an unknown token falls back to the published view, unbannered", async () => {
+    const sql = previewSql({ tokens: pageToken("page-1") });
+    const route = createCmsPageRoute({
+      sql,
+      render: bannerRender,
+      onSkip: () => {},
+    });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=wrong"),
+    );
+
+    expect(res?.headers.get("Cache-Control")).not.toBe("no-store");
+    expect(res?.headers.get("X-Robots-Tag")).not.toBe("noindex");
+    const html = await res?.text();
+    expect(html).toContain("<p>Published</p>");
+    expect(html).not.toContain("cms-preview-banner");
+  });
+
+  test("an expired token falls back to the published view", async () => {
+    const expired = {
+      [hashPreviewToken("old")]: {
+        subject_type: "page" as const,
+        subject_id: "page-1",
+        expires_at: new Date("2020-01-01T00:00:00Z"),
+      },
+    };
+    const sql = previewSql({ tokens: expired });
+    const route = createCmsPageRoute({
+      sql,
+      render: bannerRender,
+      onSkip: () => {},
+    });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=old"),
+    );
+    const html = await res?.text();
+    expect(html).toContain("<p>Published</p>");
+    expect(html).not.toContain("cms-preview-banner");
+  });
+
+  test("getPage with preview bypasses the cache", async () => {
+    const sql = previewSql({ tokens: pageToken("page-1") });
+    const pages = createCmsPages({ sql, onSkip: () => {}, now: () => 0 });
+
+    const preview = await pages.getPage("/about", {
+      preview: { subjectType: "page", subjectId: "page-1" },
+    });
+    expect(preview?.blocks).toEqual([{ type: "hero", heading: "Draft" }]);
+
+    // The published read is unaffected and still separate.
+    const published = await pages.getPage("/about");
+    expect(published?.blocks).toEqual([{ type: "hero", heading: "Published" }]);
   });
 });

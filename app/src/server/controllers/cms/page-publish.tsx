@@ -3,6 +3,8 @@ import { getSessionContext, requireAuth } from "../../middleware/auth";
 import { checkCsrf } from "../../middleware/csrf";
 import {
   asPageContent,
+  buildPreviewUrl,
+  createPreviewToken,
   getPageById,
   getPageTypeByName,
   getRevisionById,
@@ -25,6 +27,49 @@ import { nonEmpty, UUID_PATTERN } from "./params";
  * the form can't be replayed against publish.
  */
 export const pagePublish = {
+  /**
+   * Mint a preview token and open the page on the site with it.
+   *
+   * A POST, not a link: minting writes a row, and a GET would let any third
+   * party (an `<img>`, a link scanner) mint tokens against the CMS by pointing
+   * at the URL. The browser follows the redirect to the site, where the plugin
+   * finds the token and renders the draft.
+   */
+  async preview(req: BunRequest): Promise<Response> {
+    const authRedirect = await requireAuth(req);
+    if (authRedirect) return authRedirect;
+
+    const ctx = await getSessionContext(req);
+    if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
+
+    const pageId = (req.params as { id: string }).id;
+    if (!UUID_PATTERN.test(pageId)) return render404();
+
+    const csrf = await checkCsrf(req, {
+      method: "POST",
+      path: `/cms/pages/${pageId}/preview`,
+    });
+    if (!csrf.ok) return csrf.response;
+
+    const page = await getPageById(pageId);
+    if (!page) return render404();
+
+    const token = await createPreviewToken({
+      subjectType: "page",
+      subjectId: page.id,
+      createdBy: ctx.user.id,
+    });
+
+    const url = buildPreviewUrl({
+      baseUrl: process.env.SITE_APP_URL,
+      path: page.url,
+      rawToken: token.rawToken,
+    });
+    if (!url) return redirect(`/cms/pages/${page.id}?preview=unavailable`);
+
+    return redirect(url);
+  },
+
   /** Make a draft the revision the site renders, refusing if a newer one exists. */
   async publish(req: BunRequest): Promise<Response> {
     const authRedirect = await requireAuth(req);

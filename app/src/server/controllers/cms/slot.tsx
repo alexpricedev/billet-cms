@@ -64,6 +64,13 @@ export const formNotice = (params: URLSearchParams): Notice | null => {
         "The block type for this slot is no longer published, so it can't be published.",
     };
   }
+  if (params.get("preview") === "unavailable") {
+    return {
+      kind: "warning",
+      message:
+        "Preview isn't available: the CMS isn't pointed at a site URL, so it has nowhere to open the page.",
+    };
+  }
   return null;
 };
 
@@ -108,17 +115,20 @@ export const renderSlotForm = async (
     Object.entries(content).filter(([key]) => declared.has(key)),
   );
 
-  const [formCsrfToken, publishCsrfToken, navCsrfToken] = await Promise.all([
-    createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
-    createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
-    createCsrfToken(sessionId, "POST", "/auth/logout"),
-  ]);
+  const [formCsrfToken, publishCsrfToken, previewCsrfToken, navCsrfToken] =
+    await Promise.all([
+      createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
+      createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
+      createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/preview`),
+      createCsrfToken(sessionId, "POST", "/auth/logout"),
+    ]);
 
   return render(
     <SlotForm
       user={ctx.user as NonNullable<SessionContext["user"]>}
       formCsrfToken={formCsrfToken}
       publishCsrfToken={publishCsrfToken}
+      previewCsrfToken={previewCsrfToken}
       navCsrfToken={navCsrfToken}
       slot={slot}
       blockType={blockType}
