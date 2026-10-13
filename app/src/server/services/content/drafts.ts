@@ -20,6 +20,7 @@ import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { SQL } from "bun";
 import { findUserById } from "../auth";
 import { db } from "../database";
+import { checkImageGuidance } from "../media/guidance";
 import { type BlockTypeRecord, getBlockTypeByName } from "./definitions";
 import {
   createRevision,
@@ -216,6 +217,17 @@ export const saveSlotDraft = async (
       reason: "invalid",
       issues: formatIssues(validation.issues),
     };
+  }
+
+  // The schema can only say an image reference is a UUID; whether the picture
+  // behind it is big enough, or the right shape, is a `cms_media` row. Enforce
+  // the field's guidance before anything is written.
+  const guidanceIssues = await checkImageGuidance(
+    blockType.fields,
+    input.content,
+  );
+  if (guidanceIssues.length > 0) {
+    return { ok: false, reason: "invalid", issues: guidanceIssues };
   }
 
   const outcome = await db.begin(async (tx) => {

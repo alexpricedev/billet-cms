@@ -69,13 +69,15 @@ repo. This file is only the invariants.
   on every request, so a site that removes an account ends the session at the
   next request. There is no CMS account to provision.
 - **The generated CMS form is the one recorded exception to server-rendered
-  interaction.** `src/client/cms-form.ts` is shipped for the block editor: rich
-  text is a `contenteditable` editor and repeatable lists are added and removed
-  without a round trip. The server renders the stored document into the page and
-  the script only walks that DOM back into a hidden `content` field, so with
-  JavaScript off the form still submits the stored content unchanged. Keep it to
-  that: no fetching, no `JSON.parse`, no markup built from data — the same rules
-  `client/boundaries.test.ts` enforces.
+  interaction.** `src/client/cms-form.ts` is shipped for the block editor and
+  the media focal-point picker: rich text is a `contenteditable` editor,
+  repeatable lists are added and removed without a round trip, and the image
+  field's picker writes the chosen id into the media-id input. The server
+  renders the stored document into the page and the script only walks that DOM
+  back into a hidden `content` field (and, on a media form, moves the focal
+  marker and the previews), so with JavaScript off the form still submits the
+  stored content unchanged. Keep it to that: no fetching, no `JSON.parse`, no
+  markup built from data — the same rules `client/boundaries.test.ts` enforces.
 - **Preview is a token row, not an API.** `cms_preview_tokens` holds a hashed,
   30-minute, single-subject token (a page or a slot). The CMS mints one and opens
   `<SITE_APP_URL><path>?cms_preview=…`; the plugin
@@ -85,6 +87,22 @@ repo. This file is only the invariants.
   (declared on `slot()`, published to `cms_slots.preview_path`) is the site page
   the CMS opens for it. An unknown, expired or missing token is the published
   view; a preview read always bypasses the `content_version` cache.
+- **Media lives in an S3-compatible bucket, behind `cms_media`.** The CMS
+  uploads an image once (JPEG, PNG or WebP, sniffed from its bytes — SVG and
+  animated GIF are refused), caps it at 20 MB and 100 megapixels, applies EXIF
+  rotation then strips all metadata (GPS included), and stores a WebP plus a
+  fallback at every fixed width the source can fill (`MEDIA_WIDTHS`, never an
+  upscale). The row keeps the object keys and the public URLs, so the site needs
+  no bucket configuration. `image()` guidance (`minWidth`, `aspect`) is enforced
+  when content is *saved*, not at upload — the same picture is a hero in one
+  block and a thumbnail in another. Alt text is required, a use may override it,
+  and an image referenced by any **published** page or slot cannot be deleted.
+  The site renders one through `<CmsImage>` (`renderCmsImage`, reading the row
+  with `getMedia`). The bucket is configured with `S3_BUCKET`,
+  `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `MEDIA_PUBLIC_BASE_URL` (plus
+  `S3_REGION` / `S3_ENDPOINT` when the provider needs them); uploads are simply
+  refused, with a message, until they are set. A site's CSP `img-src` must
+  allow the bucket host.
 
 ## Porting Billet upgrades
 

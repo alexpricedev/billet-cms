@@ -11,6 +11,7 @@ import {
 import { account, handoff, logout, signIn } from "../controllers/auth";
 import {
   dashboard,
+  media,
   pagePublish,
   pages,
   slotForm,
@@ -83,6 +84,22 @@ export const appRoutes = {
     POST: pages.destroy,
   }),
   "/cms/pages/:id/history": pagePublish.history,
+  // The media library: the reuse list and one upload form, then an image's own
+  // detail (alt, focal point, uses, delete). `/cms/media/:id/delete` is
+  // declared after `:id` but Bun matches the longer path first; both are real
+  // paths, not a catch-all.
+  "/cms/media": createRouteHandler({
+    GET: media.index,
+    POST: media.upload,
+  }),
+  "/cms/media/:id": createRouteHandler({
+    GET: media.form,
+    POST: media.save,
+  }),
+  "/cms/media/:id/delete": createRouteHandler({
+    GET: media.confirmDelete,
+    POST: media.destroy,
+  }),
   // The Edit content handoff and CMS sign-in both arrive as a single-use token
   // the site minted, so both render a confirm step on GET and spend the token on
   // POST: a token a browser prefetch or a link scanner could burn by fetching

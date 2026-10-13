@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ALLOWED_UPLOAD_TYPES,
   CMS_SIGN_IN_PATH,
   CONTRACT_VERSION,
+  DEFAULT_FOCAL_POINT,
   hashJson,
   isCmsRelation,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_PIXELS,
+  MEDIA_WIDTHS,
   META_KEYS,
   PREVIEW_QUERY_PARAM,
   PREVIEW_TOKEN_TTL_SECONDS,
@@ -59,6 +64,7 @@ describe("TABLES", () => {
       pages: "cms_pages",
       redirects: "cms_redirects",
       previewTokens: "cms_preview_tokens",
+      media: "cms_media",
     });
   });
 });
@@ -81,6 +87,31 @@ describe("META_KEYS", () => {
   test("names the two counters cms_meta holds", () => {
     expect(META_KEYS.contractVersion).toBe("contract_version");
     expect(META_KEYS.contentVersion).toBe("content_version");
+  });
+});
+
+describe("media contract", () => {
+  test("fixes the rendition ladder both sides build a srcset from", () => {
+    expect([...MEDIA_WIDTHS]).toEqual([480, 960, 1600, 2400]);
+  });
+
+  test("caps an upload at about 20 MB and a decode at 100 MP", () => {
+    expect(MAX_UPLOAD_BYTES).toBe(20 * 1024 * 1024);
+    expect(MAX_UPLOAD_PIXELS).toBe(100_000_000);
+  });
+
+  test("accepts only JPEG, PNG and WebP", () => {
+    expect([...ALLOWED_UPLOAD_TYPES]).toEqual([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]);
+    expect(ALLOWED_UPLOAD_TYPES).not.toContain("image/svg+xml");
+    expect(ALLOWED_UPLOAD_TYPES).not.toContain("image/gif");
+  });
+
+  test("starts a new upload at its centre", () => {
+    expect(DEFAULT_FOCAL_POINT).toEqual({ x: 0.5, y: 0.5 });
   });
 });
 

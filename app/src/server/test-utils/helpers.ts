@@ -16,6 +16,7 @@ import type { SQL } from "bun";
 export const cleanupTestData = async (db: SQL): Promise<void> => {
   await db`
     TRUNCATE TABLE
+      cms_media,
       cms_redirects, cms_pages,
       cms_preview_tokens, cms_handoff_tokens, cms_revisions,
       cms_user_tokens, cms_sessions,

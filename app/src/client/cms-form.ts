@@ -439,6 +439,20 @@ const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
  * button.
  */
 const wireControls = (form: HTMLFormElement): void => {
+  // The image picker is a convenience over the media-id input, which stays the
+  // field's value: choosing an upload writes its id there, and a hand-typed id
+  // works exactly the same. With JavaScript off the picker isn't read at all.
+  form.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const picker = target.closest("[data-image-picker]");
+    if (!(picker instanceof HTMLSelectElement)) return;
+    const input = picker
+      .closest("[data-field]")
+      ?.querySelector<HTMLInputElement>("[data-image-id]");
+    if (input) input.value = picker.value;
+  });
+
   form.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -564,8 +578,75 @@ const wireControls = (form: HTMLFormElement): void => {
   });
 };
 
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+
+/** A hidden focal input's value as a fraction, defaulting to the centre. */
+const readFraction = (input: HTMLInputElement): number => {
+  const value = Number(input.value);
+  return Number.isFinite(value) ? clamp01(value) : 0.5;
+};
+
+/**
+ * Wire the focal-point picker on a media detail form.
+ *
+ * The picture is a click target and a keyboard one (arrows nudge by one percent,
+ * Shift by ten): both only move the marker and the three previews, and write the
+ * fraction into the form's hidden `focal_x`/`focal_y` inputs. No markup is built
+ * and nothing is fetched — the server already rendered every element, and with
+ * JavaScript off the inputs keep whatever was last saved.
+ */
+const wireFocalPoint = (form: HTMLFormElement): void => {
+  const picker = form.querySelector<HTMLElement>("[data-focal-picker]");
+  const xInput = form.querySelector<HTMLInputElement>("[data-focal-x]");
+  const yInput = form.querySelector<HTMLInputElement>("[data-focal-y]");
+  if (!picker || !xInput || !yInput) return;
+
+  const marker = form.querySelector<HTMLElement>("[data-focal-marker]");
+  const previews = Array.from(
+    form.querySelectorAll<HTMLElement>("[data-focal-preview]"),
+  );
+
+  const apply = (x: number, y: number): void => {
+    const roundedX = Math.round(x * 1000) / 1000;
+    const roundedY = Math.round(y * 1000) / 1000;
+    xInput.value = String(roundedX);
+    yInput.value = String(roundedY);
+    if (marker) {
+      marker.style.left = `${roundedX * 100}%`;
+      marker.style.top = `${roundedY * 100}%`;
+    }
+    const position = `${roundedX * 100}% ${roundedY * 100}%`;
+    for (const preview of previews) preview.style.objectPosition = position;
+  };
+
+  picker.addEventListener("click", (event) => {
+    const rect = picker.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    apply(
+      clamp01((event.clientX - rect.left) / rect.width),
+      clamp01((event.clientY - rect.top) / rect.height),
+    );
+  });
+
+  picker.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 0.1 : 0.01;
+    let x = readFraction(xInput);
+    let y = readFraction(yInput);
+
+    if (event.key === "ArrowLeft") x = clamp01(x - step);
+    else if (event.key === "ArrowRight") x = clamp01(x + step);
+    else if (event.key === "ArrowUp") y = clamp01(y - step);
+    else if (event.key === "ArrowDown") y = clamp01(y + step);
+    else return;
+
+    event.preventDefault();
+    apply(x, y);
+  });
+};
+
 const wireForm = (form: HTMLFormElement): void => {
   wireControls(form);
+  wireFocalPoint(form);
 
   form.addEventListener("submit", () => {
     const hidden = form.querySelector<HTMLInputElement>("[data-cms-content]");

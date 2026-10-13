@@ -7,6 +7,7 @@ import type {
   UnavailableBlock,
 } from "../../services/content";
 import type { PageOption } from "../../services/content/pages";
+import type { MediaOption } from "../../services/media";
 
 export interface PageBlocksProps {
   pageType: PageTypeRecord;
@@ -20,6 +21,8 @@ export interface PageBlocksProps {
   errorsByBlock?: Map<number, Map<string, FieldError[]>>;
   /** The CMS pages a `link` field's picker offers. */
   pages?: PageOption[];
+  /** The uploads an `image` field's picker offers. */
+  media?: MediaOption[];
 }
 
 /** The block types a page of this type may add, in the allowed order. */
@@ -111,12 +114,14 @@ const EditableBlock = ({
   index,
   errors,
   pages,
+  media,
 }: {
   blockType: BlockTypeRecord;
   block: PageBlock;
   index: number;
   errors?: Map<string, FieldError[]>;
   pages?: PageOption[];
+  media?: MediaOption[];
 }) => (
   <fieldset
     className="cms-block"
@@ -133,6 +138,7 @@ const EditableBlock = ({
       content={block}
       errorsByField={errors}
       pages={pages}
+      media={media}
       idPrefix={`cms-block-${index}-${blockType.name}`}
     />
   </fieldset>
@@ -158,6 +164,7 @@ export const PageBlocks = ({
   unavailable,
   errorsByBlock,
   pages,
+  media,
 }: PageBlocksProps) => {
   const byName = new Map(blockTypes.map((block) => [block.name, block]));
   const unavailableByIndex = new Map(
@@ -201,6 +208,7 @@ export const PageBlocks = ({
               index={index}
               errors={errorsByBlock?.get(index)}
               pages={pages}
+              media={media}
             />
           );
         })}
@@ -225,6 +233,7 @@ export const PageBlocks = ({
             block={{ type: blockType.name }}
             index={-1}
             pages={pages}
+            media={media}
           />
         </template>
       ))}

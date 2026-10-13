@@ -31,9 +31,12 @@ import { createHash } from "node:crypto";
  * `cms_preview_tokens` (the short-lived, single-subject tokens the CMS mints and
  * the plugin checks to render drafts) and `cms_slots.preview_path` (the site page
  * a slot lives on, so the CMS's Preview button opens the real page), so an older
- * CMS cannot mint or read a preview.
+ * CMS cannot mint or read a preview. Phase 7 adds `cms_media` (the uploads an
+ * editor reuses, with their renditions and focal point) and its stored variant
+ * shape, so a site that reads an image through the plugin needs both before it
+ * can render one.
  */
-export const CONTRACT_VERSION = "0.5.0";
+export const CONTRACT_VERSION = "0.6.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -67,6 +70,75 @@ export const PREVIEW_QUERY_PARAM = "cms_preview";
 export const PREVIEW_TOKEN_TTL_SECONDS = 30 * 60;
 
 /**
+ * The fixed widths the CMS generates for every upload, in pixels (Phase 7).
+ *
+ * Never an upscale: a width wider than the source is skipped, and the source
+ * width itself is added when it sits above the widest fixed one, so the largest
+ * rendition is always the source's own size. The site's `<CmsImage>` builds a
+ * `srcset` from whatever variants the row carries, so both sides agree on the
+ * ladder without either importing the other.
+ */
+export const MEDIA_WIDTHS = [480, 960, 1600, 2400] as const;
+
+/** The largest upload the CMS accepts, in bytes — about 20 MB. */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+/**
+ * The most pixels the CMS will decode.
+ *
+ * The source's dimensions are read from its header before Sharp touches it, so
+ * a decompression bomb — a small file that expands to an enormous bitmap — is
+ * refused before it can allocate that memory. 100 MP is far above any real
+ * photograph and far below what would exhaust a container.
+ */
+export const MAX_UPLOAD_PIXELS = 100_000_000;
+
+/**
+ * The source types the CMS accepts.
+ *
+ * SVG is refused: it can carry scripts, and serving one from the bucket would
+ * be stored XSS on a page that embedded it. GIF is refused too, animated or
+ * not — it is not in the accepted set, and an animated GIF would be flattened
+ * to a single frame by the conversion anyway.
+ */
+export const ALLOWED_UPLOAD_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
+
+export type AllowedUploadType = (typeof ALLOWED_UPLOAD_TYPES)[number];
+
+/** The focal point a new upload starts at: the centre. */
+export const DEFAULT_FOCAL_POINT = { x: 0.5, y: 0.5 } as const;
+
+/** Where the focal point sits on the image, each axis a fraction from 0 to 1. */
+export interface FocalPoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * One rendition of an upload, as stored on `cms_media.variants`.
+ *
+ * `key` is the object key the CMS deletes; `url` is the public URL `<CmsImage>`
+ * renders. Both are stored rather than derived so the site needs no bucket
+ * configuration and an export carries working URLs.
+ */
+export interface MediaVariant {
+  width: number;
+  height: number;
+  /** Object key of the WebP rendition. */
+  webpKey: string;
+  /** Public URL of the WebP rendition. */
+  webpUrl: string;
+  /** Object key of the fallback rendition (JPEG, or PNG for a PNG source). */
+  fallbackKey: string;
+  /** Public URL of the fallback rendition. */
+  fallbackUrl: string;
+}
+
+/**
  * Every table and view the CMS owns.
  *
  * `identities` is a view, not a table: the CMS does not own user accounts. The
@@ -96,6 +168,11 @@ export const PREVIEW_TOKEN_TTL_SECONDS = 30 * 60;
  * query string; the plugin reads the row to decide whether to render drafts. It
  * is never listed, revoked row by row or single-use — it expires after half an
  * hour and a sweep deletes it.
+ *
+ * `media` is the uploads library: one row per stored image, carrying its size,
+ * its renditions and its focal point. An `image()` field stores only a
+ * `mediaId`, so the site reads the row through the plugin's `<CmsImage>` and
+ * gets the picture's dimensions, `srcset` and `object-position` back.
  */
 export const TABLES = {
   migrations: "cms_migrations",
@@ -111,6 +188,7 @@ export const TABLES = {
   pages: "cms_pages",
   redirects: "cms_redirects",
   previewTokens: "cms_preview_tokens",
+  media: "cms_media",
 } as const;
 
 export type TableName = (typeof TABLES)[keyof typeof TABLES];

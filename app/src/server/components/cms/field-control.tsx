@@ -2,6 +2,7 @@ import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
+import type { MediaOption } from "../../services/media";
 import { RichTextView } from "./rich-text";
 
 /**
@@ -69,6 +70,8 @@ export interface FieldControlProps {
   labelOverride?: string;
   /** The CMS pages a `link` field may point at, for the internal-link picker. */
   pages?: PageOption[];
+  /** The uploads an `image` field may reuse, for its picker. */
+  media?: MediaOption[];
 }
 
 const describedBy = (...ids: (string | undefined)[]): string | undefined => {
@@ -223,12 +226,14 @@ const ListItemControl = ({
   value,
   listLabel,
   pages,
+  media,
 }: {
   field: FieldMetadata;
   value: unknown;
   /** The list's own label, so every Add/Remove names the list it belongs to. */
   listLabel: string;
   pages?: PageOption[];
+  media?: MediaOption[];
 }): JSX.Element => (
   <div className="cms-list-item" data-list-item>
     <FieldControl
@@ -236,6 +241,7 @@ const ListItemControl = ({
       value={value}
       labelOverride={listLabel}
       pages={pages}
+      media={media}
     />
     <button
       type="button"
@@ -255,6 +261,7 @@ export const FieldControl = ({
   errors,
   labelOverride,
   pages,
+  media,
 }: FieldControlProps): JSX.Element => {
   const required = field.required;
   const invalid = errors && errors.length > 0;
@@ -364,6 +371,34 @@ export const FieldControl = ({
             </legend>
           )}
           <FieldHelp help={field.help} id={helpId} />
+          {media && media.length > 0 && (
+            <>
+              <SubControlLabel htmlFor={idFor("pick")}>
+                Reuse an upload
+              </SubControlLabel>
+              <select
+                id={idFor("pick")}
+                data-image-picker
+                aria-label={controlId ? undefined : "Reuse an upload"}
+              >
+                <option value="" selected={!image.mediaId}>
+                  Choose an image…
+                </option>
+                {/* The picker writes the chosen id into the media-id input
+                    below; the id input stays the field's own value, so a
+                    hand-typed id and a with-JavaScript picker both work. */}
+                {media.map((option) => (
+                  <option
+                    key={option.id}
+                    value={option.id}
+                    selected={option.id === image.mediaId}
+                  >
+                    {option.alt} ({option.width}×{option.height})
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
           <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>
           <input
             type="text"
@@ -544,6 +579,7 @@ export const FieldControl = ({
                 value={item}
                 listLabel={listLabel}
                 pages={pages}
+                media={media}
               />
             ))}
           </div>
@@ -555,6 +591,7 @@ export const FieldControl = ({
               value={undefined}
               listLabel={listLabel}
               pages={pages}
+              media={media}
             />
           </template>
           <button

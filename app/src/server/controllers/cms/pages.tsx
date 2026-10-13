@@ -28,6 +28,7 @@ import {
   savePage,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
+import { listMediaOptions } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import { PageDeleteConfirm } from "../../templates/cms/page-delete";
 import {
@@ -177,10 +178,11 @@ export const renderPageForm = async (
   const sessionId = ctx.sessionId as string;
   const user = ctx.user as NonNullable<SessionContext["user"]>;
 
-  const [blockTypes, pageTypes, pages, latest] = await Promise.all([
+  const [blockTypes, pageTypes, pages, media, latest] = await Promise.all([
     listBlockTypes(),
     listPageTypes(),
     listPageOptions(),
+    listMediaOptions(),
     getLatestRevision("page", page.id),
   ]);
 
@@ -238,6 +240,7 @@ export const renderPageForm = async (
       latestRevisionId={latest?.id ?? null}
       publishedRevisionId={page.publishedRevisionId}
       pages={pages}
+      media={media}
       settingsErrors={settingsErrors}
       blockErrors={byBlock}
       contentIssues={list}

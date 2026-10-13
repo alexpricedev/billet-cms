@@ -8,6 +8,7 @@ import type {
   RevisionConflict,
   SlotRecord,
 } from "../../services/content";
+import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
 
 export interface SlotFormProps {
@@ -31,6 +32,8 @@ export interface SlotFormProps {
   publishedRevisionId: string | null;
   /** Fields present in the saved content but no longer published (Q4). */
   removedFieldNames: string[];
+  /** The uploads an `image` field's picker offers. */
+  media?: MediaOption[];
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
   /** A one-line outcome from a save, publish or restore. */
@@ -60,6 +63,7 @@ export const SlotForm = ({
   latestRevisionId,
   publishedRevisionId,
   removedFieldNames,
+  media,
   errors,
   conflict,
   notice,
@@ -213,6 +217,7 @@ export const SlotForm = ({
           fields={blockType.fields}
           content={content}
           errorsByField={errorsByField}
+          media={media}
         />
 
         <button type="submit" className="cms-save">

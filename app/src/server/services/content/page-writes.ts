@@ -22,6 +22,7 @@
 import type { SQL } from "bun";
 import { findUserById } from "../auth";
 import { db } from "../database";
+import { checkImageGuidance } from "../media/guidance";
 import {
   type BlockTypeRecord,
   getPageTypeByName,
@@ -58,6 +59,36 @@ const blockTypesByName = async (): Promise<Map<string, BlockTypeRecord>> =>
   new Map(
     (await listBlockTypes()).map((blockType) => [blockType.name, blockType]),
   );
+
+/**
+ * Enforce every block's image guidance across a page's content.
+ *
+ * Each block is checked against its own metadata tree, and an issue is reported
+ * with the block's own index so the form points the message at the right
+ * control, exactly as the schema issues are.
+ */
+const blockImageGuidance = async (
+  blockTypes: Map<string, BlockTypeRecord>,
+  content: PageContent,
+): Promise<FieldIssue[]> => {
+  const issues: FieldIssue[] = [];
+  for (const [index, block] of content.blocks.entries()) {
+    const blockType = blockTypes.get(block.type);
+    if (!blockType) continue;
+    const { type: _type, ...fields } = block;
+    const blockIssues = await checkImageGuidance(
+      blockType.fields,
+      fields as Record<string, unknown>,
+    );
+    for (const issue of blockIssues) {
+      issues.push({
+        path: `blocks.${index}.${issue.path}`,
+        message: issue.message,
+      });
+    }
+  }
+  return issues;
+};
 
 export type SavePageDraftResult =
   | { ok: true; revision: RevisionRecord }
@@ -170,6 +201,11 @@ export const savePageDraft = async (
     return { ok: false, reason: "invalid", issues: validation.issues };
   }
 
+  const guidance = await blockImageGuidance(blockTypes, input.content);
+  if (guidance.length > 0) {
+    return { ok: false, reason: "invalid", issues: guidance };
+  }
+
   const outcome = await db.begin(async (tx) => {
     const locked = await tx`
       SELECT id FROM cms_pages WHERE id = ${page.id} FOR UPDATE
@@ -277,6 +313,11 @@ export const savePage = async (
   });
   if (!validation.ok) {
     return { ok: false, reason: "invalid", issues: validation.issues };
+  }
+
+  const guidance = await blockImageGuidance(blockTypes, input.content);
+  if (guidance.length > 0) {
+    return { ok: false, reason: "invalid", issues: guidance };
   }
 
   const outcome = await writePage(page, pageType, blockTypes, settings, input);
