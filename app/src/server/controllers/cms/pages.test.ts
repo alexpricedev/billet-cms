@@ -243,6 +243,48 @@ describe("Pages controller", () => {
     expect(redirects.map((redirect) => redirect.fromPath)).toContain("/about");
   });
 
+  test("refuses a page type that isn't published rather than failing", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "not-a-type",
+          url: "/about",
+          title: "About us",
+          content: JSON.stringify(pageContent("Hello")),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Choose a published page type");
+    // The page keeps the type it had; nothing was written under the bad one.
+    expect((await getPageByUrl("/about"))?.pageType).toBe("landing");
+  });
+
+  test("shows a notice after a page is deleted", async () => {
+    const res = await pages.index(
+      createBunRequest(`${ORIGIN}/cms/pages?deleted=1`, {
+        method: "GET",
+        headers: { cookie: `cms_session=${sessionId}` },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Page deleted.");
+  });
+
   test("publishes a page", async () => {
     const created = await createPage({
       pageType: "landing",

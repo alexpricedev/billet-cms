@@ -252,22 +252,41 @@ export const PageForm = ({
               <label className="cms-field-label" htmlFor="pageType">
                 Page type
               </label>
-              <select id="pageType" name="pageType">
-                {pageTypes.map((candidate) => (
-                  <option
-                    value={candidate.name}
-                    key={candidate.id}
-                    selected={candidate.name === page.pageType}
-                  >
-                    {candidate.label ?? candidate.name}
-                  </option>
-                ))}
+              <select
+                id="pageType"
+                name="pageType"
+                aria-invalid={
+                  settingsErrors?.get("pageType") ? "true" : undefined
+                }
+              >
+                {pageTypes
+                  .filter(
+                    (candidate) =>
+                      candidate.removedAt === null ||
+                      candidate.name === page.pageType,
+                  )
+                  .map((candidate) => (
+                    <option
+                      value={candidate.name}
+                      key={candidate.id}
+                      selected={candidate.name === page.pageType}
+                    >
+                      {candidate.label ?? candidate.name}
+                    </option>
+                  ))}
                 {/* A page whose type a deploy removed still has to show its
                     current type rather than silently switching on save. */}
                 {pageTypes.every(
                   (candidate) => candidate.name !== page.pageType,
                 ) && <option value={page.pageType}>{page.pageType}</option>}
               </select>
+              {settingsErrors?.get("pageType") && (
+                <ul className="cms-field-errors" id="pageType-error">
+                  {settingsErrors.get("pageType")?.map((error, index) => (
+                    <li key={`${error.path}:${index}`}>{error.message}</li>
+                  ))}
+                </ul>
+              )}
             </div>
             <SettingsControl
               name="url"
@@ -432,16 +451,25 @@ export const NewPageForm = ({
               <span className="cms-required"> *</span>
             </label>
             <select id="pageType" name="pageType">
-              {pageTypes.map((candidate) => (
-                <option
-                  value={candidate.name}
-                  key={candidate.id}
-                  selected={candidate.name === values.pageType}
-                >
-                  {candidate.label ?? candidate.name}
-                </option>
-              ))}
+              {pageTypes
+                .filter((candidate) => candidate.removedAt === null)
+                .map((candidate) => (
+                  <option
+                    value={candidate.name}
+                    key={candidate.id}
+                    selected={candidate.name === values.pageType}
+                  >
+                    {candidate.label ?? candidate.name}
+                  </option>
+                ))}
             </select>
+            {errorsByField.get("pageType") && (
+              <ul className="cms-field-errors" id="pageType-error">
+                {errorsByField.get("pageType")?.map((error, index) => (
+                  <li key={`${error.path}:${index}`}>{error.message}</li>
+                ))}
+              </ul>
+            )}
           </div>
           <SettingsControl
             name="url"

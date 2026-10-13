@@ -80,6 +80,7 @@ export const pageNotice = (params: URLSearchParams): Notice | null => {
 };
 
 const SETTINGS_FIELDS = new Set([
+  "pageType",
   "url",
   "title",
   "seoDescription",
@@ -253,6 +254,11 @@ export const pages = {
       "/auth/logout",
     );
 
+    const notice =
+      new URL(req.url).searchParams.get("deleted") === "1"
+        ? "Page deleted."
+        : null;
+
     return render(
       <PagesList
         user={ctx.user}
@@ -260,6 +266,7 @@ export const pages = {
         pages={pages}
         pageTypes={pageTypes}
         redirects={redirects}
+        notice={notice}
       />,
     );
   },
@@ -272,7 +279,9 @@ export const pages = {
     const ctx = await getSessionContext(req);
     if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
-    const pageTypes = await listPageTypes();
+    const pageTypes = (await listPageTypes()).filter(
+      (type) => type.removedAt === null,
+    );
     const [csrfToken, navCsrfToken] = await Promise.all([
       createCsrfToken(ctx.sessionId, "POST", "/cms/pages/new"),
       createCsrfToken(ctx.sessionId, "POST", "/auth/logout"),
@@ -310,7 +319,9 @@ export const pages = {
 
     const formData = await req.formData();
     const settings = settingsFrom(formData);
-    const pageTypes = await listPageTypes();
+    const pageTypes = (await listPageTypes()).filter(
+      (type) => type.removedAt === null,
+    );
 
     if (settings.pageType === "") {
       const [csrfToken, navCsrfToken] = await Promise.all([

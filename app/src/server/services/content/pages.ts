@@ -23,6 +23,7 @@
 import { randomUUID } from "node:crypto";
 import type { SQL } from "bun";
 import { db } from "../database";
+import { getPageTypeByName, type PageTypeRecord } from "./definitions";
 import { bumpContentVersion } from "./publishing";
 
 export interface PageRecord {
@@ -185,6 +186,29 @@ export const validatePageSettings = (
   };
 };
 
+/**
+ * The page type an editor may write a page against, or `null`.
+ *
+ * A page type a deploy removed is not writable: its definition is gone, so the
+ * CMS can't validate the page's blocks or build its editor. It is kept (Q4) so
+ * an existing page still reads back, but it can't be chosen for a new page or
+ * switched to on an existing one.
+ */
+export const resolveWritablePageType = async (
+  name: string,
+): Promise<PageTypeRecord | null> => {
+  const pageType = await getPageTypeByName(name);
+  return pageType && !pageType.removedAt ? pageType : null;
+};
+
+/** The field issue a page type that isn't writable reports, or `null`. */
+const pageTypeIssue = async (
+  name: string,
+): Promise<FieldSettingIssue | null> =>
+  (await resolveWritablePageType(name)) === null
+    ? { path: "pageType", message: "Choose a published page type." }
+    : null;
+
 export type PageResult =
   | { ok: true; page: PageRecord }
   | { ok: false; issues: FieldSettingIssue[] };
@@ -236,6 +260,9 @@ export const createPage = async (
 ): Promise<PageResult> => {
   const settings = validatePageSettings(input);
   if (!settings.ok) return { ok: false, issues: settings.issues };
+
+  const typeIssue = await pageTypeIssue(input.pageType);
+  if (typeIssue) return { ok: false, issues: [typeIssue] };
 
   try {
     const page = await db.begin(async (tx) => {
@@ -298,6 +325,9 @@ export const updatePageSettings = async (
 ): Promise<PageResult> => {
   const settings = validatePageSettings(input);
   if (!settings.ok) return { ok: false, issues: settings.issues };
+
+  const typeIssue = await pageTypeIssue(input.pageType);
+  if (typeIssue) return { ok: false, issues: [typeIssue] };
 
   try {
     const page = await db.begin(async (tx) => {
