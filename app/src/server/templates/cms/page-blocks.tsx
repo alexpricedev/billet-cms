@@ -35,14 +35,43 @@ const allowedBlockTypes = (
     );
 };
 
-/** Why a block can't be edited, as a sentence fragment. */
-const unavailableNote = (
-  reason: UnavailableBlock["reason"] | undefined,
-): string => {
-  if (reason === "removed") return " — its type was removed by a deploy";
-  if (reason === "not-allowed") return " — the page type no longer allows it";
-  return "";
+/**
+ * Why a block can't be edited, and what clears the flag.
+ *
+ * A removed or missing block type can't be rendered by the site, so the page
+ * can't be published while it holds one. A block the page type no longer allows
+ * is still a published, renderable block, so the page can be published anyway
+ * (review round 2). Either way the editor can remove the block explicitly.
+ */
+const unavailableMessage = (reason: UnavailableBlock["reason"]): string => {
+  if (reason === "not-allowed") {
+    return "This block isn't allowed on this page type any more. Its saved content is kept and the page can still be published; remove the block to clear the flag.";
+  }
+  if (reason === "removed") {
+    return "This block's type was removed by a deploy. Its saved content is kept, but the page can't be published until the block is removed or a deploy restores its type.";
+  }
+  return "This block's type is no longer published. Its saved content is kept, but the page can't be published until the block is removed or a deploy restores its type.";
 };
+
+/**
+ * The Remove control on a flagged block.
+ *
+ * The payload is not the block: the client can't serialize fields it has no
+ * controls for. Clicking Remove marks the block removed in the form's
+ * `removed_blocks` field, which is the explicit marker the write layer reads.
+ */
+const FlaggedBlockActions = ({ type }: { type: string }) => (
+  <div className="cms-block-actions">
+    <button
+      type="button"
+      className="cms-block-remove"
+      data-block-remove
+      aria-label={`Remove the ${type} block`}
+    >
+      Remove
+    </button>
+  </div>
+);
 
 const BlockActions = ({ label }: { label: string }) => (
   <div className="cms-block-actions">
@@ -115,9 +144,12 @@ const EditableBlock = ({
  *
  * `data-cms-block` elements are what the client walks back into the hidden
  * `content` field. A block the page type no longer allows (or whose type a
- * deploy removed) renders as a flagged, read-only entry: it has no controls to
- * serialize, so a save leaves it to the write layer to carry through (Q4), and
- * it refuses to publish until the deploy restores it.
+ * deploy removed) renders as a flagged, read-only entry: it has no field
+ * controls to serialize, so a save leaves it to the write layer to carry
+ * through (Q4). Its one control is Remove, which marks the block's base index
+ * in the form's `removed_blocks` field — the explicit removal the write layer
+ * reads so the block isn't carried back (review round 2). A removed block type
+ * still refuses to publish; a not-allowed one can be published as it stands.
  */
 export const PageBlocks = ({
   pageType,
@@ -140,22 +172,23 @@ export const PageBlocks = ({
           const flagged = unavailableByIndex.get(index);
           const blockType = byName.get(block.type);
           if (flagged || !blockType || blockType.removedAt) {
+            const reason =
+              flagged?.reason ?? (blockType?.removedAt ? "removed" : "missing");
             return (
               <fieldset
                 className="cms-block cms-block-unavailable"
                 data-cms-block
                 data-block-unavailable
                 data-block-type={block.type}
+                data-block-index={index}
                 key={`${block.type}:${index}`}
               >
                 <legend className="cms-block-legend">
                   <code>{block.type}</code>
                 </legend>
+                <FlaggedBlockActions type={block.type} />
                 <p className="flash-warning" role="status">
-                  This block is no longer editable
-                  {unavailableNote(flagged?.reason)}. Its saved content is kept
-                  as it is, and the page can't be published until a deploy
-                  restores the block.
+                  {unavailableMessage(reason)}
                 </p>
               </fieldset>
             );

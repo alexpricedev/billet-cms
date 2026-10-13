@@ -71,6 +71,12 @@ export interface SavePageDraftInput {
   content: PageContent;
   /** The revision the editor loaded; null when there was none. */
   baseRevisionId: string | null;
+  /**
+   * Base-revision indices of flagged blocks the editor explicitly removed. The
+   * form's Remove control sends these because the client cannot serialize a
+   * flagged block's fields (review round 2).
+   */
+  removedBlockIndexes?: number[];
   /** The identity saving, for `created_by`. */
   actorId: string | null;
 }
@@ -105,9 +111,11 @@ const pageTypeForWrite = async (page: PageRecord) => {
  * with JavaScript on the client cannot rebuild it and a save would drop it. The
  * write layer is the one place that can add it back: it reads the revision the
  * editor loaded and re-attaches exactly the unavailable blocks the submission
- * left out, leaving everything the client did send to validation. A removed
- * block is flagged in the form and refuses to publish, but its data is never
- * silently lost.
+ * left out, leaving everything the client did send to validation. A block the
+ * editor explicitly removed with the form's Remove control names its index in
+ * `removedBlockIndexes` and is *not* carried back (review round 2); its data
+ * stays in the older revisions. A removed block refuses to publish either way,
+ * so its data is never silently lost.
  */
 const carryUnavailableBlocks = async (
   page: PageRecord,
@@ -115,6 +123,7 @@ const carryUnavailableBlocks = async (
   blockTypes: Map<string, BlockTypeRecord>,
   submitted: PageContent,
   baseRevisionId: string | null,
+  removedBlockIndexes: number[],
   sql: SQL,
 ): Promise<PageContent> => {
   if (!baseRevisionId) return submitted;
@@ -126,7 +135,12 @@ const carryUnavailableBlocks = async (
   const baseBlocks = asPageContent(base.content).blocks;
   const unavailable = findUnavailableBlocks(pageType, baseBlocks, blockTypes);
   return {
-    blocks: mergeUnavailableBlocks(submitted.blocks, baseBlocks, unavailable),
+    blocks: mergeUnavailableBlocks(
+      submitted.blocks,
+      baseBlocks,
+      unavailable,
+      removedBlockIndexes,
+    ),
   };
 };
 
@@ -134,9 +148,10 @@ const carryUnavailableBlocks = async (
  * Save a page draft.
  *
  * A block whose type a deploy removed is carried through untouched (Q4): a save
- * must not delete content because the code stopped describing it. Everything
- * else is validated against the page type, so a draft is one the page type
- * accepts before it is ever published.
+ * must not delete content because the code stopped describing it. A block the
+ * page type no longer allows is tolerated too (review round 2), so a page that
+ * holds one can still be saved. Everything else is validated against the page
+ * type, so a draft is one the page type accepts before it is ever published.
  */
 export const savePageDraft = async (
   input: SavePageDraftInput,
@@ -149,6 +164,7 @@ export const savePageDraft = async (
 
   const validation = validatePageContent(pageType, blockTypes, input.content, {
     allowUnavailableBlocks: true,
+    allowNotAllowedBlocks: true,
   });
   if (!validation.ok) {
     return { ok: false, reason: "invalid", issues: validation.issues };
@@ -179,6 +195,7 @@ export const savePageDraft = async (
               blockTypes,
               input.content,
               input.baseRevisionId,
+              input.removedBlockIndexes ?? [],
               tx,
             )
           ).blocks,
@@ -217,6 +234,8 @@ export interface SavePageInput {
   content: PageContent;
   /** The revision the editor loaded; null when there was none. */
   baseRevisionId: string | null;
+  /** Base-revision indices of flagged blocks the editor explicitly removed. */
+  removedBlockIndexes?: number[];
   actorId: string | null;
 }
 
@@ -254,6 +273,7 @@ export const savePage = async (
   const blockTypes = await blockTypesByName();
   const validation = validatePageContent(pageType, blockTypes, input.content, {
     allowUnavailableBlocks: true,
+    allowNotAllowedBlocks: true,
   });
   if (!validation.ok) {
     return { ok: false, reason: "invalid", issues: validation.issues };
@@ -323,6 +343,7 @@ const writePage = async (
         blockTypes,
         input.content,
         input.baseRevisionId,
+        input.removedBlockIndexes ?? [],
         tx,
       );
 
@@ -376,8 +397,11 @@ export interface PublishPageInput {
  *
  * The revision is validated without the save path's tolerance for a removed
  * block: putting such a page live would hand the site content it would skip, so
- * the editor is asked to remove the block first. The same refusals slots get
- * apply — no draft, a no-longer-valid draft, a newer draft than the one named.
+ * the editor is asked to remove the block first. A block the page type no longer
+ * allows is tolerated (review round 2) — the block type is still published and
+ * the site renders it — so a page that holds one can be published again. The
+ * same refusals slots get apply — no draft, a no-longer-valid draft, a newer
+ * draft than the one named.
  */
 export const publishPage = async (
   input: PublishPageInput,
@@ -418,6 +442,7 @@ export const publishPage = async (
       pageType,
       blockTypes,
       asPageContent(revision.content),
+      { allowNotAllowedBlocks: true },
     );
     if (!validation.ok) {
       return {

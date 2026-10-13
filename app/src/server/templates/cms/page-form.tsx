@@ -21,8 +21,6 @@ export interface PageFormProps {
   formCsrfToken: string;
   /** The CSRF token bound to the publish POST. */
   publishCsrfToken: string;
-  /** The CSRF token bound to the delete POST. */
-  deleteCsrfToken: string;
   /** The CSRF token bound to the nav's sign-out POST. */
   navCsrfToken?: string;
   page: PageRecord;
@@ -33,6 +31,11 @@ export interface PageFormProps {
   unavailable: UnavailableBlock[];
   /** The revision the editor loaded; a conflict's revision once one was shown. */
   baseRevisionId: string | null;
+  /**
+   * Base-revision indices of flagged blocks the editor removed. Re-rendered so
+   * a failed save keeps the removal (review round 2).
+   */
+  removed?: number[];
   /** The newest revision, which is what Publish would make live. */
   latestRevisionId: string | null;
   /** The revision the site is currently rendering, when there is one. */
@@ -138,7 +141,6 @@ export const PageForm = ({
   user,
   formCsrfToken,
   publishCsrfToken,
-  deleteCsrfToken,
   navCsrfToken,
   page,
   pageTypes,
@@ -147,6 +149,7 @@ export const PageForm = ({
   content,
   unavailable,
   baseRevisionId,
+  removed,
   latestRevisionId,
   publishedRevisionId,
   pages,
@@ -258,6 +261,15 @@ export const PageForm = ({
             type="hidden"
             name="base_revision"
             value={baseRevisionId ?? ""}
+          />
+          {/* Flagged blocks the editor removed, by base-revision index. The
+              client appends to this as Remove is pressed; re-rendered here so
+              a failed save keeps the removal. */}
+          <input
+            type="hidden"
+            name="removed_blocks"
+            value={(removed ?? []).join(",")}
+            data-cms-removed
           />
 
           <section className="cms-page-settings" aria-label="Page settings">
@@ -390,12 +402,12 @@ export const PageForm = ({
       </section>
 
       <section className="cms-danger" aria-label="Delete">
-        <form method="POST" action={`/cms/pages/${page.id}/delete`}>
-          <input type="hidden" name="_csrf" value={deleteCsrfToken} />
-          <button type="submit" className="cms-delete-button">
-            Delete page
-          </button>
-        </form>
+        {/* Deleting goes through a confirm step that names the page, its
+            redirects and the pages linking to it, rather than deleting on one
+            click. */}
+        <a className="cms-delete-button" href={`/cms/pages/${page.id}/delete`}>
+          Delete page
+        </a>
       </section>
 
       {!uneditable && (

@@ -12,6 +12,7 @@ import {
   getLatestRevision,
   getPageById,
   getPageTypeByName,
+  getPageUsage,
   getRevisionById,
   listBlockTypes,
   listPageOptions,
@@ -28,6 +29,7 @@ import {
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import type { SessionContext } from "../../services/sessions";
+import { PageDeleteConfirm } from "../../templates/cms/page-delete";
 import {
   NewPageForm,
   PageForm,
@@ -135,6 +137,12 @@ interface FormExtras {
    * round 1).
    */
   settings?: PageSettingsInput & { pageType: string };
+  /**
+   * Flagged blocks the editor removed, so a re-render after a failed save keeps
+   * the removal instead of resurrecting the block on the next save (review
+   * round 2).
+   */
+  removed?: number[];
 }
 
 /**
@@ -170,10 +178,9 @@ export const renderPageForm = async (
     );
   }
 
-  const [formCsrfToken, publishCsrfToken, deleteCsrfToken] = await Promise.all([
+  const [formCsrfToken, publishCsrfToken] = await Promise.all([
     createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}`),
     createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}/publish`),
-    createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}/delete`),
   ]);
 
   const issues = extras.errors ?? [];
@@ -197,7 +204,6 @@ export const renderPageForm = async (
       user={user}
       formCsrfToken={formCsrfToken}
       publishCsrfToken={publishCsrfToken}
-      deleteCsrfToken={deleteCsrfToken}
       navCsrfToken={navCsrfToken}
       page={page}
       pageTypes={pageTypes}
@@ -210,6 +216,7 @@ export const renderPageForm = async (
         blockTypeMap(blockTypes),
       )}
       baseRevisionId={baseRevisionId}
+      removed={extras.removed ?? []}
       latestRevisionId={latest?.id ?? null}
       publishedRevisionId={page.publishedRevisionId}
       pages={pages}
@@ -244,6 +251,23 @@ const settingsFrom = (formData: FormData) => ({
   seoDescription: nonEmpty(formData.get("seoDescription")),
   socialImage: nonEmpty(formData.get("socialImage")),
 });
+
+/**
+ * The flagged blocks the editor removed, by base-revision index.
+ *
+ * The client writes the indices into `removed_blocks` as each flagged block's
+ * Remove control is pressed; a form the editor never touched sends an empty
+ * value. Bad entries are dropped rather than failing the save.
+ */
+const removedBlocksFrom = (value: FormDataEntryValue | null): number[] => {
+  if (typeof value !== "string" || value.trim() === "") return [];
+  const indexes: number[] = [];
+  for (const part of value.split(",")) {
+    const index = Number.parseInt(part.trim(), 10);
+    if (Number.isSafeInteger(index) && index >= 0) indexes.push(index);
+  }
+  return indexes;
+};
 
 export const pages = {
   /** The list of pages and the redirects URL changes have left. */
@@ -439,6 +463,7 @@ export const pages = {
 
     const formData = await req.formData();
     const baseRevisionId = nonEmpty(formData.get("base_revision"));
+    const removedBlocks = removedBlocksFrom(formData.get("removed_blocks"));
     const submitted = parseJsonObject(formData.get("content"));
     const content: PageBlock[] = submitted
       ? asPageContent(submitted as Record<string, unknown>).blocks
@@ -448,6 +473,7 @@ export const pages = {
     // fresh token instead of a 403 that would lose it.
     if (!csrf.ok) {
       return renderPageForm(ctx, page, pageType, content, baseRevisionId, {
+        removed: removedBlocks,
         errors: [
           {
             path: "(form)",
@@ -478,6 +504,7 @@ export const pages = {
       settings: typed,
       content: { blocks: content },
       baseRevisionId,
+      removedBlockIndexes: removedBlocks,
       actorId: ctx.user.id,
     });
 
@@ -493,16 +520,48 @@ export const pages = {
           formType,
           content,
           result.newer.revisionId,
-          { conflict: result.newer, settings: typed },
+          { conflict: result.newer, settings: typed, removed: removedBlocks },
         );
       }
       return renderPageForm(ctx, page, formType, content, baseRevisionId, {
         errors: result.issues,
         settings: typed,
+        removed: removedBlocks,
       });
     }
 
     return redirect(`/cms/pages/${page.id}?saved=1`);
+  },
+
+  /** The confirm step before a page is deleted. */
+  async confirmDelete(req: BunRequest): Promise<Response> {
+    const authRedirect = await requireAuth(req);
+    if (authRedirect) return authRedirect;
+
+    const ctx = await getSessionContext(req);
+    if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
+
+    const pageId = (req.params as { id: string }).id;
+    if (!UUID_PATTERN.test(pageId)) return render404();
+
+    const page = await getPageById(pageId);
+    if (!page) return render404();
+
+    const [usage, csrfToken, navCsrfToken] = await Promise.all([
+      getPageUsage(page.id),
+      createCsrfToken(ctx.sessionId, "POST", `/cms/pages/${page.id}/delete`),
+      createCsrfToken(ctx.sessionId, "POST", "/auth/logout"),
+    ]);
+
+    return render(
+      <PageDeleteConfirm
+        user={ctx.user}
+        page={page}
+        usage={usage}
+        csrfToken={csrfToken}
+        navCsrfToken={navCsrfToken}
+      />,
+    );
   },
 
   async destroy(req: BunRequest): Promise<Response> {

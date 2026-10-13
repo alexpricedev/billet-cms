@@ -520,3 +520,75 @@ export const resolvePageUrl = async (
   `) as { url: string }[];
   return rows.length > 0 ? rows[0].url : null;
 };
+
+/** What deleting a page would leave behind, for the delete confirm step. */
+export interface PageUsage {
+  /** Redirects that currently point at this page. */
+  redirectCount: number;
+  /** Other pages whose current or published content links to this page. */
+  linkingPages: PageOption[];
+}
+
+/** True when a stored content value contains a page-mode link to `pageId`. */
+export const referencesPage = (value: unknown, pageId: string): boolean => {
+  if (Array.isArray(value)) {
+    return value.some((entry) => referencesPage(entry, pageId));
+  }
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (record.type === "page" && record.pageId === pageId) return true;
+  return Object.values(record).some((entry) => referencesPage(entry, pageId));
+};
+
+interface UsageRow {
+  id: string;
+  title: string;
+  url: string;
+  latest_content: Record<string, unknown> | null;
+  published_content: Record<string, unknown> | null;
+}
+
+/**
+ * What a page's deletion affects: its redirects and the pages linking to it.
+ *
+ * A link is stored as a page id, so finding the linkers means walking the
+ * content a page currently shows — its newest revision and, when different,
+ * the revision the site is serving. Both are checked, because a link removed in
+ * a draft is still live until it is published. The delete confirm step shows
+ * this and nothing here blocks the delete.
+ */
+export const getPageUsage = async (pageId: string): Promise<PageUsage> => {
+  const redirects = (await db`
+    SELECT COUNT(*)::int AS count
+    FROM cms_redirects
+    WHERE to_page_id = ${pageId}
+  `) as { count: number }[];
+
+  const rows = (await db`
+    SELECT p.id, p.title, p.url,
+           latest.content AS latest_content,
+           published.content AS published_content
+    FROM cms_pages p
+    LEFT JOIN LATERAL (
+      SELECT content FROM cms_revisions r
+      WHERE r.target_type = 'page' AND r.target_id = p.id
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 1
+    ) latest ON TRUE
+    LEFT JOIN cms_revisions published ON published.id = p.published_revision_id
+    WHERE p.id <> ${pageId}
+    ORDER BY p.url
+  `) as UsageRow[];
+
+  const linkingPages = rows
+    .filter(
+      (row) =>
+        (row.latest_content !== null &&
+          referencesPage(row.latest_content, pageId)) ||
+        (row.published_content !== null &&
+          referencesPage(row.published_content, pageId)),
+    )
+    .map((row) => ({ id: row.id, title: row.title, url: row.url }));
+
+  return { redirectCount: redirects[0]?.count ?? 0, linkingPages };
+};
