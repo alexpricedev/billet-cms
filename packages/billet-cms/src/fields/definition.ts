@@ -198,6 +198,21 @@ export const blockContentSchema = (
 ): z.ZodType => z.strictObject(fieldShape(definition.fields));
 
 /**
+ * The same schema for a read: unknown keys are stripped rather than refused.
+ *
+ * `blockContentSchema` is strict because the publish step turns it into the
+ * stored JSON Schema, where `additionalProperties: false` is the contract the
+ * CMS validates against. On the read side that strictness is wrong: Q4 says a
+ * field a deploy has dropped stays in the stored content and must not break a
+ * read, so the site's own check strips the removed key instead of rejecting the
+ * whole block. A field whose type changed still fails, which is the mismatch
+ * this check exists to catch.
+ */
+export const blockContentReadSchema = (
+  definition: BlockDefinitionShape,
+): z.ZodType => z.object(fieldShape(definition.fields));
+
+/**
  * A block as it appears inside a page's content array: its fields plus a `type`
  * discriminator, so several block types can share one array and be told apart.
  */

@@ -28,7 +28,7 @@ import {
   type BlockDefinition,
   type BlockDefinitionShape,
   type BlockFields,
-  blockContentSchema,
+  blockContentReadSchema,
 } from "../fields/definition";
 import { validateContent } from "../schema";
 import { ContentCache } from "./cache";
@@ -211,7 +211,13 @@ export const createContentReader = (
         // the code that would render it. Invalid content is skipped and
         // reported, exactly like a row the stored schema has already rejected.
         if (options?.block) {
-          const parsed = blockContentSchema(options.block).safeParse(content);
+          // `blockContentReadSchema`, not the strict published one: a field the
+          // block has dropped is still in the stored content (Q4) and must not
+          // turn a read into a skip. Unknown keys are stripped; a field whose
+          // type changed still fails.
+          const parsed = blockContentReadSchema(options.block).safeParse(
+            content,
+          );
           if (!parsed.success) {
             const detail = parsed.error.issues
               .map(
