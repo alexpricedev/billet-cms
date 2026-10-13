@@ -193,4 +193,97 @@ describe("renderRichText", () => {
       renderRichText({ type: "nope" } as unknown as RichTextDocument),
     ).toBe("");
   });
+
+  // `start` lands inside an HTML attribute, so a hand-edited row must not be
+  // able to close the quote and add one of its own. Only a real integer above
+  // one is emitted; a string, a float and one itself fall back to `<ol>`.
+  test("ignores an ordered list start that is not an integer above one", () => {
+    const list = (start: unknown) =>
+      renderRichText(
+        doc({
+          type: "orderedList",
+          attrs: { start },
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: "One" }],
+                },
+              ],
+            },
+          ],
+        } as unknown as RichTextContent),
+      );
+
+    expect(list(5)).toBe('<ol start="5"><li><p>One</p></li></ol>');
+    expect(list(1)).toBe("<ol><li><p>One</p></li></ol>");
+    expect(list(2.5)).toBe("<ol><li><p>One</p></li></ol>");
+
+    const injected = list('1" onmouseover="alert(1)');
+    expect(injected).toBe("<ol><li><p>One</p></li></ol>");
+    expect(injected).not.toContain("onmouseover");
+  });
+
+  // An unknown mark is not a link, even when it carries an `attrs.href`: only a
+  // mark whose `type` is literally "link" becomes an anchor.
+  test("does not render an unknown mark as a link", () => {
+    const html = renderRichText(
+      doc({
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: "not a link",
+            marks: [
+              { type: "highlight", attrs: { href: "https://example.com" } },
+            ],
+          },
+        ],
+      } as unknown as RichTextContent),
+    );
+
+    expect(html).toBe("<p>not a link</p>");
+    expect(html).not.toContain("<a ");
+  });
+
+  // A page renders whatever is in the row, so a malformed one must read as
+  // nothing rather than throwing out of the render.
+  test("does not throw on malformed input", () => {
+    const cases: unknown[] = [
+      { type: "doc", content: "not an array" },
+      { type: "doc", content: [null] },
+      { type: "doc", content: [{ type: "paragraph", content: "nope" }] },
+      {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: 42 }] }],
+      },
+      {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "x", marks: "nope" }],
+          },
+        ],
+      },
+      {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "x", marks: [null] }],
+          },
+        ],
+      },
+      { type: "doc", content: [{ type: "heading", attrs: "nope" }] },
+    ];
+
+    for (const value of cases) {
+      expect(() =>
+        renderRichText(value as unknown as RichTextDocument),
+      ).not.toThrow();
+    }
+  });
 });

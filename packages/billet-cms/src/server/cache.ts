@@ -38,6 +38,14 @@ export class ContentCache<V> {
   #version: number | null = null;
   #checkedAt = Number.NEGATIVE_INFINITY;
   #entries = new Map<string, V>();
+  /**
+   * Bumped whenever the version moves. A `get` that started under one
+   * generation must not write its value after the version has changed: the
+   * load it awaited may take longer than the interval, and the value it read is
+   * from before a publish. Tagging the write is what keeps a slow first read
+   * from resurrecting stale content behind a fresher load.
+   */
+  #generation = 0;
 
   constructor(options: ContentCacheOptions<V>) {
     this.#readVersion = options.readVersion;
@@ -64,6 +72,7 @@ export class ContentCache<V> {
     if (next !== this.#version) {
       this.#entries.clear();
       this.#version = next;
+      this.#generation += 1;
     }
     this.#checkedAt = now;
     return this.#version;
@@ -74,8 +83,14 @@ export class ContentCache<V> {
     await this.version();
     if (this.#entries.has(key)) return this.#entries.get(key) as V;
 
+    const generation = this.#generation;
     const value = await this.#load(key);
-    this.#entries.set(key, value);
+    // The version may have moved while the load was in flight. The value the
+    // caller gets is still the one it asked for, but caching it would leave the
+    // cache holding pre-publish content under the new version.
+    if (this.#generation === generation) {
+      this.#entries.set(key, value);
+    }
     return value;
   }
 

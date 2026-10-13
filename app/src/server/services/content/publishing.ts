@@ -35,7 +35,13 @@ export type PublishSlotResult =
       changed: boolean;
     }
   | { ok: false; reason: "no-draft" }
-  | { ok: false; reason: "invalid"; issues: FieldIssue[] };
+  | { ok: false; reason: "invalid"; issues: FieldIssue[] }
+  | {
+      ok: false;
+      reason: "stale";
+      /** The newer revision that arrived after the one named. */
+      latestRevisionId: string;
+    };
 
 export interface PublishSlotInput {
   slotId: string;
@@ -45,6 +51,15 @@ export interface PublishSlotInput {
   blockType?: BlockTypeRecord;
   /** Publish this revision; defaults to the newest draft. */
   revisionId?: string;
+  /**
+   * Refuse when a newer revision exists than the one named.
+   *
+   * The form posts the revision it rendered, so an editor publishes what they
+   * saw rather than a colleague's newer draft arriving under them. The check
+   * runs under the slot's row lock, so the newest revision cannot change
+   * between "is this still the newest?" and the pointer write.
+   */
+  requireLatest?: boolean;
 }
 
 interface LockedSlotRow {
@@ -112,6 +127,20 @@ export const publishSlot = async (
     // before saving anything.
     if (revision?.targetType !== "slot" || revision.targetId !== slot.id) {
       return { ok: false as const, reason: "no-draft" as const };
+    }
+
+    // The editor asked to publish the revision they were shown. If someone has
+    // saved since, that revision is no longer the newest: stop and let them
+    // decide rather than putting work they haven't seen live.
+    if (input.requireLatest) {
+      const latest = await getLatestRevision("slot", slot.id, tx);
+      if (latest && latest.id !== revision.id) {
+        return {
+          ok: false as const,
+          reason: "stale" as const,
+          latestRevisionId: latest.id,
+        };
+      }
     }
 
     // Removed top-level fields are tolerated, exactly as a save tolerates them

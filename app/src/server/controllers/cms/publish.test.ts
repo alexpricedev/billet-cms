@@ -13,8 +13,10 @@ mock.module("../../services/database", () => ({
 }));
 
 import {
+  createRevision,
   getLatestRevision,
   getSlotById,
+  publishSlot,
   saveSlotDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
@@ -126,7 +128,12 @@ describe("slot publish and history controllers", () => {
       const revision = await draft("Live");
 
       const res = await slotPublish.publish(
-        await postForm(publishPath(slotId), slotId, {}, sessionId),
+        await postForm(
+          publishPath(slotId),
+          slotId,
+          { revision: revision.id },
+          sessionId,
+        ),
       );
 
       expect(res.status).toBe(303);
@@ -135,6 +142,29 @@ describe("slot publish and history controllers", () => {
       );
       const slot = await getSlotById(slotId);
       expect(slot?.publishedRevisionId).toBe(revision.id);
+    });
+
+    // The form posts the revision it rendered. If a colleague saved after that,
+    // publishing now would put work the editor never saw live, so it stops.
+    test("warns instead of publishing a newer draft than the one shown", async () => {
+      const first = await draft("First");
+      await draft("Second");
+
+      const res = await slotPublish.publish(
+        await postForm(
+          publishPath(slotId),
+          slotId,
+          { revision: first.id },
+          sessionId,
+        ),
+      );
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `/cms/slots/${slotId}?publish=stale`,
+      );
+      const slot = await getSlotById(slotId);
+      expect(slot?.publishedRevisionId).toBeNull();
     });
 
     test("says so when there is no draft to publish", async () => {
@@ -146,6 +176,33 @@ describe("slot publish and history controllers", () => {
       expect(res.headers.get("location")).toBe(
         `/cms/slots/${slotId}?publish=empty`,
       );
+    });
+
+    test("refuses a draft that no longer validates", async () => {
+      // Written directly so the save layer's validation doesn't reject it: a
+      // deploy can change a block under a draft that was saved when it passed.
+      const invalid = await createRevision({
+        targetType: "slot",
+        targetId: slotId,
+        content: { heading: 7 },
+        createdBy: editorId,
+      });
+
+      const res = await slotPublish.publish(
+        await postForm(
+          publishPath(slotId),
+          slotId,
+          { revision: invalid.id },
+          sessionId,
+        ),
+      );
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `/cms/slots/${slotId}?publish=invalid`,
+      );
+      const slot = await getSlotById(slotId);
+      expect(slot?.publishedRevisionId).toBeNull();
     });
 
     test("says so when the block type was removed", async () => {
@@ -164,6 +221,33 @@ describe("slot publish and history controllers", () => {
   });
 
   describe("restore", () => {
+    test("redirects an anonymous visitor to sign in", async () => {
+      const res = await slotPublish.restore(
+        request(restorePath(slotId), slotId, { method: "POST" }),
+      );
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe("/sign-in");
+    });
+
+    test("rejects a CSRF token minted for another path", async () => {
+      const first = await draft("First");
+      const res = await slotPublish.restore(
+        await postForm(
+          restorePath(slotId),
+          slotId,
+          { revision: first.id },
+          sessionId,
+          await createCsrfToken(sessionId, "POST", publishPath(slotId)),
+        ),
+      );
+
+      expect(res.status).toBe(403);
+      // Nothing copied: the only revision is the one the draft made.
+      const rows = (await db`SELECT id FROM cms_revisions`) as { id: string }[];
+      expect(rows).toHaveLength(1);
+    });
+
     test("copies an old revision into a new draft", async () => {
       const first = await draft("First");
       await draft("Second");
@@ -186,6 +270,24 @@ describe("slot publish and history controllers", () => {
       );
     });
 
+    // A malformed id used to reach the UUID column and 500; it now reads as a
+    // revision that isn't available.
+    test("handles a revision id that is not a UUID", async () => {
+      const res = await slotPublish.restore(
+        await postForm(
+          restorePath(slotId),
+          slotId,
+          { revision: "not-a-uuid" },
+          sessionId,
+        ),
+      );
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `${historyPath(slotId)}?error=not-found`,
+      );
+    });
+
     test("reports a revision that is no longer available", async () => {
       const res = await slotPublish.restore(
         await postForm(
@@ -204,12 +306,17 @@ describe("slot publish and history controllers", () => {
   });
 
   describe("history", () => {
-    test("lists the revisions with the published and draft marks", async () => {
+    // Each row of the history list, newest first. The list is flat, so a split
+    // on the item class gives one entry per revision.
+    const historyRows = (html: string): string[] =>
+      html.split('<li class="cms-history-item"').slice(1);
+
+    test("marks the published revision and the current draft on the right rows", async () => {
       const first = await draft("First");
-      await draft("Second");
-      await slotPublish.publish(
-        await postForm(publishPath(slotId), slotId, {}, sessionId),
-      );
+      const second = await draft("Second");
+      // Publish the older draft so the badges land on different rows: `second`
+      // is the newest (draft), `first` is what the site renders.
+      await publishSlot({ slotId, revisionId: first.id });
 
       const res = await slotHistory.index(
         request(historyPath(slotId), slotId, {
@@ -221,11 +328,36 @@ describe("slot publish and history controllers", () => {
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("History");
-      expect(html).toContain("Current draft");
       expect(html).toContain("editor@example.com");
-      expect(html).toContain(restorePath(slotId));
-      // The published revision is the older one; both are listed.
-      expect(first.id).toBeTruthy();
+
+      const rows = historyRows(html);
+      expect(rows).toHaveLength(2);
+
+      const [newest, older] = rows;
+      // The newest revision is the current draft and is not the published one.
+      expect(newest).toContain("Current draft");
+      expect(newest).not.toContain("cms-history-published");
+      // The older revision is published and offers a restore, naming its id.
+      expect(older).toContain("cms-history-published");
+      expect(older).toContain("Published");
+      expect(older).not.toContain("Current draft");
+      expect(older).toContain(`value="${first.id}"`);
+      expect(second.id).toBeTruthy();
+    });
+
+    test("shows a neutral empty state before anything is saved", async () => {
+      const res = await slotHistory.index(
+        request(historyPath(slotId), slotId, {
+          method: "GET",
+          headers: { cookie: `cms_session=${sessionId}` },
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("no saved revisions yet");
+      expect(html).toContain("cms-history-empty");
+      expect(html).not.toContain("flash-warning");
     });
 
     test("redirects an anonymous visitor to sign in", async () => {

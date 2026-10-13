@@ -75,4 +75,53 @@ describe("ContentCache", () => {
     await cache.get("home.hero");
     expect(state.versionReads).toBe(2);
   });
+
+  // A load can outlive the interval it started in. If it were cached anyway it
+  // would take the place of fresher content, so the write is tagged with the
+  // generation it started under and dropped once the version has moved.
+  test("does not cache a load that started before the version moved", async () => {
+    const state = { now: 0, version: 1, versionReads: 0, loads: 0 };
+    let releaseLoad: (value: string) => void = () => {};
+    const loadStarted = Promise.withResolvers<void>();
+    const cache = new ContentCache<string>({
+      readVersion: async () => {
+        state.versionReads += 1;
+        return state.version;
+      },
+      load: (key) => {
+        state.loads += 1;
+        const versionWhenLoaded = state.version;
+        // The first read parks until the test releases it; later reads resolve
+        // straight away so the test can assert what the cache does next.
+        if (state.loads > 1) {
+          return Promise.resolve(`${versionWhenLoaded}:${key}:fresh`);
+        }
+        loadStarted.resolve();
+        return new Promise<string>((resolve) => {
+          releaseLoad = (value) =>
+            resolve(`${versionWhenLoaded}:${key}:${value}`);
+        });
+      },
+      now: () => state.now,
+      intervalMs: 1000,
+    });
+
+    // Start a read under version 1 and let it park inside `load`.
+    const pending = cache.get("home.hero");
+    await loadStarted.promise;
+
+    // A publish moves the version while the load is still in flight.
+    state.version = 2;
+    state.now = 1000;
+    await cache.version();
+
+    releaseLoad("stale");
+    // The caller still gets the value it read...
+    expect(await pending).toBe("1:home.hero:stale");
+
+    // ...but it was not cached: the next read loads afresh under version 2.
+    state.now = 1500;
+    expect(await cache.get("home.hero")).toBe("2:home.hero:fresh");
+    expect(state.loads).toBe(2);
+  });
 });

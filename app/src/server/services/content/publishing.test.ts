@@ -130,6 +130,43 @@ describe("publishing", () => {
     expect(slot?.publishedRevisionId).toBe(first.id);
   });
 
+  // The form names the revision it rendered and asks for the newest too: if a
+  // colleague saved after that, the publish is refused rather than going live.
+  test("refuses a named revision that is no longer the newest", async () => {
+    const first = await draft("First");
+    await draft("Second");
+
+    const result = await publishSlot({
+      slotId,
+      revisionId: first.id,
+      requireLatest: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "stale") return;
+    expect((await getSlotById(slotId))?.publishedRevisionId).toBeNull();
+  });
+
+  // Two publishes racing on one slot both take the row lock, so the pointer
+  // write and the version bump can't interleave; the second is a no-op.
+  test("serialise concurrent publishes of the same slot", async () => {
+    const revision = await draft("Live");
+    const before = await contentVersion();
+
+    const [a, b] = await Promise.all([
+      publishSlot({ slotId }),
+      publishSlot({ slotId }),
+    ]);
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+
+    expect(a.revisionId).toBe(revision.id);
+    expect(b.revisionId).toBe(revision.id);
+    expect([a.changed, b.changed].filter(Boolean)).toHaveLength(1);
+    expect(await contentVersion()).toBe(before + 1);
+    expect((await getSlotById(slotId))?.publishedRevisionId).toBe(revision.id);
+  });
+
   test("refuses to publish when there is no draft", async () => {
     const result = await publishSlot({ slotId });
     expect(result.ok).toBe(false);

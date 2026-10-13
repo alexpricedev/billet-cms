@@ -62,7 +62,7 @@ export const SlotHistory = ({
     )}
 
     {revisions.length === 0 ? (
-      <div className="flash-warning" role="status">
+      <div className="cms-history-empty" role="status">
         This slot has no saved revisions yet.
       </div>
     ) : (
@@ -95,7 +95,9 @@ export const SlotHistory = ({
               >
                 <input type="hidden" name="_csrf" value={restoreCsrfToken} />
                 <input type="hidden" name="revision" value={revision.id} />
-                <button type="submit">Restore as draft</button>
+                <button type="submit" className="cms-restore-button">
+                  Restore as draft
+                </button>
               </form>
             )}
           </li>

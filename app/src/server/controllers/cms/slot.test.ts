@@ -199,6 +199,30 @@ describe("Slot form controller", () => {
       expect(html).toContain("no longer published");
       expect(html).not.toContain("data-cms-form");
     });
+
+    // The publish form posts the revision it rendered, so it must name the
+    // real newest revision rather than whatever base the last POST carried.
+    test("points the publish form at the newest revision", async () => {
+      const first = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!first.ok) throw new Error("first save failed");
+
+      const otherId = (await seedIdentity(db, "other@example.com")).id;
+      const second = await saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "Theirs" },
+        baseRevisionId: first.revision.id,
+        actorId: otherId,
+      });
+      if (!second.ok) throw new Error("second save failed");
+
+      const html = await (await slotForm.index(get())).text();
+      expect(hiddenValue(html, "revision")).toBe(second.revision.id);
+    });
   });
 
   describe("POST", () => {
