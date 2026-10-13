@@ -12,8 +12,10 @@ import type { User } from "../../services/users";
 
 export interface SlotFormProps {
   user: User;
-  /** The CSRF token bound to this form's POST. */
+  /** The CSRF token bound to this form's save POST. */
   formCsrfToken: string;
+  /** The CSRF token bound to the publish POST. */
+  publishCsrfToken: string;
   /** The CSRF token bound to the nav's sign-out POST. */
   navCsrfToken?: string;
   slot: SlotRecord;
@@ -21,11 +23,16 @@ export interface SlotFormProps {
   content: Record<string, unknown>;
   /** The revision the editor loaded; a conflict's revision once one was shown. */
   baseRevisionId: string | null;
+  /** The newest revision, which is what Publish would make live. */
+  latestRevisionId: string | null;
+  /** The revision the site is currently rendering, when there is one. */
+  publishedRevisionId: string | null;
   /** Fields present in the saved content but no longer published (Q4). */
   removedFieldNames: string[];
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
-  saved?: boolean;
+  /** A one-line outcome from a save, publish or restore. */
+  notice?: { kind: "success" | "warning"; message: string } | null;
 }
 
 const formatWhen = (date: Date): string =>
@@ -41,20 +48,37 @@ const topLevelField = (path: string): string => path.split(".")[0];
 export const SlotForm = ({
   user,
   formCsrfToken,
+  publishCsrfToken,
   navCsrfToken,
   slot,
   blockType,
   content,
   baseRevisionId,
+  latestRevisionId,
+  publishedRevisionId,
   removedFieldNames,
   errors,
   conflict,
-  saved,
+  notice,
 }: SlotFormProps) => {
   const labelFor = (name: string): string => {
     const field = blockType.fields.find((candidate) => candidate.name === name);
     return field?.label ?? field?.name ?? name;
   };
+
+  // Whether there is something to publish, and what the last publish left live.
+  // A publish is a no-op when the newest revision is already the published one,
+  // so the button is disabled rather than allowed to churn the version counter.
+  const hasDraft = latestRevisionId !== null;
+  const upToDate =
+    latestRevisionId !== null && latestRevisionId === publishedRevisionId;
+  const publishStatus = !hasDraft
+    ? "No draft saved yet."
+    : upToDate
+      ? "Published."
+      : publishedRevisionId
+        ? "Unpublished changes."
+        : "Not published yet.";
 
   const errorsByField = new Map<string, FieldError[]>();
   for (const issue of errors ?? []) {
@@ -90,9 +114,14 @@ export const SlotForm = ({
         </div>
       )}
 
-      {saved && (
-        <div className="flash-success" role="status">
-          Draft saved.
+      {notice && (
+        <div
+          className={
+            notice.kind === "success" ? "flash-success" : "flash-warning"
+          }
+          role="status"
+        >
+          {notice.message}
         </div>
       )}
 
@@ -187,6 +216,25 @@ export const SlotForm = ({
           {conflict ? "Overwrite and save" : "Save draft"}
         </button>
       </form>
+
+      <section className="cms-actions" aria-label="Publishing">
+        <p className="cms-publish-status" role="status">
+          {publishStatus}
+        </p>
+        <form method="POST" action={`/cms/slots/${slot.id}/publish`}>
+          <input type="hidden" name="_csrf" value={publishCsrfToken} />
+          <button
+            type="submit"
+            className="cms-publish-button"
+            disabled={!hasDraft || upToDate}
+          >
+            Publish
+          </button>
+        </form>
+        <a className="cms-history-link" href={`/cms/slots/${slot.id}/history`}>
+          History
+        </a>
+      </section>
 
       <script type="module" src={getAssetUrl("/assets/cms-form.js")} />
     </Layout>

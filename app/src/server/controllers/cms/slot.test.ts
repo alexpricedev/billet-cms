@@ -58,15 +58,12 @@ const hiddenValue = (html: string, name: string): string | undefined =>
   html.match(new RegExp(`name="${name}" value="([^"]*)"`))?.[1];
 
 /**
- * The last hidden input with this name. The nav's sign-out form renders its own
- * `_csrf` in the header, ahead of the slot form's, so the form's is the last.
+ * The save form's CSRF token. Several forms render a `_csrf` on the page (the
+ * nav's sign-out, the publish button), so this reads the one inside the form
+ * that carries the content rather than assuming which comes last.
  */
-const lastHiddenValue = (html: string, name: string): string | undefined => {
-  const matches = [
-    ...html.matchAll(new RegExp(`name="${name}" value="([^"]*)"`, "g")),
-  ];
-  return matches.at(-1)?.[1];
-};
+const saveFormCsrf = (html: string): string | undefined =>
+  html.match(/data-cms-form[\s\S]*?name="_csrf" value="([^"]*)"/)?.[1];
 
 describe("Slot form controller", () => {
   let slotId: string;
@@ -383,7 +380,7 @@ describe("Slot form controller", () => {
       const conflictHtml = await conflict.text();
 
       const base = hiddenValue(conflictHtml, "base_revision") ?? "";
-      const csrf = lastHiddenValue(conflictHtml, "_csrf") ?? "";
+      const csrf = saveFormCsrf(conflictHtml) ?? "";
       expect(base).toBeTruthy();
       expect(csrf).toBeTruthy();
 

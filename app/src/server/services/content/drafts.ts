@@ -110,7 +110,13 @@ const plainMessage = (message: string): string => {
   return "This value isn't valid.";
 };
 
-const formatIssues = (issues: ValidationIssue[]): FieldIssue[] =>
+/**
+ * Rewrite the validator's issues into copy an editor can act on.
+ *
+ * Shared with the publish path, which validates a stored revision the same way
+ * a save does and shows the same field-level messages.
+ */
+export const formatIssues = (issues: ValidationIssue[]): FieldIssue[] =>
   issues.map((issue) => ({
     path: issue.path.length > 0 ? issue.path.join(".") : "(content)",
     message: plainMessage(issue.message),

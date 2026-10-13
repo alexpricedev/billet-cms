@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import { block, list, richText, text } from "@alexpricedev/billet-cms/fields";
 import { createEditContentLink } from "@alexpricedev/billet-cms/handoff";
 import { handleCmsSignIn } from "@alexpricedev/billet-cms/sign-in";
+import {
+  type ContentReader,
+  createContentReader,
+  renderRichText,
+} from "@alexpricedev/billet-cms/server";
 import type { Subprocess } from "bun";
 import { SQL } from "bun";
 import { seedBlockType, seedSlot } from "../src/server/test-utils/content";
@@ -48,6 +54,10 @@ let view: InstanceType<typeof Bun.WebView>;
 let adminId = "";
 // The slot whose generated form proves the CMS form script runs.
 let slotId = "";
+
+// The site's read side: the plugin helper the stand-in site renders the
+// published slot through, exactly the way a real site would.
+let contentReader: ContentReader;
 
 // Everything the CMS prints, accumulated as it arrives.
 let serverLog = "";
@@ -157,10 +167,23 @@ const siteHome = async (): Promise<Response> => {
     ? await createEditContentLink(sql, { userId: adminId, cmsUrl: CMS_BASE })
     : null;
 
+  // The site renders its own page: it asks the plugin for the published slot's
+  // content and puts it through the block's render function. Here the block is
+  // just markup, so the reader and the rich text renderer are the whole path.
+  const hero = contentReader ? await contentReader.getSlot("home.hero") : null;
+  const heroMarkup = hero
+    ? `<section class="hero"><h1 class="hero-heading">${escapeHtml(
+        String(hero.heading),
+      )}</h1><div class="hero-body">${renderRichText(
+        hero.body as RichTextDocument,
+      )}</div></section>`
+    : '<section class="hero" data-empty="true"><p>No hero yet</p></section>';
+
   return siteHtml(
-    link
-      ? `<h1>Test site</h1><a class="edit-content" href="${link}">Edit content</a>`
-      : "<h1>Test site</h1><p>Signed out</p>",
+    `<h1>Test site</h1>${heroMarkup}` +
+      (link
+        ? `<a class="edit-content" href="${link}">Edit content</a>`
+        : "<p>Signed out</p>"),
   );
 };
 
@@ -278,6 +301,10 @@ beforeAll(async () => {
     page: "home",
     label: "Hero",
   });
+
+  // The site's reader, over the same shared pool. The stand-in site renders
+  // through it, so the smoke run exercises the real read path end to end.
+  contentReader = createContentReader({ sql });
 
   startSite();
 
@@ -442,6 +469,36 @@ describe("browser smoke", () => {
       text.includes("Draft saved."),
     );
     expect(saved).toContain("Draft saved.");
+  });
+
+  test("a published slot renders on the site within seconds", async () => {
+    // Continues signed in from above; the save left a draft whose heading is
+    // "Hero heading from the smoke test".
+    await goto(`${CMS_BASE}/cms/slots/${slotId}`);
+
+    await view.scrollTo(".cms-publish-button", { block: "center" });
+    await view.click(".cms-publish-button").catch(() => {});
+
+    const published = await until(bodyText, (text) =>
+      text.includes("Published."),
+    );
+    expect(published).toContain("Published.");
+
+    // The site's own request path: the plugin helper reads the published
+    // revision and the rich text renderer turns it into markup. The reader
+    // re-checks content_version at most once a second (Q3), so a fresh request
+    // after the publish is what `until` waits out — re-loading the page each
+    // time rather than reading a stale document.
+    const heading = await until(
+      async () => {
+        await goto(`${SITE_BASE}/`);
+        return await view.evaluate<string>(
+          `document.querySelector(".hero-heading")?.textContent ?? ""`,
+        );
+      },
+      (text) => text.includes("Hero heading from the smoke test"),
+    );
+    expect(heading).toContain("Hero heading from the smoke test");
   });
 
   test("the Edit content link signs in through /handoff", async () => {
