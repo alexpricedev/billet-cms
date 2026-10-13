@@ -346,6 +346,7 @@ describe("preview reads", () => {
     page?: typeof PAGE_ROW | null;
     published?: string;
     draft?: string;
+    redirects?: Record<string, string>;
     tokens?: Record<
       string,
       { subject_type: "page" | "slot"; subject_id: string; expires_at: Date }
@@ -355,6 +356,7 @@ describe("preview reads", () => {
     const published = options.published ?? "Published";
     const draft = options.draft ?? "Draft";
     const tokens = options.tokens ?? {};
+    const redirects = options.redirects ?? {};
     const revisions: Record<string, { content: { blocks: unknown[] } }> = {
       "rev-1": { content: { blocks: [{ type: "hero", heading: published }] } },
       "rev-2": { content: { blocks: [{ type: "hero", heading: draft }] } },
@@ -367,6 +369,14 @@ describe("preview reads", () => {
           if (!row) return Promise.resolve([]);
           const now = params[1] as Date;
           return Promise.resolve(now > row.expires_at ? [] : [row]);
+        }
+        if (query.includes("cms_redirects")) {
+          return Promise.resolve(
+            Object.entries(redirects).map(([from_path, to_page_id]) => ({
+              from_path,
+              to_page_id,
+            })),
+          );
         }
         if (query.includes("cms_pages")) {
           if (!page) return Promise.resolve([]);
@@ -501,6 +511,41 @@ describe("preview reads", () => {
     const html = await res?.text();
     expect(html).toContain("<p>Published</p>");
     expect(html).not.toContain("cms-preview-banner");
+  });
+
+  /**
+   * Review round 3, Q2: a redirect answers before preview, so a page whose URL
+   * has moved still admits a preview opened against the old path — the 301
+   * keeps the query string, and the token rides along to the target.
+   */
+  test("a redirected path carries a valid preview token to the target", async () => {
+    const sql = previewSql({
+      page: { ...PAGE_ROW, url: "/about-us" },
+      redirects: { "/about": "page-1" },
+      tokens: pageToken("page-1"),
+    });
+    const route = createCmsPageRoute({
+      sql,
+      render: bannerRender,
+      onSkip: () => {},
+    });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good"),
+    );
+
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe("/about-us?cms_preview=good");
+
+    // Following the redirect lands on the target, still previewing the draft.
+    const followed = await route(
+      new Request(`http://localhost${res?.headers.get("Location")}`),
+    );
+    expect(followed?.status).toBe(200);
+    expect(followed?.headers.get("Cache-Control")).toBe("no-store");
+    const html = await followed?.text();
+    expect(html).toContain("<p>Draft</p>");
+    expect(html).toContain("cms-preview-banner");
   });
 
   test("getPage with preview bypasses the cache", async () => {

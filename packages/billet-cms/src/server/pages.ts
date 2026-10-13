@@ -13,9 +13,10 @@
  *      blocks validated against the block types the site published.
  *
  * `createCmsPageRoute` is the catch-all a site mounts in its own fallback, just
- * before its 404: redirect first, then page, then `null` so the site's 404 runs.
- * App routes always win because the handler is only reached for a path no route
- * claimed.
+ * before its 404: redirect first (the query string rides along, so a preview
+ * token survives a 301 — review round 3, Q2), then a valid preview reads the
+ * draft, then the published page, then `null` so the site's 404 runs. App routes
+ * always win because the handler is only reached for a path no route claimed.
  *
  * Reads are cached per process and invalidated on `cms_meta.content_version`
  * (Q3), the same cache the slot reader uses, so a publish shows within a second.
@@ -488,11 +489,22 @@ export const createCmsPageRoute = (
 
     const url = new URL(req.url);
 
-    // Preview first: a valid token bypasses redirects and reads the draft.
-    // Redirects are skipped on purpose — the editor asked for the page at this
-    // path, and a 301 written for that path would navigate them away from what
-    // they are previewing. A token that is unknown or expired resolves to `null`
-    // and the request takes the published path below, unchanged.
+    // Redirects answer first, before preview (review round 3, Q2): a page's old
+    // URL 301s to its current one, and the query string rides along, so a
+    // preview opened against a path that has since moved still lands on the
+    // page the token names — with `?cms_preview=…` intact.
+    const redirected = await reader.getRedirect(url.pathname);
+    const location = redirected === null ? null : sameOriginPath(redirected);
+    if (location !== null) {
+      return new Response("", {
+        status: 301,
+        headers: { Location: `${location}${url.search}` },
+      });
+    }
+
+    // Preview: a valid token reads the draft for its subject, bypassing the
+    // published cache. An unknown or expired token resolves to `null` and the
+    // request takes the published path below, unchanged.
     const preview = await getPreviewAccess(options.sql, req, { onSkip });
     if (preview) {
       const page = await reader.getPage(url.pathname, { preview });
@@ -503,15 +515,6 @@ export const createCmsPageRoute = (
         );
       }
       return null;
-    }
-
-    const redirected = await reader.getRedirect(url.pathname);
-    const location = redirected === null ? null : sameOriginPath(redirected);
-    if (location !== null) {
-      return new Response("", {
-        status: 301,
-        headers: { Location: `${location}${url.search}` },
-      });
     }
 
     const page = await reader.getPage(url.pathname);

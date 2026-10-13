@@ -26,6 +26,7 @@ import {
   getPageById,
   getPageByUrl,
   listRedirects,
+  publishPage,
   savePageDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
@@ -65,6 +66,10 @@ const document = {
 const pageContent = (heading: string) => ({
   blocks: [{ type: "hero", heading, body: document }],
 });
+
+/** Whether the Preview draft button rendered disabled. */
+const previewDisabled = (html: string): boolean =>
+  /<button[^>]*class="cms-preview-button"[^>]*disabled/.test(html);
 
 describe("Pages controller", () => {
   let editorId: string;
@@ -204,6 +209,46 @@ describe("Pages controller", () => {
     expect(html).toContain('data-block-add="hero"');
     // The link picker's page list is threaded through to the controls.
     expect(html).toContain("data-cms-content");
+  });
+
+  test("disables Preview draft once the draft is already live", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const formHtml = async () =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+
+    // Nothing saved yet: there is no draft to preview.
+    expect(previewDisabled(await formHtml())).toBe(true);
+
+    const saved = await savePageDraft({
+      pageId,
+      content: pageContent("About us"),
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+    if (!saved.ok) throw new Error("save failed");
+
+    // A saved draft that isn't live: preview is available.
+    expect(previewDisabled(await formHtml())).toBe(false);
+
+    await publishPage({ pageId, revisionId: saved.revision.id });
+
+    // The draft is now the published revision: nothing left to preview.
+    expect(previewDisabled(await formHtml())).toBe(true);
   });
 
   test("the editor offers a Preview button that mints a token", async () => {

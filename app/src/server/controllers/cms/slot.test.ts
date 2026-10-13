@@ -20,7 +20,11 @@ mock.module("../../services/database", () => ({
 }));
 
 import { hashPreviewToken } from "@alexpricedev/billet-cms/preview";
-import { createRevision, saveSlotDraft } from "../../services/content";
+import {
+  createRevision,
+  publishSlot,
+  saveSlotDraft,
+} from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
@@ -66,6 +70,10 @@ const hiddenValue = (html: string, name: string): string | undefined =>
  */
 const saveFormCsrf = (html: string): string | undefined =>
   html.match(/data-cms-form[\s\S]*?name="_csrf" value="([^"]*)"/)?.[1];
+
+/** Whether the Preview draft button rendered disabled. */
+const previewDisabled = (html: string): boolean =>
+  /<button[^>]*class="cms-preview-button"[^>]*disabled/.test(html);
 
 describe("Slot form controller", () => {
   let slotId: string;
@@ -431,6 +439,33 @@ describe("Slot form controller", () => {
   });
 
   describe("preview", () => {
+    test("disables Preview draft once the draft is already live", async () => {
+      // Nothing saved yet: there is no draft to preview.
+      expect(previewDisabled(await (await slotForm.index(get())).text())).toBe(
+        true,
+      );
+
+      const saved = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+
+      // A saved draft that isn't live: preview is available.
+      expect(previewDisabled(await (await slotForm.index(get())).text())).toBe(
+        false,
+      );
+
+      await publishSlot({ slotId, revisionId: saved.revision.id });
+
+      // The draft is now the published revision: nothing left to preview.
+      expect(previewDisabled(await (await slotForm.index(get())).text())).toBe(
+        true,
+      );
+    });
+
     test("offers a Preview button and mints a token for the slot's page", async () => {
       const html = await (await slotForm.index(get())).text();
       expect(html).toContain(`action="${path(slotId)}/preview"`);

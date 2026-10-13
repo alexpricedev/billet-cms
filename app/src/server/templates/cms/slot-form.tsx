@@ -240,8 +240,9 @@ export const SlotForm = ({
         </form>
         {/* Preview mints a short-lived token and opens the slot's declared
             page on the site in a new tab, so the editor sees the draft inside
-            the real page. Disabled with no draft: nothing saved, nothing to
-            show that isn't already live. */}
+            the real page. Disabled with no draft, and when the draft is
+            already the live revision: there is no unpublished change to
+            preview. Matches Publish, which is disabled in the same two cases. */}
         <form
           method="POST"
           action={`/cms/slots/${slot.id}/preview`}
@@ -252,7 +253,7 @@ export const SlotForm = ({
           <button
             type="submit"
             className="cms-preview-button"
-            disabled={!hasDraft}
+            disabled={!hasDraft || upToDate}
           >
             Preview draft <span aria-hidden="true">↗</span>
             <span className="sr-only">(opens in a new tab)</span>
