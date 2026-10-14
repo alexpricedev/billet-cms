@@ -62,8 +62,15 @@ repo. This file is only the invariants.
   sends the browser back to the CMS's `/handoff`, which spends it and starts a
   `cms_session`. A site user who is not in the view is refused with a 403 and
   gets no token; someone signed out on the site goes through the site's own login
-  (password or magic link — the site's choice) first. The CMS never inserts into,
-  updates or deletes `users`, and never reads or writes password data. There is
+  (password or magic link — the site's choice) first. **Known limitation:** a
+  handoff token names the identity it was minted for, so opening one in a browser
+  already signed in as a *different* admin replaces that session with the
+  token's admin — the browser silently becomes the second person. `/handoff`'s
+  GET redirects an already-signed-in visitor to `/cms`, so this needs a direct
+  POST, but there is deliberately no "continue as X" confirmation step. Everyone
+  the CMS can sign in is already an admin the site put in `cms_identities`.
+  The CMS never inserts into, updates or deletes `users`, and never reads or
+  writes password data. There is
   no `cms_users` table (Phase 3 dropped it) and no CMS magic-link sign-in (review
   round 4 removed it). A session stores the site user's id and re-reads the view
   on every request, so a site that removes an account ends the session at the
