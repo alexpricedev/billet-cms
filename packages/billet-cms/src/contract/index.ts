@@ -158,7 +158,9 @@ export interface MediaVariant {
  * the page or slot it belongs to. `handoff_tokens` carries the single-use
  * tokens a site mints, written by the plugin and spent by the CMS — the Edit
  * content link and the CMS sign-in route both use it, so the CMS can hand a
- * signed-in site admin a session without a shared secret.
+ * signed-in site admin a session without a shared secret. `user_tokens` is
+ * migration history: the CMS's own magic-link sign-in was removed, so nothing
+ * writes it, but it is left in place rather than dropped.
  *
  * `pages` is the CMS's own content: one row per page an editor created against
  * a page type, with its settings (URL, title, SEO description, social image)
