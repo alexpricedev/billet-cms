@@ -3,8 +3,10 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { SQL } from "bun";
 import { publish } from "../packages/billet-cms/src/cli/publish/index.ts";
-import type { MediaVariant } from "../packages/billet-cms/src/contract/index.ts";
-import { hashHandoffToken } from "../packages/billet-cms/src/handoff/index.ts";
+import {
+  CMS_SIGN_IN_PATH,
+  type MediaVariant,
+} from "../packages/billet-cms/src/contract/index.ts";
 import { siteDefinitions } from "./cms.config.ts";
 import { createSite, type E2eSite } from "./site.ts";
 
@@ -75,13 +77,15 @@ const decodeHtml = (value: string): string =>
     .replaceAll("&gt;", ">")
     .replaceAll("&amp;", "&");
 
-/** The session cookie value from a response's `Set-Cookie` headers. */
-const sessionCookie = (response: Response): string => {
+/** The value of `name` from a response's `Set-Cookie` headers. */
+const cookieValue = (response: Response, name: string): string => {
   for (const header of response.headers.getSetCookie()) {
-    const match = header.match(/(?:^|;\s*)session_id=([^;]+)/);
+    const match = header.match(
+      new RegExp(`(?:^|;\\s*)${escapeRegex(name)}=([^;]+)`),
+    );
     if (match && match[1] !== "") return match[1];
   }
-  throw new Error("No session_id cookie in the response");
+  throw new Error(`No ${name} cookie in the response`);
 };
 
 const pickFreePort = (): number => {
@@ -135,16 +139,19 @@ beforeAll(async () => {
     )
   `;
 
-  // A real site server, on a real port, before the CMS knows its URL.
-  const site = createSite(sql);
+  // A real site server, on a real port. It knows the CMS's origin so its
+  // `/cms/sign-in` route can hand an editor to the right CMS (a real site reads
+  // this from `CMS_URL`).
+  const cmsPort = pickFreePort();
+  const cmsUrl = `http://localhost:${cmsPort}`;
+
+  const site = createSite(sql, { cmsUrl });
   const siteServer = Bun.serve({
     port: 0,
     fetch: (req) => site.handler(req),
   });
   const siteUrl = `http://localhost:${siteServer.port}`;
 
-  const cmsPort = pickFreePort();
-  const cmsUrl = `http://localhost:${cmsPort}`;
   const cms = Bun.spawn({
     cmd: ["bun", "--no-env-file", "run", "src/server/main.ts"],
     cwd: join(import.meta.dir, "..", "app"),
@@ -205,11 +212,9 @@ beforeAll(async () => {
   await sql`TRUNCATE TABLE users RESTART IDENTITY CASCADE`;
   await sql`UPDATE cms_meta SET content_version = 0 WHERE id = 1`;
 
-  const users = (await sql`
+  await sql`
     INSERT INTO users (email, role) VALUES ('admin@example.com', 'admin')
-    RETURNING id
-  `) as { id: string }[];
-  const userId = users[0].id;
+  `;
 
   // Deploy: publish the site's declarations the way `cms:publish` does.
   const summary = await publish(sql, siteDefinitions);
@@ -235,20 +240,60 @@ beforeAll(async () => {
   `) as { id: string }[];
   ctx.mediaId = media[0].id;
 
-  // Sign in the way the Edit content link / site handoff does: mint a single-use
-  // handoff token for the admin, then confirm it at the CMS.
-  const rawToken = `e2e-${crypto.randomUUID()}`;
-  await sql`
-    INSERT INTO cms_handoff_tokens (user_id, token_hash, expires_at)
-    VALUES (${userId}, ${hashHandoffToken(rawToken)}, ${new Date(Date.now() + 60_000)})
-  `;
+  // Sign the admin in the way a real editor arrives: signed out at the CMS,
+  // which hands the browser to the site's `/cms/sign-in` route; nobody is signed
+  // in on the site yet, so that route goes through the site's own login and
+  // back, then mints a single-use handoff token the CMS spends. Nothing here
+  // writes a `cms_handoff_tokens` row itself: the site route mints it through
+  // the plugin, exactly as it does for a real editor.
+  const toSite = await fetch(`${cmsUrl}/sign-in`, { redirect: "manual" });
+  expect(toSite.status).toBe(303);
+  const siteSignIn = new URL(toSite.headers.get("location") as string);
+  expect(siteSignIn.origin).toBe(siteUrl);
+  expect(siteSignIn.pathname).toBe(CMS_SIGN_IN_PATH);
 
-  const confirm = await fetch(
-    `${cmsUrl}/handoff?token=${encodeURIComponent(rawToken)}`,
-    { redirect: "manual" },
-  );
+  // Signed out on the site: the sign-in route sends the editor through the
+  // site's own login first, and back afterwards.
+  const toLogin = await fetch(siteSignIn, { redirect: "manual" });
+  expect(toLogin.status).toBe(303);
+  const login = new URL(toLogin.headers.get("location") as string, siteUrl);
+  expect(login.origin).toBe(siteUrl);
+  expect(login.pathname).toBe("/login");
+
+  const loginForm = await fetch(login);
+  expect(loginForm.status).toBe(200);
+
+  const signedIn = await fetch(`${siteUrl}/login`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      email: "admin@example.com",
+      next: login.searchParams.get("next") ?? "",
+    }),
+  });
+  expect(signedIn.status).toBe(303);
+  const siteSession = cookieValue(signedIn, "site_session");
+
+  // Back at the site's sign-in route, now signed in: the plugin checks
+  // `cms_identities` and mints the handoff token, and the site sends the browser
+  // to the CMS.
+  const toHandoff = await fetch(siteSignIn, {
+    redirect: "manual",
+    headers: { Cookie: `site_session=${siteSession}` },
+  });
+  expect(toHandoff.status).toBe(303);
+  const handoff = new URL(toHandoff.headers.get("location") as string);
+  expect(handoff.origin).toBe(cmsUrl);
+  expect(handoff.pathname).toBe("/handoff");
+  const rawToken = handoff.searchParams.get("token");
+  if (!rawToken) throw new Error("The site's sign-in route minted no token");
+
+  // The CMS shows a confirm step (so a scanner can't spend the token) and
+  // spends it on POST.
+  const confirm = await fetch(handoff, { redirect: "manual" });
   const confirmHtml = await confirm.text();
-  const guest = sessionCookie(confirm);
+  const guest = cookieValue(confirm, "session_id");
   const handoffCsrf = confirmHtml.match(/name="_csrf" value="([^"]+)"/)?.[1];
   if (!handoffCsrf) throw new Error("No CSRF token on the handoff page");
 
@@ -263,7 +308,7 @@ beforeAll(async () => {
     body: new URLSearchParams({ _csrf: handoffCsrf, token: rawToken }),
   });
   expect(spent.status).toBe(303);
-  ctx.cookie = sessionCookie(spent);
+  ctx.cookie = cookieValue(spent, "session_id");
 }, 60_000);
 
 afterAll(async () => {
