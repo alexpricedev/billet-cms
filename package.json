@@ -10,10 +10,12 @@
     "lint": "bun run --cwd app lint && bun run --cwd packages/billet-cms lint",
     "typecheck": "bun run --cwd app typecheck && bun run --cwd packages/billet-cms typecheck",
     "check": "bun run --cwd app check && bun run --cwd packages/billet-cms check",
-    "test": "bun run --cwd app --env-file=../.env.test test && bun run --cwd packages/billet-cms test",
+    "test": "bun run --cwd app --env-file=../.env.test test && bun run --cwd packages/billet-cms test && bun run e2e",
     "build": "bun run --cwd app build",
     "migrate:up": "bun run --cwd app migrate:up",
-    "migrate:status": "bun run --cwd app migrate:status"
+    "migrate:status": "bun run --cwd app migrate:status",
+    "cms:pull": "bun packages/billet-cms/src/cli/pull/cli.ts",
+    "e2e": "NODE_ENV=test bun --env-file=.env.test e2e/run.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
