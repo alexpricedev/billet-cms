@@ -111,10 +111,21 @@ const defaultPreviewLogger = (message: string): void => {
   console.warn(`[billet-cms] ${message}`);
 };
 
-/** The headers every preview response carries: no cache, no search engines. */
+/**
+ * The headers every preview response carries: no cache, no search engines, and
+ * no referrer.
+ *
+ * The preview URL has the raw token in its query string, and the page's own
+ * subresources — an analytics script, a third-party font — would otherwise be
+ * sent that URL in `Referer` on every request. The token is live for its whole
+ * half hour, so a third party that logged one could read the draft; `no-referrer`
+ * keeps it out of the header. It also keeps the draft's URL away from whatever
+ * the optional rich-text links point at.
+ */
 export const PREVIEW_HEADERS = {
   "Cache-Control": "no-store",
   "X-Robots-Tag": "noindex",
+  "Referrer-Policy": "no-referrer",
 } as const;
 
 /** The id the banner carries, so a caller can find or style it. */
@@ -140,17 +151,22 @@ export const renderPreviewBanner = (): string =>
   "Preview — showing unpublished draft content. This is not the live site." +
   "</div>";
 
-/** The opening `<body>` tag, whatever case the site wrote it in. */
-const BODY_OPEN = /<body[^>]*>/i;
+/**
+ * The opening `<body>` tag, whatever case the site wrote it in.
+ *
+ * `<body` must be followed by `>` or whitespace, not just any character: the
+ * loose `[^>]*` form would also match a custom element like `<body-guard>`,
+ * putting the banner inside that element instead of the body's own flow.
+ */
+const BODY_OPEN = /<body(?:\s[^>]*)?>/i;
 
 /**
  * Put the banner at the top of the rendered page.
  *
- * Right after the opening `<body>` tag, whatever its case, so it is the first
- * thing in the flow. A page with no `<body>` tag gets the banner appended
- * rather than prepended: an insertion before the document would land ahead of
- * `<!doctype html>` and force quirks mode. Neither path can be fooled by a
- * `</body>` inside a `<script>`, which prepending-to-the-end used to hit.
+ * Right after the opening `<body>` tag, so it is the first thing in the flow. A
+ * page with no `<body>` tag (an HTML fragment) gets the banner appended rather
+ * than prepended: an insertion before the document would land ahead of
+ * `<!doctype html>` and force quirks mode.
  */
 const injectPreviewBanner = (html: string, banner: string): string => {
   const match = BODY_OPEN.exec(html);

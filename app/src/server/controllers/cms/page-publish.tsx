@@ -3,8 +3,6 @@ import { getSessionContext, requireAuth } from "../../middleware/auth";
 import { checkCsrf } from "../../middleware/csrf";
 import {
   asPageContent,
-  buildPreviewUrl,
-  createPreviewToken,
   getPageById,
   getPageTypeByName,
   getRevisionById,
@@ -13,12 +11,12 @@ import {
   restorePageRevision,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
-import { log } from "../../services/logger";
 import { PageHistory } from "../../templates/cms/page-history";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
 import { renderPageForm } from "./pages";
 import { nonEmpty, UUID_PATTERN } from "./params";
+import { previewRedirect } from "./preview";
 
 /**
  * Publish and restore for pages, as their own POST endpoints.
@@ -55,34 +53,13 @@ export const pagePublish = {
     const page = await getPageById(pageId);
     if (!page) return render404();
 
-    // Minting writes a row, so an unreachable database or a missing
-    // `cms_preview_tokens` is the one thing that can fail here. That is a
-    // notice, not the styled HTML 500 an uncaught throw would become.
-    let rawToken: string;
-    try {
-      ({ rawToken } = await createPreviewToken({
-        subjectType: "page",
-        subjectId: page.id,
-        createdBy: ctx.user.id,
-      }));
-    } catch (error) {
-      log.error(
-        "preview",
-        `Could not mint a preview token for page "${page.id}": ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return redirect(`/cms/pages/${page.id}?preview=failed`);
-    }
-
-    const url = buildPreviewUrl({
-      baseUrl: process.env.SITE_APP_URL,
+    return previewRedirect({
+      subjectType: "page",
+      subjectId: page.id,
       path: page.url,
-      rawToken,
+      createdBy: ctx.user.id,
+      returnTo: `/cms/pages/${page.id}`,
     });
-    if (!url) return redirect(`/cms/pages/${page.id}?preview=unavailable`);
-
-    return redirect(url);
   },
 
   /** Make a draft the revision the site renders, refusing if a newer one exists. */

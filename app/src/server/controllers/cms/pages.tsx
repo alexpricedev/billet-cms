@@ -80,13 +80,6 @@ export const pageNotice = (params: URLSearchParams): Notice | null => {
         "Someone saved a newer draft while this page was open, so nothing was published. Reload the page to see and publish the newest version.",
     };
   }
-  if (params.get("preview") === "unavailable") {
-    return {
-      kind: "warning",
-      message:
-        "Preview isn't available: the CMS isn't pointed at a site URL, so it has nowhere to open the page.",
-    };
-  }
   if (params.get("preview") === "failed") {
     return {
       kind: "warning",

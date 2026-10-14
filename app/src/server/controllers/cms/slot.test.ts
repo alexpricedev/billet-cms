@@ -506,6 +506,43 @@ describe("Slot form controller", () => {
       expect(rows[0].token_hash).toBe(hashPreviewToken(raw));
     });
 
+    test("checks the site URL before minting, so a bad one writes no token", async () => {
+      const formData = new FormData();
+      formData.append(
+        "_csrf",
+        await createCsrfToken(sessionId, "POST", `${path(slotId)}/preview`),
+      );
+
+      // A process with no site URL (validateEnv refuses to boot one, but a unit
+      // test or a mis-set variable can reach here) must not write a token it
+      // has nowhere to open.
+      const original = process.env.SITE_APP_URL;
+      process.env.SITE_APP_URL = "";
+      let res: Response;
+      try {
+        res = await slotPublish.preview(
+          createBunRequest(
+            `${ORIGIN}${path(slotId)}/preview`,
+            {
+              method: "POST",
+              headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+              body: formData,
+            },
+            { id: slotId },
+          ),
+        );
+      } finally {
+        process.env.SITE_APP_URL = original;
+      }
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `${path(slotId)}?preview=failed`,
+      );
+      const rows = await db`SELECT id FROM cms_preview_tokens`;
+      expect(rows).toHaveLength(0);
+    });
+
     test("a failed mint redirects with a notice, not an HTML 500", async () => {
       const formData = new FormData();
       formData.append(

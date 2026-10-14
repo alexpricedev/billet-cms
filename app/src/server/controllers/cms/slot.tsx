@@ -65,13 +65,6 @@ export const formNotice = (params: URLSearchParams): Notice | null => {
         "The block type for this slot is no longer published, so it can't be published.",
     };
   }
-  if (params.get("preview") === "unavailable") {
-    return {
-      kind: "warning",
-      message:
-        "Preview isn't available: the CMS isn't pointed at a site URL, so it has nowhere to open the page.",
-    };
-  }
   if (params.get("preview") === "failed") {
     return {
       kind: "warning",
