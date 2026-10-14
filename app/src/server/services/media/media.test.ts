@@ -38,6 +38,7 @@ mock.module("../database", () => ({
 
 import {
   createPage,
+  publishPage,
   publishSlot,
   savePageDraft,
   saveSlotDraft,
@@ -617,6 +618,138 @@ describe("media usage and delete protection", () => {
     const result = await deleting;
     expect(result).toMatchObject({ ok: false, reason: "in-use" });
     expect(await getMediaById(used.media.id)).not.toBeNull();
+  });
+
+  // Q1: an image can be deleted while only a draft references it. Publishing
+  // that draft must refuse — with the message on the block — so a live page
+  // never points at a file that is gone. Saving the draft stays legal, so the
+  // editor can still pick another image.
+  test("refuses to publish a slot draft whose image was deleted", async () => {
+    await seedBlockType(db, photoBlock);
+    const slotId = await seedSlot(db, {
+      name: "home.hero",
+      blockName: "hero",
+      page: "home",
+    });
+
+    const storage = createMemoryMediaStorage();
+    const uploaded = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "Gone soon",
+      actorId: null,
+      storage,
+    });
+    if (!uploaded.ok) throw new Error("upload failed");
+
+    const saved = await saveSlotDraft({
+      slotId,
+      content: { heading: "Hello", photo: { mediaId: uploaded.media.id } },
+      baseRevisionId: null,
+      actorId: null,
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+
+    // Only a draft references it, so the delete is allowed.
+    expect(await deleteMedia(uploaded.media.id, storage)).toMatchObject({
+      ok: true,
+    });
+
+    // Saving the draft again is still allowed: the editor isn't locked out of
+    // fixing it.
+    const resaved = await saveSlotDraft({
+      slotId,
+      content: { heading: "Hello", photo: { mediaId: uploaded.media.id } },
+      baseRevisionId: saved.revision.id,
+      actorId: null,
+    });
+    expect(resaved.ok).toBe(true);
+
+    const before = (
+      (await db`
+        SELECT content_version FROM cms_meta WHERE id = 1
+      `) as { content_version: string | number }[]
+    )[0].content_version;
+    const result = await publishSlot({ slotId });
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    expect(result.issues).toContainEqual({
+      path: "photo.mediaId",
+      message: "This image was deleted. Choose another.",
+    });
+
+    // Nothing went live and the cache counter didn't move.
+    const slots = (await db`
+      SELECT published_revision_id FROM cms_slots WHERE id = ${slotId}
+    `) as { published_revision_id: string | null }[];
+    expect(slots[0].published_revision_id).toBeNull();
+    const after = (
+      (await db`
+        SELECT content_version FROM cms_meta WHERE id = 1
+      `) as { content_version: string | number }[]
+    )[0].content_version;
+    expect(Number(after)).toBe(Number(before));
+  });
+
+  test("refuses to publish a page whose block image was deleted", async () => {
+    await seedBlockType(db, photoBlock);
+    await seedPageType(
+      db,
+      pageType("landing", { allowedBlocks: [photoBlock] }),
+    );
+    const created = await createPage({
+      pageType: "landing",
+      url: "/landing",
+      title: "Landing",
+    });
+    if (!created.ok) throw new Error("page create failed");
+
+    const storage = createMemoryMediaStorage();
+    const uploaded = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "Gone soon",
+      actorId: null,
+      storage,
+    });
+    if (!uploaded.ok) throw new Error("upload failed");
+
+    const saved = await savePageDraft({
+      pageId: created.page.id,
+      content: {
+        blocks: [
+          {
+            type: "hero",
+            heading: "Hi",
+            photo: { mediaId: uploaded.media.id },
+          },
+        ],
+      },
+      baseRevisionId: null,
+      actorId: null,
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+
+    expect(await deleteMedia(uploaded.media.id, storage)).toMatchObject({
+      ok: true,
+    });
+
+    const result = await publishPage({
+      pageId: created.page.id,
+      revisionId: saved.revision.id,
+      requireLatest: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    expect(result.issues).toContainEqual({
+      path: "blocks.0.photo.mediaId",
+      message: "This image was deleted. Choose another.",
+    });
+
+    const pages = (await db`
+      SELECT published_revision_id FROM cms_pages WHERE id = ${created.page.id}
+    `) as { published_revision_id: string | null }[];
+    expect(pages[0].published_revision_id).toBeNull();
   });
 });
 

@@ -16,7 +16,7 @@
 import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { SQL } from "bun";
 import { db } from "../database";
-import { lockReferencedMedia } from "../media/guidance";
+import { findDeletedImageIssues, lockReferencedMedia } from "../media/guidance";
 import { type BlockTypeRecord, getBlockTypeByName } from "./definitions";
 import { type FieldIssue, formatIssues } from "./drafts";
 import {
@@ -176,8 +176,23 @@ export const publishSlot = async (
 
     // Hold the images this revision references for the length of the write, so
     // a concurrent delete can't remove one between here and the pointer write
-    // (review r1-4).
-    await lockReferencedMedia(tx, revision.content);
+    // (review r1-4). The same read answers the deleted-image check (Q1): an
+    // image deleted while this revision sat as a draft has no row here, so the
+    // publish is refused with a message on the block and nothing goes live.
+    // Saving the same draft stayed legal, so the editor can still choose another.
+    const existingMedia = await lockReferencedMedia(tx, revision.content);
+    const deletedImages = findDeletedImageIssues(
+      blockType.fields,
+      revision.content,
+      existingMedia,
+    );
+    if (deletedImages.length > 0) {
+      return {
+        ok: false as const,
+        reason: "invalid" as const,
+        issues: deletedImages,
+      };
+    }
 
     await tx`
       UPDATE cms_slots
