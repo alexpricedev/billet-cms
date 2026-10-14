@@ -1,6 +1,6 @@
 # billet-cms
 
-A headless CMS for Billet sites. Three things live here:
+A headless CMS for [Billet](https://github.com/alexpricedev/Billet) sites. Three things live here:
 
 | Path | What it is |
 |---|---|
