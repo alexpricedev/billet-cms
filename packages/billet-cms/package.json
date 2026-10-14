@@ -1,8 +1,7 @@
 {
   "name": "@alexpricedev/billet-cms",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Block plugin and contract for Billet CMS",
-  "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -13,13 +12,40 @@
     "./sign-in": "./src/sign-in/index.ts",
     "./server": "./src/server/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./cli/publish": "./src/cli/publish/index.ts"
+    "./cli/publish": "./src/cli/publish/index.ts",
+    "./cli/pull": "./src/cli/pull/index.ts"
   },
   "bin": {
-    "billet-cms-publish": "./src/cli/publish/cli.ts"
+    "billet-cms-publish": "./src/cli/publish/cli.ts",
+    "billet-cms-pull": "./src/cli/pull/cli.ts"
   },
   "files": [
-    "src"
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/fixtures"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "license": "MIT",
+  "author": "Alex Price",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexpricedev/billet-cms.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alexpricedev/billet-cms/issues"
+  },
+  "homepage": "https://github.com/alexpricedev/billet-cms#readme",
+  "keywords": [
+    "billet",
+    "cms",
+    "headless",
+    "blocks",
+    "bun"
   ],
   "scripts": {
     "lint": "biome check src",

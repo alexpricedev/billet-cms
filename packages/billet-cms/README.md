@@ -111,3 +111,125 @@ focal-point or alt change shows within about a second.
 > Without it the browser blocks every CMS image — the markup is correct and the
 > network tab is the only place it shows.
 
+## Installing in a site
+
+```bash
+bun add @alexpricedev/billet-cms
+```
+
+1. **Declare the site's blocks, slots and page types** in a `cms.config.ts`.
+   Export the arrays by name (or from a default export):
+
+   ```ts
+   import {
+     block,
+     image,
+     pageType,
+     slot,
+     text,
+   } from "@alexpricedev/billet-cms/fields";
+
+   export const hero = block(
+     "hero",
+     { heading: text({ max: 80, label: "Heading" }), photo: image() },
+     (content) => `<h1>${content.heading}</h1>`,
+   );
+   export const homeHero = slot("home.hero", hero, { previewPath: "/" });
+   export const landing = pageType("landing", {
+     allowedBlocks: [hero],
+     limits: { hero: { max: 1 } },
+   });
+
+   export const blocks = [hero];
+   export const slots = [homeHero];
+   export const pageTypes = [landing];
+   ```
+
+2. **Publish on deploy**, after the CMS is up (see the deploy order below):
+
+   ```bash
+   bunx billet-cms-publish            # reads ./cms.config.ts, uses DATABASE_URL
+   ```
+
+   It needs the same `DATABASE_URL` as the site's own Billet app, because the
+   CMS shares that database. A missing or mismatched contract version stops with
+   a message telling you which side to upgrade.
+
+3. **Read content in templates** with `getSlot` (above), and mount the catch-all
+   in the site's fallback — after every one of the site's own routes, just before
+   its 404 — so CMS pages are served and 301s are honoured:
+
+   ```ts
+   import { createCmsPageRoute } from "@alexpricedev/billet-cms/server";
+
+   const cmsPage = createCmsPageRoute({
+     sql,
+     render: (page, { preview, req }) =>
+       new Response(renderCmsPage(page, preview)),
+   });
+
+   // In your fallback, before render404():
+   const cmsPageResponse = await cmsPage(req);
+   if (cmsPageResponse) return cmsPageResponse;
+   ```
+
+   Forward `preview` from the render context to any `getSlot` the page mounts, so
+   a previewed slot shows its draft inside a CMS-served page.
+
+4. **Merge the CMS pages into the site's sitemap** with `listSitemapEntries(sql)`,
+   and set canonical URLs and social tags from `pageSeo`/`renderSeoTags`. Follow
+   Billet's SEO runbook.
+
+5. **Mount CMS sign-in** at the path the contract fixes:
+
+   ```ts
+   import { handleCmsSignIn } from "@alexpricedev/billet-cms/sign-in";
+
+   "/cms/sign-in": (req) =>
+     handleCmsSignIn(req, {
+       sql,
+       getUserId: (request) => currentUserId(request),
+       cmsUrl: process.env.CMS_URL,
+     }),
+   ```
+
+   And render an **Edit content** link for a signed-in admin with
+   `createEditContentLink(sql, { userId })`; it returns `null` when `CMS_URL` is
+   unset, so the link simply hides.
+
+### Environment
+
+| Variable | Where | What |
+|---|---|---|
+| `CMS_URL` | site | The CMS origin, e.g. `https://cms.example.com`. The Edit content link and sign-in are hidden/disabled without it. |
+| `DATABASE_URL` | site | The shared Postgres. The same value the CMS is given. |
+
+### Deploy order and the CSP
+
+- **Deploy the CMS first, then the site.** The CMS creates the `cms_` tables at
+  boot; the site's publish step checks `cms_meta.contract_version` and stops
+  until the CMS has set it up.
+- **The site's CSP `img-src` must allow the media bucket's host** (the origin in
+  `MEDIA_PUBLIC_BASE_URL`, which the CMS sets). Without it the browser blocks
+  every `<CmsImage>`.
+- On Railway, the CMS is its own service from this repo, connected to the site's
+  Postgres. See the root `README.md`.
+
+## Export and pull
+
+Pull production content into a local or preview environment without database
+credentials:
+
+```bash
+bunx billet-cms-pull --from https://cms.example.com
+# or: bun run cms:pull --from https://cms.example.com
+```
+
+The token comes from `--token` or `CMS_EXPORT_TOKEN`; an admin creates it in the
+CMS under **Export**. The command fetches `GET /export` and **replaces** local
+`cms_` content (pages, slots, published revisions, redirects, media rows) with
+what came back. It is one-way, never touches drafts, definitions, users,
+sessions or tokens, keeps images pointing at the production bucket, and
+**refuses to run under `NODE_ENV=production`**.
+
+
