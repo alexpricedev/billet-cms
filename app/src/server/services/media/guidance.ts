@@ -12,9 +12,10 @@
  * The guidance sits on the *field*, not the upload: the same picture can be a
  * hero on one block (1600px least) and a thumbnail on another, so an upload is
  * never refused for being small — a save that uses it where it doesn't fit is.
- * A reference whose media row is missing is left alone here; the site skips it
- * the same way, and flagging it belongs with the rest of the "removed content"
- * work, not a guidance rule.
+ * A reference whose media row is missing is left alone on a save: the site skips
+ * it the same way, and refusing the save would lose the editor's draft. A
+ * publish refuses it instead — see `findDeletedImageIssues` — because a live
+ * page must not point at a file that is gone.
  */
 import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
@@ -130,22 +131,23 @@ export const collectMediaIds = (value: unknown): string[] => {
  *
  * `deleteMedia` takes the same rows `FOR UPDATE`; a publish holding these shared
  * locks can't have an image deleted out from under the revision it is putting
- * live. A delete already under way makes the publish wait, then find the row
- * gone — the draft-only delete the review's Q1 asks about, which publish-time
- * flagging (not locking) would have to answer.
+ * live. The ids that were found are returned so the caller can check, without
+ * another query, which references have no row left (Q1): a draft-only delete
+ * makes the publish wait, then find the row gone and refuse.
  */
 export const lockReferencedMedia = async (
   sql: SQL,
   content: unknown,
-): Promise<void> => {
+): Promise<Set<string>> => {
   const ids = collectMediaIds(content);
-  if (ids.length === 0) return;
-  await sql`
+  if (ids.length === 0) return new Set();
+  const rows = (await sql`
     SELECT id FROM cms_media
     WHERE id IN ${inList(ids)}
     ORDER BY id
     FOR SHARE
-  `;
+  `) as { id: string }[];
+  return new Set(rows.map((row) => row.id));
 };
 
 const ratio = (width: number, height: number): number => width / height;
@@ -193,6 +195,39 @@ export const findImageGuidanceIssues = (
     }
   }
 
+  return issues;
+};
+
+/** The message a publish shows for a reference whose `cms_media` row is gone. */
+export const DELETED_IMAGE_MESSAGE = "This image was deleted. Choose another.";
+
+/**
+ * The references in one block's content whose media row no longer exists.
+ *
+ * A save tolerates a deleted reference — `findImageGuidanceIssues` skips a
+ * missing row — so an editor never loses a draft because an image went.
+ * Publishing refuses it instead (Q1): putting the revision live would hand the
+ * site content pointing at a file that isn't there. `existing` is the media the
+ * publish path has already locked and returned, so this is a map lookup per
+ * reference, not a query per block.
+ */
+export const findDeletedImageIssues = (
+  fields: FieldMetadata[],
+  content: Record<string, unknown>,
+  existing: ReadonlySet<string>,
+): FieldIssue[] => {
+  const references: Reference[] = [];
+  collectReferences(fields, content, "", references);
+
+  const issues: FieldIssue[] = [];
+  for (const reference of references) {
+    if (!existing.has(reference.mediaId)) {
+      issues.push({
+        path: `${reference.path}.mediaId`,
+        message: DELETED_IMAGE_MESSAGE,
+      });
+    }
+  }
   return issues;
 };
 

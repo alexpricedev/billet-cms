@@ -96,7 +96,10 @@ repo. This file is only the invariants.
   no bucket configuration. `image()` guidance (`minWidth`, `aspect`) is enforced
   when content is *saved*, not at upload — the same picture is a hero in one
   block and a thumbnail in another. Alt text is required, a use may override it,
-  and an image referenced by any **published** page or slot cannot be deleted.
+  an image referenced by any **published** page or slot cannot be deleted, and
+  publishing a draft that names a deleted image is refused with "This image was
+  deleted. Choose another." on the block (a save of that draft still succeeds, so
+  the editor can pick another).
   The site renders one through `<CmsImage>` (`renderCmsImage`, reading the row
   with `getMedia`). The bucket is configured with `S3_BUCKET`,
   `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `MEDIA_PUBLIC_BASE_URL` (plus

@@ -23,6 +23,7 @@ import type { SQL } from "bun";
 import { findUserById } from "../auth";
 import { db } from "../database";
 import {
+  findDeletedImageIssues,
   findImageGuidanceIssues,
   loadMediaSizes,
   lockReferencedMedia,
@@ -110,6 +111,40 @@ const blockImageGuidance = async (
       });
     }
   }
+  return issues;
+};
+
+/**
+ * The page's deleted-image issues, from the media a publish already loaded.
+ *
+ * A save tolerates a block whose image row is gone (a draft is never lost to a
+ * deleted upload); a publish refuses it instead (Q1), so a live page can't point
+ * at a file that no longer exists. The paths carry the block's index exactly as
+ * the schema and guidance issues do, so the message lands on the block that
+ * names the missing image. The ids come from the publish's own lock read, so
+ * this costs a map lookup per reference, not a query per block.
+ */
+const blockDeletedImageIssues = (
+  blockTypes: Map<string, BlockTypeRecord>,
+  content: PageContent,
+  existing: ReadonlySet<string>,
+): FieldIssue[] => {
+  const issues: FieldIssue[] = [];
+  content.blocks.forEach((block, index) => {
+    const blockType = blockTypes.get(block.type);
+    if (!blockType) return;
+    const { type: _type, ...fields } = block;
+    for (const issue of findDeletedImageIssues(
+      blockType.fields,
+      fields as Record<string, unknown>,
+      existing,
+    )) {
+      issues.push({
+        path: `blocks.${index}.${issue.path}`,
+        message: issue.message,
+      });
+    }
+  });
   return issues;
 };
 
@@ -527,8 +562,23 @@ export const publishPage = async (
 
     // Hold the images this revision references for the length of the write, so
     // a concurrent delete can't remove one between here and the pointer write
-    // (review r1-4).
-    await lockReferencedMedia(tx, revision.content);
+    // (review r1-4). The same read answers the deleted-image check (Q1): an
+    // image deleted while this revision sat as a draft has no row here, so the
+    // publish is refused with a message on the block and nothing goes live.
+    // Saving the same draft stayed legal, so the editor can still choose another.
+    const existingMedia = await lockReferencedMedia(tx, revision.content);
+    const deletedImages = blockDeletedImageIssues(
+      blockTypes,
+      asPageContent(revision.content),
+      existingMedia,
+    );
+    if (deletedImages.length > 0) {
+      return {
+        ok: false as const,
+        reason: "invalid" as const,
+        issues: deletedImages,
+      };
+    }
 
     await tx`
       UPDATE cms_pages
