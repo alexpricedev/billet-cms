@@ -206,24 +206,25 @@ export const TABLES = {
 export type TableName = (typeof TABLES)[keyof typeof TABLES];
 
 /**
- * The keys the CMS keeps in `cms_meta`, alongside any site-specific rows.
+ * The keys the CMS keeps in `cms_meta`.
  *
- * `contract_version` is written by the CMS at boot
- * (`syncContractVersion` in `app/src/server/database/migrate.ts`) and read by
- * the site's publish step, which refuses to write against a CMS it can't read.
+ * `cms_meta` is exactly one row, `id = 1`, enforced by the table's primary key
+ * and its `CHECK (id = 1)`. Migration 004 creates the table; the row itself is
+ * upserted by the CMS at boot in `syncContractVersion`
+ * (`app/src/server/database/migrate.ts`), which is also the only writer of
+ * `contract_version`. The site's publish step reads that value and refuses to
+ * write against a CMS it can't read, so the row must exist for a site to deploy.
  *
- * `content_version` is a counter the CMS bumps whenever *published* content
- * changes, and only then — a save that writes a draft leaves it alone. Who
- * bumps it:
+ * `content_version` is the counter the site's plugin polls: it drops its
+ * in-memory cache when the value moves, so a content change reaches a live site
+ * within about a second instead of waiting for a TTL. It is bumped whenever
+ * *published* content changes, and only then — a draft save leaves it alone.
+ * Who bumps it:
  *
- * - the site's `billet-cms-publish`, when its deploy changed a definition;
+ * - the site's `billet-cms-publish`, when its deploy changed a definition
+ *   (a block, page type or slot), which changes what the site renders;
  * - the CMS, on a page or slot publish, a page create / rename / settings change
  *   / delete, a media alt-text or focal-point edit, and a `cms:pull`.
- *
- * The site's plugin polls it (once a second by default) and drops its in-memory
- * cache when it moves, which is how a publish reaches a live site within
- * seconds. Migration 004 seeds the single row (`id = 1`, `content_version = 1`);
- * `syncContractVersion` only ever touches `contract_version`.
  */
 export const META_KEYS = {
   contractVersion: "contract_version",
@@ -232,13 +233,14 @@ export const META_KEYS = {
 
 export type MetaKey = (typeof META_KEYS)[keyof typeof META_KEYS];
 
-const TABLES_BY_NAME: ReadonlyMap<string, TableName> = new Map(
-  Object.values(TABLES).map((name) => [name, name]),
-);
-
-/** True when `name` is a relation the CMS owns. */
+/**
+ * True when `name` is a relation the CMS owns.
+ *
+ * Every relation the CMS creates carries the prefix, so the prefix alone is the
+ * test; `TABLES` is kept only as the published list of what exists today.
+ */
 export const isCmsRelation = (name: string): boolean =>
-  TABLES_BY_NAME.has(name) || name.startsWith(TABLE_PREFIX);
+  name.startsWith(TABLE_PREFIX);
 
 /**
  * How a published definition is stored.

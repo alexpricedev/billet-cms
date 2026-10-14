@@ -175,18 +175,18 @@ describe("cms form editor", () => {
     expect(JSON.parse(hidden?.value ?? "{}").heading).toBe("Hello");
   });
 
-  test("adds and removes list rows, and disables Add at the maximum", () => {
+  test("adds and removes list rows, and marks Add disabled at the maximum", () => {
     const list = form().querySelector("[data-list]") as HTMLElement;
     const add = list.querySelector("[data-list-add]") as HTMLButtonElement;
     const count = () => list.querySelectorAll("[data-list-item]").length;
 
     expect(count()).toBe(2);
-    expect(add.disabled).toBe(false);
+    expect(add.getAttribute("aria-disabled")).toBeNull();
     add.click();
     expect(count()).toBe(3);
-    // At the maximum the Add button is disabled, so the editor sees why another
-    // row won't appear rather than clicking into nothing.
-    expect(add.disabled).toBe(true);
+    // At the maximum the Add button is marked disabled, so the editor is told
+    // why another row won't appear rather than clicking into nothing.
+    expect(add.getAttribute("aria-disabled")).toBe("true");
     add.click();
     expect(count()).toBe(3);
 
@@ -196,12 +196,56 @@ describe("cms form editor", () => {
     remove.click();
     expect(count()).toBe(2);
     // Freeing a slot re-enables Add.
-    expect(add.disabled).toBe(false);
+    expect(add.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  // The Add button carries the state, not a `disabled` attribute, so a
+  // programmatic click still reaches the handler; the row-count guard is what
+  // refuses it.
+  test("ignores a click on an Add button that is at the maximum", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="list" data-field-name="tags" data-list data-max="1">
+          <div data-list-items>
+            <div data-list-item>
+              <div data-field data-field-kind="text" data-field-name="item">
+                <input type="text" data-text-input value="only">
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>
+          </div>
+          <template data-list-template>
+            <div data-list-item>
+              <div data-field data-field-kind="text" data-field-name="item">
+                <input type="text" data-text-input value="">
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>
+          </template>
+          <button type="button" data-list-add aria-disabled="true">Add item</button>
+        </div>
+      </form>
+    `);
+
+    const list = form().querySelector("[data-list]") as HTMLElement;
+    const add = list.querySelector("[data-list-add]") as HTMLButtonElement;
+    add.click();
+    expect(list.querySelectorAll("[data-list-item]")).toHaveLength(1);
+  });
+
+  // Adding a row should leave the caret in it, not back on the Add button.
+  test("focuses the new row's first control after adding", () => {
+    const list = form().querySelector("[data-list]") as HTMLElement;
+    const add = list.querySelector("[data-list-add]") as HTMLButtonElement;
+    add.click();
+
+    const added = list.querySelectorAll("[data-list-item]")[2];
+    expect(document.activeElement).toBe(added?.querySelector("input"));
   });
 
   test("ships Add disabled when the server rendered a full list", () => {
-    // The server marks the button disabled; init must leave it that way and
-    // re-enable it once a row is removed.
+    // The server marks the button aria-disabled; init must leave it that way
+    // and re-enable it once a row is removed.
     mount(`
       <form data-cms-form>
         <input type="hidden" data-cms-content />
@@ -222,17 +266,17 @@ describe("cms form editor", () => {
               <button type="button" data-list-remove>Remove</button>
             </div>
           </template>
-          <button type="button" data-list-add disabled>Add item</button>
+          <button type="button" data-list-add aria-disabled="true">Add item</button>
         </div>
       </form>
     `);
 
     const list = form().querySelector("[data-list]") as HTMLElement;
     const add = list.querySelector("[data-list-add]") as HTMLButtonElement;
-    expect(add.disabled).toBe(true);
+    expect(add.getAttribute("aria-disabled")).toBe("true");
 
     (list.querySelector("[data-list-remove]") as HTMLButtonElement).click();
-    expect(add.disabled).toBe(false);
+    expect(add.getAttribute("aria-disabled")).toBeNull();
   });
 
   // Removing a row used to drop focus onto the list's Add button always —
@@ -538,6 +582,110 @@ describe("nested lists", () => {
         ":scope > [data-list-items] > [data-list-item]",
       ).length,
     ).toBe(1);
+  });
+});
+
+const nestedMaxMarkup = `
+  <form data-cms-form>
+    <input type="hidden" name="content" data-cms-content value="{}">
+    <div data-field data-field-kind="list" data-field-name="groups" data-list>
+      <div data-list-items></div>
+      <template data-list-template>
+        <div data-list-item>
+          <div data-field data-field-kind="list" data-field-name="item" data-list data-max="1">
+            <div data-list-items>
+              <div data-list-item>
+                <div data-field data-field-kind="text" data-field-name="item">
+                  <input type="text" data-text-input value="">
+                </div>
+                <button type="button" data-list-remove>Remove</button>
+              </div>
+            </div>
+            <template data-list-template>
+              <div data-list-item>
+                <div data-field data-field-kind="text" data-field-name="item">
+                  <input type="text" data-text-input value="">
+                </div>
+                <button type="button" data-list-remove>Remove</button>
+              </div>
+            </template>
+            <button type="button" data-list-add>Add item</button>
+          </div>
+          <button type="button" data-list-remove>Remove</button>
+        </div>
+      </template>
+      <button type="button" data-list-add>Add item</button>
+    </div>
+  </form>
+`;
+
+// A list inside a cloned row was rendered against the template's empty value,
+// so its own Add state is stale: a nested list with max one arrives holding the
+// template's row and an enabled Add. The clone is synced as it is added.
+describe("cloned list state", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("syncs the Add state of a list inside a newly cloned row", () => {
+    mount(nestedMaxMarkup);
+    const outer = form().querySelector(
+      '[data-field-name="groups"]',
+    ) as HTMLElement;
+    (
+      outer.querySelector(":scope > [data-list-add]") as HTMLButtonElement
+    ).click();
+
+    const row = outer.querySelector(
+      ":scope > [data-list-items] > [data-list-item]",
+    ) as HTMLElement;
+    const innerAdd = row.querySelector(
+      "[data-list] > [data-list-add]",
+    ) as HTMLButtonElement;
+
+    expect(innerAdd.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  test("syncs the Add state of a list inside a newly cloned block", () => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" data-cms-content value="{}">
+        <div data-cms-page-content>
+          <div data-cms-blocks></div>
+          <template data-cms-block-template data-block-type="prose">
+            <fieldset data-cms-block data-block-type="prose">
+              <div data-field data-field-kind="list" data-field-name="tags" data-list data-max="1">
+                <div data-list-items>
+                  <div data-list-item>
+                    <div data-field data-field-kind="text" data-field-name="item">
+                      <input type="text" data-text-input value="">
+                    </div>
+                    <button type="button" data-list-remove>Remove</button>
+                  </div>
+                </div>
+                <template data-list-template>
+                  <div data-list-item>
+                    <div data-field data-field-kind="text" data-field-name="item">
+                      <input type="text" data-text-input value="">
+                    </div>
+                    <button type="button" data-list-remove>Remove</button>
+                  </div>
+                </template>
+                <button type="button" data-list-add>Add item</button>
+              </div>
+            </fieldset>
+          </template>
+          <div class="cms-block-add">
+            <button type="button" data-block-add="prose">Add prose</button>
+          </div>
+        </div>
+      </form>
+    `);
+
+    click(document.querySelector("[data-block-add]") as Element);
+    const list = document.querySelector("[data-cms-block] [data-list]");
+    const add = list?.querySelector(":scope > [data-list-add]");
+    expect(add?.getAttribute("aria-disabled")).toBe("true");
   });
 });
 

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_CONTENT_BYTES, nonEmpty, parseJsonObject } from "./params";
+import {
+  contentParseMessage,
+  MAX_CONTENT_BYTES,
+  nonEmpty,
+  parseContent,
+} from "./params";
 
 describe("nonEmpty", () => {
   test("keeps a non-empty string and drops everything else", () => {
@@ -11,27 +16,38 @@ describe("nonEmpty", () => {
   });
 });
 
-describe("parseJsonObject", () => {
+describe("parseContent", () => {
   test("parses a JSON object and rejects anything else", () => {
-    expect(parseJsonObject('{"a":1}')).toEqual({ a: 1 });
-    expect(parseJsonObject("[1,2]")).toBeNull();
-    expect(parseJsonObject('"text"')).toBeNull();
-    expect(parseJsonObject("not json")).toBeNull();
-    expect(parseJsonObject(null)).toBeNull();
-    expect(parseJsonObject("")).toBeNull();
+    expect(parseContent('{"a":1}')).toEqual({ ok: true, value: { a: 1 } });
+    expect(parseContent("[1,2]")).toEqual({ ok: false, reason: "unreadable" });
+    expect(parseContent('"text"')).toEqual({
+      ok: false,
+      reason: "unreadable",
+    });
+    expect(parseContent("not json")).toEqual({
+      ok: false,
+      reason: "unreadable",
+    });
+    expect(parseContent(null)).toEqual({ ok: false, reason: "unreadable" });
+    expect(parseContent("")).toEqual({ ok: false, reason: "unreadable" });
   });
 
-  test("refuses a document over the byte cap instead of parsing it", () => {
+  test("marks a document over the byte cap as too large, not unreadable", () => {
     // The whole block/page document rides in one hidden field; a post over the
-    // cap is treated as unreadable rather than allocated and parsed.
+    // cap is refused before it is parsed, and says so.
     const over = JSON.stringify({ text: "x".repeat(MAX_CONTENT_BYTES) });
     expect(Buffer.byteLength(over, "utf8")).toBeGreaterThan(MAX_CONTENT_BYTES);
-    expect(parseJsonObject(over)).toBeNull();
+    expect(parseContent(over)).toEqual({ ok: false, reason: "too-large" });
 
     const under = JSON.stringify({ text: "x".repeat(MAX_CONTENT_BYTES - 64) });
     expect(Buffer.byteLength(under, "utf8")).toBeLessThanOrEqual(
       MAX_CONTENT_BYTES,
     );
-    expect(parseJsonObject(under)).not.toBeNull();
+    expect(parseContent(under).ok).toBe(true);
+  });
+
+  test("gives the too-large case its own message", () => {
+    expect(contentParseMessage("unreadable")).toContain("could not be read");
+    expect(contentParseMessage("too-large")).toContain("too large to save");
   });
 });

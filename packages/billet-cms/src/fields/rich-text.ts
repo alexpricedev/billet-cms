@@ -117,7 +117,77 @@ const block: z.ZodType<RichTextNode> = z.lazy(() =>
 );
 
 /** The Zod schema for a rich text field's stored value. */
-export const richTextSchema: z.ZodType<RichTextDocument> = z.strictObject({
+const documentSchema: z.ZodType<RichTextDocument> = z.strictObject({
   type: z.literal("doc"),
   content: z.array(block).optional(),
 });
+
+/**
+ * How deeply rich text lists may nest.
+ *
+ * The nodes are mutually recursive, so an unread document nests without bound;
+ * a posted document nested deeply enough overflows the stack in the recursive
+ * parse (a `RangeError`, not a validation failure). Real content is a list of
+ * lists at most, so eight is far past anything an editor produces and the bound
+ * only ever fires on a crafted or corrupt post.
+ */
+export const MAX_RICH_TEXT_LIST_DEPTH = 8;
+
+/**
+ * The deepest list nesting in a document-shaped value.
+ *
+ * Walked iteratively — a stack of our own rather than recursion — precisely
+ * because the input may be deeper than the call stack can take. Only list nodes
+ * count, matching the depth the recursive schema would descend: a deep run of
+ * paragraphs is finite and shallow, a `bulletList` inside a `listItem` inside a
+ * `bulletList` is the cycle that has no fixed end.
+ */
+export const richTextListDepth = (value: unknown): number => {
+  let deepest = 0;
+  const stack: { node: unknown; depth: number }[] = [{ node: value, depth: 0 }];
+
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (!entry) continue;
+    const { node, depth } = entry;
+
+    if (Array.isArray(node)) {
+      for (const child of node) stack.push({ node: child, depth });
+      continue;
+    }
+    if (typeof node !== "object" || node === null) continue;
+
+    const record = node as Record<string, unknown>;
+    const isList =
+      record.type === "bulletList" || record.type === "orderedList";
+    const next = isList ? depth + 1 : depth;
+    if (next > deepest) deepest = next;
+
+    // Walk every value, not just `content`: the caller hands in a whole block's
+    // content (`{ body: { type: "doc", … } }`), so the document is reached
+    // through a property whose name this function does not know.
+    for (const child of Object.values(record)) {
+      if (typeof child === "object" && child !== null) {
+        stack.push({ node: child, depth: next });
+      }
+    }
+  }
+
+  return deepest;
+};
+
+/**
+ * The rich text schema, with the nesting bound checked first.
+ *
+ * `z.unknown().refine(...).pipe(documentSchema)` is what makes the check run
+ * *before* the recursive parse: `pipe` skips its second schema when the first
+ * fails, so a document past the bound is rejected with an issue instead of
+ * driving `z.lazy` into a stack overflow. The `toJSONSchema` view of this
+ * schema is the inner document schema, so published definitions are unchanged.
+ */
+export const richTextSchema: z.ZodType<RichTextDocument> = z
+  .unknown()
+  .refine((value) => richTextListDepth(value) <= MAX_RICH_TEXT_LIST_DEPTH, {
+    message: `Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.`,
+  })
+  .pipe(documentSchema) as unknown as z.ZodType<RichTextDocument>;

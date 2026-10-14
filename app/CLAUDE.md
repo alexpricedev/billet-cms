@@ -96,7 +96,7 @@ would this be wrong, or merely slower?* Wrong is server work. The tiers, in orde
 3. **Presentation over rows already rendered** — show, hide, count, filter; never domain data.
 
 `src/client/boundaries.test.ts` enforces this and fails the suite rather than a review. How the
-client layer, the fragment protocol and `formAction` work is in `.claude/rules/`, which loads when
+client layer and the fragment protocol work is in `.claude/rules/`, which loads when
 you open the matching files.
 
 ### Service tests mock the DB module before importing the service
@@ -310,7 +310,7 @@ database CLI scripts, and `test-utils/bootstrap.ts` have targeted overrides in
 
 ### Naming that isn't inferable
 
-App controllers export a plain name (`forms`, `landing`); API controllers use an `Api` suffix
+App controllers export a plain name (`sitemap`, `media`); API controllers use an `Api` suffix
 (`statsApi`) so both can be barrel-exported when they share a resource name.
 
 ## Skills

@@ -619,7 +619,8 @@ export const FieldControl = ({
             type="button"
             className="cms-list-add"
             data-list-add
-            disabled={atMax}
+            aria-disabled={atMax ? "true" : undefined}
+            aria-describedby={help ? helpId : undefined}
             aria-label={`Add to ${listLabel}`}
           >
             Add item

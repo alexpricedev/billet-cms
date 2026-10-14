@@ -31,9 +31,6 @@ import { db } from "../database";
 import { log } from "../logger";
 import { processImage } from "./processor";
 import {
-  contentTypeFor,
-  extensionFor,
-  fallbackFor,
   type ImageFormat,
   isAnimatedImage,
   readImageSize,
@@ -251,8 +248,7 @@ export const createMedia = async (
   }
 
   const id = randomUUID();
-  const originalKey = `media/${id}/original.${extensionFor(format)}`;
-  const fallback = fallbackFor(format);
+  const originalKey = `media/${id}/original.${processed.original.extension}`;
 
   const written: string[] = [];
   try {
@@ -266,10 +262,14 @@ export const createMedia = async (
     const variants: MediaVariant[] = [];
     for (const rendition of processed.renditions) {
       const webpKey = `media/${id}/${rendition.width}.webp`;
-      const fallbackKey = `media/${id}/${rendition.width}.${fallback.extension}`;
+      const fallbackKey = `media/${id}/${rendition.width}.${rendition.fallbackExtension}`;
       await storage.put(webpKey, rendition.webp, "image/webp");
       written.push(webpKey);
-      await storage.put(fallbackKey, rendition.fallback, fallback.contentType);
+      await storage.put(
+        fallbackKey,
+        rendition.fallback,
+        rendition.fallbackContentType,
+      );
       written.push(fallbackKey);
 
       variants.push({
@@ -290,7 +290,7 @@ export const createMedia = async (
         (id, object_key, content_type, byte_size, width, height, alt, variants,
          created_by)
       VALUES (
-        ${id}, ${originalKey}, ${contentTypeFor(format)},
+        ${id}, ${originalKey}, ${processed.original.contentType},
         ${processed.original.bytes.length}, ${processed.width},
         ${processed.height}, ${alt}, ${jsonbValue(variants)},
         ${input.actorId}

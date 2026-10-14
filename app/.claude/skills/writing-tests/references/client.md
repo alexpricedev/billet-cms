@@ -93,5 +93,5 @@ state, so give each throwaway component a unique name.
 
 Pages are wired in `src/client/main.ts` with `registerPage(name, { init })`, and dispatched from
 `document.body.dataset.page` — set by the `name` prop on `<Layout>`. A page script that isn't
-registered never runs, and no test will tell you. No page is registered today (the Forms demo was
-removed 14 Oct); the registry and nav-menu are the only entry points left in `main.ts`.
+registered never runs, and no test will tell you. No page is registered today; the registry and
+nav-menu are the only entry points left in `main.ts`.

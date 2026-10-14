@@ -41,6 +41,10 @@ export interface ProcessedRendition {
   webp: Uint8Array;
   /** JPEG, or PNG when the source was a PNG. */
   fallback: Uint8Array;
+  /** The fallback's MIME type, so the writer never recomputes it from the format. */
+  fallbackContentType: string;
+  /** The fallback's file extension, without a dot. */
+  fallbackExtension: string;
 }
 
 export interface ProcessedImage {
@@ -148,12 +152,15 @@ export const processImage = async (
   for (const width of renditionWidths(original.width)) {
     const resized = source.clone().resize({ width, withoutEnlargement: true });
     const webp = await encodeWebp(resized);
-    const fallback = await encodeFallback(resized, fallbackFor(format).encoder);
+    const fallbackFormat = fallbackFor(format);
+    const fallback = await encodeFallback(resized, fallbackFormat.encoder);
     renditions.push({
       width: fallback.width,
       height: fallback.height,
       webp: webp.bytes,
       fallback: fallback.bytes,
+      fallbackContentType: fallbackFormat.contentType,
+      fallbackExtension: fallbackFormat.extension,
     });
   }
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CONTRACT_VERSION } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
 import { createTempDatabase } from "../test-utils/migration-helpers";
-import { MIGRATION_LOCK_KEY, runMigrations } from "./migrate";
+import { MIGRATION_LOCK_NAMESPACE, runMigrations } from "./migrate";
 
 const migrationIds = (): string[] =>
   readdirSync(join(process.cwd(), "src/server/database/migrations"))
@@ -44,8 +44,8 @@ const waitForLockWaiters = async (
 
 describe("concurrent boots", () => {
   test("apply each migration exactly once", async () => {
-    // Two connections in one transaction can't race on a session-scoped lock,
-    // so this needs a database of its own and a client per boot.
+    // The migration lock is transaction-scoped, so two boots have to run on two
+    // connections: this needs a database of its own and a client per boot.
     const temp = await createTempDatabase("concurrent");
 
     try {
@@ -53,7 +53,7 @@ describe("concurrent boots", () => {
       // this they might run end to end with no overlap at all, and the test
       // would pass whether or not the lock exists.
       const blocker = temp.open();
-      await blocker`SELECT pg_advisory_lock(${MIGRATION_LOCK_KEY}::bigint)`;
+      await blocker`SELECT pg_advisory_lock(hashtext(${MIGRATION_LOCK_NAMESPACE}))`;
 
       const bootA = temp.open();
       const bootB = temp.open();
@@ -65,7 +65,7 @@ describe("concurrent boots", () => {
       ]);
       await waitForLockWaiters(watcher, 2);
 
-      await blocker`SELECT pg_advisory_unlock(${MIGRATION_LOCK_KEY}::bigint)`;
+      await blocker`SELECT pg_advisory_unlock(hashtext(${MIGRATION_LOCK_NAMESPACE}))`;
       await migrations;
 
       const rows = await bootA`SELECT id FROM cms_migrations ORDER BY id`;

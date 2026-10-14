@@ -9,6 +9,7 @@ import {
   richText,
   text,
 } from "./field";
+import { MAX_RICH_TEXT_LIST_DEPTH } from "./rich-text";
 import { URL_PATTERN } from "./url";
 
 const UUID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
@@ -169,6 +170,31 @@ describe("richText", () => {
       ],
     };
     expect(richText().schema.safeParse(document).success).toBe(true);
+  });
+
+  // The nodes are recursive, so an unbounded document overflows the stack in
+  // the parse. The depth is checked before the recursive walk, so this is a
+  // failed validation rather than a RangeError.
+  test("rejects lists nested past the depth bound without overflowing", () => {
+    const nested = (depth: number) => {
+      let node: unknown = { type: "paragraph", content: [] };
+      for (let level = 0; level < depth; level += 1) {
+        node = {
+          type: "bulletList",
+          content: [{ type: "listItem", content: [node] }],
+        };
+      }
+      return { type: "doc", content: [node] };
+    };
+
+    expect(
+      richText().schema.safeParse(nested(MAX_RICH_TEXT_LIST_DEPTH)).success,
+    ).toBe(true);
+
+    const tooDeep = richText().schema.safeParse(
+      nested(MAX_RICH_TEXT_LIST_DEPTH + 1),
+    );
+    expect(tooDeep.success).toBe(false);
   });
 
   test("rejects an inline node directly in the doc", () => {

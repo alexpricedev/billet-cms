@@ -63,12 +63,13 @@ repo. This file is only the invariants.
   `cms_session`. A site user who is not in the view is refused with a 403 and
   gets no token; someone signed out on the site goes through the site's own login
   (password or magic link — the site's choice) first. **Known limitation:** a
-  handoff token names the identity it was minted for, so opening one in a browser
-  already signed in as a *different* admin replaces that session with the
-  token's admin — the browser silently becomes the second person. `/handoff`'s
-  GET redirects an already-signed-in visitor to `/cms`, so this needs a direct
-  POST, but there is deliberately no "continue as X" confirmation step. Everyone
-  the CMS can sign in is already an admin the site put in `cms_identities`.
+  handoff token names the identity it was minted for, but a browser already
+  signed in as a *different* admin is redirected from `/handoff`'s GET to `/cms`
+  with its existing session, and the token simply expires unspent. Becoming the
+  token's admin therefore needs a direct POST (which does replace the session,
+  so the browser silently becomes the second person), and there is deliberately
+  no "continue as X" confirmation step. Everyone the CMS can sign in is already
+  an admin the site put in `cms_identities`.
   The CMS never inserts into, updates or deletes `users`, and never reads or
   writes password data. There is
   no `cms_users` table (Phase 3 dropped it) and no CMS magic-link sign-in (review
@@ -133,7 +134,14 @@ the email-verification banner and flow; `templates/accept-invite.tsx`. The CMS
 itself then lost its own sign-in: the magic-link login (`/login`,
 `/auth/callback`, the email service and its Resend provider, the captcha and
 honeypot that guarded the form) is gone, and sign-in goes through the site —
-see the invariant above.
+see the invariant above. A later port also has to drop the starter **Forms
+demo** that shipped on top of the fork: the `/forms` route,
+`controllers/app/forms.tsx`, `templates/forms.tsx`, `client/pages/forms.ts` and
+`forms.css` are all gone. It was a public, CSRF-protected POST endpoint the CMS
+never needed, and nothing links to it. `components/form-field.tsx`,
+`utils/form-action.ts`, `utils/form-data.ts` and `form-field.css` stay even
+though nothing imports them: they are unused upstream helpers kept so a future
+port diffs cleanly, not part of the demo page.
 
 **Renamed to `cms_`.** `users` → `cms_users`, `sessions` → `cms_sessions`,
 `user_tokens` → `cms_user_tokens`, `migrations` → `cms_migrations`. Indexes

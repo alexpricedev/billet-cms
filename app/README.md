@@ -73,7 +73,7 @@ src/
 │   ├── main.ts             # Server entry point
 │   ├── routes/             # app.tsx (HTML), api.ts (JSON)
 │   ├── controllers/
-│   │   ├── app/            # Origin landing page, robots/sitemap/llms/security.txt, the forms demo
+│   │   ├── app/            # Origin landing page, robots/sitemap/llms/security.txt
 │   │   ├── api/            # Stats endpoint, request guard
 │   │   ├── auth/           # Sign-in handoff, /handoff, account, logout
 │   │   └── cms/            # The CMS surface: pages, slots, media, export tokens

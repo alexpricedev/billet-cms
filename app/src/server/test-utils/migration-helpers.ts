@@ -1,4 +1,5 @@
 import { SQL } from "bun";
+import { guardPool } from "../utils/sql-guard";
 import { databaseName, quoteIdent, withDatabase } from "./worker-database";
 
 /**
@@ -209,7 +210,9 @@ export const createTempDatabase = async (
   if (!baseUrl) throw new Error("DATABASE_URL is required for tests");
 
   const name = `${databaseName(baseUrl)}-${suffix}`;
-  const admin = new SQL(withDatabase(baseUrl, "postgres"), { max: 1 });
+  const admin = guardPool(
+    new SQL(withDatabase(baseUrl, "postgres"), { max: 1 }),
+  );
 
   try {
     // FORCE (Postgres 13+) evicts a connection a previous run leaked, so a
@@ -229,12 +232,12 @@ export const createTempDatabase = async (
     name,
     url,
     open: () => {
-      const client = new SQL(url, { max: 3, idleTimeout: 5 });
+      const client = guardPool(new SQL(url, { max: 3, idleTimeout: 5 }));
       clients.push(client);
       return client;
     },
     openOne: () => {
-      const client = new SQL(url, { max: 1, idleTimeout: 5 });
+      const client = guardPool(new SQL(url, { max: 1, idleTimeout: 5 }));
       clients.push(client);
       return client;
     },
@@ -242,7 +245,9 @@ export const createTempDatabase = async (
       for (const client of clients) {
         await client.end();
       }
-      const closer = new SQL(withDatabase(baseUrl, "postgres"), { max: 1 });
+      const closer = guardPool(
+        new SQL(withDatabase(baseUrl, "postgres"), { max: 1 }),
+      );
       try {
         await closer.unsafe(
           `DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`,

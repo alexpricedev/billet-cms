@@ -11,17 +11,21 @@ export type Migration = {
   applied_at: Date;
 };
 
-// The advisory lock key every CMS process takes while it migrates. Arbitrary
-// but fixed: it only has to be the same in every instance of this app, and
-// different from any other app sharing the database. Taken
-// transaction-scoped, so a crashed boot releases it with the transaction.
+// The advisory lock every CMS process takes while it migrates. The key is
+// `hashtext('billet-cms')`, a fixed 32-bit value derived from the namespace
+// string: it only has to be the same in every instance of this app, and
+// different from any other app sharing the database. Deriving it from a named
+// namespace rather than a hand-picked integer keeps it recognisable in
+// `pg_locks` and makes an accidental collision with another app's fixed key far
+// less likely. Taken transaction-scoped, so a crashed boot releases it with the
+// transaction.
 //
-// Bound as a string and cast: a JS number would be sent as a numeric and match
-// no overload of pg_advisory_xact_lock.
+// The value is bound as the namespace string and hashed in SQL; a literal must
+// not be replaced with a JS number, which would hash a different value.
 //
 // Exported so the concurrency test can hold the same lock and make the overlap
 // deterministic rather than hoped for.
-export const MIGRATION_LOCK_KEY = "8041000001";
+export const MIGRATION_LOCK_NAMESPACE = "billet-cms";
 
 const MIGRATIONS_DIR = join(process.cwd(), "src/server/database/migrations");
 
@@ -41,10 +45,21 @@ export const ensureMigrationsTable = async (sql: SQL = db): Promise<void> => {
   `;
 };
 
+/**
+ * The migrations recorded as applied, without creating anything.
+ *
+ * Read-only on purpose: `migrate:status` calls this, and a status command must
+ * not write. `runMigrations` creates the table itself inside its locked
+ * transaction, so a database with no `cms_migrations` yet answers "nothing
+ * applied" rather than being altered to find out.
+ */
 export const getAppliedMigrations = async (
   sql: SQL = db,
 ): Promise<Migration[]> => {
-  await ensureMigrationsTable(sql);
+  const exists = (await sql`
+    SELECT to_regclass('cms_migrations') AS relation
+  `) as { relation: string | null }[];
+  if (!exists[0]?.relation) return [];
   const results =
     await sql`SELECT id, name, applied_at FROM cms_migrations ORDER BY id`;
   return results as Migration[];
@@ -139,8 +154,10 @@ export const runMigration = async (
  *
  * Upserted rather than inserted: a deploy of a newer CMS must overwrite the row
  * the previous build left, and the site's publish step reads it to decide
- * whether the two are compatible. `content_version` is left alone — the site
- * owns that counter.
+ * whether the two are compatible. It also creates the single row on a database
+ * that has the table (migration 004) but no row yet. `content_version` is left
+ * alone: the CMS bumps it when published content changes, and the site's plugin
+ * polls it.
  */
 export const syncContractVersion = async (sql: SQL = db): Promise<void> => {
   await sql`
@@ -173,7 +190,7 @@ export const runMigrations = async (sql: SQL = db): Promise<void> => {
     // booting together would otherwise race on `CREATE TABLE IF NOT EXISTS
     // cms_migrations` — a check-then-create that Postgres can still lose with a
     // duplicate-key error on its own system catalogue.
-    await tx`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK_KEY}::bigint)`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${MIGRATION_LOCK_NAMESPACE}))`;
 
     await ensureMigrationsTable(tx);
 
@@ -239,7 +256,7 @@ export const rollbackMigration = async (
  */
 export const rollbackLastMigration = async (sql: SQL = db): Promise<void> => {
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK_KEY}::bigint)`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${MIGRATION_LOCK_NAMESPACE}))`;
     await ensureMigrationsTable(tx);
 
     const rows = (await tx`

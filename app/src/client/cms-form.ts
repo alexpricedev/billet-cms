@@ -417,18 +417,42 @@ const canAddRow = (list: Element, items: Element): boolean => {
 /**
  * Keep the Add button's disabled state in step with the row count.
  *
- * The server renders it disabled when the stored content is already at the
- * maximum; this covers every Add and Remove after that. A disabled button
- * receives no click, so the guard in the click handler is the belt to this
- * brace.
+ * The server renders it `aria-disabled` when the stored content is already at
+ * the maximum; this covers every Add and Remove after that. It is a state, not
+ * a `disabled` attribute, so the button stays focusable and clickable and the
+ * guard in the click handler is what actually refuses the extra row — a
+ * programmatic click ignores `aria-disabled` just as it ignores `disabled`.
  */
 const syncListAdd = (list: Element, items?: Element | null): void => {
   const add = list.querySelector<HTMLButtonElement>(":scope > [data-list-add]");
   if (!add) return;
   const max = listMax(list);
-  if (max === null) return;
+  if (max === null) {
+    add.removeAttribute("aria-disabled");
+    return;
+  }
   const container = items ?? listRows(list);
-  add.disabled = (container?.children.length ?? 0) >= max;
+  if ((container?.children.length ?? 0) >= max) {
+    add.setAttribute("aria-disabled", "true");
+  } else {
+    add.removeAttribute("aria-disabled");
+  }
+};
+
+/**
+ * Bring every list in a subtree — the element itself included — in step.
+ *
+ * A row or block is cloned from a `<template>`, and a list inside it was
+ * rendered against the template's empty value. A nested list whose maximum is
+ * one therefore arrives with a row and an enabled Add, so the clone has to be
+ * re-synced rather than trusted.
+ */
+const syncListsIn = (root: Element | null): void => {
+  if (!root) return;
+  const lists = root.matches("[data-list]")
+    ? [root, ...Array.from(root.querySelectorAll("[data-list]"))]
+    : Array.from(root.querySelectorAll("[data-list]"));
+  for (const list of lists) syncListAdd(list);
 };
 
 /**
@@ -521,11 +545,16 @@ const wireControls = (form: HTMLFormElement): void => {
       );
       if (!items || !template) return;
 
-      // The button is disabled at the maximum, but a programmatic click ignores
-      // that, so the guard stays.
+      // The button is aria-disabled at the maximum, but a programmatic click
+      // ignores that, so the guard stays.
       if (!canAddRow(list, items)) return;
       items.append(template.content.cloneNode(true));
       syncListAdd(list, items);
+      const addedRow = items.lastElementChild;
+      // A list nested inside the new row was cloned from an empty template, so
+      // its own Add state has to be recomputed against the rows it now holds.
+      syncListsIn(addedRow);
+      firstControl(addedRow)?.focus();
       return;
     }
 
@@ -549,6 +578,10 @@ const wireControls = (form: HTMLFormElement): void => {
 
       list.append(template.content.cloneNode(true));
       const added = list.lastElementChild;
+      // Lists inside the cloned block were rendered against an empty value; a
+      // nested list already holding the template's one row, at max one, arrives
+      // with an enabled Add.
+      syncListsIn(added);
       // `:scope >` so a nested control (a list row) is not what gets focused.
       firstControl(added)?.focus();
       return;

@@ -39,7 +39,7 @@ import {
 import { PagesList } from "../../templates/cms/pages";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
-import { nonEmpty, parseJsonObject, UUID_PATTERN } from "./params";
+import { nonEmpty, parseContent, UUID_PATTERN } from "./params";
 
 /**
  * A one-line outcome shown above a page form after a save, publish or restore.
@@ -478,9 +478,9 @@ export const pages = {
     const formData = await req.formData();
     const baseRevisionId = nonEmpty(formData.get("base_revision"));
     const removedBlocks = removedBlocksFrom(formData.get("removed_blocks"));
-    const submitted = parseJsonObject(formData.get("content"));
-    const content: PageBlock[] = submitted
-      ? asPageContent(submitted as Record<string, unknown>).blocks
+    const submitted = parseContent(formData.get("content"));
+    const content: PageBlock[] = submitted.ok
+      ? asPageContent(submitted.value).blocks
       : await baseContent(baseRevisionId, page);
 
     // The page expired while it was open. Re-render what they posted behind a

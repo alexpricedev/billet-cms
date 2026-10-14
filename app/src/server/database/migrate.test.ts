@@ -31,6 +31,29 @@ describe("runMigration", () => {
   });
 });
 
+describe("migrate status", () => {
+  // A status command must not write. It used to call `ensureMigrationsTable`
+  // and create `cms_migrations` on a database that had never been migrated.
+  test("lists pending migrations without creating the tracking table", async () => {
+    const temp = await createTempDatabase("migrate-status");
+
+    try {
+      const sql = temp.open();
+      await createSiteTables(sql);
+
+      const pending = await getPendingMigrations(sql);
+      expect(pending.length).toBeGreaterThan(0);
+
+      const rows = (await sql`
+        SELECT to_regclass('cms_migrations') AS relation
+      `) as { relation: string | null }[];
+      expect(rows[0].relation).toBeNull();
+    } finally {
+      await temp.drop();
+    }
+  }, 60000);
+});
+
 describe("rollbackLastMigration", () => {
   test("rolls the last migration back in one transaction and can re-apply it", async () => {
     const temp = await createTempDatabase("migrate-rollback");

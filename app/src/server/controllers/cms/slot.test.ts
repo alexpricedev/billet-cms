@@ -30,6 +30,7 @@ import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { staleCsrfToken } from "../../test-utils/auth-form";
 import { createBunRequest } from "../../test-utils/bun-request";
+import { MAX_CONTENT_BYTES } from "./params";
 import { slotPublish } from "./publish";
 import { slotForm } from "./slot";
 
@@ -309,6 +310,38 @@ describe("Slot form controller", () => {
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain("could not be read");
+      // The base revision's content, not an empty form.
+      expect(html).toContain("A heading");
+    });
+
+    test("says a posted document over the size cap is too large, not unreadable", async () => {
+      const seeded = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!seeded.ok) throw new Error("seed save failed");
+
+      const oversized = JSON.stringify({
+        ...validContent,
+        heading: "x".repeat(MAX_CONTENT_BYTES),
+      });
+      expect(Buffer.byteLength(oversized, "utf8")).toBeGreaterThan(
+        MAX_CONTENT_BYTES,
+      );
+
+      const res = await slotForm.create(
+        await post({
+          content: oversized,
+          base_revision: seeded.revision.id,
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("too large to save");
+      expect(html).not.toContain("could not be read");
       // The base revision's content, not an empty form.
       expect(html).toContain("A heading");
     });

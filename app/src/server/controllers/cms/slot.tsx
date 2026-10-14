@@ -19,7 +19,12 @@ import type { SessionContext } from "../../services/sessions";
 import { SlotForm, SlotUnavailable } from "../../templates/cms/slot-form";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
-import { nonEmpty, parseJsonObject, UUID_PATTERN } from "./params";
+import {
+  contentParseMessage,
+  nonEmpty,
+  parseContent,
+  UUID_PATTERN,
+} from "./params";
 
 /**
  * A one-line outcome shown above the form after a save, a publish or a restore.
@@ -246,7 +251,7 @@ export const slotForm = {
 
     const formData = await req.formData();
     const baseRevisionId = nonEmpty(formData.get("base_revision"));
-    const submitted = parseJsonObject(formData.get("content"));
+    const parsed = parseContent(formData.get("content"));
 
     // The page expired while it was open. Re-render what they posted behind a
     // fresh token instead of a 403 that would lose it.
@@ -255,7 +260,7 @@ export const slotForm = {
         ctx,
         slot,
         blockType,
-        submitted ?? (await baseContent(baseRevisionId, slot)),
+        parsed.ok ? parsed.value : await baseContent(baseRevisionId, slot),
         baseRevisionId,
         {
           errors: [
@@ -269,9 +274,10 @@ export const slotForm = {
       );
     }
 
-    if (!submitted) {
-      // Nothing readable was posted. Fall back to the revision they loaded
-      // rather than an empty form that looks like the content was lost.
+    if (!parsed.ok) {
+      // Nothing usable was posted. Fall back to the revision they loaded rather
+      // than an empty form that looks like the content was lost, and say
+      // whether the body was malformed or simply over the size cap.
       return renderSlotForm(
         ctx,
         slot,
@@ -282,13 +288,14 @@ export const slotForm = {
           errors: [
             {
               path: "(content)",
-              message: "The submitted content could not be read.",
+              message: contentParseMessage(parsed.reason),
             },
           ],
         },
       );
     }
 
+    const submitted = parsed.value;
     const result = await saveSlotDraft({
       slotId: slot.id,
       slot,
