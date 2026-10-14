@@ -857,6 +857,7 @@ describe("focal point picker", () => {
       new MouseEvent("click", {
         clientX: 150,
         clientY: 100,
+        detail: 1,
         bubbles: true,
       }),
     );
@@ -874,6 +875,32 @@ describe("focal point picker", () => {
       form().querySelector<HTMLElement>("[data-focal-preview]")?.style
         .objectPosition,
     ).toBe("25% 50%");
+  });
+
+  // Enter or Space on the button fires a click with no pointer coordinates
+  // (`detail === 0`, clientX/Y 0). Without the guard that would snap the focal
+  // point to the top-left corner (review r1-5).
+  test("ignores the keyboard click that carries no pointer coordinates", () => {
+    mount(focalMarkup);
+
+    picker().dispatchEvent(
+      new MouseEvent("click", {
+        clientX: 0,
+        clientY: 0,
+        detail: 0,
+        bubbles: true,
+      }),
+    );
+
+    expect(
+      form().querySelector<HTMLInputElement>("[data-focal-x]")?.value,
+    ).toBe("0.5");
+    expect(
+      form().querySelector<HTMLInputElement>("[data-focal-y]")?.value,
+    ).toBe("0.5");
+    expect(
+      picker().querySelector<HTMLElement>("[data-focal-marker]")?.style.left,
+    ).toBe("");
   });
 
   test("arrow keys nudge the focal point", () => {

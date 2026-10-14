@@ -620,6 +620,10 @@ const wireFocalPoint = (form: HTMLFormElement): void => {
   };
 
   picker.addEventListener("click", (event) => {
+    // A keyboard "click" on the button — Enter or Space — arrives with no
+    // pointer coordinates (`detail === 0`, clientX/Y both 0), which would set
+    // the focal point to the top-left. Only a real pointer press moves it.
+    if (event.detail === 0) return;
     const rect = picker.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     apply(

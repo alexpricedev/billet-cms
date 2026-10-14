@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { animatedWebpBytes, apngBytes } from "../../test-utils/images";
 import {
   contentTypeFor,
   extensionFor,
+  isAnimatedImage,
   readImageSize,
   sniffImageFormat,
 } from "./sniff";
@@ -62,6 +64,13 @@ describe("sniffImageFormat", () => {
     expect(sniffImageFormat(webpHeader(10, 10))).toBe("webp");
   });
 
+  test("reads an animated WebP or APNG as its still format", () => {
+    // The magic bytes can't tell them apart from a still image; the animation
+    // check below is what refuses them.
+    expect(sniffImageFormat(animatedWebpBytes())).toBe("webp");
+    expect(sniffImageFormat(apngBytes())).toBe("png");
+  });
+
   test("recognises GIF and SVG so they can be refused by name", () => {
     expect(sniffImageFormat(gifHeader(10, 10))).toBe("gif");
     expect(
@@ -118,6 +127,23 @@ describe("readImageSize", () => {
       readImageSize(new Uint8Array([0xff, 0xd8, 0xff]), "jpeg"),
     ).toBeNull();
     expect(readImageSize(text("<svg/>"), "svg")).toBeNull();
+  });
+});
+
+describe("isAnimatedImage", () => {
+  test("flags an animated WebP from its VP8X animation flag", () => {
+    expect(isAnimatedImage(animatedWebpBytes(), "webp")).toBe(true);
+    expect(isAnimatedImage(webpHeader(10, 10), "webp")).toBe(false);
+  });
+
+  test("flags an APNG from its acTL chunk", () => {
+    expect(isAnimatedImage(apngBytes(), "png")).toBe(true);
+    expect(isAnimatedImage(pngHeader(10, 10), "png")).toBe(false);
+  });
+
+  test("does not flag a JPEG or a GIF", () => {
+    expect(isAnimatedImage(jpegHeader(10, 10), "jpeg")).toBe(false);
+    expect(isAnimatedImage(gifHeader(10, 10), "gif")).toBe(false);
   });
 });
 

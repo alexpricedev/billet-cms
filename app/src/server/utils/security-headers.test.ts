@@ -39,6 +39,44 @@ describe("X-Robots-Tag", () => {
   });
 });
 
+describe("Content-Security-Policy img-src", () => {
+  afterEach(() => {
+    delete process.env.MEDIA_PUBLIC_BASE_URL;
+  });
+
+  // The uploaded images are served from the bucket, not the CMS host, so
+  // without this every thumbnail and focal preview is blocked by the CMS's own
+  // CSP (review r1-2).
+  test("allows the bucket's origin when one is configured", () => {
+    process.env.MEDIA_PUBLIC_BASE_URL = "https://bucket.railway.app/media";
+    const csp =
+      withSecurityHeaders(new Response("ok")).headers.get(
+        "Content-Security-Policy",
+      ) ?? "";
+
+    expect(csp).toContain("img-src 'self' data: https://bucket.railway.app");
+  });
+
+  test("falls back to the CMS host when the bucket isn't configured", () => {
+    const csp =
+      withSecurityHeaders(new Response("ok")).headers.get(
+        "Content-Security-Policy",
+      ) ?? "";
+
+    expect(csp).toContain("img-src 'self' data:;");
+  });
+
+  test("ignores a base URL that isn't a valid origin", () => {
+    process.env.MEDIA_PUBLIC_BASE_URL = "not a url";
+    const csp =
+      withSecurityHeaders(new Response("ok")).headers.get(
+        "Content-Security-Policy",
+      ) ?? "";
+
+    expect(csp).toContain("img-src 'self' data:;");
+  });
+});
+
 describe("withSecurityHeaders", () => {
   test("adds the core security headers to a bare response", () => {
     const res = withSecurityHeaders(new Response("ok"));

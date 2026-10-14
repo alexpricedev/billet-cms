@@ -19,7 +19,10 @@
  * fallback, everything else falls back to JPEG. WebP is the primary rendition
  * either way.
  */
-import { MEDIA_WIDTHS } from "@alexpricedev/billet-cms/contract";
+import {
+  MAX_UPLOAD_PIXELS,
+  MEDIA_WIDTHS,
+} from "@alexpricedev/billet-cms/contract";
 import sharp from "sharp";
 import { extensionFor, type ImageFormat } from "./sniff";
 
@@ -131,8 +134,13 @@ export const processImage = async (
   format: ImageFormat,
 ): Promise<ProcessedImage> => {
   // `rotate()` bakes in EXIF orientation; nothing asks Sharp to keep metadata,
-  // so EXIF (GPS included) is stripped from every output below.
-  const source = sharp(bytes, { failOn: "error" }).rotate();
+  // so EXIF (GPS included) is stripped from every output below. The pixel limit
+  // repeats the header check in the media service as a backstop: it makes Sharp
+  // refuse a decode that would allocate more than the cap even if a header lied.
+  const source = sharp(bytes, {
+    failOn: "error",
+    limitInputPixels: MAX_UPLOAD_PIXELS,
+  }).rotate();
   const original = await encodeOriginal(source, format);
 
   const renditions: ProcessedRendition[] = [];

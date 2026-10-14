@@ -1,3 +1,4 @@
+import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
 import { Layout } from "../../components/layouts";
 import { getAssetUrl } from "../../services/assets";
 import type { MediaIssue, MediaRecord, MediaUsage } from "../../services/media";
@@ -22,8 +23,30 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const primaryUrl = (media: MediaRecord): string =>
-  media.variants[media.variants.length - 1]?.fallbackUrl ?? "";
+/**
+ * The smallest rendition at least twice `displayWidth` pixels wide.
+ *
+ * A thumbnail or preview is a fraction of the full-size original, so handing it
+ * the largest rendition wastes the bucket's bandwidth on every card. The 2x
+ * factor keeps it sharp on a high-density screen; when the source is smaller
+ * than the target the largest rendition it has is used instead.
+ */
+export const variantForDisplay = (
+  media: MediaRecord,
+  displayWidth: number,
+): MediaVariant | undefined => {
+  const sorted = [...media.variants].sort((a, b) => a.width - b.width);
+  return (
+    sorted.find((variant) => variant.width >= displayWidth * 2) ??
+    sorted[sorted.length - 1]
+  );
+};
+
+/** The CSS display width in pixels of each surface, at a 16px root. */
+const GRID_THUMBNAIL_WIDTH = 12 * 16;
+const FOCAL_PICKER_WIDTH = 32 * 16;
+const FOCAL_PREVIEW_WIDTH = 10 * 16;
+const DELETE_PREVIEW_WIDTH = 24 * 16;
 
 /**
  * The uploads library: the reuse list, and the one upload form.
@@ -116,7 +139,10 @@ export const MediaList = ({
           <li className="cms-media-card" key={media.id}>
             <a href={`/cms/media/${media.id}`}>
               <img
-                src={primaryUrl(media)}
+                src={
+                  variantForDisplay(media, GRID_THUMBNAIL_WIDTH)?.fallbackUrl ??
+                  ""
+                }
                 alt={media.alt}
                 width={media.width}
                 height={media.height}
@@ -168,7 +194,10 @@ export const MediaDetail = ({
   notice,
   errors,
 }: MediaDetailProps) => {
-  const url = primaryUrl(media);
+  const pickerUrl =
+    variantForDisplay(media, FOCAL_PICKER_WIDTH)?.fallbackUrl ?? "";
+  const previewUrl =
+    variantForDisplay(media, FOCAL_PREVIEW_WIDTH)?.fallbackUrl ?? "";
   const x = media.focalX * 100;
   const y = media.focalY * 100;
   const position = `object-position:${x}% ${y}%`;
@@ -210,7 +239,12 @@ export const MediaDetail = ({
         </div>
       )}
 
-      <form method="POST" action={`/cms/media/${media.id}`} data-cms-form>
+      <form
+        method="POST"
+        action={`/cms/media/${media.id}`}
+        className="cms-media-detail"
+        data-cms-form
+      >
         <input type="hidden" name="_csrf" value={csrfToken} />
 
         <fieldset className="cms-field cms-focal-field">
@@ -225,7 +259,7 @@ export const MediaDetail = ({
             data-focal-picker
             aria-label="Click or use the arrow keys to set the focal point"
           >
-            <img className="cms-focal-image" src={url} alt="" />
+            <img className="cms-focal-image" src={pickerUrl} alt="" />
             <span
               className="cms-focal-marker"
               data-focal-marker
@@ -240,7 +274,7 @@ export const MediaDetail = ({
             <figure key={ratio} className="cms-focal-preview">
               <img
                 data-focal-preview
-                src={url}
+                src={previewUrl}
                 alt=""
                 style={`aspect-ratio:${ratio.replace(":", "/")};object-fit:cover;${position}`}
               />
@@ -285,7 +319,7 @@ export const MediaDetail = ({
 
       <script type="module" src={getAssetUrl("/assets/cms-form.js")} />
 
-      <section className="cms-actions" aria-label="Image usage">
+      <section className="cms-media-uses" aria-label="Image usage">
         <h2>Uses</h2>
         {usage.length === 0 ? (
           <p>Not used by any published page or slot.</p>
@@ -353,7 +387,7 @@ export const MediaDeleteConfirm = ({
     <h1>Delete this image?</h1>
     <img
       className="cms-media-delete-preview"
-      src={primaryUrl(media)}
+      src={variantForDisplay(media, DELETE_PREVIEW_WIDTH)?.fallbackUrl ?? ""}
       alt={media.alt}
       width={media.width}
       height={media.height}
@@ -367,7 +401,7 @@ export const MediaDeleteConfirm = ({
       <button type="submit" className="cms-delete-button">
         Delete image
       </button>
-      <a className="cms-cancel-link" href={`/cms/media/${media.id}`}>
+      <a className="cms-delete-cancel" href={`/cms/media/${media.id}`}>
         Cancel
       </a>
     </form>

@@ -211,6 +211,55 @@ const readWebpSize = (bytes: Uint8Array): ImageSize | null => {
   return null;
 };
 
+/**
+ * True when a WebP sets the animation flag in its VP8X header.
+ *
+ * An animated WebP is a perfectly valid WebP, so the magic bytes alone can't
+ * tell it apart; the `ANIM` bit (`0x02`) of the VP8X flags byte is what says
+ * Sharp would flatten it to one frame. Lossy VP8 and lossless VP8L carry no
+ * animation, so only a VP8X first chunk is checked.
+ */
+const isAnimatedWebp = (bytes: Uint8Array): boolean => {
+  if (bytes.length < 21 || ascii(bytes, 12, 4) !== "VP8X") return false;
+  return ((bytes[20] ?? 0) & 0x02) !== 0;
+};
+
+/**
+ * True when a PNG carries an `acTL` chunk, which is what makes it APNG.
+ *
+ * The chunks are walked in order: `acTL` must appear before the first frame's
+ * `IDAT`, so finding `IDAT`/`IEND` first means a still image. A malformed length
+ * just ends the walk and the upload is treated as still — Sharp would refuse it
+ * a moment later anyway.
+ */
+const isAnimatedPng = (bytes: Uint8Array): boolean => {
+  let offset = 8;
+  while (offset + 8 <= bytes.length) {
+    const length = uint32be(bytes, offset);
+    const type = ascii(bytes, offset + 4, 4);
+    if (type === "acTL") return true;
+    if (type === "IDAT" || type === "IEND") return false;
+    offset += 12 + length;
+  }
+  return false;
+};
+
+/**
+ * True when the bytes carry an animation a still rendition would silently drop.
+ *
+ * GIF is refused by name before this is reached; WebP (VP8X) and PNG (APNG) are
+ * otherwise accepted, so this is what stops an animated one being flattened to
+ * its first frame.
+ */
+export const isAnimatedImage = (
+  bytes: Uint8Array,
+  format: ImageFormat,
+): boolean => {
+  if (format === "webp") return isAnimatedWebp(bytes);
+  if (format === "png") return isAnimatedPng(bytes);
+  return false;
+};
+
 /** The MIME type the accepted source formats carry. */
 export const contentTypeFor = (format: ImageFormat): AllowedUploadType => {
   if (format === "jpeg") return "image/jpeg";

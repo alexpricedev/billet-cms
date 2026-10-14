@@ -22,7 +22,12 @@
 import type { SQL } from "bun";
 import { findUserById } from "../auth";
 import { db } from "../database";
-import { checkImageGuidance } from "../media/guidance";
+import {
+  findImageGuidanceIssues,
+  loadMediaSizes,
+  lockReferencedMedia,
+  referencedMediaIds,
+} from "../media/guidance";
 import {
   type BlockTypeRecord,
   getPageTypeByName,
@@ -65,24 +70,42 @@ const blockTypesByName = async (): Promise<Map<string, BlockTypeRecord>> =>
  *
  * Each block is checked against its own metadata tree, and an issue is reported
  * with the block's own index so the form points the message at the right
- * control, exactly as the schema issues are.
+ * control, exactly as the schema issues are. The referenced ids are gathered
+ * across every block first and loaded in one query, rather than one `cms_media`
+ * read per block (review r1-11).
  */
 const blockImageGuidance = async (
   blockTypes: Map<string, BlockTypeRecord>,
   content: PageContent,
 ): Promise<FieldIssue[]> => {
-  const issues: FieldIssue[] = [];
+  const blocks: {
+    index: number;
+    fields: BlockTypeRecord["fields"];
+    content: Record<string, unknown>;
+  }[] = [];
+  const ids = new Set<string>();
+
   for (const [index, block] of content.blocks.entries()) {
     const blockType = blockTypes.get(block.type);
     if (!blockType) continue;
     const { type: _type, ...fields } = block;
-    const blockIssues = await checkImageGuidance(
-      blockType.fields,
-      fields as Record<string, unknown>,
-    );
-    for (const issue of blockIssues) {
+    const blockContent = fields as Record<string, unknown>;
+    blocks.push({ index, fields: blockType.fields, content: blockContent });
+    for (const id of referencedMediaIds(blockType.fields, blockContent)) {
+      ids.add(id);
+    }
+  }
+
+  const sizes = await loadMediaSizes([...ids]);
+  const issues: FieldIssue[] = [];
+  for (const block of blocks) {
+    for (const issue of findImageGuidanceIssues(
+      block.fields,
+      block.content,
+      sizes,
+    )) {
       issues.push({
-        path: `blocks.${index}.${issue.path}`,
+        path: `blocks.${block.index}.${issue.path}`,
         message: issue.message,
       });
     }
@@ -501,6 +524,11 @@ export const publishPage = async (
         changed: false,
       };
     }
+
+    // Hold the images this revision references for the length of the write, so
+    // a concurrent delete can't remove one between here and the pointer write
+    // (review r1-4).
+    await lockReferencedMedia(tx, revision.content);
 
     await tx`
       UPDATE cms_pages

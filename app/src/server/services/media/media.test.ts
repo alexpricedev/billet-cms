@@ -3,17 +3,29 @@ import {
   MAX_UPLOAD_BYTES,
   type MediaVariant,
 } from "@alexpricedev/billet-cms/contract";
-import { block, image, text } from "@alexpricedev/billet-cms/fields";
+import { block, image, pageType, text } from "@alexpricedev/billet-cms/fields";
+import {
+  createCmsMedia,
+  renderCmsImage,
+} from "@alexpricedev/billet-cms/server";
 import sharp from "sharp";
-import { seedBlockType, seedSlot } from "../../test-utils/content";
+import {
+  seedBlockType,
+  seedPageType,
+  seedSlot,
+} from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData } from "../../test-utils/helpers";
 import {
+  animatedWebpBytes,
+  apngBytes,
   fakePngHeader,
   gifBytes,
+  hasGpsCoordinates,
   makeJpeg,
   svgBytes,
   withExif,
+  withFullMetadata,
 } from "../../test-utils/images";
 
 const connection = testDatabase();
@@ -24,7 +36,12 @@ mock.module("../database", () => ({
   },
 }));
 
-import { publishSlot, saveSlotDraft } from "../content";
+import {
+  createPage,
+  publishSlot,
+  savePageDraft,
+  saveSlotDraft,
+} from "../content";
 import { db } from "../database";
 import {
   createMedia,
@@ -46,6 +63,12 @@ const photoBlock = block(
 const guidedBlock = block(
   "banner",
   { heading: text(), photo: image({ minWidth: 1600 }) },
+  () => null,
+);
+
+const squareBlock = block(
+  "square",
+  { photo: image({ aspect: "1:1" }) },
   () => null,
 );
 
@@ -105,6 +128,107 @@ describe("createMedia", () => {
     const metadata = await sharp(original?.body ?? new Uint8Array()).metadata();
     expect(metadata.exif).toBeUndefined();
     expect(metadata.orientation).toBeUndefined();
+  });
+
+  // The Done-when path: a JPEG that carries GPS EXIF, XMP and an ICC profile is
+  // stored without them, at every width.
+  test("strips EXIF (GPS included), XMP and ICC from the original and every rendition", async () => {
+    const storage = createMemoryMediaStorage();
+    const fixture = await withFullMetadata(await makeJpeg(1200, 800));
+
+    const before = await sharp(fixture).metadata();
+    expect(before.exif).toBeDefined();
+    expect(before.icc).toBeDefined();
+    expect(before.xmp).toBeDefined();
+    expect(hasGpsCoordinates(before.exif)).toBe(true);
+
+    const result = await createMedia({
+      bytes: fixture,
+      alt: "Taken at home",
+      actorId: null,
+      storage,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const keys = [
+      result.media.objectKey,
+      ...result.media.variants.flatMap((variant) => [
+        variant.webpKey,
+        variant.fallbackKey,
+      ]),
+    ];
+    for (const key of keys) {
+      const metadata = await sharp(
+        storage.objects.get(key)?.body ?? new Uint8Array(),
+      ).metadata();
+      expect(metadata.exif).toBeUndefined();
+      expect(metadata.icc).toBeUndefined();
+      expect(metadata.xmp).toBeUndefined();
+    }
+  });
+
+  test("stores variants as a jsonb array, not a jsonb string", async () => {
+    const result = await createMedia({
+      bytes: await makeJpeg(1200, 800),
+      alt: "A field",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    expect(result.ok).toBe(true);
+
+    const rows = (await db`
+      SELECT jsonb_typeof(variants) AS kind FROM cms_media
+    `) as { kind: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe("array");
+  });
+
+  test("turns a storage or insert failure into a form issue, not a throw", async () => {
+    const failing = {
+      ...createMemoryMediaStorage(),
+      put: async () => {
+        throw new Error("bucket is down");
+      },
+    };
+
+    const result = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "Nope",
+      actorId: null,
+      storage: failing,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.message).toMatch(/couldn't save that image/);
+    expect(await listMedia()).toHaveLength(0);
+  });
+
+  test("refuses an animated WebP", async () => {
+    const result = await createMedia({
+      bytes: animatedWebpBytes(),
+      alt: "A loop",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.message).toMatch(/Animated images/);
+    expect(await listMedia()).toHaveLength(0);
+  });
+
+  test("refuses an APNG", async () => {
+    const result = await createMedia({
+      bytes: apngBytes(),
+      alt: "A loop",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.message).toMatch(/Animated images/);
+    expect(await listMedia()).toHaveLength(0);
   });
 
   test("requires alt text and writes nothing without it", async () => {
@@ -236,6 +360,23 @@ describe("editing media", () => {
     expect(updated.media.focalX).toBe(1);
     expect(updated.media.focalY).toBe(0);
   });
+
+  test("bumps content_version so the site drops its cached alt and focal point", async () => {
+    const id = await upload();
+    const version = async (): Promise<number> => {
+      const rows = (await db`
+        SELECT content_version FROM cms_meta WHERE id = 1
+      `) as { content_version: string | number }[];
+      return Number(rows[0].content_version);
+    };
+
+    const before = await version();
+    await updateMediaAlt(id, "A new alt");
+    expect(await version()).toBe(before + 1);
+
+    await updateMediaFocalPoint(id, { x: 0.2, y: 0.8 });
+    expect(await version()).toBe(before + 2);
+  });
 });
 
 describe("image guidance", () => {
@@ -280,6 +421,86 @@ describe("image guidance", () => {
     const saved = await saveSlotDraft({
       slotId,
       content: { heading: "Hi", photo: { mediaId: big.media.id } },
+      baseRevisionId: null,
+      actorId: null,
+    });
+    expect(saved.ok).toBe(true);
+  });
+
+  test("enforces guidance on the page save path too", async () => {
+    await seedBlockType(db, guidedBlock);
+    await seedPageType(
+      db,
+      pageType("landing", { allowedBlocks: [guidedBlock] }),
+    );
+    const created = await createPage({
+      pageType: "landing",
+      url: "/landing",
+      title: "Landing",
+    });
+    if (!created.ok) throw new Error("page create failed");
+
+    const small = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "Too small",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    if (!small.ok) throw new Error("upload failed");
+
+    const refused = await savePageDraft({
+      pageId: created.page.id,
+      content: {
+        blocks: [
+          { type: "banner", heading: "Hi", photo: { mediaId: small.media.id } },
+        ],
+      },
+      baseRevisionId: null,
+      actorId: null,
+    });
+    expect(refused.ok).toBe(false);
+    if (refused.ok || refused.reason !== "invalid") return;
+    expect(refused.issues[0]?.path).toBe("blocks.0.photo.mediaId");
+    expect(refused.issues[0]?.message).toMatch(/1600px/);
+  });
+
+  test("refuses a save whose image is the wrong aspect, and accepts the right one", async () => {
+    await seedBlockType(db, squareBlock);
+    const slotId = await seedSlot(db, {
+      name: "home.square",
+      blockName: "square",
+      page: "home",
+    });
+
+    const wide = await createMedia({
+      bytes: await makeJpeg(1600, 900),
+      alt: "Wide",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    if (!wide.ok) throw new Error("upload failed");
+
+    const refused = await saveSlotDraft({
+      slotId,
+      content: { photo: { mediaId: wide.media.id } },
+      baseRevisionId: null,
+      actorId: null,
+    });
+    expect(refused.ok).toBe(false);
+    if (refused.ok || refused.reason !== "invalid") return;
+    expect(refused.issues[0]?.message).toMatch(/1:1/);
+
+    const square = await createMedia({
+      bytes: await makeJpeg(1000, 1000),
+      alt: "Square",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    if (!square.ok) throw new Error("upload failed");
+
+    const saved = await saveSlotDraft({
+      slotId,
+      content: { photo: { mediaId: square.media.id } },
       baseRevisionId: null,
       actorId: null,
     });
@@ -342,5 +563,107 @@ describe("media usage and delete protection", () => {
     // The unused image's objects went too, and the in-use image's stayed.
     expect(storage.objects.size).toBeLessThan(keyCount);
     expect(storage.objects.has(used.media.objectKey)).toBe(true);
+  });
+
+  // The interleaving the row locks close: a delete that starts while a publish
+  // is mid-write must wait, then see the published reference and refuse.
+  test("a delete waits for a publish holding the image, then refuses", async () => {
+    await seedBlockType(db, photoBlock);
+    const slotId = await seedSlot(db, {
+      name: "home.hero",
+      blockName: "hero",
+      page: "home",
+    });
+
+    const storage = createMemoryMediaStorage();
+    const used = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "In use",
+      actorId: null,
+      storage,
+    });
+    if (!used.ok) throw new Error("upload failed");
+
+    const saved = await saveSlotDraft({
+      slotId,
+      content: { heading: "Hello", photo: { mediaId: used.media.id } },
+      baseRevisionId: null,
+      actorId: null,
+    });
+    if (!saved.ok) throw new Error("save failed");
+
+    // Hold the share lock a publish takes and point the slot at the revision
+    // that uses the image, without committing: a publish mid-write.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holding = db.begin(async (tx) => {
+      await tx`SELECT id FROM cms_media WHERE id = ${used.media.id} FOR SHARE`;
+      await tx`
+        UPDATE cms_slots
+        SET published_revision_id = ${saved.revision.id}
+        WHERE id = ${slotId}
+      `;
+      await gate;
+    });
+    await Bun.sleep(100);
+
+    const deleting = deleteMedia(used.media.id, storage);
+    await Bun.sleep(100);
+    release();
+    await holding;
+
+    const result = await deleting;
+    expect(result).toMatchObject({ ok: false, reason: "in-use" });
+    expect(await getMediaById(used.media.id)).not.toBeNull();
+  });
+});
+
+// The Done-when path, against a real database: the CMS stores an upload and its
+// focal point, and the plugin's reader renders every width and the crop.
+describe("the plugin reads what the CMS stored", () => {
+  beforeEach(async () => {
+    await cleanupTestData(db);
+  });
+
+  test("renders every width, the focal point and a cache invalidation", async () => {
+    const created = await createMedia({
+      bytes: await makeJpeg(3000, 1500),
+      alt: "A red field",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    if (!created.ok) throw new Error("upload failed");
+    const id = created.media.id;
+
+    const clock = { now: 0 };
+    const reader = createCmsMedia({ sql: db, now: () => clock.now });
+
+    // The centre, read once from the jsonb array the row now holds.
+    const first = await reader.getMedia(id);
+    expect(first?.focalPoint).toEqual({ x: 0.5, y: 0.5 });
+    expect(first?.variants.map((variant) => variant.width)).toEqual([
+      480, 960, 1600, 2400, 3000,
+    ]);
+
+    const updated = await updateMediaFocalPoint(id, { x: 0.25, y: 0.75 });
+    expect(updated.ok).toBe(true);
+
+    // The update bumped content_version; once the poll interval passes the
+    // reader re-reads rather than serving the cached centre (r1-3).
+    clock.now = 2000;
+    const media = await reader.getMedia(id);
+    if (!media) throw new Error("media missing after the update");
+    expect(media.focalPoint).toEqual({ x: 0.25, y: 0.75 });
+
+    const html = renderCmsImage(media, { alt: "A red field" });
+    expect(html).toContain('width="3000"');
+    expect(html).toContain('height="1500"');
+    expect(html).toContain("object-position:25% 75%");
+    for (const width of [480, 960, 1600, 2400, 3000]) {
+      expect(html).toContain(`/${width}.webp ${width}w`);
+      expect(html).toContain(`/${width}.jpg ${width}w`);
+    }
   });
 });

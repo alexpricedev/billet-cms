@@ -634,15 +634,21 @@ h1 {
 /* The media library. A flat grid of uploads, newest first — no folders yet. */
 .cms-media-upload {
   display: grid;
-  gap: 0.5rem;
+  gap: 1.5rem;
   margin: 1.5rem 0;
   max-width: 32rem;
 }
 
+.cms-media-upload .cms-save {
+  justify-self: start;
+}
+
+/* A grid item's default minimum is its content; `min(12rem, 100%)` floors the
+   track at the viewport so a long unbroken alt can't widen it past a phone. */
 .cms-media-grid {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(12rem, 100%), 1fr));
   gap: 1rem;
   padding: 0;
 }
@@ -650,6 +656,15 @@ h1 {
 .cms-media-card {
   display: grid;
   gap: 0.35rem;
+  /* Lets the card shrink below its content's min-content width. */
+  min-width: 0;
+  /* The thumbnail and its text stay pinned to the top of the row. */
+  align-content: start;
+}
+
+/* A long unbroken alt text wraps inside the card rather than spilling out. */
+.cms-media-alt {
+  overflow-wrap: anywhere;
 }
 
 .cms-media-card img {
@@ -665,6 +680,18 @@ h1 {
   font-size: 0.85rem;
 }
 
+/* The detail form: the focal point, its previews, the alt and Save, each a
+   block with a consistent gap between them. */
+.cms-media-detail {
+  display: grid;
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+}
+
+.cms-media-detail .cms-save {
+  justify-self: start;
+}
+
 /* The click-to-set focal point: a picture with a marker, and the same crop
    previewed at the three shapes a page is most likely to want. */
 .cms-focal {
@@ -675,6 +702,16 @@ h1 {
   border: 0;
   background: none;
   cursor: crosshair;
+}
+
+.cms-focal-field legend {
+  padding: 0;
+}
+
+/* The instruction sits above the picker, so its own bottom margin is the gap,
+   not a top margin it inherits from a paragraph. */
+.cms-focal-field .cms-field-help {
+  margin: 0 0 0.6rem;
 }
 
 .cms-focal-image {
@@ -708,6 +745,12 @@ h1 {
   margin: 1rem 0;
 }
 
+/* The detail form's grid gap owns the spacing, so the previews' own margins
+   would double it. */
+.cms-media-detail .cms-focal-previews {
+  margin: 0;
+}
+
 .cms-focal-preview {
   margin: 0;
   width: 10rem;
@@ -723,6 +766,21 @@ h1 {
   font-size: 0.85rem;
 }
 
+/* The "Uses" section reads as its own block — heading, list, delete note —
+   rather than the single flex row `.cms-actions` would make it. */
+.cms-media-uses {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.cms-media-uses h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
 .cms-media-usage {
   list-style: none;
   display: grid;
@@ -736,7 +794,8 @@ h1 {
 
 .cms-media-delete-preview {
   display: block;
-  max-width: 24rem;
+  max-width: min(24rem, 100%);
   height: auto;
+  margin-bottom: 1rem;
   border-radius: 0.5rem;
 }

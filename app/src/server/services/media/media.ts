@@ -25,6 +25,8 @@ import {
   type MediaVariant,
 } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
+import { jsonbValue } from "../../utils/sql";
+import { bumpContentVersion } from "../content/publishing";
 import { db } from "../database";
 import { log } from "../logger";
 import { processImage } from "./processor";
@@ -32,6 +34,7 @@ import {
   contentTypeFor,
   extensionFor,
   type ImageFormat,
+  isAnimatedImage,
   readImageSize,
   sniffImageFormat,
 } from "./sniff";
@@ -81,23 +84,12 @@ interface MediaRow {
 /**
  * Read a row's `variants` as an array.
  *
- * Postgres hands jsonb back parsed, but a prepared statement built by
- * `unsafe` can leave it as the raw JSON text, so a string is parsed too — a
- * media row that reads back as "not an array" would otherwise take the whole
- * library down with a `flatMap is not a function`.
+ * The column is `jsonb`, so Postgres hands it back parsed; a value that isn't
+ * an array — only a hand-edit could produce one — reads as empty rather than
+ * taking the whole library down with a `flatMap is not a function`.
  */
-const parseVariants = (value: unknown): MediaVariant[] => {
-  if (Array.isArray(value)) return value as MediaVariant[];
-  if (typeof value === "string") {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      return Array.isArray(parsed) ? (parsed as MediaVariant[]) : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-};
+const parseVariants = (value: unknown): MediaVariant[] =>
+  Array.isArray(value) ? (value as MediaVariant[]) : [];
 
 const toMedia = (row: MediaRow): MediaRecord => ({
   id: row.id,
@@ -200,6 +192,13 @@ export const createMedia = async (
   if (format === null || format === "svg" || format === "gif") {
     return fileIssue(refusalFor(format, input.declaredType));
   }
+  // An animated WebP or APNG passes the magic-byte sniff, but Sharp would store
+  // only its first frame, so it is refused like a GIF (review r1-17).
+  if (isAnimatedImage(bytes, format)) {
+    return fileIssue(
+      "Animated images aren't supported. Use a still JPEG, PNG or WebP image.",
+    );
+  }
 
   const size = readImageSize(bytes, format);
   if (!size || size.width <= 0 || size.height <= 0) {
@@ -265,23 +264,22 @@ export const createMedia = async (
       });
     }
 
-    const rows = (await db.unsafe(
-      `INSERT INTO cms_media
-         (id, object_key, content_type, byte_size, width, height, alt, variants, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
-       RETURNING ${MEDIA_COLUMNS}`,
-      [
-        id,
-        originalKey,
-        contentTypeFor(format),
-        processed.original.bytes.length,
-        processed.width,
-        processed.height,
-        alt,
-        JSON.stringify(variants),
-        input.actorId,
-      ],
-    )) as MediaRow[];
+    // `variants` is bound through `jsonbValue` so the column holds a jsonb
+    // *array*; `JSON.stringify` here would store one long jsonb string that the
+    // site's reader sees as no variants at all.
+    const rows = (await db`
+      INSERT INTO cms_media
+        (id, object_key, content_type, byte_size, width, height, alt, variants,
+         created_by)
+      VALUES (
+        ${id}, ${originalKey}, ${contentTypeFor(format)},
+        ${processed.original.bytes.length}, ${processed.width},
+        ${processed.height}, ${alt}, ${jsonbValue(variants)},
+        ${input.actorId}
+      )
+      RETURNING id, object_key, content_type, byte_size, width, height, alt,
+                focal_x, focal_y, variants, created_at, updated_at
+    `) as unknown as MediaRow[];
 
     return { ok: true, media: toMedia(rows[0]) };
   } catch (error) {
@@ -297,7 +295,13 @@ export const createMedia = async (
         }),
       ),
     );
-    throw error;
+    // A bucket or database failure is the editor's problem to retry, not a 500:
+    // the controller has no way to recover, so it is turned into a form issue.
+    log.error(
+      "media",
+      `Could not store an upload: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return fileIssue("We couldn't save that image. Try again.");
   }
 };
 
@@ -337,56 +341,78 @@ export type UpdateMediaResult =
   | { ok: true; media: MediaRecord }
   | { ok: false; message: string };
 
-export const updateMediaAlt = async (
+export interface UpdateMediaInput {
+  /** The new alt text. Omitted leaves it unchanged. */
+  alt?: string;
+  /** The new focal point. Omitted leaves it unchanged. */
+  focal?: FocalPoint;
+}
+
+const clampFraction = (value: number, fallback: number): number =>
+  Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : fallback;
+
+/**
+ * Update an upload's alt text and focal point, bumping `content_version`.
+ *
+ * The site's readers cache against `content_version`, so an edit that doesn't
+ * bump it keeps serving the old alt and crop. The row write and the bump are
+ * one transaction, and a save with both fields to change is one UPDATE and one
+ * bump rather than the two of each the separate writes used to cost.
+ */
+export const updateMedia = async (
+  id: string,
+  input: UpdateMediaInput,
+): Promise<UpdateMediaResult> => {
+  let alt: string | null = null;
+  if (input.alt !== undefined) {
+    const trimmed = input.alt.trim();
+    if (trimmed === "") return { ok: false, message: "Enter alt text." };
+    alt = trimmed;
+  }
+
+  const focal = input.focal
+    ? {
+        x: clampFraction(input.focal.x, DEFAULT_FOCAL_POINT.x),
+        y: clampFraction(input.focal.y, DEFAULT_FOCAL_POINT.y),
+      }
+    : null;
+
+  const rows = (await db.begin(async (tx) => {
+    const updated = (await tx`
+      UPDATE cms_media
+         SET alt = COALESCE(${alt}, alt),
+             focal_x = COALESCE(${focal?.x ?? null}, focal_x),
+             focal_y = COALESCE(${focal?.y ?? null}, focal_y),
+             updated_at = CURRENT_TIMESTAMP
+       WHERE id = ${id}
+       RETURNING id, object_key, content_type, byte_size, width, height, alt,
+                 focal_x, focal_y, variants, created_at, updated_at
+    `) as MediaRow[];
+
+    // Nothing was updated, so there is nothing for the site to re-read.
+    if (updated.length === 0) return updated;
+
+    await bumpContentVersion(tx);
+    return updated;
+  })) as MediaRow[];
+
+  if (rows.length === 0) {
+    return { ok: false, message: "That image no longer exists." };
+  }
+  return { ok: true, media: toMedia(rows[0]) };
+};
+
+/** Change an upload's alt text, bumping `content_version`. */
+export const updateMediaAlt = (
   id: string,
   alt: string,
-): Promise<UpdateMediaResult> => {
-  const trimmed = alt.trim();
-  if (trimmed === "") return { ok: false, message: "Enter alt text." };
+): Promise<UpdateMediaResult> => updateMedia(id, { alt });
 
-  const rows = (await db.unsafe(
-    `UPDATE cms_media
-       SET alt = $2, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1
-     RETURNING ${MEDIA_COLUMNS}`,
-    [id, trimmed],
-  )) as MediaRow[];
-  if (rows.length === 0)
-    return { ok: false, message: "That image no longer exists." };
-  return { ok: true, media: toMedia(rows[0]) };
-};
-
-export const updateMediaFocalPoint = async (
+/** Change an upload's focal point, bumping `content_version`. */
+export const updateMediaFocalPoint = (
   id: string,
   focal: FocalPoint,
-): Promise<UpdateMediaResult> => {
-  const clamp = (value: number): number =>
-    Number.isFinite(value)
-      ? Math.min(1, Math.max(0, value))
-      : DEFAULT_FOCAL_POINT.x;
-
-  const rows = (await db.unsafe(
-    `UPDATE cms_media
-       SET focal_x = $2, focal_y = $3, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1
-     RETURNING ${MEDIA_COLUMNS}`,
-    [id, clamp(focal.x), clamp(focal.y)],
-  )) as MediaRow[];
-  if (rows.length === 0)
-    return { ok: false, message: "That image no longer exists." };
-  return { ok: true, media: toMedia(rows[0]) };
-};
-
-/** True when a stored content value references `mediaId` through an image field. */
-export const referencesMedia = (value: unknown, mediaId: string): boolean => {
-  if (Array.isArray(value)) {
-    return value.some((entry) => referencesMedia(entry, mediaId));
-  }
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  if (record.mediaId === mediaId) return true;
-  return Object.values(record).some((entry) => referencesMedia(entry, mediaId));
-};
+): Promise<UpdateMediaResult> => updateMedia(id, { focal });
 
 export interface MediaUsage {
   kind: "page" | "slot";
@@ -402,7 +428,6 @@ interface UsageRow {
   id: string;
   label: string;
   detail: string;
-  content: Record<string, unknown>;
 }
 
 /**
@@ -410,21 +435,35 @@ interface UsageRow {
  *
  * Only published revisions count: a draft's reference doesn't put the image on
  * a live page, so deleting it can't break a visitor, and the draft that uses it
- * will re-pick. Both targets are one query so a delete needs one round trip.
+ * will re-pick. The match is `jsonb_path_exists` in SQL rather than a walk over
+ * every published revision in JavaScript, so only the rows that use the image
+ * come back. Pass a transaction to read inside the delete's lock.
  */
-export const getMediaUsage = async (mediaId: string): Promise<MediaUsage[]> => {
-  const rows = (await db`
-    SELECT 'page' AS kind, p.id, p.title AS label, p.url AS detail, r.content
+export const getMediaUsage = async (
+  mediaId: string,
+  sql: SQL = db,
+): Promise<MediaUsage[]> => {
+  const rows = (await sql`
+    SELECT 'page' AS kind, p.id, p.title AS label, p.url AS detail
     FROM cms_pages p JOIN cms_revisions r ON r.id = p.published_revision_id
+    WHERE jsonb_path_exists(
+      r.content, '$.**.mediaId ? (@ == $mediaId)',
+      jsonb_build_object('mediaId', ${mediaId}::text))
     UNION ALL
-    SELECT 'slot' AS kind, s.id, COALESCE(s.label, s.name) AS label, s.name AS detail,
-           r.content
+    SELECT 'slot' AS kind, s.id, COALESCE(s.label, s.name) AS label,
+           s.name AS detail
     FROM cms_slots s JOIN cms_revisions r ON r.id = s.published_revision_id
+    WHERE jsonb_path_exists(
+      r.content, '$.**.mediaId ? (@ == $mediaId)',
+      jsonb_build_object('mediaId', ${mediaId}::text))
   `) as UsageRow[];
 
-  return rows
-    .filter((row) => referencesMedia(row.content, mediaId))
-    .map(({ kind, id, label, detail }) => ({ kind, id, label, detail }));
+  return rows.map(({ kind, id, label, detail }) => ({
+    kind,
+    id,
+    label,
+    detail,
+  }));
 };
 
 export type DeleteMediaResult =
@@ -435,25 +474,41 @@ export type DeleteMediaResult =
 /**
  * Delete an upload, unless published content still uses it.
  *
- * The usage check and the delete are one transaction on the row, so two editors
- * deleting and publishing at once can't both win. Objects are removed
- * best-effort first: a leaked object costs storage, a row deleted before its
- * objects are gone costs a broken page if the delete then fails.
+ * The row is locked `FOR UPDATE`, the usage re-checked and the row deleted in
+ * one transaction, so a delete and a publish that references the image can't
+ * both win (publish takes `FOR SHARE` on the same rows — `lockReferencedMedia`).
+ * The objects are deleted best-effort *after* the commit: a leaked object costs
+ * storage, while a row deleted before its objects are gone would leave a live
+ * page pointing at a missing file if the delete then failed.
  */
 export const deleteMedia = async (
   id: string,
   storage: MediaStorage | null = getMediaStorage(),
 ): Promise<DeleteMediaResult> => {
-  const media = await getMediaById(id);
-  if (!media) return { ok: false, reason: "not-found" };
+  const outcome = await db.begin(async (tx) => {
+    const rows = (await tx`
+      SELECT id, object_key, content_type, byte_size, width, height, alt,
+             focal_x, focal_y, variants, created_at, updated_at
+      FROM cms_media WHERE id = ${id} FOR UPDATE
+    `) as MediaRow[];
+    if (rows.length === 0) return { kind: "not-found" as const };
 
-  const usage = await getMediaUsage(id);
-  if (usage.length > 0) return { ok: false, reason: "in-use", usage };
+    const usage = await getMediaUsage(id, tx);
+    if (usage.length > 0) return { kind: "in-use" as const, usage };
+
+    await tx`DELETE FROM cms_media WHERE id = ${id}`;
+    return { kind: "deleted" as const, media: toMedia(rows[0]) };
+  });
+
+  if (outcome.kind === "not-found") return { ok: false, reason: "not-found" };
+  if (outcome.kind === "in-use") {
+    return { ok: false, reason: "in-use", usage: outcome.usage };
+  }
 
   if (storage) {
     const keys = [
-      media.objectKey,
-      ...media.variants.flatMap((variant) => [
+      outcome.media.objectKey,
+      ...outcome.media.variants.flatMap((variant) => [
         variant.webpKey,
         variant.fallbackKey,
       ]),
@@ -470,6 +525,5 @@ export const deleteMedia = async (
     );
   }
 
-  await db`DELETE FROM cms_media WHERE id = ${id}`;
   return { ok: true };
 };

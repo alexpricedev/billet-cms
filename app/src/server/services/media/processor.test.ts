@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import sharp from "sharp";
-import { makeJpeg, makePng, withExif } from "../../test-utils/images";
+import {
+  hasGpsCoordinates,
+  makeJpeg,
+  makePng,
+  withExif,
+  withFullMetadata,
+} from "../../test-utils/images";
 import { processImage, renditionWidths } from "./processor";
 
 describe("renditionWidths", () => {
@@ -34,6 +40,33 @@ describe("processImage", () => {
     const after = await sharp(processed.original.bytes).metadata();
     expect(after.exif).toBeUndefined();
     expect(after.orientation).toBeUndefined();
+  });
+
+  test("strips EXIF (GPS included), XMP and ICC from every rendition", async () => {
+    const fixture = await withFullMetadata(await makeJpeg(1200, 800));
+
+    // The fixture carries all three kinds before it is processed, so the
+    // assertions below are not passing on a source that never had them.
+    const before = await sharp(fixture).metadata();
+    expect(before.exif).toBeDefined();
+    expect(before.icc).toBeDefined();
+    expect(before.xmp).toBeDefined();
+    expect(hasGpsCoordinates(before.exif)).toBe(true);
+
+    const processed = await processImage(fixture, "jpeg");
+    const outputs = [
+      processed.original.bytes,
+      ...processed.renditions.flatMap((rendition) => [
+        rendition.webp,
+        rendition.fallback,
+      ]),
+    ];
+    for (const bytes of outputs) {
+      const meta = await sharp(bytes).metadata();
+      expect(meta.exif).toBeUndefined();
+      expect(meta.icc).toBeUndefined();
+      expect(meta.xmp).toBeUndefined();
+    }
   });
 
   test("generates every width, each a decodable WebP and fallback", async () => {
