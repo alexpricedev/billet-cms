@@ -33,6 +33,7 @@ import { processImage } from "./processor";
 import {
   contentTypeFor,
   extensionFor,
+  fallbackFor,
   type ImageFormat,
   isAnimatedImage,
   readImageSize,
@@ -55,6 +56,16 @@ export interface MediaRecord {
   createdAt: Date;
   updatedAt: Date;
 }
+
+/**
+ * The longest alt text the CMS stores, in characters.
+ *
+ * Alt text describes one image for a screen reader; a good description is a
+ * sentence, and anything past a few hundred characters has stopped being one.
+ * The cap is generous enough never to bite real copy and small enough that a
+ * post can't stuff an unbounded string into every page that renders the image.
+ */
+export const MAX_ALT_LENGTH = 1000;
 
 /** Enough of an upload for a picker or a reuse list. */
 export interface MediaOption {
@@ -177,6 +188,17 @@ export const createMedia = async (
       issues: [{ field: "alt", message: "Enter alt text." }],
     };
   }
+  if (alt.length > MAX_ALT_LENGTH) {
+    return {
+      ok: false,
+      issues: [
+        {
+          field: "alt",
+          message: `Alt text must be ${MAX_ALT_LENGTH} characters or fewer.`,
+        },
+      ],
+    };
+  }
 
   const bytes = input.bytes;
   if (bytes.length === 0) {
@@ -230,7 +252,7 @@ export const createMedia = async (
 
   const id = randomUUID();
   const originalKey = `media/${id}/original.${extensionFor(format)}`;
-  const fallbackExtension = format === "png" ? "png" : "jpg";
+  const fallback = fallbackFor(format);
 
   const written: string[] = [];
   try {
@@ -244,14 +266,10 @@ export const createMedia = async (
     const variants: MediaVariant[] = [];
     for (const rendition of processed.renditions) {
       const webpKey = `media/${id}/${rendition.width}.webp`;
-      const fallbackKey = `media/${id}/${rendition.width}.${fallbackExtension}`;
+      const fallbackKey = `media/${id}/${rendition.width}.${fallback.extension}`;
       await storage.put(webpKey, rendition.webp, "image/webp");
       written.push(webpKey);
-      await storage.put(
-        fallbackKey,
-        rendition.fallback,
-        `image/${fallbackExtension === "png" ? "png" : "jpeg"}`,
-      );
+      await storage.put(fallbackKey, rendition.fallback, fallback.contentType);
       written.push(fallbackKey);
 
       variants.push({
@@ -367,6 +385,12 @@ export const updateMedia = async (
   if (input.alt !== undefined) {
     const trimmed = input.alt.trim();
     if (trimmed === "") return { ok: false, message: "Enter alt text." };
+    if (trimmed.length > MAX_ALT_LENGTH) {
+      return {
+        ok: false,
+        message: `Alt text must be ${MAX_ALT_LENGTH} characters or fewer.`,
+      };
+    }
     alt = trimmed;
   }
 

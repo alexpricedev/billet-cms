@@ -75,6 +75,25 @@ describe("Content-Security-Policy img-src", () => {
 
     expect(csp).toContain("img-src 'self' data:;");
   });
+
+  test("ignores a base URL whose scheme isn't http(s)", () => {
+    // `new URL("ftp://bucket.example").origin` is a real string and would land
+    // in `img-src`; `data:`/`javascript:` report "null". Only http(s) is an
+    // origin a page can load.
+    for (const value of [
+      "ftp://bucket.example/media",
+      "data:image/png;base64,AAAA",
+      "javascript:alert(1)",
+    ]) {
+      process.env.MEDIA_PUBLIC_BASE_URL = value;
+      const csp =
+        withSecurityHeaders(new Response("ok")).headers.get(
+          "Content-Security-Policy",
+        ) ?? "";
+
+      expect(csp).toContain("img-src 'self' data:;");
+    }
+  });
 });
 
 describe("withSecurityHeaders", () => {

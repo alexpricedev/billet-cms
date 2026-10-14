@@ -91,6 +91,30 @@ const nonEmpty = (value: string | undefined): string | null => {
 };
 
 /**
+ * An http(s) URL from an env value, or `null`.
+ *
+ * Used for `MEDIA_PUBLIC_BASE_URL`: it becomes every stored rendition's public
+ * URL — rendered into the site's pages and its CSP `img-src` — so a value that
+ * isn't an absolute http(s) URL is treated as unset rather than published. A
+ * bare host, a relative path or a `javascript:`/`data:` value is not something
+ * a page can load, and `new URL` is what rejects the last two.
+ */
+const httpUrl = (value: string | undefined): string | null => {
+  const trimmed = nonEmpty(value);
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * The bucket configuration, or `null` when it isn't set.
  *
  * All of the API credentials plus a public base URL are required together:
@@ -104,7 +128,7 @@ export const mediaStorageConfigFromEnv = (
   const bucket = nonEmpty(env.S3_BUCKET);
   const accessKeyId = nonEmpty(env.S3_ACCESS_KEY_ID);
   const secretAccessKey = nonEmpty(env.S3_SECRET_ACCESS_KEY);
-  const publicBaseUrl = nonEmpty(env.MEDIA_PUBLIC_BASE_URL);
+  const publicBaseUrl = httpUrl(env.MEDIA_PUBLIC_BASE_URL);
 
   if (!bucket || !accessKeyId || !secretAccessKey || !publicBaseUrl)
     return null;

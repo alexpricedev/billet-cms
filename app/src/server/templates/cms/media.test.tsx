@@ -45,6 +45,15 @@ describe("variantForDisplay", () => {
     expect(variantForDisplay(media([200, 300]), 192)?.width).toBe(300);
   });
 
+  test("caps the chosen rendition when a surface asks for it", () => {
+    const record = media([480, 960, 1600, 2400, 3000]);
+
+    // The focal picker caps at 960, so it skips the 1600 the 2x rule would pick.
+    expect(variantForDisplay(record, 512, 960)?.width).toBe(960);
+    // No rendition at or below the cap: the smallest it has is still used.
+    expect(variantForDisplay(media([1200, 2400]), 512, 960)?.width).toBe(1200);
+  });
+
   test("returns undefined for a row with no renditions", () => {
     expect(variantForDisplay(media([]), 192)).toBeUndefined();
   });

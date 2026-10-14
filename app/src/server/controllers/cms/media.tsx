@@ -38,6 +38,21 @@ const listNotice = (params: URLSearchParams): string | null => {
   return null;
 };
 
+/**
+ * A focal fraction from the form, or `null` when the field is absent or isn't a
+ * number.
+ *
+ * Both inputs are always rendered, but a request can omit or blank them.
+ * `Number(null)` and `Number("")` are `0`, which would silently pin the focal
+ * point to the top-left instead of leaving it as it was; the caller falls back
+ * to the stored value on `null`.
+ */
+const focalFraction = (value: FormDataEntryValue | null): number | null => {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 /** Render the library, with a fresh token and whatever the caller wants shown. */
 const renderList = async (
   ctx: SessionContext,
@@ -204,11 +219,9 @@ export const media = {
     const formData = await req.formData();
     const alt = nonEmpty(formData.get("alt")) ?? "";
 
-    const focalX = Number(formData.get("focal_x"));
-    const focalY = Number(formData.get("focal_y"));
     const focal = {
-      x: Number.isFinite(focalX) ? focalX : image.focalX,
-      y: Number.isFinite(focalY) ? focalY : image.focalY,
+      x: focalFraction(formData.get("focal_x")) ?? image.focalX,
+      y: focalFraction(formData.get("focal_y")) ?? image.focalY,
     };
 
     // One write and one `content_version` bump, not two: the site's cache sees
