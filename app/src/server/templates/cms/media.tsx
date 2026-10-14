@@ -105,25 +105,29 @@ export const MediaList = ({
       className="cms-media-upload"
     >
       <input type="hidden" name="_csrf" value={csrfToken} />
-      <label className="cms-field-label" htmlFor="cms-media-file">
-        Image file
-      </label>
-      <input
-        type="file"
-        id="cms-media-file"
-        name="file"
-        accept="image/jpeg,image/png,image/webp"
-      />
-      <label className="cms-field-label" htmlFor="cms-media-alt">
-        Alt text <span className="cms-required">*</span>
-      </label>
-      <input
-        type="text"
-        id="cms-media-alt"
-        name="alt"
-        required
-        value={values?.alt ?? ""}
-      />
+      <div className="cms-field">
+        <label className="cms-field-label" htmlFor="cms-media-file">
+          Image file
+        </label>
+        <input
+          type="file"
+          id="cms-media-file"
+          name="file"
+          accept="image/jpeg,image/png,image/webp"
+        />
+      </div>
+      <div className="cms-field">
+        <label className="cms-field-label" htmlFor="cms-media-alt">
+          Alt text <span className="cms-required">*</span>
+        </label>
+        <input
+          type="text"
+          id="cms-media-alt"
+          name="alt"
+          required
+          value={values?.alt ?? ""}
+        />
+      </div>
       <button type="submit" className="cms-save">
         Upload
       </button>
