@@ -226,14 +226,17 @@ bunx billet-cms-pull --from https://cms.example.com
 # or, with the script below: bun run cms:pull --from https://cms.example.com
 ```
 
+Prefer the `CMS_EXPORT_TOKEN` environment variable over `--token` so the token
+doesn't land in your shell history or a process listing.
+
 Add the convenience script to the site's `package.json`:
 
 ```json
 "cms:pull": "billet-cms-pull"
 ```
 
-The token comes from `--token` or `CMS_EXPORT_TOKEN`; an admin creates it in the
-CMS under **Export**. The command fetches `GET /export` and **replaces** local
+The token comes from `CMS_EXPORT_TOKEN` (preferred) or `--token`; an admin
+creates it in the CMS under **Export**. The command fetches `GET /export` and **replaces** local
 `cms_` content (pages, slots, published revisions, redirects, media rows) with
 what came back. It is one-way and the export never contains drafts, definitions,
 users, sessions or tokens — but because it replaces local content wholesale, it

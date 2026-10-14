@@ -6,11 +6,13 @@
  * `cms:pull` — replace local `cms_` content with a CMS's published export.
  *
  * Usage:
- *   bunx billet-cms-pull --from https://cms.example.com
- *   bun run cms:pull --from https://cms.example.com
+ *   CMS_EXPORT_TOKEN=… bunx billet-cms-pull --from https://cms.example.com
+ *   CMS_EXPORT_TOKEN=… bun run cms:pull --from https://cms.example.com
  *
- * The token comes from `--token` or the `CMS_EXPORT_TOKEN` environment variable;
- * the database from `DATABASE_URL`. Refuses to run under `NODE_ENV=production`.
+ * The token comes from the `CMS_EXPORT_TOKEN` environment variable, or `--token`
+ * — prefer the variable, because a flag lands in your shell history and in a
+ * process listing. The database comes from `DATABASE_URL`. Refuses to run under
+ * `NODE_ENV=production`.
  */
 import { SQL } from "bun";
 import { pullFrom } from "./pull";
@@ -37,7 +39,7 @@ if (!from) {
 }
 if (!token) {
   console.error(
-    "cms:pull needs an export token: pass --token <token> or set CMS_EXPORT_TOKEN.",
+    "cms:pull needs an export token: set CMS_EXPORT_TOKEN (preferred) or pass --token <token>.",
   );
   process.exit(1);
 }

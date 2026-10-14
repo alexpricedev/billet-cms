@@ -22,14 +22,14 @@ bun run test     # migrations, then every *.test.ts / *.test.tsx file
 ```
 
 `bun run check` is fast and should pass before you consider a change done. `bun run test` is the
-behavioural gate. The pre-commit hook runs `bun run build && bun run check`, so a lint or type
-error blocks the commit.
+behavioural gate. There is no pre-commit hook: CI is the only gate, so **run the checks yourself
+before you commit** — nothing local will catch a lint or type error for you.
 
 ## Targeted runs
 
 ```bash
 bun run test:changed                                      # only tests affected by uncommitted edits
-bun run test:file src/server/services/todo.test.ts      # one file, migrations first
+bun run test:file src/server/services/sessions.test.ts  # one file, migrations first
 bun run lint:write                                       # apply Biome's safe fixes
 bun run typecheck                                        # types only
 ```
@@ -59,7 +59,7 @@ the database.
    worth doing when a failure needs a readable, ordered log rather than four interleaved ones.
 
 The environment is not the runner's job. `bunfig.toml` preloads `src/server/test-utils/test-env.ts`
-into every test file, which pins `SESSION_COOKIE_NAME`, the three feature flags, `APP_URL`/`PORT`
+into every test file, which pins `SESSION_COOKIE_NAME`, `TRUST_PROXY`, `SITE_APP_URL`, `APP_URL`/`PORT`
 and the rest — so your `.env` can't reach a test run whichever command started it.
 
 ## Reading failures
@@ -76,8 +76,6 @@ and the rest — so your `.env` can't reach a test run whichever command started
 - **Auth or session assertions failing across many files** — no longer your `.env`; the preload
   pins those. Check that `test-env.ts` is still first in `bunfig.toml`'s `preload`, and that you
   ran the script rather than `bun test` against a stale schema.
-- **Type errors in `email-providers/resend.ts`** — that file is excluded in `tsconfig.json`, so
-  `bun run check` will not catch regressions there.
 
 ## Browser checks
 

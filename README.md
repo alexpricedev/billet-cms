@@ -76,8 +76,9 @@ An admin creates an export token in the CMS (**Export**). Then, in the local
 environment:
 
 ```bash
-bun run cms:pull --from https://cms.example.com
-# token from --token or CMS_EXPORT_TOKEN
+# Set CMS_EXPORT_TOKEN rather than passing --token, so the secret doesn't land
+# in your shell history or a process listing.
+CMS_EXPORT_TOKEN=… bun run cms:pull --from https://cms.example.com
 ```
 
 It fetches the CMS's published content and replaces local `cms_` content with

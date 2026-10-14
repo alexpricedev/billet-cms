@@ -119,7 +119,7 @@ red for reasons nobody can act on is a check people learn to ignore. Run plain
 When it does fail, run `bun audit fix` — it resolves every advisory that a
 compatible bump inside the existing ranges can fix, and reports the ones it
 can't. If the advisory survives that, it's against a transitive dependency
-whose direct parent hasn't shipped an update (say `resend` → `svix` → `uuid`);
+whose direct parent hasn't shipped an update (`parent` → `child` → `grandchild`);
 either wait for the parent or decide the exposure is acceptable and record why.
 
 Dependabot ([`.github/dependabot.yml`](../.github/dependabot.yml)) opens the

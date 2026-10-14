@@ -120,31 +120,18 @@ nothing on the page evaluates a string. Frameworks that put expressions in
 attributes (Alpine, petite-vue, in-DOM Vue) need `'unsafe-eval'`; adding one
 means widening this policy.
 
-**The signed-out forms are CSRF-checked too, and need a cookie to be.**
-`/login`, `/signup`, `/forgot-password`, `/reset-password` and `/invites/accept`
-run `checkCsrf` inside `guardAuthForm`
-([`controllers/auth/form-guard.ts`](../src/server/controllers/auth/form-guard.ts)),
-between the rate limit and the body parse — `checkCsrf` clones the request to
-read the token, so a controller that reads the form first 403s every request.
+**The signed-out forms are CSRF-checked too.** `/handoff` renders a confirm form
+and validates it with `csrfProtection`
+([`middleware/csrf.ts`](../src/server/middleware/csrf.ts)); the public `/forms`
+demo runs the same check through `utils/form-action.ts`. `csrfProtection` clones
+the request to read the token, so a controller that reads the form first 403s
+every request — it runs before the body parse, not after.
 
-Not having a session is no reason to skip it: a forged `POST /login` signs the
-victim into the *attacker's* account, and they carry on working in it. This is
-the same reasoning as `/auth/callback` in [`EMAIL.md`](EMAIL.md) §5. So the `GET`
-for each of these pages sets the guest session cookie and mints a token against
-it — minting one without sending the cookie renders a token nothing can verify,
-which is the bug this replaced. `/login`, `/signup` and `/forgot-password` go
-through `guestPageContext`
-([`middleware/auth.ts`](../src/server/middleware/auth.ts)), which bounces a
-signed-in visitor and otherwise hands back the context to set the cookie from;
-`/reset-password` and `/invites/accept` read the context directly, because
-spending one of those links while already signed in is legitimate. A visitor
-with cookies blocked gets a form that renders and a post that is refused, which
-is the intended answer.
-
-Stale-token recovery on these forms returns the visitor to the form with what
-they typed; `/reset-password` and `/invites/accept` return to their own link,
-because the single-use token is in the form body and a stale CSRF token must not
-cost someone a new email.
+Not having a session is no reason to skip it: without a check a cross-site post
+could spend whatever single-use token the form carries. So the `GET` sets the
+guest session cookie and mints the token against it — minting one without sending
+the cookie renders a token nothing can verify. On a stale CSRF token the visitor
+is returned to the form with what they typed, rather than a dead-end 403.
 
 **Enhanced form posts and CSRF.** `server.submit` (`src/client/reactive/request.ts`)
 posts a form with its CSRF token promoted to the `X-CSRF-Token` header, which
@@ -158,7 +145,7 @@ attacker-initiated posts. The header names live in `src/shared/protocol.ts`.
 
 ## 4. Subresource Integrity (third-party scripts)
 
-The homepage loads the lottie animation library from unpkg with a pinned version
+The full layout loads the lottie animation library from unpkg with a pinned version
 and a cryptographic hash in
 [`layouts.tsx`](../src/server/components/layouts.tsx):
 
@@ -195,7 +182,7 @@ Update both the `src` version and the `integrity` value.
   so it reads the last header entry — the hop the proxy added; otherwise every
   visitor shares the proxy's socket address and one busy user 429s everyone.
   Never set it on a deployment reached directly: the header is client-controlled
-  there, and trusting it lets an attacker walk past the `/login` limit with a
+  there, and trusting it lets an attacker walk past the rate limit with a
   fresh value per request.
 
 ## 6. Verify in production
@@ -214,9 +201,8 @@ curl -sI https://yourdomain.com/ | grep -i x-robots-tag
 ```
 
 - **In a browser:** load the site, open the console, confirm no `Refused to
-  load…` / CSP violations, that the hero animation plays, and that on `/todos`
-  the filter buttons appear (they stay hidden until the bundle mounts the
-  component) and adding a todo updates the list without a page load.
+  load…` / CSP violations and that the client bundle mounts on a page that uses
+  one (`/forms`).
 - **Scanners:** [securityheaders.com](https://securityheaders.com),
   [Mozilla Observatory](https://observatory.mozilla.org), and Google's
   [CSP Evaluator](https://csp-evaluator.withgoogle.com) for policy strength.
@@ -242,15 +228,12 @@ want a spotless console.
 
 ## 8. Deliberately not implemented (yet)
 
-- **Breached-password checks** — password mode (`AUTH_MODE=password`) enforces
-  length only, per NIST SP 800-63B. Screening new passwords against a breach
-  corpus is the one composition-adjacent check that measurably helps; it needs a
-  k-anonymity lookup against Have I Been Pwned (or a local corpus) and an
-  outbound call on the sign-up path, so it is left to the fork.
-- **Multi-factor authentication** — no TOTP, WebAuthn, or emailed second factor.
-  A magic link is already single-factor-by-email; passwords are single-factor by
-  knowledge. Adding a second factor means new schema, recovery codes, and a
-  re-authentication flow.
+- **Breached-password checks** — not applicable: the CMS stores no password.
+  The site's own app owns authentication, and it is the place to screen new
+  passwords against a breach corpus if it keeps a credential.
+- **Multi-factor authentication** — no TOTP, WebAuthn or emailed second factor.
+  The CMS has no credential of its own, so any second factor belongs to the
+  site's sign-in, not here.
 - **Password expiry / reuse history** — not implemented, and not recommended.
   Forced rotation drives predictable mutations; reuse history means retaining old
   hashes indefinitely.
