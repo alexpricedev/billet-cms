@@ -21,6 +21,7 @@
   },
   "files": [
     "src",
+    "CHANGELOG.md",
     "!src/**/*.test.ts",
     "!src/**/fixtures"
   ],
