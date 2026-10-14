@@ -66,11 +66,13 @@ jobs:
       id-token: write # npm trusted publishing
     steps:
       - uses: actions/checkout@v7
-      # Trusted publishing needs npm 11.5.1 or later, which Node 24 ships.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later. Install it rather than
+      # rely on whichever npm the runner's Node happens to bundle.
+      - run: npm install -g npm@^11.5.1
       - run: npm publish ./packages/billet-cms
       - name: GitHub release from the CHANGELOG section
         env:

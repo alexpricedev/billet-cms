@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+The first release published by CI, through npm trusted publishing, so it
+carries provenance. No code changes.
+
+**Nothing for a site to change.**
+
 ## 0.1.0
 
 First release. The block plugin a Billet site installs, and the contract the
