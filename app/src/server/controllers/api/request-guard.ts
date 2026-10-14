@@ -3,8 +3,7 @@ import { rateLimit } from "../../middleware/rate-limit";
 import { jsonError } from "../../utils/response";
 
 /**
- * The guards every JSON endpoint runs before it reaches a service — the mirror
- * of `auth/form-guard.ts`, which does the same job for HTML forms.
+ * The guards every JSON endpoint runs before it reaches a service.
  *
  * Each returns either the value the controller asked for or the Response to
  * send instead, so a controller reads as a list of short-circuits followed by
@@ -15,15 +14,11 @@ import { jsonError } from "../../utils/response";
  * Per-IP budgets for the API, in requests per minute.
  *
  * Reads are cheap and a paging client makes several in a row, so they get the
- * wider budget; writes each cost a round trip that changes state. Both are far
- * looser than the auth forms' 5/minute — nothing here sends mail or burns an
- * argon2 hash — but they still cap what a single address can do to the
- * database, which is the point.
+ * wider budget; writes each cost a round trip that changes state. Both still
+ * cap what a single address can do to the database, which is the point.
  *
- * Three separate buckets, and that separation is the budget: sharing one would
- * make reads spend the write allowance, and sharing the auth forms' would let
- * a handful of `/api/*` calls 429 the next signed-out auth request from the
- * same address.
+ * Distinct buckets, and that separation is the budget: sharing one would make
+ * reads spend the write allowance.
  */
 export const apiReadLimit = (req: BunRequest): Response | null =>
   rateLimit(req, "api-read", 60, 60_000);
@@ -196,8 +191,7 @@ export const readPagination = (req: BunRequest): PaginationResult => {
 /**
  * Read a required string field from a parsed body.
  *
- * Trims, because nobody means the surrounding spaces in a title — the opposite
- * call from `readPassword`, where whitespace is part of the value. Returns
+ * Trims, because nobody means the surrounding spaces in a title. Returns
  * `null` for a missing field, a non-string, or a value that was only spaces, so
  * the caller can answer with a field-level 400 rather than writing `undefined`
  * into a NOT NULL column.

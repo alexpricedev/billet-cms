@@ -288,9 +288,9 @@ deployment somewhere else would only break boot.
 
 ### The upstream release is in `.billet-version`, not `package.json`
 
-`package.json`'s `version` belongs to whoever forked this — `START_PROMPT.md` hands the project
-name and that field over at setup. `.billet-version` is the separate, rename-proof record of which
-Billet release the tree came from: one version line, everything else comment.
+`package.json`'s `version` belongs to this fork, not to upstream Billet. `.billet-version` is the
+separate, rename-proof record of which Billet release the tree came from: one version line,
+everything else comment.
 
 Read it before deciding whether a reported bug is real. A fork reporting something already fixed
 upstream is the common case, and without that line the only way to tell is diffing source against a

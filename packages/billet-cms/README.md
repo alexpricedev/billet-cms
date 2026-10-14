@@ -222,8 +222,8 @@ Pull production content into a local or preview environment without database
 credentials:
 
 ```bash
-bunx billet-cms-pull --from https://cms.example.com
-# or, with the script below: bun run cms:pull --from https://cms.example.com
+CMS_EXPORT_TOKEN=… bunx billet-cms-pull --from https://cms.example.com
+# or, with the script below: CMS_EXPORT_TOKEN=… bun run cms:pull --from https://cms.example.com
 ```
 
 Prefer the `CMS_EXPORT_TOKEN` environment variable over `--token` so the token

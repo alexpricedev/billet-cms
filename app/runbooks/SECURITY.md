@@ -130,8 +130,9 @@ every request — it runs before the body parse, not after.
 Not having a session is no reason to skip it: without a check a cross-site post
 could spend whatever single-use token the form carries. So the `GET` sets the
 guest session cookie and mints the token against it — minting one without sending
-the cookie renders a token nothing can verify. On a stale CSRF token the visitor
-is returned to the form with what they typed, rather than a dead-end 403.
+the cookie renders a token nothing can verify. On a stale CSRF token the two
+forms diverge: `/forms` returns the visitor to the form with what they typed,
+while `/handoff` answers a plain 403, so they start again from `/sign-in`.
 
 **Enhanced form posts and CSRF.** `server.submit` (`src/client/reactive/request.ts`)
 posts a form with its CSRF token promoted to the `X-CSRF-Token` header, which
