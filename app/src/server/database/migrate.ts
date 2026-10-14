@@ -4,6 +4,7 @@ import { CONTRACT_VERSION } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
 import { db } from "../services/database";
 import { log } from "../services/logger";
+import { LOCK_NAMESPACE, MIGRATION_LOCK_SUBKEY } from "./advisory-locks";
 
 export type Migration = {
   id: string;
@@ -11,21 +12,10 @@ export type Migration = {
   applied_at: Date;
 };
 
-// The advisory lock every CMS process takes while it migrates. The key is
-// `hashtext('billet-cms')`, a fixed 32-bit value derived from the namespace
-// string: it only has to be the same in every instance of this app, and
-// different from any other app sharing the database. Deriving it from a named
-// namespace rather than a hand-picked integer keeps it recognisable in
-// `pg_locks` and makes an accidental collision with another app's fixed key far
-// less likely. Taken transaction-scoped, so a crashed boot releases it with the
-// transaction.
-//
-// The value is bound as the namespace string and hashed in SQL; a literal must
-// not be replaced with a JS number, which would hash a different value.
-//
-// Exported so the concurrency test can hold the same lock and make the overlap
-// deterministic rather than hoped for.
-export const MIGRATION_LOCK_NAMESPACE = "billet-cms";
+// The migration lock is the shared `billet-cms` advisory-lock namespace's subkey
+// 1 (`advisory-locks.ts`): it never waits on the identity-view lock (subkey 2),
+// and neither collides with another app's lock. It is taken transaction-scoped,
+// so a crashed boot releases it with the transaction.
 
 const MIGRATIONS_DIR = join(process.cwd(), "src/server/database/migrations");
 
@@ -190,7 +180,7 @@ export const runMigrations = async (sql: SQL = db): Promise<void> => {
     // booting together would otherwise race on `CREATE TABLE IF NOT EXISTS
     // cms_migrations` — a check-then-create that Postgres can still lose with a
     // duplicate-key error on its own system catalogue.
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${MIGRATION_LOCK_NAMESPACE}))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${LOCK_NAMESPACE}), ${MIGRATION_LOCK_SUBKEY})`;
 
     await ensureMigrationsTable(tx);
 
@@ -256,7 +246,7 @@ export const rollbackMigration = async (
  */
 export const rollbackLastMigration = async (sql: SQL = db): Promise<void> => {
   await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${MIGRATION_LOCK_NAMESPACE}))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${LOCK_NAMESPACE}), ${MIGRATION_LOCK_SUBKEY})`;
     await ensureMigrationsTable(tx);
 
     const rows = (await tx`

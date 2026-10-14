@@ -221,10 +221,11 @@ export type TableName = (typeof TABLES)[keyof typeof TABLES];
  * *published* content changes, and only then — a draft save leaves it alone.
  * Who bumps it:
  *
- * - the site's `billet-cms-publish`, when its deploy changed a definition
- *   (a block, page type or slot), which changes what the site renders;
+ * - the plugin's CLI — `billet-cms-publish` or `cms:pull` — when it changes a
+ *   definition (a block, page type or slot), which changes what the site
+ *   renders;
  * - the CMS, on a page or slot publish, a page create / rename / settings change
- *   / delete, a media alt-text or focal-point edit, and a `cms:pull`.
+ *   / delete, and a media alt-text or focal-point edit.
  */
 export const META_KEYS = {
   contractVersion: "contract_version",

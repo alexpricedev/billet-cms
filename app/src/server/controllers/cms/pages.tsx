@@ -39,7 +39,12 @@ import {
 import { PagesList } from "../../templates/cms/pages";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
-import { nonEmpty, parseContent, UUID_PATTERN } from "./params";
+import {
+  contentParseMessage,
+  nonEmpty,
+  parseContent,
+  UUID_PATTERN,
+} from "./params";
 
 /**
  * A one-line outcome shown above a page form after a save, publish or restore.
@@ -479,24 +484,54 @@ export const pages = {
     const baseRevisionId = nonEmpty(formData.get("base_revision"));
     const removedBlocks = removedBlocksFrom(formData.get("removed_blocks"));
     const submitted = parseContent(formData.get("content"));
-    const content: PageBlock[] = submitted.ok
-      ? asPageContent(submitted.value).blocks
-      : await baseContent(baseRevisionId, page);
 
     // The page expired while it was open. Re-render what they posted behind a
     // fresh token instead of a 403 that would lose it.
     if (!csrf.ok) {
-      return renderPageForm(ctx, page, pageType, content, baseRevisionId, {
-        removed: removedBlocks,
-        errors: [
-          {
-            path: "(form)",
-            message:
-              "This page expired while it was open. Your content is shown below — save again to keep it.",
-          },
-        ],
-      });
+      return renderPageForm(
+        ctx,
+        page,
+        pageType,
+        submitted.ok
+          ? asPageContent(submitted.value).blocks
+          : await baseContent(baseRevisionId, page),
+        baseRevisionId,
+        {
+          removed: removedBlocks,
+          errors: [
+            {
+              path: "(form)",
+              message:
+                "This page expired while it was open. Your content is shown below — save again to keep it.",
+            },
+          ],
+        },
+      );
     }
+
+    if (!submitted.ok) {
+      // Nothing usable was posted — a body over the byte cap, or malformed.
+      // Fall back to the revision they loaded and say why, rather than
+      // silently saving the stored content over their work (review round 2).
+      return renderPageForm(
+        ctx,
+        page,
+        pageType,
+        await baseContent(baseRevisionId, page),
+        baseRevisionId,
+        {
+          removed: removedBlocks,
+          errors: [
+            {
+              path: "(content)",
+              message: contentParseMessage(submitted.reason),
+            },
+          ],
+        },
+      );
+    }
+
+    const content: PageBlock[] = asPageContent(submitted.value).blocks;
 
     const settings = settingsFrom(formData);
     const pageTypeName =

@@ -130,7 +130,8 @@ of this fork. The strip and the renames are the things that will conflict:
 `teams-mode.ts`, the `/team` and `/invites` surfaces); password auth
 (`passwords.ts`, password reset, `AUTH_MODE`); the user admin dashboard
 (`/admin`, `middleware/admin.ts`); the seed script; Husky hooks; `scripts/qa-session.ts`;
-the email-verification banner and flow; `templates/accept-invite.tsx`. The CMS
+the `csrfTokens` helper (`utils/csrf-tokens.ts`); the email-verification
+banner and flow; `templates/accept-invite.tsx`. The CMS
 itself then lost its own sign-in: the magic-link login (`/login`,
 `/auth/callback`, the email service and its Resend provider, the captcha and
 honeypot that guarded the form) is gone, and sign-in goes through the site —
