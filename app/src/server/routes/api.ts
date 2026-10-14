@@ -1,4 +1,5 @@
 import { statsApi } from "../controllers/api";
+import { exportApi } from "../controllers/export";
 import { createApiRouteHandler } from "../utils/route-handler";
 
 // Every API route goes through `createApiRouteHandler`, including the read-only
@@ -7,5 +8,10 @@ import { createApiRouteHandler } from "../utils/route-handler";
 export const apiRoutes = {
   "/api/stats": createApiRouteHandler({
     GET: statsApi.index,
+  }),
+  // The export endpoint `cms:pull` calls. Authenticated by an export token, not
+  // a session: the caller is a local command, not a browser.
+  "/export": createApiRouteHandler({
+    GET: exportApi.index,
   }),
 };

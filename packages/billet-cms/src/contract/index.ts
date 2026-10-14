@@ -34,9 +34,12 @@ import { createHash } from "node:crypto";
  * CMS cannot mint or read a preview. Phase 7 adds `cms_media` (the uploads an
  * editor reuses, with their renditions and focal point) and its stored variant
  * shape, so a site that reads an image through the plugin needs both before it
- * can render one.
+ * can render one. Phase 8 adds `cms_export_tokens` (the admin-created,
+ * export-only credentials `cms:pull` presents) and `cms_audit` (the append-only
+ * record of what was created, revoked and exported), and fixes the export
+ * document a pull replaces local content with.
  */
-export const CONTRACT_VERSION = "0.6.0";
+export const CONTRACT_VERSION = "0.7.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -173,6 +176,11 @@ export interface MediaVariant {
  * its renditions and its focal point. An `image()` field stores only a
  * `mediaId`, so the site reads the row through the plugin's `<CmsImage>` and
  * gets the picture's dimensions, `srcset` and `object-position` back.
+ *
+ * `export_tokens` holds the admin-created credentials `cms:pull` presents to
+ * `GET /export`: hashed, export-only (there is no other scope) and revocable.
+ * `audit` is the append-only record of them — created, revoked and read — kept
+ * so an operator can see who pulled content and when.
  */
 export const TABLES = {
   migrations: "cms_migrations",
@@ -189,6 +197,8 @@ export const TABLES = {
   redirects: "cms_redirects",
   previewTokens: "cms_preview_tokens",
   media: "cms_media",
+  exportTokens: "cms_export_tokens",
+  audit: "cms_audit",
 } as const;
 
 export type TableName = (typeof TABLES)[keyof typeof TABLES];
@@ -336,4 +346,124 @@ const canonicalJson = (value: unknown): unknown => {
       .sort()
       .map((key) => [key, canonicalJson(record[key])]),
   );
+};
+
+/**
+ * The document `GET /export` returns and `cms:pull` consumes.
+ *
+ * Export is how a local or preview environment gets production content without
+ * database credentials: an admin-created token authenticates the request, and
+ * the pull replaces local `cms_` content with what came back. It is one-way —
+ * nothing is ever pushed back — and it carries **published content only**:
+ * pages, slots, the published revisions those point at, redirects and media
+ * rows. Drafts, users, sessions, tokens and definitions are never in it.
+ *
+ * The shape is fixed here rather than in either service so the CMS's writer and
+ * the pull's reader cannot drift. Every field is camelCase and every timestamp
+ * an ISO-8601 string, because JSON has no dates.
+ *
+ * Images are exported as their stored rows, whose rendition URLs point at the
+ * production bucket, so a pulled site keeps serving production images without
+ * copying a byte.
+ */
+export const EXPORT_FORMAT = "billet-cms/export";
+
+export const EXPORT_FORMAT_VERSION = 1;
+
+/** A `cms_media` row, as the export carries it. */
+export interface ExportedMedia {
+  id: string;
+  objectKey: string;
+  contentType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+  alt: string;
+  focalX: number;
+  focalY: number;
+  variants: MediaVariant[];
+  /** ISO-8601, so the document survives JSON. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A `cms_revisions` row, for a revision the exported pages/slots publish. */
+export interface ExportedRevision {
+  id: string;
+  targetType: "page" | "slot";
+  targetId: string;
+  content: Record<string, unknown>;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+/** A `cms_pages` row, with its settings and its published revision. */
+export interface ExportedPage {
+  id: string;
+  pageType: string;
+  url: string;
+  title: string;
+  seoDescription: string | null;
+  socialImage: string | null;
+  publishedRevisionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A `cms_slots` row. Only published slots are exported. */
+export interface ExportedSlot {
+  id: string;
+  name: string;
+  blockName: string;
+  page: string;
+  previewPath: string;
+  label: string | null;
+  help: string | null;
+  publishedRevisionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A `cms_redirects` row, whose `to_page_id` is in `pages`. */
+export interface ExportedRedirect {
+  id: string;
+  fromPath: string;
+  toPageId: string;
+  createdAt: string;
+}
+
+/** Everything `GET /export` returns. */
+export interface CmsExport {
+  format: typeof EXPORT_FORMAT;
+  version: typeof EXPORT_FORMAT_VERSION;
+  /** The CMS's contract version, so a pull can refuse a mismatched document. */
+  contractVersion: string;
+  /** The CMS's `content_version` at export time, for reference/logging. */
+  contentVersion: number;
+  /** When the export was produced. */
+  exportedAt: string;
+  pages: ExportedPage[];
+  slots: ExportedSlot[];
+  revisions: ExportedRevision[];
+  redirects: ExportedRedirect[];
+  media: ExportedMedia[];
+}
+
+/**
+ * Read a value that claims to be an export document, or `null`.
+ *
+ * Deliberately shallow: it proves the envelope — the format marker, the version
+ * and the five arrays — so a pull fails with a clear message on a wrong URL, an
+ * HTML error page or an incompatible CMS, without re-validating every row (the
+ * CMS wrote those). A caller that gets `null` should report the URL it fetched,
+ * not the value.
+ */
+export const asCmsExport = (value: unknown): CmsExport | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (record.format !== EXPORT_FORMAT) return null;
+  if (record.version !== EXPORT_FORMAT_VERSION) return null;
+  const arrays = ["pages", "slots", "revisions", "redirects", "media"] as const;
+  if (!arrays.every((key) => Array.isArray(record[key]))) return null;
+  return value as CmsExport;
 };
