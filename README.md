@@ -126,12 +126,6 @@ To see what would ship before tagging:
 bun pm pack --dry-run --cwd packages/billet-cms
 ```
 
-**One-time setup (already done once it works):** npm only lets you add a
-trusted publisher to a package that exists, so the first version is published
-by hand (`npm login`, then `npm publish ./packages/billet-cms`). Then on
-npmjs.com → the package → Settings → Trusted publishing, add GitHub Actions
-with owner `alexpricedev`, repository `billet-cms` and workflow `release.yml`.
-
 ## End-to-end tests
 
 `e2e/` is a minimal Bun test site — a real `Bun.serve` that reads the shared
