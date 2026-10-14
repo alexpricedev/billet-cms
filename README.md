@@ -81,8 +81,11 @@ bun run cms:pull --from https://cms.example.com
 ```
 
 It fetches the CMS's published content and replaces local `cms_` content with
-it. One-way, never drafts, users, sessions or tokens, images keep the production
-bucket's URLs, and it refuses to run under `NODE_ENV=production`.
+it. It is one-way and carries **published content only** — the export never
+contains drafts, users, sessions or tokens — but because it replaces local
+pages, slots and revisions wholesale, **it also discards local drafts**, so
+anything unpublished in the local CMS is gone after a pull. Images keep the
+production bucket's URLs, and it refuses to run under `NODE_ENV=production`.
 
 ## Releasing the plugin
 
@@ -100,7 +103,8 @@ bun pm pack --dry-run --cwd packages/billet-cms
 npm login
 
 # 4. Publish. `publishConfig.access: public` is already set for the scoped name.
-npm publish --cwd packages/billet-cms
+#    npm has no --cwd, so name the directory.
+npm publish ./packages/billet-cms
 
 # 5. Tag the release on the commit that carries the bump.
 git tag @alexpricedev/billet-cms@0.1.0

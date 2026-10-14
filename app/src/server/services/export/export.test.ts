@@ -23,7 +23,9 @@ import { db } from "../database";
 import { buildExport } from "./export";
 import {
   createExportToken,
+  ExportTokenLabelError,
   listExportTokens,
+  MAX_EXPORT_TOKEN_LABEL_LENGTH,
   revokeExportToken,
   verifyExportToken,
 } from "./tokens";
@@ -269,6 +271,27 @@ describe("export tokens", () => {
 
   test("refuses an unknown token", async () => {
     expect(await verifyExportToken("not-a-real-token")).toBeNull();
+  });
+
+  test("refuses an empty or over-long label before writing", async () => {
+    await expect(
+      createExportToken({ label: "   ", actorId }),
+    ).rejects.toBeInstanceOf(ExportTokenLabelError);
+    await expect(
+      createExportToken({
+        label: "x".repeat(MAX_EXPORT_TOKEN_LABEL_LENGTH + 1),
+        actorId,
+      }),
+    ).rejects.toBeInstanceOf(ExportTokenLabelError);
+
+    // A label of exactly the limit is fine, and nothing was written by the
+    // refusals above.
+    const allowed = await createExportToken({
+      label: "x".repeat(MAX_EXPORT_TOKEN_LABEL_LENGTH),
+      actorId,
+    });
+    expect(allowed.token.label).toHaveLength(MAX_EXPORT_TOKEN_LABEL_LENGTH);
+    expect(await listExportTokens()).toHaveLength(1);
   });
 });
 

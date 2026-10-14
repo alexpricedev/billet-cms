@@ -203,6 +203,7 @@ bun add @alexpricedev/billet-cms
 |---|---|---|
 | `CMS_URL` | site | The CMS origin, e.g. `https://cms.example.com`. The Edit content link and sign-in are hidden/disabled without it. |
 | `DATABASE_URL` | site | The shared Postgres. The same value the CMS is given. |
+| `CMS_EXPORT_TOKEN` | site (local/preview only) | The export token `cms:pull` presents to `GET /export`. An admin creates it in the CMS under **Export**. Never set it in production. |
 
 ### Deploy order and the CSP
 
@@ -222,14 +223,22 @@ credentials:
 
 ```bash
 bunx billet-cms-pull --from https://cms.example.com
-# or: bun run cms:pull --from https://cms.example.com
+# or, with the script below: bun run cms:pull --from https://cms.example.com
+```
+
+Add the convenience script to the site's `package.json`:
+
+```json
+"cms:pull": "billet-cms-pull"
 ```
 
 The token comes from `--token` or `CMS_EXPORT_TOKEN`; an admin creates it in the
 CMS under **Export**. The command fetches `GET /export` and **replaces** local
 `cms_` content (pages, slots, published revisions, redirects, media rows) with
-what came back. It is one-way, never touches drafts, definitions, users,
-sessions or tokens, keeps images pointing at the production bucket, and
-**refuses to run under `NODE_ENV=production`**.
+what came back. It is one-way and the export never contains drafts, definitions,
+users, sessions or tokens — but because it replaces local content wholesale, it
+**discards local drafts** too: anything unpublished in the local CMS is gone
+after a pull. Images keep pointing at the production bucket, and it **refuses to
+run under `NODE_ENV=production`**.
 
 

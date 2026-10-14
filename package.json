@@ -7,9 +7,11 @@
     "packages/*"
   ],
   "scripts": {
-    "lint": "bun run --cwd app lint && bun run --cwd packages/billet-cms lint",
-    "typecheck": "bun run --cwd app typecheck && bun run --cwd packages/billet-cms typecheck",
-    "check": "bun run --cwd app check && bun run --cwd packages/billet-cms check",
+    "lint": "bun run --cwd app lint && bun run --cwd packages/billet-cms lint && bun run lint:e2e",
+    "typecheck": "bun run --cwd app typecheck && bun run --cwd packages/billet-cms typecheck && bun run typecheck:e2e",
+    "check": "bun run --cwd app check && bun run --cwd packages/billet-cms check && bun run lint:e2e && bun run typecheck:e2e",
+    "lint:e2e": "cd e2e && bun --bun biome check .",
+    "typecheck:e2e": "cd e2e && bun --bun tsc --noEmit",
     "test": "bun run --cwd app --env-file=../.env.test test && bun run --cwd packages/billet-cms test && bun run e2e",
     "build": "bun run --cwd app build",
     "migrate:up": "bun run --cwd app migrate:up",

@@ -14,7 +14,6 @@
  * no-cache headers.
  */
 import type { SQL } from "bun";
-import { hero } from "./cms.config.ts";
 import {
   applyPreview,
   createCmsMedia,
@@ -23,6 +22,7 @@ import {
   renderCmsImage,
 } from "../packages/billet-cms/src/server/index.ts";
 import { escapeHtml } from "../packages/billet-cms/src/server/rich-text.ts";
+import { hero } from "./cms.config.ts";
 
 export interface E2eSite {
   /** The request handler, mounted by the test on a real `Bun.serve`. */

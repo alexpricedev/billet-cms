@@ -13,6 +13,7 @@ import { checkCsrf } from "../../middleware/csrf";
 import { createCsrfToken } from "../../services/csrf";
 import {
   createExportToken,
+  ExportTokenLabelError,
   listExportTokens,
   revokeExportToken,
 } from "../../services/export";
@@ -28,6 +29,8 @@ const renderPage = async (
     newToken?: string | null;
     notice?: string | null;
     error?: string | null;
+    /** Response headers the page itself needs, e.g. `no-store`. */
+    headers?: Record<string, string>;
   } = {},
 ): Promise<Response> => {
   const sessionId = ctx.sessionId as string;
@@ -57,6 +60,7 @@ const renderPage = async (
       notice={extras.notice ?? null}
       error={extras.error ?? null}
     />,
+    extras.headers,
   );
 };
 
@@ -98,18 +102,26 @@ export const exportTokens = {
 
     const formData = await req.formData();
     const label = nonEmpty(formData.get("label"))?.trim() ?? "";
-    if (label === "") {
-      return renderPage(ctx, {
-        error: "Name this token so you can recognise it.",
+
+    let created: Awaited<ReturnType<typeof createExportToken>>;
+    try {
+      created = await createExportToken({
+        label,
+        actorId: ctx.user?.id ?? null,
       });
+    } catch (error) {
+      if (error instanceof ExportTokenLabelError) {
+        return renderPage(ctx, { error: error.message });
+      }
+      throw error;
     }
 
-    const created = await createExportToken({
-      label,
-      actorId: ctx.user?.id ?? null,
+    // The raw token is in this body and nowhere else, so the response must not
+    // be stored by a proxy, a shared cache or the browser's back-forward cache.
+    return renderPage(ctx, {
+      newToken: created.rawToken,
+      headers: { "Cache-Control": "no-store" },
     });
-
-    return renderPage(ctx, { newToken: created.rawToken });
   },
 
   /** Revoke a token. */

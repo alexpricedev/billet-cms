@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import type { Subprocess } from "bun";
 import { SQL } from "bun";
+import { publish } from "../packages/billet-cms/src/cli/publish/index.ts";
 import type { MediaVariant } from "../packages/billet-cms/src/contract/index.ts";
 import { hashHandoffToken } from "../packages/billet-cms/src/handoff/index.ts";
-import { publish } from "../packages/billet-cms/src/cli/publish/index.ts";
 import { siteDefinitions } from "./cms.config.ts";
 import { createSite, type E2eSite } from "./site.ts";
-import type { Subprocess } from "bun";
 
 /**
  * The end-to-end suite: the ticket's Done when, as an automated test.
@@ -88,6 +88,7 @@ const pickFreePort = (): number => {
   const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
   const port = probe.port;
   probe.stop(true);
+  if (port === undefined) throw new Error("Bun.serve did not bind a port");
   return port;
 };
 
@@ -248,9 +249,7 @@ beforeAll(async () => {
   );
   const confirmHtml = await confirm.text();
   const guest = sessionCookie(confirm);
-  const handoffCsrf = confirmHtml.match(
-    /name="_csrf" value="([^"]+)"/,
-  )?.[1];
+  const handoffCsrf = confirmHtml.match(/name="_csrf" value="([^"]+)"/)?.[1];
   if (!handoffCsrf) throw new Error("No CSRF token on the handoff page");
 
   const spent = await fetch(`${cmsUrl}/handoff`, {
@@ -303,7 +302,10 @@ const saveDraft = async (heading: string): Promise<void> => {
     `/cms/slots/${ctx.slotId}`,
     {
       method: "POST",
-      headers: { Origin: ctx.cmsUrl, "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        Origin: ctx.cmsUrl,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
       body: new URLSearchParams({
         _csrf: form.saveCsrf,
         base_revision: form.baseRevision,
@@ -316,7 +318,9 @@ const saveDraft = async (heading: string): Promise<void> => {
     ctx.cookie,
   );
   expect(response.status).toBe(303);
-  expect(response.headers.get("location")).toBe(`/cms/slots/${ctx.slotId}?saved=1`);
+  expect(response.headers.get("location")).toBe(
+    `/cms/slots/${ctx.slotId}?saved=1`,
+  );
 };
 
 /** Publish the newest draft through the CMS's publish endpoint. */
@@ -327,7 +331,10 @@ const publishLatest = async (): Promise<void> => {
     `/cms/slots/${ctx.slotId}/publish`,
     {
       method: "POST",
-      headers: { Origin: ctx.cmsUrl, "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        Origin: ctx.cmsUrl,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
       body: new URLSearchParams({
         _csrf: form.publishCsrf,
         revision: form.latestRevision,
@@ -377,7 +384,10 @@ describe("the ticket's Done when, end to end", () => {
       `/cms/slots/${ctx.slotId}/preview`,
       {
         method: "POST",
-        headers: { Origin: ctx.cmsUrl, "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          Origin: ctx.cmsUrl,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
         body: new URLSearchParams({ _csrf: form.previewCsrf }),
       },
       ctx.cookie,
