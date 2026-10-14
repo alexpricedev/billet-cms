@@ -57,36 +57,20 @@ suites in ways neither can reproduce. A workspace port must never reach the test
 idempotent (the base name comes from the root checkout's `.env`); `destroy` refuses to drop a
 database that doesn't carry this workspace's slug. Both no-op in cloud workspaces.
 
-### The dev database is shared with whoever has the browser open
+### The dev database is shared with the site
 
-One workspace, one `DATABASE_URL` — the rows an agent writes are the rows a person is signed in
-against. So the obvious way to check an admin screen (mint a session for `admin@example.com`, drive
-the page, then `DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE email =
-'admin@example.com')`) logs the developer out mid-session, with nothing on screen to explain it. It
-reads as session expiry or a pool fault; it is neither, and it repeats every verification pass.
+One workspace, one `DATABASE_URL`, and it is the *site's* database: the CMS
+creates only `cms_`-prefixed relations plus the `cms_identities` view over the
+site's `users`, and must never truncate or rewrite a site table. Use the test
+database (`.env.test`, its own `DATABASE_URL`, truncated between tests) for
+anything that writes. To exercise a guarded page by hand, sign in through the
+site and the `/handoff` flow — the upstream `scripts/qa-session.ts` helper is
+gone with the CMS's own sign-in.
 
-`scripts/qa-session.ts` is the replacement, and the rule is to use it rather than remember the
-hazard. It mints a session for a QA account of its own and prints the `Cookie` header:
-
-```
-bun run scripts/qa-session.ts                    # platform user
-bun run scripts/qa-session.ts --role=admin       # platform admin, for /admin
-bun run scripts/qa-session.ts --org-role=owner   # org owner, for /team
-bun run scripts/qa-session.ts --clean            # delete every QA session
-```
-
-The two flags are the two role axes and stay separate, so "org owner who is not a platform admin"
-— the case worth verifying — is expressible. Each combination is its own account named after
-itself (`qa-agent-admin-member@example.com`), so minting one never mutates a role out from under a
-session another still holds; org roles share one `QA` organisation, which is what makes an owner
-and a member comparable on the same page. It refuses to run under `NODE_ENV=production` —
-creating a platform admin on demand at an address the operator doesn't control is the hole
-`seedIfEmpty` avoids by only touching an empty database. None of these accounts are in the seed,
-so a developer who never runs an agent never sees the rows.
-
-`DELETE FROM sessions` without a `user_id` predicate is never right here. Neither is reading the
-human's cookie out of their browser instead of minting one: it works, and it makes the agent's
-requests indistinguishable from the developer's in the logs.
+`DELETE FROM` without a predicate is never right here. Neither is reading the
+human's cookie out of their browser instead of going through sign-in: it works,
+and it makes the agent's requests indistinguishable from the developer's in the
+logs.
 
 ### JSX is a server-side template engine, nothing more
 
@@ -205,34 +189,15 @@ contract — never a secret and never an API call.
 or a link scanner that followed the URL would otherwise burn the token before the person clicked.
 Both the Edit content link and the sign-in route use it.
 
-### Two role axes, and they must never merge
+### Roles live in `cms_identities`, not a CMS account table
 
-`users.role` (`'user' | 'admin'`) is the **platform operator** flag. It gates `/admin` via
-`requireAdmin` and nothing else touches it.
-
-`organization_members.org_role` (`'owner' | 'admin' | 'member'`, migration `008`) is standing
-inside **one organisation**, behind `TEAMS_ENABLED` (`src/server/services/teams-mode.ts`, a
-boolean, fatal at boot on anything but `true`/`false`). It gates `/team` via `requireOrgRole`
-(`src/server/middleware/org.ts`), which returns the resolved membership the way `requireAdmin`
-returns the context.
-
-Do not widen `users_role_check` to hold org roles: "org owner who is not a platform admin" is the
-common case and merging the axes makes it inexpressible. Team forms name the field `org_role`,
-never `role`, so a copy-paste can't write a member's input into the platform flag.
-
-Migration `008` adds three tables and **alters nothing**. Membership is a row in
-`organization_members` (`user_id` UNIQUE, so one org per user is structural) rather than columns on
-`users`, because that is what makes the feature removable: a fork that doesn't want teams deletes
-the migration and the team code, or runs `down` for three `DROP TABLE`s that cannot reach an
-account row. Never add an org column to `users` — you would be handing every fork a migration to
-write against live account data. Scope your own tables instead; `runbooks/TEAMS.md` has the seam.
-
-Every `:id` in a team route is scoped `WHERE user_id = $1 AND organization_id = $2`. The guard
-proves you administer *an* org, not that the row you named is in it — nothing else catches that.
-The last-owner rule lives inside the `UPDATE`/`DELETE`, not around it; the hidden button is
-cosmetic.
-
-Core does not scope domain data by org — `runbooks/TEAMS.md` has the seam and the reasoning.
+The CMS has no account table and no admin or team surface: the user admin dashboard
+(`/admin`), organisations and teams, and the `/team` and `/invites` routes were all removed with
+the rest of the upstream strip (see `../AGENTS.md`). `cms_identities` is the site's view (the
+default exposes the site's admins) and carries `id`, `email` and `role`; a session stores an
+identity's `id` and re-reads the view on every request, so a site that removes an account ends the
+session at the next request. A guard that needs "is this still a valid identity" re-reads the view
+rather than consulting a separate role table.
 
 ### The CMS never touches passwords
 
@@ -323,9 +288,9 @@ deployment somewhere else would only break boot.
 
 ### The upstream release is in `.billet-version`, not `package.json`
 
-`package.json`'s `version` belongs to whoever forked this — `START_PROMPT.md` hands the project
-name and that field over at setup. `.billet-version` is the separate, rename-proof record of which
-Billet release the tree came from: one version line, everything else comment.
+`package.json`'s `version` belongs to this fork, not to upstream Billet. `.billet-version` is the
+separate, rename-proof record of which Billet release the tree came from: one version line,
+everything else comment.
 
 Read it before deciding whether a reported bug is real. A fork reporting something already fixed
 upstream is the common case, and without that line the only way to tell is diffing source against a
@@ -339,29 +304,25 @@ its own PR, after the feature PR has merged. `runbooks/RELEASE.md` has the whole
 ### Linting
 
 Biome runs with `recommended` on and `noConsole: error` — use `log` from
-`src/server/services/logger.ts` in server code. Test files, `logger.ts`, the database CLI/seed
-scripts, and `test-utils/bootstrap.ts` have targeted overrides in `biome.json`; add an override
-there rather than sprinkling ignore comments.
-
-`tsconfig.json` excludes `src/server/services/email-providers/resend.ts` from typechecking —
-changes to it are not covered by `bun run check`.
+`src/server/services/logger.ts` in server code. Test files, `logger.ts`, the
+database CLI scripts, and `test-utils/bootstrap.ts` have targeted overrides in
+`biome.json`; add an override there rather than sprinkling ignore comments.
 
 ### Naming that isn't inferable
 
-App controllers export a plain name (`home`, `todos`); API controllers use an `Api` suffix
-(`examplesApi`, `statsApi`) so both can be barrel-exported when they share a resource name.
+App controllers export a plain name (`forms`, `landing`); API controllers use an `Api` suffix
+(`statsApi`) so both can be barrel-exported when they share a resource name.
 
 ## Skills
 
 Detail lives in skills so it loads only when it's relevant:
 
-- `adding-a-feature` — wiring a new page, API endpoint, or admin route through every layer
+- `adding-a-feature` — wiring a new page or API endpoint through every layer
 - `writing-tests` — the testing pattern for each module type
 - `verifying-changes` — how to run checks and tests, and what the failures mean
 
 ## Runbooks
 
 `runbooks/` holds the operational standards this project is held to — `SECURITY.md`, `PRIVACY.md`,
-`ACCESSIBILITY.md`, `SEO.md`, `CI.md`, `TEAMS.md`, `RELEASE.md`. Read the relevant one
-before changing headers, cookies, metadata, anything on the team surface, or
-cutting a release.
+`ACCESSIBILITY.md`, `SEO.md`, `CI.md`, `RELEASE.md`. Read the relevant one
+before changing headers, cookies or metadata, or cutting a release.

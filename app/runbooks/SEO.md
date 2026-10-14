@@ -91,7 +91,7 @@ page passes its own metadata as props:
 |---|---|---|
 | `title` | `<title>` + `og:title` + `twitter:title` | Unique per page; keep under ~60 chars |
 | `description` | `<meta name="description">` + OG/Twitter | Unique per page; ~150 chars. Falls back to `SITE_DESCRIPTION` |
-| `canonicalPath` | `<link rel="canonical">` + `og:url` | Path only (e.g. `/stack`); resolved against the canonical origin (§1a) |
+| `canonicalPath` | `<link rel="canonical">` + `og:url` | Path only (e.g. `/forms`); resolved against the canonical origin (§1a) |
 | `noindex` | `<meta name="robots" content="noindex, nofollow">` | See §4 |
 
 Rule: **every page sets `title`, `description`, and `canonicalPath`.** The shared
@@ -109,7 +109,7 @@ The sitemap is generated, not hand-maintained. To include a new indexable page:
    rebuilds from that list on every request.
 
 Only list **canonical, indexable, public** URLs. Do **not** add `noindex` pages
-(`/admin`, `/login`), API endpoints, auth callbacks, or paginated/filtered
+(`/account`, `/cms`), API endpoints, auth callbacks, or paginated/filtered
 variants. A sitemap that lists non-indexable URLs is a quality signal against you.
 
 ## 4. Marking a page `noindex`
@@ -118,7 +118,7 @@ Private, thin, staging, or duplicate pages must carry an explicit `noindex`. Pas
 the `noindex` prop:
 
 ```tsx
-<Layout title="Admin" canonicalPath="/admin" noindex name="admin" ...>
+<Layout title="Account" canonicalPath="/account" noindex name="account" ...>
 ```
 
 Two things decide whether a page says `noindex`: the site-wide switch (§1b) and
@@ -127,7 +127,7 @@ already keeps the page out, so a page that passes it stays `noindex` after
 `ALLOW_INDEXING=true` opens the rest of the site up. `blocksIndexing` in
 [`layouts.tsx`](../src/server/components/layouts.tsx) is the whole of that rule.
 
-Currently applied to `/admin` (private) and `/login` (thin/private). A page that
+Currently applied to `/account` and `/cms` (private) and to the error pages. A page that
 is `noindex` — by its own prop or by the site-wide default — also **omits the
 site JSON-LD**: you don't want structured data on pages you're telling crawlers
 to ignore.
@@ -151,8 +151,8 @@ line, which is dropped while indexing is off because there is nothing to
 advertise on a host that isn't indexable, and the `Content-Signal` values. It:
 
 - allows all user-agents,
-- disallows the private surfaces listed in `ROBOTS_DISALLOW` — `/admin`,
-  `/account`, `/api/`, `/auth/`, `/team`, `/invites/`,
+- disallows the private surfaces listed in `ROBOTS_DISALLOW` — `/account`,
+  `/api/`, `/auth/`,
 - repeats the same rules for each crawler in `AI_CRAWLERS` (GPTBot, ClaudeBot,
   PerplexityBot and friends), because in robots.txt a named user-agent group
   fully replaces the wildcard group for that agent,
@@ -182,7 +182,7 @@ a JSON-LD block. Validate with the Rich Results Test (§8).
 ## 7. URLs, redirects, and headings
 
 - **Canonicalisation** — `src/server/main.ts` issues a `308` redirect from any
-  trailing-slash path to its slash-free form (e.g. `/stack/` → `/stack`),
+  trailing-slash path to its slash-free form (e.g. `/forms/` → `/forms`),
   preserving the query string. One URL per page, no duplicate crawling.
 - **URL structure** — keep new routes lowercase, hyphenated, descriptive, and
   shallow. Treat URLs as a stable public API; avoid renaming a live URL, and
@@ -205,10 +205,10 @@ without it the `robots` and indexing-policy steps are *supposed* to fail:
 - **robots** — `curl -s https://example.com/robots.txt` shows `Allow: /`, the
   disallow rules and the absolute `Sitemap:` line. A missing `Sitemap:` line
   means `ALLOW_INDEXING` is unset.
-- **Redirect** — `curl -sI https://example.com/stack/` returns `308` with a
+- **Redirect** — `curl -sI https://example.com/forms/` returns `308` with a
   `Location` of the slash-free path.
 - **Indexing policy** — view-source on a public page shows no `noindex`; on
-  `/admin` and `/login` it shows `<meta name="robots" content="noindex, nofollow">`.
+  `/account` and `/cms` it shows `<meta name="robots" content="noindex, nofollow">`.
   A `noindex` on *every* page is the site-wide default, not a per-page bug — see
   the indexing-switch step above.
 - **Structured data** — run a public URL through the

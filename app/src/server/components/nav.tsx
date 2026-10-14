@@ -1,10 +1,7 @@
 import type { User } from "../services/users";
 import { CsrfField } from "./csrf-field";
 
-const navLinks = [
-  { href: "/stack", label: "Stack", name: "stack" },
-  { href: "/forms", label: "Forms", name: "forms" },
-];
+const navLinks = [{ href: "/forms", label: "Forms", name: "forms" }];
 
 // The CMS's own surface, shown only to someone signed in.
 const contentLink = { href: "/cms", label: "Content", name: "cms" };

@@ -138,9 +138,6 @@ export function Layout({
           />
         )}
       </head>
-      {/* data-banner drives the body offset for the fixed banner. Set from the
-          same condition the component renders on, so the padding can't outlive
-          the bar it makes room for. */}
       <body data-page={name} data-component="layout">
         <header>
           <a href="/" className="logo">

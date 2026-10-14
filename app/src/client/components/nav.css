@@ -154,7 +154,7 @@
         position: absolute;
         right: 0;
         top: 100%;
-        /* Under the verify banner's fixed bar (z-index 10), above <main>. */
+        /* Above <main>. */
         z-index: 9;
       }
 

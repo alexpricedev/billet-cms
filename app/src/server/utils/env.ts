@@ -13,7 +13,7 @@ const REQUIRED = [
 // time, so a malformed value is a throw on every page render rather than a
 // warning. The protocol check is not pedantry: `new URL("mailto:x")` parses
 // happily and its `.origin` is the literal string "null", which would ship
-// canonicals reading "null/stack". In production `http:` is rejected too — a
+// canonicals reading "null/forms". In production `http:` is rejected too — a
 // plaintext canonical is a duplicate-content and mixed-content signal, and the
 // emailed links built from the same origin would go out unencrypted. Dev and
 // test stay on http://localhost.
@@ -113,7 +113,7 @@ export function validateEnv(exit: (code: number) => void = process.exit): void {
 
   // TRUST_PROXY decides whose word the rate limiter takes for the client
   // address (see middleware/client-ip.ts). A typo is worth refusing to boot
-  // over for the same reason as TEAMS_ENABLED: "ture" silently means "off",
+  // over for the same reason any boolean flag is: "ture" silently means "off",
   // and off behind a proxy collapses every client into one rate-limit bucket.
   if (
     process.env.TRUST_PROXY !== undefined &&

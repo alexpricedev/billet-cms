@@ -20,6 +20,7 @@ import {
   cleanupTestData,
   randomEmail,
   seedIdentity,
+  withIndexingAllowed,
 } from "../../test-utils/helpers";
 import { stateHelpers } from "../../utils/state";
 
@@ -137,6 +138,36 @@ describe("Forms Controller", () => {
       const html = await response.text();
 
       expect(html).not.toContain("Submitted successfully");
+    });
+  });
+
+  // The layout's site-wide indexing switch, carried over from the deleted
+  // home controller tests: a public page carries no noindex of its own, so what
+  // it renders is the default. Both directions, because the closed default is
+  // the whole point and the open path is what a production host gets.
+  describe("Layout indexing", () => {
+    test("stays out of the index until indexing is switched on", async () => {
+      const request = createBunRequest("http://localhost:3000/forms", {
+        method: "GET",
+      });
+      const html = await (await forms.index(request)).text();
+
+      expect(html).toContain('name="robots" content="noindex, nofollow"');
+      // Structured data follows the tag: no point describing a page to a
+      // crawler you are telling to ignore it.
+      expect(html).not.toContain("application/ld+json");
+    });
+
+    test("is indexable with structured data once indexing is on", async () => {
+      const request = createBunRequest("http://localhost:3000/forms", {
+        method: "GET",
+      });
+      const html = await withIndexingAllowed(async () =>
+        (await forms.index(request)).text(),
+      );
+
+      expect(html).not.toContain('name="robots"');
+      expect(html).toContain("application/ld+json");
     });
   });
 

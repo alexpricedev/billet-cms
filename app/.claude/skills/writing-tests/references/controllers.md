@@ -67,7 +67,7 @@ For redirects, assert the status and the `Location` header rather than the body:
 
 ```ts
 expect(res.status).toBe(303);
-expect(res.headers.get("Location")).toBe("/login");
+expect(res.headers.get("Location")).toBe("/sign-in");
 ```
 
 Test the guest and the authenticated render of anything auth-aware — build a session with
@@ -77,7 +77,7 @@ A controller with fragment branches gets each action tested twice: as the plain 
 redirect and the flash cookie) and with the `FRAGMENT_HEADER` from `@shared/protocol` set to `"1"`
 (assert the status, `text/html`, and that the body is the row, not a page). Cover the stale-token
 path both ways too — the plain post flashes, the fragment answers 403 with a fresh `CSRF_HEADER`
-that then verifies. `controllers/app/todos.test.ts` is the shape.
+that then verifies. `controllers/cms/pages.test.ts` is the shape.
 
 ## Fixtures
 
