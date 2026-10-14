@@ -11,6 +11,7 @@ import {
 import { account, handoff, logout, signIn } from "../controllers/auth";
 import {
   dashboard,
+  exportTokens,
   media,
   pagePublish,
   pages,
@@ -99,6 +100,15 @@ export const appRoutes = {
   "/cms/media/:id/delete": createRouteHandler({
     GET: media.confirmDelete,
     POST: media.destroy,
+  }),
+  // Export tokens: admin-created credentials for `cms:pull`. A create shows the
+  // raw token once (no redirect), and a revoke retires the row in place.
+  "/cms/export": createRouteHandler({
+    GET: exportTokens.index,
+    POST: exportTokens.create,
+  }),
+  "/cms/export/:id/revoke": createRouteHandler({
+    POST: exportTokens.revoke,
   }),
   // The Edit content handoff and CMS sign-in both arrive as a single-use token
   // the site minted, so both render a confirm step on GET and spend the token on

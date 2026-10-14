@@ -65,6 +65,8 @@ describe("TABLES", () => {
       redirects: "cms_redirects",
       previewTokens: "cms_preview_tokens",
       media: "cms_media",
+      exportTokens: "cms_export_tokens",
+      audit: "cms_audit",
     });
   });
 });
