@@ -140,8 +140,8 @@ export const withSecurityHeaders = (res: Response): Response => {
   // Sign every redirect with the software that issued it, so anyone tracing a
   // redirect chain can see which layer to fix (spec: resilience/redirect-by).
   // Gating on Location covers every redirect source — the `redirect()` helper,
-  // the trailing-slash 308, and the inline 303s in the auth/admin middleware —
-  // without each having to remember to set it.
+  // the trailing-slash 308, and the inline 303s in the auth middleware and
+  // controllers — without each having to remember to set it.
   if (res.headers.has("Location") && !res.headers.has("X-Redirect-By")) {
     res.headers.set("X-Redirect-By", SITE_NAME);
   }

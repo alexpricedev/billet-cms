@@ -277,10 +277,12 @@ beforeAll(async () => {
   })();
 
   // Bun.fetch, not fetch: the happy-dom preload replaces global fetch with
-  // one that enforces the Same Origin Policy against its fake window.
+  // one that enforces the Same Origin Policy against its fake window. Probe
+  // /health, not the root: the root is a redirect into the site's sign-in, and
+  // the stand-in site is not started until after this readiness check.
   const ready = await until(
     () =>
-      Bun.fetch(CMS_BASE)
+      Bun.fetch(`${CMS_BASE}/health`)
         .then((res) => res.ok)
         .catch(() => false),
     (ok) => ok === true,
@@ -348,8 +350,8 @@ afterAll(async () => {
 });
 
 describe("browser smoke", () => {
-  test("home renders with a title and an applied stylesheet", async () => {
-    await goto(`${CMS_BASE}/`);
+  test("a CMS page renders with a title and an applied stylesheet", async () => {
+    await goto(`${CMS_BASE}/forms`);
 
     const title = await view.evaluate<string>("document.title");
     expect(title.length).toBeGreaterThan(0);
@@ -401,9 +403,9 @@ describe("browser smoke", () => {
   });
 
   test("a signed-out CMS visit signs in through the site and back", async () => {
-    // No cookie yet: /cms answers a redirect chain out to the site's sign-in
-    // route and then to the site's own login.
-    await goto(`${CMS_BASE}/cms`);
+    // No cookie yet: the root redirects to /cms, and /cms answers a redirect
+    // chain out to the site's sign-in route and then to the site's own login.
+    await goto(`${CMS_BASE}/`);
 
     const loginUrl = await until(
       async () => view.url,

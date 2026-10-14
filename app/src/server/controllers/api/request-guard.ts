@@ -22,7 +22,8 @@ import { jsonError } from "../../utils/response";
  *
  * Three separate buckets, and that separation is the budget: sharing one would
  * make reads spend the write allowance, and sharing the auth forms' would let
- * a handful of `/api/*` calls 429 the next `/login` from the same address.
+ * a handful of `/api/*` calls 429 the next signed-out auth request from the
+ * same address.
  */
 export const apiReadLimit = (req: BunRequest): Response | null =>
   rateLimit(req, "api-read", 60, 60_000);
@@ -114,8 +115,8 @@ const MAX_SERIAL_ID = 2_147_483_647;
  * Read the trailing `:id` path segment as a positive integer.
  *
  * The parse this replaces (`Number.parseInt(segment) || 0`) handed its result
- * straight to the service, so `/api/todos/invalid` queried the database for
- * `NaN` and answered the miss with a 404 — telling the client the todo did
+ * straight to the service, so a non-numeric `:id` queried the database for
+ * `NaN` and answered the miss with a 404 — telling the client the resource did
  * not exist, when in fact it had never named one.
  */
 export const readIdParam = (req: BunRequest): IdResult => {

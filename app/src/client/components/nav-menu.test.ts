@@ -10,7 +10,7 @@ const markup = `
       </button>
       <div id="nav-menu" class="nav-panel">
         <ul>
-          <li><a href="/stack">Stack</a></li>
+          <li><a href="/forms">Forms</a></li>
         </ul>
         <div class="nav-auth"><a class="btn-ghost" href="/sign-in">Sign in</a></div>
       </div>

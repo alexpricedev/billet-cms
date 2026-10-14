@@ -102,7 +102,7 @@ describe("generated artefacts follow the resolved origin", () => {
 
     const xml = buildSitemapXml();
 
-    expect(xml).toContain("<loc>https://example.com/</loc>");
+    expect(xml).toContain("<loc>https://example.com/forms</loc>");
     expect(xml).not.toContain("app.example.com");
   });
 

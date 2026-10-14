@@ -23,7 +23,7 @@ describe("urlProblem", () => {
   });
 
   // new URL() parses this happily and reports an origin of the literal string
-  // "null", which would ship canonicals reading "null/stack".
+  // "null", which would ship canonicals reading "null/forms".
   test("rejects a URL that parses but isn't http(s)", () => {
     expect(urlProblem("SITE_URL", "mailto:hi@example.com")).toBe(
       'SITE_URL must use http:// or https:// (got "mailto:hi@example.com")',
