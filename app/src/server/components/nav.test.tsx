@@ -29,7 +29,7 @@ describe("Nav", () => {
     // itself is left outside it.
     const panel = html.slice(html.indexOf('id="nav-menu"'));
 
-    expect(panel).toContain('href="/forms"');
+    expect(panel).toContain('href="/cms"');
     expect(panel).toContain('href="/account"');
     expect(panel).toContain('action="/auth/logout"');
     // The label matches /account's wording rather than upstream's "Logout".
@@ -49,7 +49,7 @@ describe("Nav", () => {
   });
 
   test("marks the current page on its link", () => {
-    const html = renderToString(<Nav page="forms" user={null} />);
+    const html = renderToString(<Nav page="cms" user={user} />);
 
     expect(html).toContain('aria-current="page"');
   });

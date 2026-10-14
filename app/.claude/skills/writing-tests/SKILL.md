@@ -12,7 +12,7 @@ description: Testing patterns for this repo — which layer gets mocked, how ser
 > names a table, read `users`, `sessions` and `user_tokens` as `cms_users`,
 > `cms_sessions` and `cms_user_tokens`.
 
-Tests are co-located: `forms.test.ts` sits next to `forms.tsx`. Test user-visible behaviour rather
+Tests are co-located: `media.test.tsx` sits next to `media.tsx`. Test user-visible behaviour rather
 than implementation, and cover both guest and authenticated paths for anything auth-aware.
 
 The mocking boundary is the same everywhere: **mock the service layer, exercise everything above

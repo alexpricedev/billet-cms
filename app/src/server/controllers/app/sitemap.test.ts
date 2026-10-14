@@ -33,5 +33,7 @@ describe("Sitemap Controller", () => {
     expect(body).not.toContain("/login");
     expect(body).not.toContain("/sign-in");
     expect(body).not.toContain("/api/");
+    // The /forms demo was removed; a stale loc would send crawlers to a 404.
+    expect(body).not.toContain("/forms");
   });
 });

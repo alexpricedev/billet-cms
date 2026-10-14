@@ -46,11 +46,13 @@ export const SITE_NAME = "Billet CMS";
 export const SITE_DESCRIPTION =
   "Billet CMS — a headless CMS for Billet sites, on Bun and PostgreSQL";
 
-// Public, indexable routes included in the sitemap. The CMS root is a redirect
-// to the guarded `/cms` surface, so it is not listed; private or noindex routes
-// (/account, /cms), API endpoints, and the sign-in handoff are intentionally
-// omitted too.
-export const SITEMAP_PATHS = ["/forms"] as const;
+// Public, indexable routes included in the sitemap. The CMS serves no public
+// pages of its own: the root is a redirect to the guarded `/cms` surface, and
+// /account, /cms, the API and the sign-in handoff are private or noindex. The
+// list is kept as the one place a new public page is registered (the sitemap and
+// llms.txt both read it) rather than deleted, so the shape survives an empty
+// site.
+export const SITEMAP_PATHS: readonly string[] = [];
 
 // Absolute URL for a site-relative path. Exported so llms-txt.ts resolves against
 // the same origin rather than keeping its own copy of this line.

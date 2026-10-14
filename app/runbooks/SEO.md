@@ -91,7 +91,7 @@ page passes its own metadata as props:
 |---|---|---|
 | `title` | `<title>` + `og:title` + `twitter:title` | Unique per page; keep under ~60 chars |
 | `description` | `<meta name="description">` + OG/Twitter | Unique per page; ~150 chars. Falls back to `SITE_DESCRIPTION` |
-| `canonicalPath` | `<link rel="canonical">` + `og:url` | Path only (e.g. `/forms`); resolved against the canonical origin (§1a) |
+| `canonicalPath` | `<link rel="canonical">` + `og:url` | Path only (e.g. `/cms/media`); resolved against the canonical origin (§1a) |
 | `noindex` | `<meta name="robots" content="noindex, nofollow">` | See §4 |
 
 Rule: **every page sets `title`, `description`, and `canonicalPath`.** The shared
@@ -182,7 +182,7 @@ a JSON-LD block. Validate with the Rich Results Test (§8).
 ## 7. URLs, redirects, and headings
 
 - **Canonicalisation** — `src/server/main.ts` issues a `308` redirect from any
-  trailing-slash path to its slash-free form (e.g. `/forms/` → `/forms`),
+  trailing-slash path to its slash-free form (e.g. `/cms/` → `/cms`),
   preserving the query string. One URL per page, no duplicate crawling.
 - **URL structure** — keep new routes lowercase, hyphenated, descriptive, and
   shallow. Treat URLs as a stable public API; avoid renaming a live URL, and
@@ -205,7 +205,7 @@ without it the `robots` and indexing-policy steps are *supposed* to fail:
 - **robots** — `curl -s https://example.com/robots.txt` shows `Allow: /`, the
   disallow rules and the absolute `Sitemap:` line. A missing `Sitemap:` line
   means `ALLOW_INDEXING` is unset.
-- **Redirect** — `curl -sI https://example.com/forms/` returns `308` with a
+- **Redirect** — `curl -sI https://example.com/cms/` returns `308` with a
   `Location` of the slash-free path.
 - **Indexing policy** — view-source on a public page shows no `noindex`; on
   `/account` and `/cms` it shows `<meta name="robots" content="noindex, nofollow">`.
