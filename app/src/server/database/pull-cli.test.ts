@@ -6,6 +6,7 @@ import {
   EXPORT_FORMAT,
   EXPORT_FORMAT_VERSION,
 } from "@alexpricedev/billet-cms/contract";
+import type { SQL } from "bun";
 import { createTempDatabase } from "../test-utils/migration-helpers";
 import { runMigrations } from "./migrate";
 
@@ -133,6 +134,30 @@ const startCms = (body: unknown, token = "good-token"): string => {
   return `http://localhost:${server.port}`;
 };
 
+/** A local-only page, so a failed pull has something it should not have lost. */
+const seedLocalRows = async (sql: SQL): Promise<void> => {
+  await sql`
+    INSERT INTO cms_pages (page_type, url, title)
+    VALUES ('landing', '/local-only', 'Local only')
+  `;
+};
+
+/** The local page URLs, in order. */
+const localPageUrls = async (sql: SQL): Promise<string[]> => {
+  const rows = (await sql`SELECT url FROM cms_pages ORDER BY url`) as {
+    url: string;
+  }[];
+  return rows.map((row) => row.url);
+};
+
+/** The local `cms_meta.content_version`. */
+const localContentVersion = async (sql: SQL): Promise<number> => {
+  const rows = (await sql`
+    SELECT content_version FROM cms_meta WHERE id = 1
+  `) as { content_version: number | string }[];
+  return Number(rows[0].content_version);
+};
+
 describe("cms:pull", () => {
   test("replaces local content with the export, and keeps production image URLs", async () => {
     const temp = await createTempDatabase("pull");
@@ -236,6 +261,162 @@ describe("cms:pull", () => {
       await expect(
         pullFrom({ from, token: "wrong-token", sql, fetchImpl: Bun.fetch }),
       ).rejects.toThrow(/answered 401/);
+    } finally {
+      await temp.drop();
+    }
+  });
+
+  test("refuses a --from that is not a URL, or plain http off localhost", async () => {
+    const temp = await createTempDatabase("pull-from");
+    try {
+      const sql = temp.open();
+      await runMigrations(sql);
+
+      // No scheme at all: a typo, not a host.
+      await expect(
+        pullFrom({
+          from: "cms.example.com",
+          token: "x",
+          sql,
+          fetchImpl: Bun.fetch,
+        }),
+      ).rejects.toThrow(/must be a full URL/);
+
+      // http carries the whole site and the bearer token in the clear, so it is
+      // refused for anything but loopback (the positive case is every other test
+      // here, all of which use http://localhost).
+      await expect(
+        pullFrom({
+          from: "http://cms.example.com",
+          token: "x",
+          sql,
+          fetchImpl: Bun.fetch,
+        }),
+      ).rejects.toThrow(/must be https/);
+    } finally {
+      await temp.drop();
+    }
+  });
+
+  test("refuses a contract-version mismatch without touching local content", async () => {
+    const temp = await createTempDatabase("pull-version");
+    try {
+      const sql = temp.open();
+      await runMigrations(sql);
+      await seedLocalRows(sql);
+      const before = await localContentVersion(sql);
+
+      const from = startCms({ ...document, contractVersion: "0.0.1" });
+      await expect(
+        pullFrom({ from, token: "good-token", sql, fetchImpl: Bun.fetch }),
+      ).rejects.toThrow(/Contract version mismatch/);
+
+      expect(await localPageUrls(sql)).toEqual(["/local-only"]);
+      expect(await localContentVersion(sql)).toBe(before);
+    } finally {
+      await temp.drop();
+    }
+  });
+
+  test("refuses an export that names no contract version", async () => {
+    const temp = await createTempDatabase("pull-no-version");
+    try {
+      const sql = temp.open();
+      await runMigrations(sql);
+      await seedLocalRows(sql);
+      const before = await localContentVersion(sql);
+
+      const from = startCms({ ...document, contractVersion: "" });
+      await expect(
+        pullFrom({ from, token: "good-token", sql, fetchImpl: Bun.fetch }),
+      ).rejects.toThrow(/does not name a contract version/);
+
+      expect(await localPageUrls(sql)).toEqual(["/local-only"]);
+      expect(await localContentVersion(sql)).toBe(before);
+    } finally {
+      await temp.drop();
+    }
+  });
+
+  test("refuses a local cms_meta on another contract without touching local content", async () => {
+    const temp = await createTempDatabase("pull-local-version");
+    try {
+      const sql = temp.open();
+      await runMigrations(sql);
+      await seedLocalRows(sql);
+
+      // The source document is fine; the *local* database is on another
+      // contract. The check runs before the first DELETE.
+      await sql`UPDATE cms_meta SET contract_version = '0.0.1' WHERE id = 1`;
+      const before = await localContentVersion(sql);
+
+      const from = startCms(document);
+      await expect(
+        pullFrom({ from, token: "good-token", sql, fetchImpl: Bun.fetch }),
+      ).rejects.toThrow(/cms_meta speaks 0\.0\.1/);
+
+      expect(await localPageUrls(sql)).toEqual(["/local-only"]);
+      expect(await localContentVersion(sql)).toBe(before);
+    } finally {
+      await temp.drop();
+    }
+  });
+
+  test("refuses a response that is not an export document without writing", async () => {
+    const temp = await createTempDatabase("pull-not-export");
+    try {
+      const sql = temp.open();
+      await runMigrations(sql);
+      await seedLocalRows(sql);
+      const before = await localContentVersion(sql);
+
+      const from = startCms({ hello: "world" });
+      await expect(
+        pullFrom({ from, token: "good-token", sql, fetchImpl: Bun.fetch }),
+      ).rejects.toThrow(/not a billet-cms export document/);
+
+      expect(await localPageUrls(sql)).toEqual(["/local-only"]);
+      expect(await localContentVersion(sql)).toBe(before);
+    } finally {
+      await temp.drop();
+    }
+  });
+
+  test("a failure mid-insert rolls the whole pull back", async () => {
+    const temp = await createTempDatabase("pull-rollback");
+    try {
+      const sql = temp.open();
+      await runMigrations(sql);
+      await seedLocalRows(sql);
+      const before = await localContentVersion(sql);
+
+      // The page names a published revision that is not in the document, so the
+      // insert into `cms_pages` breaks its foreign key — after the deletes and
+      // the earlier inserts have already run inside the transaction.
+      const broken = {
+        ...document,
+        pages: [
+          {
+            ...document.pages[0],
+            publishedRevisionId: "99999999-9999-4999-8999-999999999999",
+          },
+        ],
+      };
+      const from = startCms(broken);
+      await expect(
+        pullFrom({ from, token: "good-token", sql, fetchImpl: Bun.fetch }),
+      ).rejects.toThrow();
+
+      // The local page survived the delete (rolled back), and the partial
+      // inserts — the media row and the two revisions — are not there either.
+      expect(await localPageUrls(sql)).toEqual(["/local-only"]);
+      expect(await localContentVersion(sql)).toBe(before);
+      const media = (await sql`SELECT id FROM cms_media`) as { id: string }[];
+      expect(media).toHaveLength(0);
+      const revisions = (await sql`SELECT id FROM cms_revisions`) as {
+        id: string;
+      }[];
+      expect(revisions).toHaveLength(0);
     } finally {
       await temp.drop();
     }

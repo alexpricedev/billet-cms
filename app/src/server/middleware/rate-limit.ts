@@ -17,9 +17,11 @@ import { clientKey } from "./client-ip";
  * `/account/password`, `/auth/verify*`, `/team/invites`, `/invites/accept`)
  * because that is the budget those routes have always shared: an attacker who
  * can spread guesses over four endpoints has four times the budget, and the
- * limits differ only in size, not in what they are protecting.
+ * limits differ only in size, not in what they are protecting. `export` is its
+ * own, much smaller bucket: one call reads the whole published site and the
+ * media library, and `cms:pull` is a deliberate command, not a paging client.
  */
-export type RateLimitBucket = "auth" | "api-read" | "api-write";
+export type RateLimitBucket = "auth" | "api-read" | "api-write" | "export";
 
 const requestLog = new Map<string, number[]>();
 

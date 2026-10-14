@@ -92,6 +92,13 @@ h1 {
   padding-left: 1.1rem;
 }
 
+/* The one-time export token is a long unbroken string — base64url has no "-"
+   to break on early, and a short one may have none at all — so without this it
+   pushes the callout wider than a phone viewport. */
+[data-export-token] {
+  overflow-wrap: anywhere;
+}
+
 .cms-fields {
   display: grid;
   gap: 1.5rem;

@@ -144,7 +144,14 @@ const toMedia = (row: MediaRow): ExportedMedia => ({
   updatedAt: iso(row.updated_at),
 });
 
-/** Read `cms_meta`, tolerating a database the CMS hasn't migrated yet. */
+/**
+ * Read `cms_meta`, tolerating a database the CMS hasn't migrated yet.
+ *
+ * A missing row or an unreadable table leaves the document with an empty
+ * contract version, which `cms:pull` refuses — so the failure is never silent.
+ * It is logged here so an operator can see *why* the pull refused, rather than
+ * chasing a mismatch that isn't one.
+ */
 const readMeta = async (
   sql: SQL,
 ): Promise<{ contractVersion: string; contentVersion: number }> => {
@@ -152,12 +159,24 @@ const readMeta = async (
     const rows = (await sql`
       SELECT contract_version, content_version FROM cms_meta WHERE id = 1
     `) as { contract_version: string; content_version: string | number }[];
-    if (rows.length === 0) return { contractVersion: "", contentVersion: 0 };
+    if (rows.length === 0) {
+      log.warn(
+        "export",
+        "cms_meta has no row with id = 1; the export carries no contract version and a pull will refuse it.",
+      );
+      return { contractVersion: "", contentVersion: 0 };
+    }
     return {
       contractVersion: rows[0].contract_version,
       contentVersion: Number(rows[0].content_version),
     };
-  } catch {
+  } catch (error) {
+    log.error(
+      "export",
+      `Could not read cms_meta (${
+        error instanceof Error ? error.message : String(error)
+      }); the export carries no contract version and a pull will refuse it.`,
+    );
     return { contractVersion: "", contentVersion: 0 };
   }
 };

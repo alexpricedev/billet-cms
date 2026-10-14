@@ -14,9 +14,10 @@ mock.module("../services/database", () => ({
   closeDatabase: async () => {},
 }));
 
+import { clearRateLimitLog } from "../middleware/rate-limit";
 import { db } from "../services/database";
 import { createExportToken, revokeExportToken } from "../services/export";
-import { exportApi } from "./export";
+import { EXPORT_RATE_LIMIT, exportApi } from "./export";
 
 const ORIGIN = process.env.APP_URL as string;
 
@@ -32,6 +33,9 @@ describe("GET /export", () => {
   let actorId: string;
 
   beforeEach(async () => {
+    // The rate limiter's log outlives a test; without this the 429 case would
+    // spend the budget for every case after it.
+    clearRateLimitLog();
     await cleanupTestData(db);
     actorId = (await seedIdentity(db, "editor@example.com")).id;
     await seedBlockType(db, hero);
@@ -85,5 +89,18 @@ describe("GET /export", () => {
     expect(audit).toHaveLength(1);
     expect(audit[0].actor_id).toBe(created.token.id);
     expect(audit[0].subject_type).toBe("export_token");
+  });
+
+  test("returns 429 once the per-IP export limit is exceeded", async () => {
+    const created = await createExportToken({ label: "laptop", actorId });
+
+    for (let i = 0; i < EXPORT_RATE_LIMIT; i++) {
+      const response = await exportApi.index(get(`Bearer ${created.rawToken}`));
+      expect(response.status).toBe(200);
+    }
+
+    const blocked = await exportApi.index(get(`Bearer ${created.rawToken}`));
+    expect(blocked.status).toBe(429);
+    expect((await blocked.json()).error.code).toBe("rate_limited");
   });
 });

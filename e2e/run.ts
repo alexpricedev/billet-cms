@@ -9,10 +9,16 @@
  * the test itself spawns the CMS and a site against the database `.env.test`
  * names, and `bun test` must not load the developer's `.env` over it.
  */
-const tests = Bun.spawn(["bun", "test", "--timeout", "30000", "e2e/e2e.test.ts"], {
-  env: { ...process.env, NODE_ENV: "test" },
-  stdout: "inherit",
-  stderr: "inherit",
-});
+const tests = Bun.spawn(
+  ["bun", "test", "--timeout", "30000", "e2e/e2e.test.ts"],
+  {
+    env: { ...process.env, NODE_ENV: "test" },
+    stdout: "inherit",
+    stderr: "inherit",
+  },
+);
 
 process.exit(await tests.exited);
+
+// Marks the file as a module so the top-level `await` above is legal.
+export {};

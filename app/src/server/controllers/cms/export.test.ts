@@ -77,6 +77,8 @@ describe("Export tokens controller", () => {
       await post("/cms/export", form, "/cms/export"),
     );
     expect(created.status).toBe(200);
+    // The raw token is in this body; it must never sit in a cache.
+    expect(created.headers.get("cache-control")).toBe("no-store");
     const createdHtml = await created.text();
     expect(createdHtml).toContain("Copy this token now");
     const raw = createdHtml.match(
@@ -89,6 +91,11 @@ describe("Export tokens controller", () => {
     const listHtml = await list.text();
     expect(listHtml).toContain("Alex's laptop");
     expect(listHtml).not.toContain(raw as string);
+    // Each Revoke button names the token it revokes, and the help text is both
+    // styled and wired to the input it describes.
+    expect(listHtml).toContain('aria-label="Revoke ');
+    expect(listHtml).toContain('aria-describedby="export-label-help"');
+    expect(listHtml).toContain('class="cms-field-help"');
 
     const [token] = await listExportTokens();
     const revoked = await exportTokens.revoke(
@@ -114,5 +121,18 @@ describe("Export tokens controller", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Name this token");
+  });
+
+  test("refuses a label over 100 characters", async () => {
+    const form = new FormData();
+    form.set("label", "x".repeat(101));
+    const res = await exportTokens.create(
+      await post("/cms/export", form, "/cms/export"),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Use 100 characters or fewer.");
+
+    // Nothing was written: the length is checked before the insert.
+    expect(await listExportTokens()).toHaveLength(0);
   });
 });

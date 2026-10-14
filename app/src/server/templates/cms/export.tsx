@@ -115,7 +115,11 @@ export const ExportPage = ({
                     name="_csrf"
                     value={revokeCsrfTokens[token.id] ?? ""}
                   />
-                  <button type="submit" className="btn-ghost">
+                  <button
+                    type="submit"
+                    className="btn-ghost"
+                    aria-label={`Revoke ${token.label}`}
+                  >
                     Revoke
                   </button>
                 </form>
@@ -144,8 +148,9 @@ export const ExportPage = ({
             required
             maxLength={100}
             placeholder="e.g. Alex's laptop"
+            aria-describedby="export-label-help"
           />
-          <p className="form-field-help">
+          <p className="cms-field-help" id="export-label-help">
             Only so you can tell tokens apart in this list.
           </p>
         </div>

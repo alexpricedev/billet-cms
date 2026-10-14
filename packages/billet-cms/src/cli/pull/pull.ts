@@ -9,10 +9,13 @@
  * site's content from another CMS is never what an operator meant.
  *
  * What it replaces: published pages, slots, their published revisions, redirects
- * and media rows. What it never touches: drafts (they are not in the document),
- * local block/page type definitions (they come from the local deploy), users,
- * sessions and tokens. Images keep the production bucket's URLs, so the local
- * site serves production images without copying a byte.
+ * and media rows. Because it deletes every local `cms_revisions` row before it
+ * inserts, it **discards local drafts** too: anything not published on the
+ * source CMS is gone from this database after a pull, and the export document
+ * itself carries no draft. What it never touches: local block/page type
+ * definitions (they come from the local deploy), users, sessions and tokens.
+ * Images keep the production bucket's URLs, so the local site serves production
+ * images without copying a byte.
  *
  * The whole write is one transaction: a pull that fails part-way leaves the
  * local content as it was rather than a half-replaced site.
@@ -61,6 +64,36 @@ export interface PullOptions {
   fetchImpl?: typeof fetch;
 }
 
+/**
+ * The local database's `cms_meta.contract_version`, or `""` when the row is
+ * missing (the local CMS has not migrated).
+ */
+const readLocalContractVersion = async (sql: SQL): Promise<string> => {
+  const rows = (await sql`
+    SELECT contract_version FROM cms_meta WHERE id = 1
+  `) as { contract_version: string }[];
+  return rows.length > 0 ? rows[0].contract_version : "";
+};
+
+/**
+ * Refuse the write unless the local database speaks this plugin's contract.
+ *
+ * Checked inside the transaction, before the first DELETE, so a mismatched
+ * database keeps every row it had. The source document is checked separately in
+ * `pullFrom`; this is the other end of the same handshake.
+ */
+const assertLocalContractVersion = async (sql: SQL): Promise<void> => {
+  const local = await readLocalContractVersion(sql);
+  if (local !== CONTRACT_VERSION) {
+    throw new ExportDocumentError(
+      `This database's cms_meta speaks ${
+        local || "no contract version"
+      }, but this plugin speaks ${CONTRACT_VERSION}. Run the CMS migrations ` +
+        "and publish this site, then pull again.",
+    );
+  }
+};
+
 /** Bump the local content version so the local site's cache drops. */
 const bumpContentVersion = async (sql: SQL): Promise<number> => {
   const rows = (await sql`
@@ -84,6 +117,10 @@ export const applyExport = async (
   document: CmsExport,
 ): Promise<PullSummary> => {
   return await sql.begin(async (tx) => {
+    // First statement in the transaction: a database on another contract never
+    // reaches the deletes.
+    await assertLocalContractVersion(tx);
+
     await tx`DELETE FROM cms_redirects`;
     await tx`DELETE FROM cms_pages`;
     await tx`DELETE FROM cms_slots`;
@@ -165,22 +202,57 @@ export const applyExport = async (
 };
 
 /**
+ * The origin to call, from `--from`.
+ *
+ * Parsed with `new URL` rather than string-trimmed, so a typo fails here with a
+ * clear message instead of somewhere in `fetch`, and `url.origin` drops any
+ * path, query or fragment someone pasted alongside the host. `http` is allowed
+ * only for `localhost` (and its loopback spellings), because an export carries
+ * the whole published site and a bearer token across the network: anything but
+ * TLS would hand both to whoever is on the path.
+ */
+const parseOrigin = (raw: string): string => {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    throw new ExportDocumentError("A CMS URL is required (--from <url>).");
+  }
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new ExportDocumentError(
+      `--from must be a full URL, for example https://cms.example.com (got "${raw}").`,
+    );
+  }
+
+  const loopback = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+  const httpAllowed = url.protocol === "http:" && loopback.has(url.hostname);
+  if (url.protocol !== "https:" && !httpAllowed) {
+    throw new ExportDocumentError(
+      `--from must be https (got "${raw}"). Plain http is allowed only for localhost.`,
+    );
+  }
+
+  return url.origin;
+};
+
+/**
  * Fetch an export and replace local content with it.
  *
  * The contract version is checked before anything is written: a document from a
  * CMS that speaks another version may have a shape this code cannot write, and
- * refusing is far better than a partial import. A wrong URL, an HTML error page
- * or a 401 all become a clear message naming what came back.
+ * refusing is far better than a partial import. An empty version is refused for
+ * the same reason — a document that does not say which contract it speaks
+ * cannot be trusted to be this one. A wrong URL, an HTML error page or a 401 all
+ * become a clear message naming what came back.
  */
 export const pullFrom = async (options: PullOptions): Promise<PullSummary> => {
   if (process.env.NODE_ENV === "production") {
     throw new PullRefusedError();
   }
 
-  const base = options.from.trim().replace(/\/+$/, "");
-  if (!base) {
-    throw new ExportDocumentError("A CMS URL is required (--from <url>).");
-  }
+  const base = parseOrigin(options.from);
   const url = `${base}/export`;
   const doFetch = options.fetchImpl ?? fetch;
 
@@ -214,14 +286,15 @@ export const pullFrom = async (options: PullOptions): Promise<PullSummary> => {
     );
   }
 
-  if (
-    document.contractVersion &&
-    document.contractVersion !== CONTRACT_VERSION
-  ) {
+  if (document.contractVersion !== CONTRACT_VERSION) {
     throw new ExportDocumentError(
-      `Contract version mismatch: the CMS speaks ${document.contractVersion}, ` +
-        `but this plugin speaks ${CONTRACT_VERSION}. Upgrade whichever is ` +
-        "behind, then pull again.",
+      document.contractVersion
+        ? `Contract version mismatch: the CMS speaks ${document.contractVersion}, ` +
+            `but this plugin speaks ${CONTRACT_VERSION}. Upgrade whichever is ` +
+            "behind, then pull again."
+        : `The export from ${url} does not name a contract version, so it cannot ` +
+            `be trusted to speak this plugin's ${CONTRACT_VERSION}. Check the CMS ` +
+            "has migrated, then pull again.",
     );
   }
 

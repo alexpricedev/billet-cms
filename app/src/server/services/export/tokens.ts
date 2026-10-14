@@ -20,6 +20,24 @@ import { db } from "../database";
 
 const EXPORT_TOKEN_BYTES = 32;
 
+/** The longest label the token list can show without wrapping the row. */
+export const MAX_EXPORT_TOKEN_LABEL_LENGTH = 100;
+
+/**
+ * Thrown when a label is missing or too long.
+ *
+ * `createExportToken` is the one write path — the admin form and, later, any
+ * other caller go through it — so the rule lives here, not in the form. The
+ * input's `maxLength` is a convenience; this is what makes it true. The
+ * controller renders `message` beside the form.
+ */
+export class ExportTokenLabelError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ExportTokenLabelError";
+  }
+}
+
 /** A token as the admin list shows it: never the hash. */
 export interface ExportTokenRecord {
   id: string;
@@ -79,14 +97,24 @@ export interface CreatedExportToken {
  * Create an export token and return its raw value once.
  *
  * The raw token is the only thing the caller can't re-read, so it is returned
- * from here and rendered into the response that created it. `label` is required
- * and trimmed so the list is legible.
+ * from here and rendered into the response that created it. `label` is required,
+ * trimmed so the list is legible, and capped at `MAX_EXPORT_TOKEN_LABEL_LENGTH`;
+ * an empty or over-long one throws `ExportTokenLabelError` before any write.
  */
 export const createExportToken = async (input: {
   label: string;
   actorId: string | null;
 }): Promise<CreatedExportToken> => {
   const label = input.label.trim();
+  if (label === "") {
+    throw new ExportTokenLabelError("Name this token so you can recognise it.");
+  }
+  if (label.length > MAX_EXPORT_TOKEN_LABEL_LENGTH) {
+    throw new ExportTokenLabelError(
+      `Use ${MAX_EXPORT_TOKEN_LABEL_LENGTH} characters or fewer.`,
+    );
+  }
+
   const rawToken = randomBytes(EXPORT_TOKEN_BYTES).toString("base64url");
 
   const rows = (await db`
