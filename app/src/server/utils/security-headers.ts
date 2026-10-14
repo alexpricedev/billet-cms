@@ -12,28 +12,50 @@ import { maintenanceResponse } from "./maintenance";
 
 const isProduction = process.env.NODE_ENV === "production";
 
+// The image source the media bucket adds to `img-src`, when one is configured.
+// It is read per request rather than fixed at module load because the CMS tests
+// set `MEDIA_PUBLIC_BASE_URL` on the process rather than in a .env file. A base
+// URL that isn't a valid http(s) URL contributes nothing rather than breaking
+// the header.
+const mediaImgOrigin = (): string | null => {
+  const base = process.env.MEDIA_PUBLIC_BASE_URL?.trim();
+  if (!base) return null;
+  try {
+    return new URL(base).origin;
+  } catch {
+    return null;
+  }
+};
+
 // Content Security Policy. Enforcing, but deliberately host-allowlist based
 // rather than nonce + 'strict-dynamic': the page ships inline JSON-LD and pulls
 // lottie from unpkg. The inline block forces 'unsafe-inline' here. The real wins this still buys:
 // frame-ancestors (clickjacking), object-src/base-uri lockdown, a tight source
 // allowlist, and upgrade-insecure-requests. Hardening to nonce + 'strict-dynamic'
 // (which lets us drop 'unsafe-inline') is the documented follow-up.
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "base-uri 'none'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "img-src 'self' data:",
-  "font-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline' https://unpkg.com",
-  "connect-src 'self'",
-  // Production only, like HSTS below: WebKit applies the upgrade to
-  // http://localhost subresources too (Chrome exempts localhost), so in dev it
-  // rewrites every asset URL to an https origin nothing serves and the page
-  // loads bare — found by the browser smoke tests, which run system WebKit.
-  ...(isProduction ? ["upgrade-insecure-requests"] : []),
-].join("; ");
+export const contentSecurityPolicy = (): string => {
+  const mediaOrigin = mediaImgOrigin();
+  return [
+    "default-src 'self'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    // The uploaded images live in the bucket, not on the CMS host; without its
+    // origin here every thumbnail and focal preview is blocked.
+    mediaOrigin
+      ? `img-src 'self' data: ${mediaOrigin}`
+      : "img-src 'self' data:",
+    "font-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "connect-src 'self'",
+    // Production only, like HSTS below: WebKit applies the upgrade to
+    // http://localhost subresources too (Chrome exempts localhost), so in dev it
+    // rewrites every asset URL to an https origin nothing serves and the page
+    // loads bare — found by the browser smoke tests, which run system WebKit.
+    ...(isProduction ? ["upgrade-insecure-requests"] : []),
+  ].join("; ");
+};
 
 // Deny every powerful feature we do not use; fullscreen stays available to our
 // own origin. Mirrors the specification.website lock-down baseline.
@@ -83,7 +105,6 @@ export const SECURITY_HEADERS: Record<string, string> = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Cross-Origin-Opener-Policy": "same-origin",
   "Permissions-Policy": PERMISSIONS_POLICY,
-  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
   // HSTS only in production: sending it over plain HTTP in local dev would pin
   // the browser to HTTPS for localhost. `preload` is safe here because
   // includeSubDomains + a two-year max-age meet the preload-list requirements.
@@ -106,6 +127,11 @@ export const withSecurityHeaders = (res: Response): Response => {
     if (!res.headers.has(name)) {
       res.headers.set(name, value);
     }
+  }
+  // The CSP is rebuilt per response so the bucket's origin, when configured,
+  // lands in `img-src` without a module-load-time dependency on the environment.
+  if (!res.headers.has("Content-Security-Policy")) {
+    res.headers.set("Content-Security-Policy", contentSecurityPolicy());
   }
   // Advertise discovery resources unless a route set its own Link header.
   if (!res.headers.has("Link")) {

@@ -68,16 +68,18 @@ export const gifBytes = (): Uint8Array => {
  * Splice an EXIF APP1 segment into a JPEG.
  *
  * The block carries IFD0 with Orientation = 6 (rotate 90° clockwise to display)
- * and a GPS IFD pointer, whose GPS IFD holds a latitude and longitude reference
- * — enough that "GPS was stripped" means something. Offsets are TIFF-relative,
+ * and a GPS IFD pointer, whose GPS IFD holds real latitude/longitude — a
+ * reference string and three rational values for each — so "GPS was stripped"
+ * means coordinates, not just an empty IFD. Offsets are TIFF-relative,
  * little-endian.
  */
 export const withExif = (jpeg: Uint8Array): Uint8Array => {
-  const data = "N\u0000W\u0000";
-  const tiff = new Uint8Array(72);
+  const tiff = new Uint8Array(144);
   const view = new DataView(tiff.buffer);
   const gpsOffset = 38;
-  const stringOffset = 68;
+  const stringOffset = 92; // "N\0W\0"
+  const latitudeOffset = 96; // three rationals
+  const longitudeOffset = 120; // three rationals
 
   // TIFF header.
   tiff[0] = 0x49;
@@ -89,35 +91,49 @@ export const withExif = (jpeg: Uint8Array): Uint8Array => {
     offset: number,
     tag: number,
     type: number,
+    count: number,
     value: number,
   ): void => {
     view.setUint16(offset, tag, true);
     view.setUint16(offset + 2, type, true);
-    view.setUint32(offset + 4, 1, true);
+    view.setUint32(offset + 4, count, true);
     view.setUint32(offset + 8, value, true);
+  };
+
+  const rational = (
+    offset: number,
+    numerator: number,
+    denominator: number,
+  ): void => {
+    view.setUint32(offset, numerator, true);
+    view.setUint32(offset + 4, denominator, true);
   };
 
   // IFD0: Orientation (SHORT 3) and a GPS IFD pointer (LONG 4).
   view.setUint16(8, 2, true);
-  entry(10, 0x0112, 3, 6);
-  entry(22, 0x8825, 4, gpsOffset);
+  entry(10, 0x0112, 3, 1, 6);
+  entry(22, 0x8825, 4, 1, gpsOffset);
   view.setUint32(34, 0, true);
 
-  // GPS IFD: a latitude reference and a longitude reference (ASCII 2).
-  view.setUint16(gpsOffset, 2, true);
-  view.setUint16(gpsOffset + 2, 0x0001, true);
-  view.setUint16(gpsOffset + 4, 2, true);
-  view.setUint32(gpsOffset + 6, 2, true);
-  view.setUint32(gpsOffset + 10, stringOffset, true);
-  view.setUint16(gpsOffset + 14, 0x0003, true);
-  view.setUint16(gpsOffset + 16, 2, true);
-  view.setUint32(gpsOffset + 18, 2, true);
-  view.setUint32(gpsOffset + 22, stringOffset + 2, true);
-  view.setUint32(gpsOffset + 26, 0, true);
+  // GPS IFD: latitude and longitude references (ASCII) with the coordinate
+  // rationals they describe. 51°30'0"N, 0°7'0"W.
+  view.setUint16(gpsOffset, 4, true);
+  entry(gpsOffset + 2, 0x0001, 2, 2, stringOffset);
+  entry(gpsOffset + 14, 0x0002, 5, 3, latitudeOffset);
+  entry(gpsOffset + 26, 0x0003, 2, 2, stringOffset + 2);
+  entry(gpsOffset + 38, 0x0004, 5, 3, longitudeOffset);
+  view.setUint32(gpsOffset + 50, 0, true);
 
+  const data = "N\u0000W\u0000";
   for (let index = 0; index < data.length; index += 1) {
     tiff[stringOffset + index] = data.charCodeAt(index);
   }
+  rational(latitudeOffset, 51, 1);
+  rational(latitudeOffset + 8, 30, 1);
+  rational(latitudeOffset + 16, 0, 1);
+  rational(longitudeOffset, 0, 1);
+  rational(longitudeOffset + 8, 7, 1);
+  rational(longitudeOffset + 16, 0, 1);
 
   const app1Length = 2 + 6 + tiff.length;
   const segment = new Uint8Array(2 + app1Length);
@@ -133,4 +149,74 @@ export const withExif = (jpeg: Uint8Array): Uint8Array => {
   out.set(segment, 2);
   out.set(jpeg.subarray(2), 2 + segment.length);
   return out;
+};
+
+const XMP_PACKET =
+  "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'></rdf:RDF></x:xmpmeta>";
+
+/**
+ * A JPEG carrying every metadata category the pipeline must strip: EXIF (with
+ * GPS coordinates), XMP and an ICC profile.
+ *
+ * XMP and ICC come from Sharp's own writers rather than being hand-spliced,
+ * since both are large structured blobs; the EXIF with GPS is then spliced on
+ * top. The result is a fixture that genuinely has each before processing, so
+ * asserting their absence afterwards means something.
+ */
+export const withFullMetadata = async (
+  jpeg: Uint8Array,
+): Promise<Uint8Array> => {
+  const tagged = await sharp(jpeg)
+    .withXmp(XMP_PACKET)
+    .withIccProfile("p3")
+    .jpeg()
+    .toBuffer();
+  return withExif(new Uint8Array(tagged));
+};
+
+/** True when a raw EXIF buffer carries the GPS IFD pointer tag (0x8825). */
+export const hasGpsCoordinates = (exif: Uint8Array | undefined): boolean => {
+  if (!exif) return false;
+  for (let index = 0; index < exif.length - 1; index += 1) {
+    if (exif[index] === 0x25 && exif[index + 1] === 0x88) return true;
+  }
+  return false;
+};
+
+/**
+ * An animated WebP header: a VP8X chunk with the animation flag (0x02) set.
+ *
+ * Only the header matters — the media service refuses it before decoding.
+ */
+export const animatedWebpBytes = (width = 8, height = 8): Uint8Array => {
+  const bytes = new Uint8Array(30);
+  bytes.set([0x52, 0x49, 0x46, 0x46], 0); // RIFF
+  bytes.set([0x57, 0x45, 0x42, 0x50], 8); // WEBP
+  bytes.set([0x56, 0x50, 0x38, 0x58], 12); // VP8X
+  bytes[20] = 0x02; // the ANIMATION flag
+  bytes[24] = (width - 1) & 0xff;
+  bytes[27] = (height - 1) & 0xff;
+  return bytes;
+};
+
+/**
+ * An APNG header: a PNG signature and IHDR followed by an `acTL` chunk, which
+ * is what marks a PNG as animated.
+ */
+export const apngBytes = (width = 8, height = 8): Uint8Array => {
+  const ihdrLength = 13;
+  const actlLength = 8;
+  const bytes = new Uint8Array(8 + (12 + ihdrLength) + (12 + actlLength));
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(8, ihdrLength);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12); // IHDR
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  const actl = 8 + 12 + ihdrLength;
+  view.setUint32(actl, actlLength);
+  bytes.set([0x61, 0x63, 0x54, 0x4c], actl + 4); // acTL
+  view.setUint32(actl + 8, 2); // number of frames
+  view.setUint32(actl + 12, 0); // number of plays
+  return bytes;
 };

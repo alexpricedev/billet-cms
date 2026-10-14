@@ -65,6 +65,14 @@ describe("jsonbValue", () => {
     expect(row.v).toEqual({ a: 1, nested: { b: [2, 3] } });
   });
 
+  // `cms_media.variants` is a jsonb *array*; the guard's array rule would
+  // otherwise refuse the declared value, so `jsonbValue` is checked before it.
+  test("round-trips an array through a jsonb column", async () => {
+    const [row] =
+      await testDb`SELECT ${jsonbValue([{ width: 480 }, { width: 960 }])}::jsonb AS v`;
+    expect(row.v).toEqual([{ width: 480 }, { width: 960 }]);
+  });
+
   test("a stringified object stores a jsonb scalar instead", async () => {
     // The hazard the signature exists to prevent: legal SQL, no error, and the
     // column holds one long string that matches no query.

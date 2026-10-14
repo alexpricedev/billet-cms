@@ -81,3 +81,63 @@ describe("cms.css secondary button focus", () => {
     expect(selector).not.toContain(":focus-visible");
   });
 });
+
+describe("cms.css media layout", () => {
+  // A `12rem` floor in an `auto-fill` track is wider than a phone's viewport,
+  // so the track floors at 100% instead and a long unbroken alt can't widen it.
+  test("floors the media grid track at the viewport", () => {
+    expect(css).toMatch(
+      /\.cms-media-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(min\(12rem,\s*100%\),\s*1fr\)\)/,
+    );
+  });
+
+  // A grid item's automatic minimum is its content, so without this the long
+  // alt text widens the card past its column.
+  test("lets a media card shrink below its content", () => {
+    expect(css).toMatch(/\.cms-media-card\s*\{[^}]*min-width:\s*0/);
+  });
+
+  test("pins a media card's content to the top", () => {
+    expect(css).toMatch(/\.cms-media-card\s*\{[^}]*align-content:\s*start/);
+  });
+
+  test("wraps a long alt inside the card", () => {
+    expect(css).toMatch(/\.cms-media-alt\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  });
+
+  test("caps the delete preview at the viewport and spaces it below itself", () => {
+    expect(css).toMatch(
+      /\.cms-media-delete-preview\s*\{[^}]*max-width:\s*min\(24rem,\s*100%\)/,
+    );
+    expect(css).toMatch(
+      /\.cms-media-delete-preview\s*\{[^}]*margin-bottom:\s*1rem/,
+    );
+  });
+
+  // `.cms-actions` is a flex row for the publish bar; the Uses section needs a
+  // block layout of its own instead of being laid out beside its heading.
+  test("lays the Uses section out as a block", () => {
+    expect(css).toMatch(/\.cms-media-uses\s*\{[^}]*display:\s*grid/);
+  });
+
+  test("spaces the upload and detail forms at 1.5rem", () => {
+    expect(css).toMatch(/\.cms-media-upload\s*\{[^}]*gap:\s*1\.5rem/);
+    expect(css).toMatch(/\.cms-media-detail\s*\{[^}]*gap:\s*1\.5rem/);
+  });
+
+  test("keeps the Upload and Save buttons at their natural width", () => {
+    expect(css).toMatch(
+      /\.cms-media-upload \.cms-save\s*\{[^}]*justify-self:\s*start/,
+    );
+    expect(css).toMatch(
+      /\.cms-media-detail \.cms-save\s*\{[^}]*justify-self:\s*start/,
+    );
+  });
+
+  test("strips the focal legend padding and trims the help margin", () => {
+    expect(css).toMatch(/\.cms-focal-field legend\s*\{[^}]*padding:\s*0/);
+    expect(css).toMatch(
+      /\.cms-focal-field \.cms-field-help\s*\{[^}]*margin:\s*0 0 0?\.6rem/,
+    );
+  });
+});

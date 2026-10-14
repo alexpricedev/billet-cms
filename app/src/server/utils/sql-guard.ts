@@ -64,11 +64,17 @@ const isPlainObject = (value: object): boolean => {
  * is a class instance, so it is not a plain object.
  */
 export const bindingFault = (value: unknown): string | null => {
+  // A value declared with `jsonbValue()` passes first, whichever shape it has.
+  // Bun encodes both an object and an array into jsonb itself, and the column
+  // is where the declaration is checked, so the array rule below would
+  // otherwise refuse `jsonbValue(variants)` for the `jsonb` it is bound to.
+  if (typeof value === "object" && value !== null && isJsonbValue(value)) {
+    return null;
+  }
   if (Array.isArray(value)) {
     return "an array binds as a comma-joined string, not a Postgres array. Interpolate `inList(values)` for an IN list, or `textArrayLiteral(values)` for a text[] column. Both are in utils/sql.ts";
   }
   if (typeof value === "object" && value !== null && isPlainObject(value)) {
-    if (isJsonbValue(value)) return null;
     return 'a plain object binds as the string "[object Object]" unless the column is jsonb. If it is jsonb, wrap it in `jsonbValue(obj)` from utils/sql.ts — and never JSON.stringify it, which stores a jsonb string instead';
   }
   return null;

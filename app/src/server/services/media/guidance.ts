@@ -17,6 +17,7 @@
  * work, not a guidance rule.
  */
 import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
+import type { SQL } from "bun";
 import { inList } from "../../utils/sql";
 import type { FieldIssue } from "../content/drafts";
 import { db } from "../database";
@@ -97,6 +98,54 @@ export const loadMediaSizes = async (
   return new Map(
     rows.map((row) => [row.id, { width: row.width, height: row.height }]),
   );
+};
+
+/**
+ * Every media id a stored content value names, at any depth.
+ *
+ * Used by the publish paths to take a `FOR SHARE` lock on the images a revision
+ * is about to make live, so a delete running at the same time serialises against
+ * it (`deleteMedia` in `./media` takes the same rows `FOR UPDATE`).
+ */
+export const collectMediaIds = (value: unknown): string[] => {
+  const ids = new Set<string>();
+  const walk = (entry: unknown): void => {
+    if (Array.isArray(entry)) {
+      for (const item of entry) walk(item);
+      return;
+    }
+    if (typeof entry !== "object" || entry === null) return;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.mediaId === "string" && record.mediaId !== "") {
+      ids.add(record.mediaId);
+    }
+    for (const item of Object.values(record)) walk(item);
+  };
+  walk(value);
+  return [...ids];
+};
+
+/**
+ * Lock the media rows a revision references, for the length of a transaction.
+ *
+ * `deleteMedia` takes the same rows `FOR UPDATE`; a publish holding these shared
+ * locks can't have an image deleted out from under the revision it is putting
+ * live. A delete already under way makes the publish wait, then find the row
+ * gone — the draft-only delete the review's Q1 asks about, which publish-time
+ * flagging (not locking) would have to answer.
+ */
+export const lockReferencedMedia = async (
+  sql: SQL,
+  content: unknown,
+): Promise<void> => {
+  const ids = collectMediaIds(content);
+  if (ids.length === 0) return;
+  await sql`
+    SELECT id FROM cms_media
+    WHERE id IN ${inList(ids)}
+    ORDER BY id
+    FOR SHARE
+  `;
 };
 
 const ratio = (width: number, height: number): number => width / height;

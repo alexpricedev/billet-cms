@@ -54,6 +54,48 @@ const queryBodies = (source: string): string[] =>
     (match) => match[1],
   );
 
+/**
+ * The arguments of every `.unsafe(...)` call in a file.
+ *
+ * `unsafe` is the second way a bound value reaches the driver, and the tagged
+ * template rule above never sees it: `JSON.stringify` passed there stores a
+ * jsonb string just the same (that is how `cms_media.variants` was written).
+ * The parentheses are matched with a depth counter that skips the insides of
+ * string and template literals, so a `)` in the SQL text doesn't end the
+ * capture early. A nested template's own backticks are the one shape it reads
+ * wrongly; as with `queryBodies`, that costs a false negative, never a false
+ * positive.
+ */
+const unsafeBodies = (source: string): string[] => {
+  const bodies: string[] = [];
+  const marker = ".unsafe(";
+  let index = source.indexOf(marker);
+  while (index !== -1) {
+    const start = index + marker.length;
+    let depth = 1;
+    let cursor = start;
+    let quote: string | null = null;
+    while (cursor < source.length && depth > 0) {
+      const char = source[cursor];
+      if (quote) {
+        if (char === "\\") cursor += 1;
+        else if (char === quote) quote = null;
+      } else if (char === '"' || char === "'" || char === "`") {
+        quote = char;
+      } else if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+      cursor += 1;
+    }
+    bodies.push(source.slice(start, cursor));
+    index = source.indexOf(marker, cursor + 1);
+  }
+  return bodies;
+};
+
 const FORBIDDEN: Rule[] = [
   {
     name: "an array bound into ANY()",
@@ -95,7 +137,8 @@ const FORBIDDEN: Rule[] = [
   {
     name: "JSON.stringify inside a query",
     match: (source) =>
-      queryBodies(source).some((body) => body.includes("JSON.stringify")),
+      queryBodies(source).some((body) => body.includes("JSON.stringify")) ||
+      unsafeBodies(source).some((body) => body.includes("JSON.stringify")),
     why: "Bun encodes a bound object into jsonb itself, so a stringified one stores a jsonb *string* — one long scalar that reads back as text and matches no query, with no error at any layer. Wrap the object in `jsonbValue(obj)` instead",
     // Demonstrates the hazard against a live connection, which is the only way
     // to show that the wrong form is legal SQL rather than an error.
@@ -135,5 +178,17 @@ describe("Bun.SQL driver safety", () => {
       ),
     ).toEqual(["INSERT INTO t (v) VALUES (JSON.stringify(o))"]);
     expect(queryBodies("const x = 1;")).toEqual([]);
+  });
+
+  // `unsafe` binds its parameters in an array rather than a tagged template, so
+  // the rule above never sees them; this extraction is what catches the jsonb
+  // string those parameters used to store.
+  test("the unsafe extraction finds parameters", () => {
+    expect(
+      unsafeBodies(
+        'await db.unsafe("INSERT INTO t (v) VALUES ($1)", [JSON.stringify(o)]);',
+      ).some((body) => body.includes("JSON.stringify")),
+    ).toBe(true);
+    expect(unsafeBodies("const x = 1;")).toEqual([]);
   });
 });

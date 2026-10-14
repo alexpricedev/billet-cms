@@ -20,8 +20,7 @@ import {
   listMedia,
   type MediaIssue,
   type MediaRecord,
-  updateMediaAlt,
-  updateMediaFocalPoint,
+  updateMedia,
 } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import {
@@ -205,23 +204,19 @@ export const media = {
     const formData = await req.formData();
     const alt = nonEmpty(formData.get("alt")) ?? "";
 
-    const altResult = await updateMediaAlt(mediaId, alt);
-    if (!altResult.ok) {
-      return renderDetail(ctx, image, {
-        errors: [{ field: "alt", message: altResult.message }],
-      });
-    }
-
     const focalX = Number(formData.get("focal_x"));
     const focalY = Number(formData.get("focal_y"));
     const focal = {
       x: Number.isFinite(focalX) ? focalX : image.focalX,
       y: Number.isFinite(focalY) ? focalY : image.focalY,
     };
-    const focalResult = await updateMediaFocalPoint(mediaId, focal);
-    if (!focalResult.ok) {
-      return renderDetail(ctx, altResult.media, {
-        errors: [{ field: "file", message: focalResult.message }],
+
+    // One write and one `content_version` bump, not two: the site's cache sees
+    // the new alt and the new crop together.
+    const result = await updateMedia(mediaId, { alt, focal });
+    if (!result.ok) {
+      return renderDetail(ctx, image, {
+        errors: [{ field: "alt", message: result.message }],
       });
     }
 

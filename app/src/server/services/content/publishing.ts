@@ -16,6 +16,7 @@
 import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { SQL } from "bun";
 import { db } from "../database";
+import { lockReferencedMedia } from "../media/guidance";
 import { type BlockTypeRecord, getBlockTypeByName } from "./definitions";
 import { type FieldIssue, formatIssues } from "./drafts";
 import {
@@ -172,6 +173,11 @@ export const publishSlot = async (
         changed: false,
       };
     }
+
+    // Hold the images this revision references for the length of the write, so
+    // a concurrent delete can't remove one between here and the pointer write
+    // (review r1-4).
+    await lockReferencedMedia(tx, revision.content);
 
     await tx`
       UPDATE cms_slots
