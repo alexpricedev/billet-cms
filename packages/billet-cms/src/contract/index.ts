@@ -206,9 +206,22 @@ export type TableName = (typeof TABLES)[keyof typeof TABLES];
 /**
  * The keys the CMS keeps in `cms_meta`, alongside any site-specific rows.
  *
- * `contract_version` is written at boot. `content_version` is bumped whenever
- * published definitions or content change; the plugin polls it to invalidate
- * its in-memory cache within seconds.
+ * `contract_version` is written by the CMS at boot
+ * (`syncContractVersion` in `app/src/server/database/migrate.ts`) and read by
+ * the site's publish step, which refuses to write against a CMS it can't read.
+ *
+ * `content_version` is a counter the CMS bumps whenever *published* content
+ * changes, and only then — a save that writes a draft leaves it alone. Who
+ * bumps it:
+ *
+ * - the site's `billet-cms-publish`, when its deploy changed a definition;
+ * - the CMS, on a page or slot publish, a page create / rename / settings change
+ *   / delete, a media alt-text or focal-point edit, and a `cms:pull`.
+ *
+ * The site's plugin polls it (once a second by default) and drops its in-memory
+ * cache when it moves, which is how a publish reaches a live site within
+ * seconds. Migration 004 seeds the single row (`id = 1`, `content_version = 1`);
+ * `syncContractVersion` only ever touches `contract_version`.
  */
 export const META_KEYS = {
   contractVersion: "contract_version",
