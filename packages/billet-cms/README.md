@@ -1,6 +1,6 @@
 # @alexpricedev/billet-cms
 
-The block plugin a Billet site installs, and the contract the site and the
+The block plugin a [Billet](https://github.com/alexpricedev/Billet) site installs, and the contract the site and the
 `billet-cms` service share. A site declares its blocks, slots and page types
 with the field vocabulary and publishes them on deploy; the CMS service reads
 those rows and never imports site code.
