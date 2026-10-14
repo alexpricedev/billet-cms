@@ -399,6 +399,38 @@ const FOCUSABLE = "input, select, textarea, button, [contenteditable], a[href]";
 const firstControl = (row: Element | null): HTMLElement | null =>
   row ? row.querySelector<HTMLElement>(FOCUSABLE) : null;
 
+/** The rows container and parsed maximum of a list element. */
+const listRows = (list: Element): Element | null =>
+  list.querySelector(":scope > [data-list-items]");
+
+const listMax = (list: Element): number | null => {
+  const max = Number.parseInt(list.getAttribute("data-max") ?? "", 10);
+  return Number.isSafeInteger(max) ? max : null;
+};
+
+/** A list at its maximum can't take another row. */
+const canAddRow = (list: Element, items: Element): boolean => {
+  const max = listMax(list);
+  return max === null || items.children.length < max;
+};
+
+/**
+ * Keep the Add button's disabled state in step with the row count.
+ *
+ * The server renders it disabled when the stored content is already at the
+ * maximum; this covers every Add and Remove after that. A disabled button
+ * receives no click, so the guard in the click handler is the belt to this
+ * brace.
+ */
+const syncListAdd = (list: Element, items?: Element | null): void => {
+  const add = list.querySelector<HTMLButtonElement>(":scope > [data-list-add]");
+  if (!add) return;
+  const max = listMax(list);
+  if (max === null) return;
+  const container = items ?? listRows(list);
+  add.disabled = (container?.children.length ?? 0) >= max;
+};
+
 /**
  * Record a flagged block's removal in the form's `removed_blocks` field.
  *
@@ -439,6 +471,12 @@ const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
  * button.
  */
 const wireControls = (form: HTMLFormElement): void => {
+  // A list whose stored content already sits at its maximum ships with Add
+  // disabled; this brings every list in step before any interaction.
+  for (const list of Array.from(form.querySelectorAll("[data-list]"))) {
+    syncListAdd(list);
+  }
+
   // The image picker is a convenience over the media-id input, which stays the
   // field's value: choosing an upload writes its id there, and a hand-typed id
   // works exactly the same. With JavaScript off the picker isn't read at all.
@@ -477,15 +515,17 @@ const wireControls = (form: HTMLFormElement): void => {
       const list = add.closest("[data-list]");
       if (!list) return;
 
-      const items = list.querySelector(":scope > [data-list-items]");
+      const items = listRows(list);
       const template = list.querySelector<HTMLTemplateElement>(
         ":scope > [data-list-template]",
       );
       if (!items || !template) return;
 
-      const max = Number.parseInt(list.getAttribute("data-max") ?? "", 10);
-      if (Number.isSafeInteger(max) && items.children.length >= max) return;
+      // The button is disabled at the maximum, but a programmatic click ignores
+      // that, so the guard stays.
+      if (!canAddRow(list, items)) return;
       items.append(template.content.cloneNode(true));
+      syncListAdd(list, items);
       return;
     }
 
@@ -568,6 +608,7 @@ const wireControls = (form: HTMLFormElement): void => {
     const next = item.nextElementSibling;
     const previous = item.previousElementSibling;
     item.remove();
+    if (list) syncListAdd(list);
 
     const nextFocus: HTMLElement | null | undefined =
       firstControl(next) ??

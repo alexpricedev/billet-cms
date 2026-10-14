@@ -208,11 +208,37 @@ export const link = <O extends FieldOptions = FieldOptions>(
   metadata: (name) => baseMetadata(name, "link", options),
 });
 
+/**
+ * How deeply `list()` fields may nest.
+ *
+ * The editor builds one control per nested list by recursing the metadata tree,
+ * and the client walks the same tree back into the document, so an
+ * arbitrarily deep tree is a stack-depth problem at both ends. Eight is far past
+ * anything a real block declares (a list of lists of lists already is), so the
+ * bound only ever fires on a mistake.
+ */
+export const MAX_LIST_DEPTH = 8;
+
+/**
+ * The nesting depth of each field, so `list()` can bound the tree.
+ *
+ * A field object is the only handle `list()` has on the field it repeats, and
+ * the depth is not part of the public shape, so it is tracked here by identity
+ * rather than added to `Field`.
+ */
+const listDepths = new WeakMap<Field, number>();
+
 /** A repeatable list of another field. */
 export const list = <T, O extends ListOptions = ListOptions>(
   of: Field<T>,
   options: O = {} as O,
 ): Field<FieldValue<T[], O>> => {
+  const depth = (listDepths.get(of) ?? 0) + 1;
+  if (depth > MAX_LIST_DEPTH) {
+    throw new Error(
+      `list() fields may nest at most ${MAX_LIST_DEPTH} deep; this one is ${depth}. Flatten the field or split it into its own block.`,
+    );
+  }
   if (!of.required) {
     // A list item is never absent: `required: false` would make every entry
     // `T | undefined`, so an empty slot in a list has to be the site's problem
@@ -231,7 +257,7 @@ export const list = <T, O extends ListOptions = ListOptions>(
   if (options.min !== undefined) schema = schema.min(options.min);
   if (options.max !== undefined) schema = schema.max(options.max);
 
-  return {
+  const field: Field<FieldValue<T[], O>> = {
     kind: "list",
     required: options.required !== false,
     schema: optional(schema, options),
@@ -243,4 +269,7 @@ export const list = <T, O extends ListOptions = ListOptions>(
       return metadata;
     },
   };
+
+  listDepths.set(field, depth);
+  return field;
 };

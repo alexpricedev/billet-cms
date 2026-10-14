@@ -81,6 +81,23 @@ const describedBy = (...ids: (string | undefined)[]): string | undefined => {
 
 const fieldName = (field: FieldMetadata): string => field.label ?? field.name;
 
+/**
+ * A list field's help text, with its maximum spelled out.
+ *
+ * The Add button disables at `max`, so the editor is told "Up to N items"
+ * instead of discovering the limit through a refused save. The field's own
+ * `help` is kept and the limit joined into the single help element the
+ * control's `aria-describedby` points at.
+ */
+const listHelp = (field: FieldMetadata): string | undefined => {
+  const limit =
+    field.max === undefined
+      ? null
+      : `Up to ${field.max} ${field.max === 1 ? "item" : "items"}.`;
+  if (field.help && limit) return `${field.help} ${limit}`;
+  return field.help ?? limit ?? undefined;
+};
+
 const FieldLabelText = ({ field }: { field: FieldMetadata }): JSX.Element => (
   <>
     {fieldName(field)}
@@ -544,6 +561,9 @@ export const FieldControl = ({
         );
       }
 
+      // "Up to N items" sits in the field's own help line, so there is one help
+      // element per control (the id `aria-describedby` points at).
+      const help = listHelp(field);
       // An empty list still renders one row, so a required list has somewhere
       // to type before the editor adds a second entry.
       const rows = items.length > 0 ? items : [undefined];
@@ -551,6 +571,7 @@ export const FieldControl = ({
       // list's own label is what makes each row's Add and Remove say which
       // list they belong to.
       const listLabel = fieldName(field);
+      const atMax = field.max !== undefined && items.length >= field.max;
 
       return (
         <fieldset
@@ -598,12 +619,13 @@ export const FieldControl = ({
             type="button"
             className="cms-list-add"
             data-list-add
+            disabled={atMax}
             aria-label={`Add to ${listLabel}`}
           >
             Add item
           </button>
           <FieldErrors errors={errors} id={errorId} />
-          <FieldHelp help={field.help} id={helpId} />
+          <FieldHelp help={help} id={helpId} />
         </fieldset>
       );
     }

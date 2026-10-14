@@ -10,11 +10,23 @@ export const UUID_PATTERN =
 export const nonEmpty = (value: FormDataEntryValue | null): string | null =>
   typeof value === "string" && value !== "" ? value : null;
 
+/**
+ * The largest a posted `content` document may be, in bytes — about 1 MB.
+ *
+ * The whole block or page document rides in one hidden field. A real document is
+ * tens of kilobytes; the cap is far above any editor's content and far below a
+ * body that would spend real memory and CPU to parse. Anything over it is
+ * treated as unreadable (the same path as malformed JSON), so a hostile or
+ * runaway post can't make the save handler allocate an unbounded document.
+ */
+export const MAX_CONTENT_BYTES = 1024 * 1024;
+
 /** Parse a JSON object out of a form field, or null when it isn't one. */
 export const parseJsonObject = (
   value: FormDataEntryValue | null,
 ): Record<string, unknown> | null => {
   if (typeof value !== "string" || value === "") return null;
+  if (Buffer.byteLength(value, "utf8") > MAX_CONTENT_BYTES) return null;
   try {
     const parsed: unknown = JSON.parse(value);
     if (

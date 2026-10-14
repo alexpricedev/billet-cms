@@ -175,15 +175,18 @@ describe("cms form editor", () => {
     expect(JSON.parse(hidden?.value ?? "{}").heading).toBe("Hello");
   });
 
-  test("adds and removes list rows, respecting the maximum", () => {
+  test("adds and removes list rows, and disables Add at the maximum", () => {
     const list = form().querySelector("[data-list]") as HTMLElement;
     const add = list.querySelector("[data-list-add]") as HTMLButtonElement;
     const count = () => list.querySelectorAll("[data-list-item]").length;
 
     expect(count()).toBe(2);
+    expect(add.disabled).toBe(false);
     add.click();
     expect(count()).toBe(3);
-    // At the maximum, another click does nothing.
+    // At the maximum the Add button is disabled, so the editor sees why another
+    // row won't appear rather than clicking into nothing.
+    expect(add.disabled).toBe(true);
     add.click();
     expect(count()).toBe(3);
 
@@ -192,6 +195,44 @@ describe("cms form editor", () => {
     ) as HTMLButtonElement;
     remove.click();
     expect(count()).toBe(2);
+    // Freeing a slot re-enables Add.
+    expect(add.disabled).toBe(false);
+  });
+
+  test("ships Add disabled when the server rendered a full list", () => {
+    // The server marks the button disabled; init must leave it that way and
+    // re-enable it once a row is removed.
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" data-cms-content />
+        <div data-field data-field-kind="list" data-field-name="tags" data-list data-max="1">
+          <div data-list-items>
+            <div data-list-item>
+              <div data-field data-field-kind="text" data-field-name="item">
+                <input type="text" data-text-input value="only" />
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>
+          </div>
+          <template data-list-template>
+            <div data-list-item>
+              <div data-field data-field-kind="text" data-field-name="item">
+                <input type="text" data-text-input value="" />
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>
+          </template>
+          <button type="button" data-list-add disabled>Add item</button>
+        </div>
+      </form>
+    `);
+
+    const list = form().querySelector("[data-list]") as HTMLElement;
+    const add = list.querySelector("[data-list-add]") as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+
+    (list.querySelector("[data-list-remove]") as HTMLButtonElement).click();
+    expect(add.disabled).toBe(false);
   });
 
   // Removing a row used to drop focus onto the list's Add button always —

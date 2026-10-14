@@ -66,6 +66,38 @@ describe("FieldControl list", () => {
     expect(html).toContain('aria-label="Add to Tags"');
     expect(html).toContain('aria-label="Remove from Tags"');
   });
+
+  test("spells out the maximum in the help text", () => {
+    expect(html).toContain("Up to 3 items.");
+  });
+
+  test("disables Add when the stored list is already at its maximum", () => {
+    const full = renderToString(
+      <FieldControl
+        field={list}
+        value={["one", "two", "three"]}
+        idBase="cms-field-tags"
+      />,
+    );
+    const add = /<button[^>]*data-list-add[^>]*>/.exec(full)?.[0] ?? "";
+
+    expect(add).toContain("disabled");
+  });
+
+  test("uses the singular for a one-item maximum", () => {
+    const one: FieldMetadata = {
+      name: "tag",
+      kind: "list",
+      required: false,
+      max: 1,
+      of: { name: "item", kind: "text", required: true },
+    };
+    const single = renderToString(
+      <FieldControl field={one} value={[]} idBase="cms-field-tag" />,
+    );
+
+    expect(single).toContain("Up to 1 item.");
+  });
 });
 
 describe("FieldControl link", () => {
