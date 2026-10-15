@@ -350,6 +350,23 @@ describe("field value types", () => {
 
     expect(widened.required).toBe(false);
   });
+
+  // `Field<T>` is covariant, so the annotations above can't fail to compile —
+  // a `Field<string>` is a `Field<string | undefined>`. The other direction
+  // proves the widening really happened: a value that may be absent is not a
+  // `Field<string>`, so assigning one has to be a type error.
+  test("a widened value can't pass for a required one", () => {
+    const options: FieldOptions = { required: false };
+
+    // @ts-expect-error text(options) is Field<string | undefined>, not Field<string>.
+    const asRequired: Field<string> = text(options);
+    // @ts-expect-error an inline required: false widens the same way.
+    const explicit: Field<string> = text({ required: false });
+
+    // Reached only at runtime; the expectations above are what is being tested.
+    expect(asRequired.required).toBe(false);
+    expect(explicit.required).toBe(false);
+  });
 });
 
 describe("image", () => {

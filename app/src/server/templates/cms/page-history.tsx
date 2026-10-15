@@ -1,6 +1,7 @@
 import { Layout } from "../../components/layouts";
 import type { PageRecord, PageRevisionSummary } from "../../services/content";
 import type { User } from "../../services/users";
+import { formatWhen } from "../../utils/format";
 
 export interface PageHistoryProps {
   user: User;
@@ -11,13 +12,6 @@ export interface PageHistoryProps {
   navCsrfToken?: string;
   notice?: string | null;
 }
-
-const formatWhen = (date: Date): string =>
-  date.toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  });
 
 /**
  * A page's revision history. Restoring copies an older revision into a new
@@ -56,9 +50,7 @@ export const PageHistory = ({
     )}
 
     {revisions.length === 0 ? (
-      <div className="cms-history-empty" role="status">
-        This page has no saved revisions yet.
-      </div>
+      <p className="cms-history-empty">This page has no saved revisions yet.</p>
     ) : (
       <ol className="cms-history">
         {revisions.map((revision) => (

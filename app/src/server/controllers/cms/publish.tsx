@@ -11,12 +11,9 @@ import {
 } from "../../services/content";
 import { render404 } from "../../utils/errors";
 import { redirect } from "../../utils/response";
-import { UUID_PATTERN } from "./params";
+import { nonEmpty, UUID_PATTERN } from "./params";
 import { previewRedirect } from "./preview";
 import { renderSlotForm } from "./slot";
-
-const nonEmpty = (value: FormDataEntryValue | null): string | null =>
-  typeof value === "string" && value !== "" ? value : null;
 
 /**
  * Publish and restore, as their own POST endpoints.
@@ -123,7 +120,7 @@ export const slotPublish = {
           blockType,
           revision?.content ?? {},
           revision?.id ?? null,
-          { errors: result.issues },
+          { errors: result.issues, refusedPublish: true },
         );
       }
       return redirect(`/cms/slots/${slotId}?publish=empty`);

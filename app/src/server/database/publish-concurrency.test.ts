@@ -72,8 +72,13 @@ describe("concurrent publishes", () => {
 
       const holding = blocker.begin(async (tx) => {
         await tx`SELECT contract_version FROM cms_meta WHERE id = 1 FOR UPDATE`;
+        // `pg_locks.transactionid` is the 32-bit xid, but
+        // `pg_current_xact_id()` is an xid8 (epoch + xid). Casting back to
+        // `xid` is what makes the two comparable: the plain ::text carries the
+        // epoch, and only matches while the cluster is young enough for it to
+        // be zero.
         const [row] = (await tx`
-          SELECT pg_current_xact_id()::text AS xid
+          SELECT pg_current_xact_id()::xid::text AS xid
         `) as { xid: string }[];
         blockerXid = Number(row?.xid);
         acquired();

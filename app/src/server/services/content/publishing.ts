@@ -221,8 +221,18 @@ export interface SlotRevisionSummary {
   isLatest: boolean;
 }
 
+/** How many revisions one history page shows. */
+export const HISTORY_PAGE_SIZE = 50;
+
+/** One page of a slot's history, and whether older revisions remain. */
+export interface SlotHistoryPage {
+  revisions: SlotRevisionSummary[];
+  /** True when revisions older than this page exist. */
+  hasOlder: boolean;
+}
+
 /**
- * The revisions of one slot, newest first.
+ * The revisions of one slot, newest first, in pages.
  *
  * `cms_identities` is the site's own view, so an author whose account the site
  * has since removed reads back as `null` rather than dropping the row: the
@@ -230,22 +240,43 @@ export interface SlotRevisionSummary {
  */
 export const listSlotHistory = async (
   slot: SlotRecord,
-): Promise<SlotRevisionSummary[]> => {
+  options: { before?: string | null } = {},
+): Promise<SlotHistoryPage> => {
+  const before = options.before ?? null;
   const rows = (await db`
     SELECT r.id, r.created_at, i.email AS author_email
     FROM cms_revisions r
     LEFT JOIN cms_identities i ON i.id = r.created_by
     WHERE r.target_type = 'slot' AND r.target_id = ${slot.id}
+      AND (
+        ${before}::uuid IS NULL
+        OR (r.created_at, r.id) < (
+          SELECT b.created_at, b.id
+          FROM cms_revisions b
+          WHERE b.id = ${before}::uuid
+            AND b.target_type = 'slot' AND b.target_id = ${slot.id}
+        )
+      )
     ORDER BY r.created_at DESC, r.id DESC
+    LIMIT ${HISTORY_PAGE_SIZE + 1}
   `) as { id: string; created_at: Date; author_email: string | null }[];
 
-  return rows.map((row, index) => ({
-    id: row.id,
-    createdAt: row.created_at,
-    authorEmail: row.author_email,
-    isPublished: row.id === slot.publishedRevisionId,
-    isLatest: index === 0,
-  }));
+  // One extra row is fetched only to answer "is there an older page?"; it is not
+  // shown. The page itself is the newest `HISTORY_PAGE_SIZE`.
+  const hasOlder = rows.length > HISTORY_PAGE_SIZE;
+  const page = rows.slice(0, HISTORY_PAGE_SIZE);
+
+  return {
+    revisions: page.map((row, index) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      authorEmail: row.author_email,
+      isPublished: row.id === slot.publishedRevisionId,
+      // Only the first page holds the newest revision.
+      isLatest: before === null && index === 0,
+    })),
+    hasOlder,
+  };
 };
 
 export type RestoreSlotResult =

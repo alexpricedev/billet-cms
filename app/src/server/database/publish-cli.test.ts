@@ -96,4 +96,18 @@ describe("cms:publish CLI", () => {
       await temp.drop();
     }
   });
+
+  test("prints the full error when a publish fails unexpectedly", async () => {
+    // Port 1 is never a Postgres server, so the connection is refused: that is
+    // not one of the failures the CLI has a written message for, so the whole
+    // error — stack included — is printed rather than a one-line message.
+    const refused = await runCli("postgresql://nobody@127.0.0.1:1/nothing");
+
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toContain(
+      "Unexpected error while publishing definitions",
+    );
+    // The full error, not just its message: a stack frame is present.
+    expect(refused.stderr).toMatch(/\n\s+at /);
+  });
 });

@@ -161,6 +161,8 @@ interface FormExtras {
    * round 2).
    */
   removed?: number[];
+  /** True when the errors came from a refused publish, not a save. */
+  refusedPublish?: boolean;
 }
 
 /**
@@ -249,8 +251,55 @@ export const renderPageForm = async (
       blockErrors={byBlock}
       contentIssues={list}
       conflict={extras.conflict ?? null}
+      refusedPublish={extras.refusedPublish ?? false}
       notice={extras.notice ?? null}
       values={extras.settings}
+    />,
+  );
+};
+
+/**
+ * Render the create-a-page form.
+ *
+ * Shared by the GET and by both POST outcomes that re-render rather than
+ * redirect — no page type chosen, and settings that didn't validate — so all
+ * three mint fresh CSRF tokens around the same values and the same errors.
+ * A blank page type defaults to the first published one, which is what the GET
+ * preselects.
+ */
+const renderNewPageForm = async (
+  ctx: SessionContext,
+  values: PageSettingsInput & { pageType: string },
+  errors?: readonly { path: string; message: string }[],
+): Promise<Response> => {
+  const sessionId = ctx.sessionId as string;
+  const user = ctx.user as NonNullable<SessionContext["user"]>;
+
+  const pageTypes = (await listPageTypes()).filter(
+    (type) => type.removedAt === null,
+  );
+  const [csrfToken, navCsrfToken] = await Promise.all([
+    createCsrfToken(sessionId, "POST", "/cms/pages/new"),
+    createCsrfToken(sessionId, "POST", "/auth/logout"),
+  ]);
+
+  return render(
+    <NewPageForm
+      user={user}
+      csrfToken={csrfToken}
+      navCsrfToken={navCsrfToken}
+      pageTypes={pageTypes}
+      values={{
+        pageType: values.pageType || (pageTypes[0]?.name ?? ""),
+        url: values.url,
+        title: values.title,
+        seoDescription: values.seoDescription ?? "",
+        socialImage: values.socialImage ?? "",
+      }}
+      errors={errors?.map((issue) => ({
+        path: issue.path,
+        message: issue.message,
+      }))}
     />,
   );
 };
@@ -340,29 +389,13 @@ export const pages = {
     const ctx = await getSessionContext(req);
     if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
-    const pageTypes = (await listPageTypes()).filter(
-      (type) => type.removedAt === null,
-    );
-    const [csrfToken, navCsrfToken] = await Promise.all([
-      createCsrfToken(ctx.sessionId, "POST", "/cms/pages/new"),
-      createCsrfToken(ctx.sessionId, "POST", "/auth/logout"),
-    ]);
-
-    return render(
-      <NewPageForm
-        user={ctx.user}
-        csrfToken={csrfToken}
-        navCsrfToken={navCsrfToken}
-        pageTypes={pageTypes}
-        values={{
-          pageType: pageTypes[0]?.name ?? "",
-          url: "",
-          title: "",
-          seoDescription: "",
-          socialImage: "",
-        }}
-      />,
-    );
+    return renderNewPageForm(ctx, {
+      pageType: "",
+      url: "",
+      title: "",
+      seoDescription: "",
+      socialImage: "",
+    });
   },
 
   async create(req: BunRequest): Promise<Response> {
@@ -380,54 +413,16 @@ export const pages = {
 
     const formData = await req.formData();
     const settings = settingsFrom(formData);
-    const pageTypes = (await listPageTypes()).filter(
-      (type) => type.removedAt === null,
-    );
 
     if (settings.pageType === "") {
-      const [csrfToken, navCsrfToken] = await Promise.all([
-        createCsrfToken(ctx.sessionId, "POST", "/cms/pages/new"),
-        createCsrfToken(ctx.sessionId, "POST", "/auth/logout"),
+      return renderNewPageForm(ctx, settings, [
+        { path: "pageType", message: "Choose a page type." },
       ]);
-      return render(
-        <NewPageForm
-          user={ctx.user}
-          csrfToken={csrfToken}
-          navCsrfToken={navCsrfToken}
-          pageTypes={pageTypes}
-          values={{
-            ...settings,
-            seoDescription: settings.seoDescription ?? "",
-            socialImage: settings.socialImage ?? "",
-          }}
-          errors={[{ path: "pageType", message: "Choose a page type." }]}
-        />,
-      );
     }
 
     const result = await createPage(settings);
     if (!result.ok) {
-      const [csrfToken, navCsrfToken] = await Promise.all([
-        createCsrfToken(ctx.sessionId, "POST", "/cms/pages/new"),
-        createCsrfToken(ctx.sessionId, "POST", "/auth/logout"),
-      ]);
-      return render(
-        <NewPageForm
-          user={ctx.user}
-          csrfToken={csrfToken}
-          navCsrfToken={navCsrfToken}
-          pageTypes={pageTypes}
-          values={{
-            ...settings,
-            seoDescription: settings.seoDescription ?? "",
-            socialImage: settings.socialImage ?? "",
-          }}
-          errors={result.issues.map((issue) => ({
-            path: issue.path,
-            message: issue.message,
-          }))}
-        />,
-      );
+      return renderNewPageForm(ctx, settings, result.issues);
     }
 
     return redirect(`/cms/pages/${result.page.id}`);

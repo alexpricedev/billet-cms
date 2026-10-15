@@ -1,8 +1,10 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { block, text } from "@alexpricedev/billet-cms/fields";
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
+import { jsonbValue } from "../../utils/sql";
 
 const connection = testDatabase();
 
@@ -16,6 +18,7 @@ import {
   createRevision,
   getLatestRevision,
   getSlotById,
+  HISTORY_PAGE_SIZE,
   publishSlot,
   saveSlotDraft,
 } from "../../services/content";
@@ -223,8 +226,9 @@ describe("slot publish and history controllers", () => {
 
       expect(res.status).toBe(200);
       const html = await res.text();
-      // The save form's own banner and per-field error state, not `?publish=`.
-      expect(html).toMatch(/can.{0,5}t be saved/);
+      // The save form's own banner and per-field error state, not `?publish=`,
+      // and the banner names the action that was refused: a publish.
+      expect(html).toContain("This content can't be published");
       expect(html).toContain('aria-invalid="true"');
       expect(html).toContain('href="#cms-field-heading"');
 
@@ -333,10 +337,13 @@ describe("slot publish and history controllers", () => {
   });
 
   describe("history", () => {
-    // Each row of the history list, newest first. The list is flat, so a split
-    // on the item class gives one entry per revision.
+    // One entry per revision, newest first. Parsing the list's items beats
+    // splitting on a class string: an attribute reorder or an extra class
+    // doesn't silently turn the whole thing into one row.
     const historyRows = (html: string): string[] =>
-      html.split('<li class="cms-history-item"').slice(1);
+      [...html.matchAll(/<li class="cms-history-item"[\s\S]*?<\/li>/g)].map(
+        (match) => match[0],
+      );
 
     test("marks the published revision and the current draft on the right rows", async () => {
       const first = await draft("First");
@@ -364,12 +371,13 @@ describe("slot publish and history controllers", () => {
       // The newest revision is the current draft and is not the published one.
       expect(newest).toContain("Current draft");
       expect(newest).not.toContain("cms-history-published");
+      // Its own revision can't be restored: the newest row offers no restore.
+      expect(newest).not.toContain(`value="${second.id}"`);
       // The older revision is published and offers a restore, naming its id.
       expect(older).toContain("cms-history-published");
       expect(older).toContain("Published");
       expect(older).not.toContain("Current draft");
       expect(older).toContain(`value="${first.id}"`);
-      expect(second.id).toBeTruthy();
     });
 
     test("shows a neutral empty state before anything is saved", async () => {
@@ -384,7 +392,72 @@ describe("slot publish and history controllers", () => {
       const html = await res.text();
       expect(html).toContain("no saved revisions yet");
       expect(html).toContain("cms-history-empty");
+      // A static empty state, not a live-region warning.
       expect(html).not.toContain("flash-warning");
+      expect(html).not.toContain("Show older");
+    });
+
+    test("pages the list at the newest 50, linking older pages with ?before=", async () => {
+      const total = HISTORY_PAGE_SIZE + 3;
+      const base = Date.UTC(2026, 0, 1, 0, 0, 0);
+      for (let i = 0; i < total; i += 1) {
+        await db`
+          INSERT INTO cms_revisions
+            (id, target_type, target_id, content, created_by, created_at)
+          VALUES (
+            ${randomUUID()},
+            'slot',
+            ${slotId},
+            ${jsonbValue({ heading: `#${i}` })},
+            ${editorId},
+            ${new Date(base + i * 1000)}
+          )
+        `;
+      }
+
+      const res = await slotHistory.index(
+        request(historyPath(slotId), slotId, {
+          method: "GET",
+          headers: { cookie: `cms_session=${sessionId}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const html = await res.text();
+
+      const rows = historyRows(html);
+      expect(rows).toHaveLength(HISTORY_PAGE_SIZE);
+      // Only the first page marks the newest revision as the current draft.
+      expect(rows[0]).toContain("Current draft");
+
+      const link = html.match(/href="([^"]*\/history\?before=[^"]+)"/);
+      expect(link).not.toBeNull();
+      const olderHref = (link as RegExpMatchArray)[1];
+      expect(olderHref).toContain("?before=");
+
+      // The cursor is the oldest revision on the page, and the next page holds
+      // the rest, with no "Show older" and no current-draft badge.
+      const older = await slotHistory.index(
+        request(olderHref, slotId, {
+          method: "GET",
+          headers: { cookie: `cms_session=${sessionId}` },
+        }),
+      );
+      expect(older.status).toBe(200);
+      const olderHtml = await older.text();
+      expect(historyRows(olderHtml)).toHaveLength(total - HISTORY_PAGE_SIZE);
+      expect(olderHtml).not.toContain("Show older");
+      expect(olderHtml).not.toContain("Current draft");
+    });
+
+    test("ignores a malformed before cursor rather than 500ing", async () => {
+      const res = await slotHistory.index(
+        request(`${historyPath(slotId)}?before=not-a-uuid`, slotId, {
+          method: "GET",
+          headers: { cookie: `cms_session=${sessionId}` },
+        }),
+      );
+
+      expect(res.status).toBe(200);
     });
 
     test("redirects an anonymous visitor to sign in", async () => {

@@ -49,6 +49,7 @@ import { createEditContentLink } from "@alexpricedev/billet-cms/handoff";
 import { handleCmsSignIn } from "@alexpricedev/billet-cms/sign-in";
 import { ensureIdentitiesView } from "../../database/identity-view";
 import { runMigrations } from "../../database/migrate";
+import { clearRateLimitLog } from "../../middleware/rate-limit";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
 import { cleanupTestData } from "../../test-utils/helpers";
 import { handoff } from "./handoff";
@@ -199,6 +200,9 @@ for (const mode of MODES) {
 
     beforeEach(async () => {
       await cleanupTestData(connection);
+      // The auth rate-limit budget is global state; clear it so the many handoff
+      // posts across this file's cases don't spend each other's.
+      clearRateLimitLog();
     });
 
     test("signed in on the site: straight into the CMS with a session", async () => {

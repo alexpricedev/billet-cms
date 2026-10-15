@@ -7,6 +7,8 @@ import {
   pageTypeStoredSchema,
   richText,
   text,
+  URL_PATTERN,
+  URL_PATTERN_MESSAGE,
 } from "@alexpricedev/billet-cms/fields";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
 import { formatIssues } from "./drafts";
@@ -175,40 +177,32 @@ describe("validatePageContent", () => {
 });
 
 describe("checkPageLimits", () => {
-  test("requires a required block", () => {
+  test("requires a required block, naming it", () => {
     const issues = checkPageLimits(
       pageTypeRecord(
         pageType("landing", { allowedBlocks: [hero], requiredBlocks: [hero] }),
       ),
       [],
-      registry,
     );
     expect(issues[0]?.message).toContain("requires one");
+    expect(issues[0]?.message).toContain('"hero"');
   });
 
   test("enforces a max of one hero", () => {
-    const issues = checkPageLimits(
-      pageTypeRecord(landing),
-      [
-        { type: "hero", heading: "One" },
-        { type: "hero", heading: "Two" },
-      ],
-      registry,
-    );
+    const issues = checkPageLimits(pageTypeRecord(landing), [
+      { type: "hero", heading: "One" },
+      { type: "hero", heading: "Two" },
+    ]);
     expect(
       issues.some((issue) => issue.message.includes("no more than 1")),
     ).toBe(true);
   });
 
   test("requires the hero to be first when the limit says top", () => {
-    const issues = checkPageLimits(
-      pageTypeRecord(landing),
-      [
-        { type: "prose", body: { type: "doc", content: [] } },
-        { type: "hero", heading: "Late" },
-      ],
-      registry,
-    );
+    const issues = checkPageLimits(pageTypeRecord(landing), [
+      { type: "prose", body: { type: "doc", content: [] } },
+      { type: "hero", heading: "Late" },
+    ]);
     expect(
       issues.some((issue) => issue.message.includes("has to be first")),
     ).toBe(true);
@@ -216,11 +210,9 @@ describe("checkPageLimits", () => {
 
   test("passes a page that satisfies every limit", () => {
     expect(
-      checkPageLimits(
-        pageTypeRecord(landing),
-        [{ type: "hero", heading: "First" }],
-        registry,
-      ),
+      checkPageLimits(pageTypeRecord(landing), [
+        { type: "hero", heading: "First" },
+      ]),
     ).toEqual([]);
   });
 });
@@ -325,6 +317,37 @@ describe("formatIssues", () => {
         { heading: "x".repeat(81) },
       ),
     ).toEqual([{ path: "heading", message: "Use 80 characters or fewer." }]);
+  });
+
+  test("singularises a one-character limit", () => {
+    expect(
+      formatIssues(
+        [
+          {
+            path: ["heading"],
+            message: "Too big: expected string to have <=1 characters",
+          },
+        ],
+        { heading: "ab" },
+      ),
+    ).toEqual([{ path: "heading", message: "Use 1 character or fewer." }]);
+  });
+
+  // The link allowlist is stored as a JSON Schema `pattern`, so the validator's
+  // message carries the pattern source and nothing about links. When it is that
+  // allowlist that failed, the plain copy names the link.
+  test("names a link whose allowlist pattern failed", () => {
+    expect(
+      formatIssues(
+        [
+          {
+            path: ["cta", "url"],
+            message: `Invalid string: must match pattern /${URL_PATTERN.source}/`,
+          },
+        ],
+        { cta: { type: "url", url: "javascript:alert(1)" } },
+      ),
+    ).toEqual([{ path: "cta.url", message: URL_PATTERN_MESSAGE }]);
   });
 });
 

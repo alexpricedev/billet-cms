@@ -23,10 +23,10 @@ export interface HandoffProps {
 export const Handoff = ({ token, csrfToken }: HandoffProps) => {
   return (
     <AuthPage
-      title="Edit content - Billet CMS"
+      title="Sign in - Billet CMS"
       description="Continue to Billet CMS to edit the site's content."
       canonicalPath={HANDOFF_PATH}
-      heading="Edit content"
+      heading="Sign in to Billet CMS"
       subtitle="You'll be signed in to Billet CMS"
       footer={<a href="/">Back to home</a>}
     >
@@ -42,7 +42,7 @@ export const Handoff = ({ token, csrfToken }: HandoffProps) => {
           <CsrfField token={csrfToken} />
           <input type="hidden" name="token" value={token} />
           <button type="submit" className="login-submit">
-            Continue
+            Continue to Billet CMS
           </button>
         </form>
       )}

@@ -662,7 +662,7 @@ export const FieldControl = ({
             data-list-add
             aria-disabled={atMax ? "true" : undefined}
             aria-describedby={help ? helpId : undefined}
-            aria-label={`Add to ${listLabel}`}
+            aria-label={`Add item to ${listLabel}`}
           >
             Add item
           </button>
