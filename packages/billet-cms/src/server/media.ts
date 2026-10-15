@@ -29,7 +29,7 @@ import {
   type MediaVariant,
   TABLES,
 } from "../contract";
-import { ContentCache, contentVersionFor } from "./cache";
+import { ContentCache, readerCacheOptions } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
 import { escapeHtml } from "./rich-text";
 
@@ -62,7 +62,14 @@ export interface CmsMediaOptions {
   now?: () => number;
   /** How often `content_version` is re-read. Defaults to one second (Q3). */
   versionPollMs?: number;
-  /** Where skipped reads are reported. Defaults to the console. */
+  /**
+   * Where skipped reads are reported. Defaults to the console.
+   *
+   * It does not receive `content_version` poll failures: the poll is shared
+   * between every reader on the pool, so it logs through the default logger
+   * rather than any one reader's sink. A reader built with an injected `now`
+   * gets a private poll and does report through this logger.
+   */
   onSkip?: SkipLogger;
 }
 
@@ -105,22 +112,11 @@ export const createCmsMedia = (options: CmsMediaOptions): CmsMediaReader => {
 
   const cache = new ContentCache<CmsMedia | null>({
     // One poll for the whole pool, shared with the slot and page readers, so a
-    // process asks `cms_meta` once a second rather than once per reader.
-    version: contentVersionFor(sql, {
-      ...(options.now ? { now: options.now } : {}),
-      ...(options.versionPollMs !== undefined
-        ? { intervalMs: options.versionPollMs }
-        : {}),
-      onError: (error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        onSkip(`could not check the CMS content version: ${message}`);
-      },
-    }),
+    // process asks `cms_meta` once a second rather than once per reader. A
+    // failed version check is logged by the shared poll through the default
+    // logger, not this reader's `onSkip` (see `readerCacheOptions`).
+    ...readerCacheOptions(sql, options, onSkip),
     load: loadMedia,
-    ...(options.now ? { now: options.now } : {}),
-    ...(options.versionPollMs !== undefined
-      ? { intervalMs: options.versionPollMs }
-      : {}),
   });
 
   return {

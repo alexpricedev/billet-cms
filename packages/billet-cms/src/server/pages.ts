@@ -43,7 +43,7 @@ import { validateContent } from "../schema";
 import {
   CONTENT_VERSION_POLL_MS,
   ContentCache,
-  contentVersionFor,
+  readerCacheOptions,
 } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
 import { latestRevisionId } from "./revisions";
@@ -86,7 +86,14 @@ export interface CmsPagesOptions {
   now?: () => number;
   /** How often `content_version` is re-read. Defaults to one second (Q3). */
   versionPollMs?: number;
-  /** Where skipped content is reported. Defaults to the console. */
+  /**
+   * Where skipped content is reported. Defaults to the console.
+   *
+   * It does not receive `content_version` poll failures: the poll is shared
+   * between every reader on the pool, so it logs through the default logger
+   * rather than any one reader's sink. A reader built with an injected `now`
+   * gets a private poll and does report through this logger.
+   */
   onSkip?: SkipLogger;
 }
 
@@ -402,21 +409,11 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
 
   const cache = new ContentCache<unknown>({
     // One poll for the whole pool, shared with the slot and media readers, so a
-    // process asks `cms_meta` once a second rather than once per reader.
-    version: contentVersionFor(sql, {
-      ...(options.now ? { now: options.now } : {}),
-      ...(options.versionPollMs !== undefined
-        ? { intervalMs: options.versionPollMs }
-        : {}),
-      onError: (error) => {
-        onSkip(`could not check the CMS content version: ${describe(error)}`);
-      },
-    }),
+    // process asks `cms_meta` once a second rather than once per reader. A
+    // failed version check is logged by the shared poll through the default
+    // logger, not this reader's `onSkip` (see `readerCacheOptions`).
+    ...readerCacheOptions(sql, options, onSkip),
     load: loadByKey,
-    ...(options.now ? { now: options.now } : {}),
-    ...(options.versionPollMs !== undefined
-      ? { intervalMs: options.versionPollMs }
-      : {}),
   });
 
   /**
@@ -482,8 +479,13 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
           }
           if (pageId)
             return (await cache.get(`page:${pageId}`)) as CmsPage | null;
-          // Not a published page: it may be an unpublished page the token
-          // names, which only the URL lookup can find.
+          // The URL is not a published page. If the token's subject is, this
+          // path cannot be its draft: a page's URL lives on the page row, not
+          // in a revision, so a draft cannot move it. Return the published
+          // view (nothing here) instead of running the uncached URL lookup,
+          // which used to put a `cms_pages` SELECT on every 404 a page token
+          // asked for. Only an unpublished subject can be found this way.
+          if (table.byId.has(preview.subjectId)) return null;
           return await loadPreviewPage(canonical, preview);
         }
 

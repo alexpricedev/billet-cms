@@ -1,10 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import type { SQL } from "bun";
 import {
   CONTENT_VERSION_POLL_MS,
   ContentCache,
   ContentVersion,
   contentVersionFor,
+  readerCacheOptions,
 } from "./cache";
 
 /** A cache over a counter the test controls, with an injectable clock. */
@@ -631,19 +632,22 @@ describe("contentVersionFor", () => {
     expect(state.versionReads).toBe(1);
   });
 
-  // A reader with its own clock or interval must not be handed the shared poll:
-  // its interval would fight the shared one's, and its window would leak to the
-  // other readers.
-  test("a reader with its own interval gets its own poll", async () => {
+  // A reader that tunes the interval must share with the readers that tuned it
+  // the same way, not fall back to one `cms_meta` poll per reader: the poll is
+  // keyed by (pool, interval). A different interval still gets its own poll.
+  test("a reader with its own interval shares a poll with that interval", async () => {
     const { state, sql } = countingSql();
 
     const shared = contentVersionFor(sql);
-    const own = contentVersionFor(sql, { intervalMs: 5000 });
-    expect(own).not.toBe(shared);
+    const tuned = contentVersionFor(sql, { intervalMs: 5000 });
+    const tunedAgain = contentVersionFor(sql, { intervalMs: 5000 });
+    expect(tuned).not.toBe(shared);
+    expect(tunedAgain).toBe(tuned);
 
     expect(await shared.read()).toBe(1);
-    expect(await own.read()).toBe(1);
-    // Two separate polls, so two reads on the same pool.
+    expect(await tuned.read()).toBe(1);
+    expect(await tunedAgain.read()).toBe(1);
+    // Two polls — the default and the 5s one — so two reads on the same pool.
     expect(state.versionReads).toBe(2);
   });
 
@@ -653,5 +657,79 @@ describe("contentVersionFor", () => {
     const shared = contentVersionFor(sql);
     const own = contentVersionFor(sql, { now: () => 0 });
     expect(own).not.toBe(shared);
+  });
+
+  // r1-4: the shared poll belongs to the pool, not to whichever reader asked
+  // first, so a failure is logged once through the plugin's default skip logger
+  // rather than once per reader and rather than through a reader's `onSkip`.
+  test("a shared-pool poll failure is logged once through the default logger", async () => {
+    const state = { version: 1, reads: 0, fails: false };
+    const sql = {
+      unsafe: () => {
+        state.reads += 1;
+        if (state.fails) throw new Error("cms_meta is gone");
+        return Promise.resolve([{ content_version: state.version }]);
+      },
+    } as unknown as SQL;
+
+    const logged: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message: string) => {
+      logged.push(message);
+    };
+    setSystemTime(new Date(0));
+    try {
+      const first = contentVersionFor(sql);
+      const second = contentVersionFor(sql);
+      expect(second).toBe(first);
+
+      expect(await first.read()).toBe(1);
+
+      // The CMS goes away. Both readers are on the one shared poll, so the
+      // failure is reported once — by the default logger, not by a reader.
+      state.fails = true;
+      setSystemTime(new Date(1000));
+      expect(await first.read()).toBe(1);
+      expect(await second.read()).toBe(1);
+
+      const failures = logged.filter((line) =>
+        line.includes("could not check the CMS content version"),
+      );
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toContain("cms_meta is gone");
+    } finally {
+      console.warn = originalWarn;
+      setSystemTime();
+    }
+  });
+});
+
+describe("readerCacheOptions", () => {
+  const pool = () =>
+    ({
+      unsafe: () => Promise.resolve([{ content_version: 1 }]),
+    }) as unknown as SQL;
+
+  // The helper is the one place the shared poll and the reader's own clock and
+  // interval are put together, so the readers can't drift on the spread.
+  test("returns the shared poll plus the reader's clock and interval", () => {
+    const sql = pool();
+    const shared = contentVersionFor(sql);
+
+    expect(readerCacheOptions(sql, {}, () => {}).version).toBe(shared);
+    expect(readerCacheOptions(sql, {}, () => {}).intervalMs).toBeUndefined();
+    expect(readerCacheOptions(sql, {}, () => {}).now).toBeUndefined();
+
+    // A tuned interval shares a poll keyed by that interval, and reaches the
+    // cache's own window too.
+    const tuned = readerCacheOptions(sql, { versionPollMs: 250 }, () => {});
+    expect(tuned.version).toBe(contentVersionFor(sql, { intervalMs: 250 }));
+    expect(tuned.intervalMs).toBe(250);
+
+    // An injected clock gets a private poll and is passed through.
+    const clock = () => 0;
+    const privateReader = readerCacheOptions(sql, { now: clock }, () => {});
+    expect(privateReader.now).toBe(clock);
+    expect(privateReader.version).not.toBe(shared);
   });
 });

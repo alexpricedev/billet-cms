@@ -37,7 +37,7 @@ import {
 } from "../fields/definition";
 import type { PreviewAccess } from "../preview";
 import { validateContent } from "../schema";
-import { ContentCache, contentVersionFor } from "./cache";
+import { ContentCache, readerCacheOptions } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
 
 /** The validated content of one published slot, keyed by field/block name. */
@@ -50,7 +50,14 @@ export interface ContentReaderOptions {
   now?: () => number;
   /** How often `content_version` is re-read. Defaults to one second (Q3). */
   versionPollMs?: number;
-  /** Where skipped content is reported. Defaults to the console. */
+  /**
+   * Where skipped content is reported. Defaults to the console.
+   *
+   * It does not receive `content_version` poll failures: the poll is shared
+   * between every reader on the pool, so it logs through the default logger
+   * rather than any one reader's sink. A reader built with an injected `now`
+   * gets a private poll and does report through this logger.
+   */
   onSkip?: SkipLogger;
 }
 
@@ -306,23 +313,11 @@ export const createContentReader = (
   const cache = new ContentCache<CachedSlot | null>({
     // One poll for the whole pool: the page and media readers share it, so a
     // process asks `cms_meta` once a second, not once per reader. A failed
-    // version check keeps serving what is cached (see `ContentCache`); the site
-    // hears about it through its skip logger like any other drop.
-    version: contentVersionFor(sql, {
-      ...(options.now ? { now: options.now } : {}),
-      ...(options.versionPollMs !== undefined
-        ? { intervalMs: options.versionPollMs }
-        : {}),
-      onError: (error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        onSkip(`could not check the CMS content version: ${message}`);
-      },
-    }),
+    // version check keeps serving what is cached (see `ContentCache`); the
+    // shared poll logs it through the default logger, not this reader's
+    // `onSkip` (see `readerCacheOptions`).
+    ...readerCacheOptions(sql, options, onSkip),
     load: loadSlot,
-    ...(options.now ? { now: options.now } : {}),
-    ...(options.versionPollMs !== undefined
-      ? { intervalMs: options.versionPollMs }
-      : {}),
   });
 
   return {

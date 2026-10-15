@@ -410,7 +410,13 @@ describe("preview reads", () => {
           if (query.includes("WHERE id = $1")) {
             return Promise.resolve(page.id === params[0] ? [page] : []);
           }
-          return Promise.resolve([{ id: page.id, url: page.url }]);
+          // The routing table, as the real reader loads it: published pages
+          // only, so an unpublished page is found only by the URL lookup.
+          return Promise.resolve(
+            page.published_revision_id === null
+              ? []
+              : [{ id: page.id, url: page.url }],
+          );
         }
         if (query.includes("cms_revisions")) {
           if (query.includes("LIMIT 1") && query.includes("target_id")) {
@@ -647,6 +653,65 @@ describe("preview reads", () => {
     // The published read is unaffected and still separate.
     const published = await pages.getPage("/about");
     expect(published?.blocks).toEqual([{ type: "hero", heading: "Published" }]);
+  });
+
+  // A1: a page token used to run the uncached `url = $1` page lookup on every
+  // path the routing table didn't know — every 404 a previewed page asked for.
+  // When the token's page is already published at another URL that lookup can
+  // only miss: a page's URL lives on the page row, so a draft cannot move it.
+  test("a page token does not run the URL lookup for an unpublished path", async () => {
+    const inner = previewSql({ tokens: pageToken("page-1") }) as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const seen: string[] = [];
+    const sql = {
+      unsafe: (query: string, params?: unknown[]) => {
+        seen.push(query);
+        return inner.unsafe(query, params);
+      },
+    } as unknown as SQL;
+
+    const pages = createCmsPages({ sql, onSkip: () => {}, now: () => 0 });
+    const preview = { subjectType: "page" as const, subjectId: "page-1" };
+
+    expect(await pages.getPage("/missing", { preview })).toBeNull();
+
+    const urlLookups = seen.filter(
+      (query) =>
+        query.includes("cms_pages") && query.includes("WHERE url = $1"),
+    );
+    expect(urlLookups).toHaveLength(0);
+  });
+
+  // The same guard must not hide a genuinely unpublished page: with nothing in
+  // the routing table, the token is the only way to reach it, so the URL lookup
+  // still runs.
+  test("a page token still finds an unpublished page by URL", async () => {
+    const inner = previewSql({
+      page: { ...PAGE_ROW, published_revision_id: null },
+      tokens: pageToken("page-1"),
+    }) as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const seen: string[] = [];
+    const sql = {
+      unsafe: (query: string, params?: unknown[]) => {
+        seen.push(query);
+        return inner.unsafe(query, params);
+      },
+    } as unknown as SQL;
+
+    const pages = createCmsPages({ sql, onSkip: () => {}, now: () => 0 });
+    const preview = { subjectType: "page" as const, subjectId: "page-1" };
+
+    const page = await pages.getPage("/about", { preview });
+    expect(page?.blocks).toEqual([{ type: "hero", heading: "Draft" }]);
+    expect(
+      seen.some(
+        (query) =>
+          query.includes("cms_pages") && query.includes("WHERE url = $1"),
+      ),
+    ).toBe(true);
   });
 
   test("serves a HEAD request that carries a token", async () => {

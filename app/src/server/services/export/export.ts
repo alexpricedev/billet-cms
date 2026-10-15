@@ -15,7 +15,7 @@
  * that gives one stable snapshot, without `SERIALIZABLE`'s serialization
  * failures. The reads are ordered (pages by URL, slots by page then name,
  * revisions by id, redirects by path, media by creation) so two exports of the
- * same content are byte-identical.
+ * same content are identical apart from `exportedAt`.
  */
 
 import {

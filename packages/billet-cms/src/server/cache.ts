@@ -14,13 +14,15 @@
  * after a publish) goes straight to the database, so a fresh visitor never
  * waits longer than the interval for content they don't have cached.
  *
- * The version is a `ContentVersion`, one per pool and shared by every reader on
- * it. A site mounts the page catch-all and reads slots and media, and all three
- * would otherwise poll `cms_meta` separately: the slot reader, the page reader
- * and the media reader each build a `ContentCache`, and they share one
- * `ContentVersion` so a process asks "has it changed?" once a second rather
- * than once per reader. Any reader's `invalidate()` clears the shared poll, so
- * the next read from *any* reader goes back to the database.
+ * The version is a `ContentVersion`, shared by every reader on a pool that
+ * polls at the same interval. A site mounts the page catch-all and reads slots
+ * and media, and all three would otherwise poll `cms_meta` separately: the slot
+ * reader, the page reader and the media reader each build a `ContentCache`, and
+ * they share one `ContentVersion` so a process asks "has it changed?" once a
+ * second rather than once per reader. A reader that tunes the interval shares
+ * with the readers that tuned it the same way; only an injected clock gets a
+ * private poll. Any reader's `invalidate()` clears the shared poll, so the next
+ * read from *any* reader goes back to the database.
  *
  * Two kinds of in-flight work are shared rather than repeated: a version read,
  * so simultaneous misses in one process cost one `cms_meta` query rather than
@@ -31,7 +33,7 @@
  */
 import type { SQL } from "bun";
 import { TABLES } from "../contract";
-import { defaultSkipLogger } from "./log";
+import { defaultSkipLogger, type SkipLogger } from "./log";
 
 /** How often a process re-reads `content_version`. */
 export const CONTENT_VERSION_POLL_MS = 1000;
@@ -56,7 +58,9 @@ export interface ContentVersionOptions {
   intervalMs?: number;
   /**
    * Called when the version check fails but the last version read is still
-   * usable. The site's readers wire this to their skip logger.
+   * usable. Only a private poll (one built with an injected `now`) routes this
+   * to a reader's skip logger; the shared poll reports through the default
+   * logger, because it belongs to the pool rather than any one reader.
    */
   onError?: (error: unknown) => void;
 }
@@ -193,16 +197,22 @@ const versionErrorLogger = (error: unknown): void =>
   );
 
 /**
- * The version poll for a pool, shared by every reader that doesn't customise
- * the clock.
+ * The version poll for a pool, shared by every reader that polls at the same
+ * interval.
  *
- * A reader built with an injected `now` (tests) or interval gets its own poll,
- * because the default one is keyed to the pool and its clock would fight the
- * test's. Every other reader on the same pool shares one: the first to ask
- * creates it and sets its error sink, and the readers a site actually builds
- * from the convenience helpers all log through the same default logger.
+ * The poll is keyed by `(pool, intervalMs)`: readers that all use the default
+ * interval share one, and a site that tunes `versionPollMs` shares with the
+ * readers that tuned it the same way rather than falling back to one poll per
+ * reader. Only a reader built with an injected `now` (tests) gets a private
+ * poll, because its clock would fight the shared one's.
+ *
+ * Version-poll failures are reported through the plugin's default logger, once
+ * per failed poll, not through any reader's `onSkip`: the shared poll outlives
+ * every reader that maps onto it and cannot be routed to one of their sinks.
+ * A private poll (injected clock) keeps its own `onError`, so a test can watch
+ * the failure directly.
  */
-const sharedVersions = new WeakMap<SQL, ContentVersion>();
+const sharedVersions = new WeakMap<SQL, Map<number, ContentVersion>>();
 
 export const contentVersionFor = (
   sql: SQL,
@@ -212,10 +222,10 @@ export const contentVersionFor = (
     onError?: (error: unknown) => void;
   } = {},
 ): ContentVersion => {
-  if (options.now !== undefined || options.intervalMs !== undefined) {
+  if (options.now !== undefined) {
     return new ContentVersion({
       readVersion: () => readContentVersion(sql),
-      ...(options.now ? { now: options.now } : {}),
+      now: options.now,
       ...(options.intervalMs !== undefined
         ? { intervalMs: options.intervalMs }
         : {}),
@@ -223,15 +233,61 @@ export const contentVersionFor = (
     });
   }
 
-  const existing = sharedVersions.get(sql);
+  const intervalMs = options.intervalMs ?? CONTENT_VERSION_POLL_MS;
+  let byInterval = sharedVersions.get(sql);
+  if (!byInterval) {
+    byInterval = new Map<number, ContentVersion>();
+    sharedVersions.set(sql, byInterval);
+  }
+  const existing = byInterval.get(intervalMs);
   if (existing) return existing;
   const version = new ContentVersion({
     readVersion: () => readContentVersion(sql),
-    onError: options.onError ?? versionErrorLogger,
+    intervalMs,
+    onError: versionErrorLogger,
   });
-  sharedVersions.set(sql, version);
+  byInterval.set(intervalMs, version);
   return version;
 };
+
+/** What a reader spreads into its `ContentCache`: the shared poll and its clock. */
+export interface ReaderCacheOptions {
+  version: ContentVersion;
+  now?: () => number;
+  intervalMs?: number;
+}
+
+/**
+ * The `ContentCache` options a reader builds from its own options.
+ *
+ * Every reader wants the same three things — the shared version poll, and its
+ * own clock and interval so both the poll and the cache's load-sharing window
+ * see them — and each used to repeat the same spread and failure message. This
+ * is that in one place.
+ *
+ * `onSkip` receives a version-poll failure only on a private poll (a reader
+ * built with an injected `now`); a shared poll reports through the default
+ * logger, as `contentVersionFor` documents.
+ */
+export const readerCacheOptions = (
+  sql: SQL,
+  options: { now?: () => number; versionPollMs?: number },
+  onSkip: SkipLogger,
+): ReaderCacheOptions => ({
+  version: contentVersionFor(sql, {
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.versionPollMs !== undefined
+      ? { intervalMs: options.versionPollMs }
+      : {}),
+    onError: (error) => {
+      onSkip(`could not check the CMS content version: ${describe(error)}`);
+    },
+  }),
+  ...(options.now ? { now: options.now } : {}),
+  ...(options.versionPollMs !== undefined
+    ? { intervalMs: options.versionPollMs }
+    : {}),
+});
 
 export interface ContentCacheOptions<V> {
   /** Read `cms_meta.content_version`. Omit when a shared `version` is given. */
@@ -244,7 +300,9 @@ export interface ContentCacheOptions<V> {
   intervalMs?: number;
   /**
    * Called when the version check fails but the cache can fall back to the last
-   * version it read. The site's reader wires this to its skip logger.
+   * version it read. Used only when the cache builds its own poll from
+   * `readVersion` (tests); a cache handed a shared `version` reports through
+   * that poll's own sink.
    */
   onVersionError?: (error: unknown) => void;
   /**
