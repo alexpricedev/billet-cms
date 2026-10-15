@@ -106,6 +106,18 @@ describe("generated artefacts follow the resolved origin", () => {
     // and in particular the removed /forms demo is not.
     expect(xml).not.toContain("<loc>");
     expect(xml).not.toContain("/forms");
+  });
+
+  // The guard against the "no locs" assertion above passing vacuously: a path
+  // that *is* listed resolves against the canonical origin (SITE_URL), not
+  // APP_URL.
+  test("a listed page resolves against the canonical origin", () => {
+    process.env.APP_URL = "https://app.example.com";
+    process.env.SITE_URL = "https://example.com";
+
+    const xml = buildSitemapXml(["/a-public-page"]);
+
+    expect(xml).toContain("<loc>https://example.com/a-public-page</loc>");
     expect(xml).not.toContain("app.example.com");
   });
 
