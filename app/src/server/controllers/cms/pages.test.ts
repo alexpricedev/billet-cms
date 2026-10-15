@@ -32,6 +32,7 @@ import {
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
+import { staleCsrfToken } from "../../test-utils/auth-form";
 import { pagePublish } from "./page-publish";
 import { pages } from "./pages";
 import { MAX_CONTENT_BYTES } from "./params";
@@ -433,6 +434,91 @@ describe("Pages controller", () => {
     expect(html).toContain("Kept heading");
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
+  });
+
+  // Review follow-up: a refusal must not throw away the settings half of the
+  // submit. The content half here can't be parsed, so the fallback re-renders
+  // the editor — with the settings the editor typed, not the stored ones.
+  test("keeps the editor's settings when the posted content can't be read", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/renamed",
+          title: "Renamed",
+          seoDescription: "Kept description.",
+          socialImage: "https://example.com/og.png",
+          content: "{not json",
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("could not be read");
+    expect(html).toContain('value="/renamed"');
+    expect(html).toContain('value="Renamed"');
+    expect(html).toContain("Kept description.");
+    expect(html).toContain('value="https://example.com/og.png"');
+
+    // Nothing was written: the stored settings are untouched.
+    const page = await getPageById(pageId);
+    expect(page?.url).toBe("/about");
+    expect(page?.title).toBe("About us");
+  });
+
+  test("keeps the editor's settings when the page expired while it was open", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const formData = new FormData();
+    formData.append(
+      "_csrf",
+      await staleCsrfToken(sessionId, `/cms/pages/${pageId}`),
+    );
+    formData.append("pageType", "landing");
+    formData.append("url", "/renamed");
+    formData.append("title", "Renamed");
+    formData.append("content", JSON.stringify(pageContent("New heading")));
+    formData.append("base_revision", "");
+
+    const res = await pages.save(
+      createBunRequest(
+        `${ORIGIN}/cms/pages/${pageId}`,
+        {
+          method: "POST",
+          headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+          body: formData,
+        },
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("This page expired");
+    expect(html).toContain('value="/renamed"');
+    expect(html).toContain('value="Renamed"');
+    // The content they posted is still shown, behind a fresh token.
+    expect(html).toContain("New heading");
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
   test("writes a redirect when the URL changes", async () => {

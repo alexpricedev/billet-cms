@@ -486,6 +486,21 @@ export const pages = {
     const removedBlocks = removedBlocksFrom(formData.get("removed_blocks"));
     const submitted = parseContent(formData.get("content"));
 
+    // The settings the editor typed, captured before any refusal so every
+    // re-render below keeps them. Only the stored row names them otherwise, so
+    // reading them here is the difference between "save again" and retyping the
+    // whole settings half (review follow-up).
+    const settings = settingsFrom(formData);
+    const pageTypeName =
+      settings.pageType === "" ? page.pageType : settings.pageType;
+    const typed: PageSettingsInput & { pageType: string } = {
+      pageType: pageTypeName,
+      url: settings.url,
+      title: settings.title,
+      seoDescription: settings.seoDescription,
+      socialImage: settings.socialImage,
+    };
+
     // The page expired while it was open. Re-render what they posted behind a
     // fresh token instead of a 403 that would lose it.
     if (!csrf.ok) {
@@ -499,6 +514,7 @@ export const pages = {
         baseRevisionId,
         {
           removed: removedBlocks,
+          settings: typed,
           errors: [
             {
               path: "(form)",
@@ -522,6 +538,7 @@ export const pages = {
         baseRevisionId,
         {
           removed: removedBlocks,
+          settings: typed,
           errors: [
             {
               path: "(content)",
@@ -533,17 +550,6 @@ export const pages = {
     }
 
     const content: PageBlock[] = asPageContent(submitted.value).blocks;
-
-    const settings = settingsFrom(formData);
-    const pageTypeName =
-      settings.pageType === "" ? page.pageType : settings.pageType;
-    const typed: PageSettingsInput & { pageType: string } = {
-      pageType: pageTypeName,
-      url: settings.url,
-      title: settings.title,
-      seoDescription: settings.seoDescription,
-      socialImage: settings.socialImage,
-    };
 
     // Settings and content are validated together and written in one
     // transaction: an invalid block must not leave the URL renamed or a 301
