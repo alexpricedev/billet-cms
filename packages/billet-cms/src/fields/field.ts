@@ -8,7 +8,12 @@
  * metadata the CMS turns into a form control.
  */
 import { z } from "zod";
-import type { FieldKind, FieldMetadata, ImageGuidance } from "../contract";
+import {
+  type FieldKind,
+  type FieldMetadata,
+  type ImageGuidance,
+  MAX_ALT_LENGTH,
+} from "../contract";
 import { assertMinMax, assertNonNegativeInteger } from "./options";
 import { type RichTextDocument, richTextSchema } from "./rich-text";
 import { URL_PATTERN, URL_PATTERN_MESSAGE } from "./url";
@@ -170,7 +175,12 @@ export const richText = <O extends FieldOptions = DefaultOptions>(
 
 const imageValue = z.strictObject({
   mediaId: z.uuid(),
-  alt: z.string().optional(),
+  // The per-use override is capped like the upload's own alt: it becomes the
+  // rendered `alt` attribute everywhere the image is used, so an unbounded
+  // value is unbounded output on every page that reuses the picture. The limit
+  // is shared from the contract, so the site's schema and the CMS's stored
+  // contract can't drift.
+  alt: z.string().max(MAX_ALT_LENGTH).optional(),
 });
 
 /** A reference to an image in the media library. */

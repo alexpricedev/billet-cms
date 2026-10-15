@@ -112,6 +112,24 @@ export const ALLOWED_UPLOAD_TYPES = [
 
 export type AllowedUploadType = (typeof ALLOWED_UPLOAD_TYPES)[number];
 
+/**
+ * The longest alt text the CMS stores or accepts, in characters.
+ *
+ * This is the shared cap for both places alt text lives: the upload's own alt
+ * on `cms_media` (`services/media`), and the per-use override an `image()`
+ * value may carry (`alt` on the field's stored value). Alt text describes one
+ * image for a screen reader; a good description is a sentence, and anything
+ * past a few hundred characters has stopped being one. The cap is generous
+ * enough never to bite real copy and small enough that a post can't stuff an
+ * unbounded string into every page that renders the image.
+ *
+ * It reaches the content side through the vocabulary: `image()` compiles the
+ * override to `maxLength` in the published JSON Schema, so the CMS refuses an
+ * over-long value at save time with the same limit the site's own schema
+ * enforces. Both sides importing the constant is what keeps them equal.
+ */
+export const MAX_ALT_LENGTH = 1000;
+
 /** The focal point a new upload starts at: the centre. */
 export const DEFAULT_FOCAL_POINT = { x: 0.5, y: 0.5 } as const;
 

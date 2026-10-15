@@ -10,6 +10,7 @@ import { log } from "./services/logger";
 import { validateEnv } from "./utils/env";
 import { render500 } from "./utils/errors";
 import { handleFallback } from "./utils/fallback";
+import { MAX_REQUEST_BODY_BYTES } from "./utils/request-body";
 import {
   handleGuarded,
   secureRoutes,
@@ -34,6 +35,10 @@ const stopSweep = startCleanupSweep();
 const server = Bun.serve({
   port: Number(process.env.PORT),
   idleTimeout: 30,
+  // The upload cap plus multipart framing (`MAX_REQUEST_BODY_BYTES`), so an
+  // oversized body is refused with a 413 before it is buffered rather than
+  // reaching the media service.
+  maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
   routes: secureRoutes({
     ...appRoutes,
     ...apiRoutes,

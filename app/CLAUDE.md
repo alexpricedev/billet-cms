@@ -217,9 +217,11 @@ reader instead.
 Every response gets its headers from `secureRoutes` / `handleGuarded` in
 `src/server/utils/security-headers.ts`. Controllers set only content-specific headers.
 
-The CSP script allowlist is `'self' 'unsafe-inline' https://unpkg.com`. Any new
-third-party script needs the CSP entry, an SRI `integrity` hash, and ideally a `preconnect` in
-`layouts.tsx` — otherwise it is silently blocked in the browser but passes every test.
+The CSP script allowlist is `'self' 'unsafe-inline'` — first-party code only. There is no
+third-party `<script>` any more (the Lottie player and its unpkg allowlist were removed), so
+adding an external source is a deliberate decision rather than a follow-up: land the CSP entry, an
+SRI `integrity` hash and a `preconnect` in `layouts.tsx` together — otherwise it is silently
+blocked in the browser but passes every test.
 
 `X-Robots-Tag: noindex, nofollow` is one of those headers, and it is on **by default**:
 `indexingAllowed()` (`services/seo.ts`) is true only when `ALLOW_INDEXING=true`, so an

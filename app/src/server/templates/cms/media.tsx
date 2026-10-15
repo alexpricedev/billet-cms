@@ -148,7 +148,11 @@ export const MediaList = ({
           required
           maxLength={MAX_ALT_LENGTH}
           value={values?.alt ?? ""}
+          aria-describedby="cms-media-alt-help"
         />
+        <span className="cms-field-help" id="cms-media-alt-help">
+          Up to {MAX_ALT_LENGTH} characters.
+        </span>
       </div>
       <button type="submit" className="cms-save">
         Upload
@@ -339,9 +343,11 @@ export const MediaDetail = ({
             required
             maxLength={MAX_ALT_LENGTH}
             value={media.alt}
+            aria-describedby="cms-media-alt-help"
           />
-          <span className="cms-field-help">
-            A page can override this for one use.
+          <span className="cms-field-help" id="cms-media-alt-help">
+            A page can override this for one use. Up to {MAX_ALT_LENGTH}{" "}
+            characters.
           </span>
         </div>
 

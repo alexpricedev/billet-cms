@@ -1,4 +1,7 @@
-import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
+import {
+  type FieldMetadata,
+  MAX_ALT_LENGTH,
+} from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
@@ -476,7 +479,13 @@ export const FieldControl = ({
             placeholder="Alt text"
             aria-label={controlId ? undefined : "Alt text"}
             value={asString(image.alt)}
+            maxLength={MAX_ALT_LENGTH}
+            aria-describedby={idFor("alt-help")}
           />
+          <span className="cms-field-help" id={idFor("alt-help")}>
+            Optional. Leave blank to use the upload's own alt text. Up to{" "}
+            {MAX_ALT_LENGTH} characters.
+          </span>
           <FieldErrors errors={errors} id={errorId} />
           {field.image?.minWidth && (
             <span className="cms-field-help">

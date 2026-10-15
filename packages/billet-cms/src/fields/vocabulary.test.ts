@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MAX_ALT_LENGTH } from "../contract";
 import { block, blockStoredSchema } from "./definition";
 import {
   type Field,
@@ -392,6 +393,33 @@ describe("image", () => {
       field.schema.safeParse({ mediaId: UUID, alt: "A fox" }).success,
     ).toBe(true);
     expect(field.schema.safeParse({ alt: "no id" }).success).toBe(false);
+  });
+
+  // The per-use override becomes the rendered `alt` everywhere the image is
+  // used, so it is capped at the contract's limit like the upload's own alt.
+  // The CMS validates saved content against the published JSON Schema, so the
+  // cap has to reach the schema, not just the site's Zod check.
+  test("caps the per-use alt override at the contract's limit", () => {
+    const field = image();
+    expect(
+      field.schema.safeParse({ mediaId: UUID, alt: "x".repeat(MAX_ALT_LENGTH) })
+        .success,
+    ).toBe(true);
+    expect(
+      field.schema.safeParse({
+        mediaId: UUID,
+        alt: "x".repeat(MAX_ALT_LENGTH + 1),
+      }).success,
+    ).toBe(false);
+
+    const stored = blockStoredSchema(
+      block("hero", { photo: image() }, () => null),
+    );
+    const alt = properties(stored).photo?.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(alt.alt).toMatchObject({ type: "string", maxLength: 1000 });
   });
 
   test("rejects an unknown key, matching the stored JSON Schema", () => {

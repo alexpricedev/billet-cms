@@ -24,6 +24,7 @@ import {
   type PreviewSubjectType,
 } from "@alexpricedev/billet-cms/preview";
 import { sameOriginPath } from "@alexpricedev/billet-cms/server";
+import { httpOrigin } from "../../utils/http-origin";
 import { db } from "../database";
 
 export type { PreviewSubjectType };
@@ -73,25 +74,18 @@ export const createPreviewToken = async (
 
 /**
  * The site origin a preview opens against, or `null` when the configured URL is
- * blank or not a URL.
+ * blank, not a URL, or not http(s).
  *
  * Exported so a controller can refuse to mint a token it has nowhere to open —
  * the check runs before the write, so a misconfigured process leaves no preview
  * row behind. `validateEnv` refuses to boot without a valid http(s)
- * `SITE_APP_URL`, so in a running server this is never `null`.
+ * `SITE_APP_URL`, so in a running server this is never `null`; the scheme check
+ * is the same rule the CSP's media origin uses (`utils/http-origin.ts`), so an
+ * `ftp:` value can't mint a token and then open a link a page can't follow.
  */
 export const previewSiteOrigin = (
   baseUrl: string | null | undefined,
-): string | null => {
-  const configured = baseUrl?.trim();
-  if (!configured) return null;
-
-  try {
-    return new URL(configured).origin;
-  } catch {
-    return null;
-  }
-};
+): string | null => httpOrigin(baseUrl);
 
 export interface PreviewUrlInput {
   /**
