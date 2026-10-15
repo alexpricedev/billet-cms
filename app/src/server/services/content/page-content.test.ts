@@ -108,6 +108,32 @@ describe("validatePageContent", () => {
     expect(result.issues[0]?.path).toBe("blocks.0.heading");
   });
 
+  // The stored schema is compiled by Zod, whose messages name the validator
+  // rather than the problem. A page's blocks take the same rewrite a slot's do,
+  // so the editor sees "Use 80 characters or fewer.", not "Too big: expected
+  // string to have <=80 characters" (review follow-up).
+  test("rewrites a block field's validator message into plain language", () => {
+    const tooLong = validatePageContent(pageTypeRecord(landing), registry, {
+      blocks: [{ type: "hero", heading: "x".repeat(81) }],
+    });
+    expect(tooLong.ok).toBe(false);
+    if (tooLong.ok) return;
+    expect(tooLong.issues[0]).toEqual({
+      path: "blocks.0.heading",
+      message: "Use 80 characters or fewer.",
+    });
+
+    const wrongType = validatePageContent(pageTypeRecord(landing), registry, {
+      blocks: [{ type: "hero", heading: 42 }],
+    });
+    expect(wrongType.ok).toBe(false);
+    if (wrongType.ok) return;
+    expect(wrongType.issues[0]).toEqual({
+      path: "blocks.0.heading",
+      message: "Enter text.",
+    });
+  });
+
   // Q4: a field a deploy dropped stays in the stored content; a save must not
   // refuse the block over a key nobody declares any more.
   test("tolerates an extra field inside a block on a save", () => {
