@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
+import { MAX_ALT_LENGTH } from "../contract";
 import { block, image, text } from "../fields";
+import { blockStoredSchema } from "../fields/definition";
 import { createContentReader, getSlot } from "./slots";
 
 /** A pool whose first query throws, standing in for a CMS that isn't reachable. */
@@ -18,7 +20,10 @@ const HERO_CONTENT = { heading: "Cached hero" };
  * the CMS becoming unreachable between two reads: the content the cache already
  * holds is still the last published revision the site saw.
  */
-const fakeSql = (content: Record<string, unknown> | null = HERO_CONTENT) => {
+const fakeSql = (
+  content: Record<string, unknown> | null = HERO_CONTENT,
+  jsonSchema: Record<string, unknown> = { type: "object" },
+) => {
   const state = {
     now: 0,
     version: 1,
@@ -47,10 +52,10 @@ const fakeSql = (content: Record<string, unknown> | null = HERO_CONTENT) => {
             removed_at: null,
             published_revision_id: content === null ? null : "rev-1",
             block_found: "hero",
-            // Permissive on purpose: the stored contract accepts the row, so
+            // Permissive by default: the stored contract accepts the row, so
             // any rejection a test below sees comes from the site's own block
-            // schema.
-            json_schema: { type: "object" },
+            // schema. A test can pass a real published schema instead.
+            json_schema: jsonSchema,
             block_removed_at: null,
             revision_found: content === null ? null : "rev-1",
             content,
@@ -472,5 +477,44 @@ describe("slot query counts", () => {
     for (const result of results) expect(result).toEqual({ heading: "a" });
     expect(state.versionReads).toBe(1);
     expect(state.slotReads).toBe(1);
+  });
+});
+
+// r1-5: the published JSON Schema carries the per-use alt cap, and the read
+// path validates stored content against that schema. An alt already published
+// at the limit still reads; one each character past it is refused (the upgrade
+// note in `.context/`).
+describe("getSlot stored-schema image alt", () => {
+  const photo = block("hero", { photo: image() }, () => null);
+  const storedSchema = blockStoredSchema(photo).jsonSchema;
+  const mediaId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+  const contentWithAlt = (length: number) => ({
+    photo: { mediaId, alt: "x".repeat(length) },
+  });
+
+  test("accepts a stored image alt at the contract limit", async () => {
+    const { sql } = fakeSql(contentWithAlt(MAX_ALT_LENGTH), storedSchema);
+    const skipped: string[] = [];
+    const reader = createContentReader({
+      sql,
+      onSkip: (message) => skipped.push(message),
+    });
+
+    expect(await reader.getSlot("home.hero")).not.toBeNull();
+    expect(skipped).toEqual([]);
+  });
+
+  test("refuses a stored image alt past the contract limit", async () => {
+    const { sql } = fakeSql(contentWithAlt(MAX_ALT_LENGTH + 1), storedSchema);
+    const skipped: string[] = [];
+    const reader = createContentReader({
+      sql,
+      onSkip: (message) => skipped.push(message),
+    });
+
+    expect(await reader.getSlot("home.hero")).toBeNull();
+    expect(skipped.some((line) => line.includes("no longer validates"))).toBe(
+      true,
+    );
   });
 });

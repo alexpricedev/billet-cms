@@ -480,7 +480,12 @@ export const FieldControl = ({
             aria-label={controlId ? undefined : "Alt text"}
             value={asString(image.alt)}
             maxLength={MAX_ALT_LENGTH}
+            aria-describedby={idFor("alt-help")}
           />
+          <span className="cms-field-help" id={idFor("alt-help")}>
+            Optional. Leave blank to use the upload's own alt text. Up to{" "}
+            {MAX_ALT_LENGTH} characters.
+          </span>
           <FieldErrors errors={errors} id={errorId} />
           {field.image?.minWidth && (
             <span className="cms-field-help">

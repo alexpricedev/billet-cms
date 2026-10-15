@@ -233,6 +233,13 @@ describe("FieldControl image picker", () => {
 
     // Preact lower-cases the attribute in the rendered HTML.
     expect(alt).toContain(`maxlength="${MAX_ALT_LENGTH}"`);
+    // The limit is described to the control, not just enforced by the browser's
+    // maxlength, so a screen reader hears why the field stops at 1000.
+    expect(alt).toContain('aria-describedby="cms-field-photo-alt-help"');
+    expect(html).toContain('id="cms-field-photo-alt-help"');
+    expect(html).toContain(
+      `Optional. Leave blank to use the upload's own alt text. Up to ${MAX_ALT_LENGTH} characters.`,
+    );
   });
 
   test("shows the reuse help, tied to the picker, only when the list is capped", () => {

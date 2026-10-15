@@ -22,7 +22,11 @@ describe("Layout", () => {
   test("loads no cross-origin script", () => {
     expect(html).not.toContain("unpkg");
     expect(html).not.toContain("lottie");
-    expect(html).not.toContain("crossOrigin");
+    // Preact lower-cases attribute names, so `crossOrigin` could never appear
+    // in the rendered HTML; assert the lowercase form, and that no script tag
+    // points at a remote URL at all.
+    expect(html).not.toContain("crossorigin");
+    expect(html).not.toMatch(/<script[^>]+src="https?:/);
     // The one script is the first-party nav bundle.
     expect(html).toContain('type="module"');
     expect(html).toContain("/assets/main.js");

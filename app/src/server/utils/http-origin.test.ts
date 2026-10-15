@@ -1,5 +1,31 @@
 import { describe, expect, test } from "bun:test";
-import { httpOrigin } from "./http-origin";
+import { httpOrigin, httpUrl } from "./http-origin";
+
+describe("httpUrl", () => {
+  test("parses an http(s) URL, keeping its path", () => {
+    expect(httpUrl("https://example.com/x?y=1")?.href).toBe(
+      "https://example.com/x?y=1",
+    );
+    expect(httpUrl("  http://localhost:4000/media/  ")?.href).toBe(
+      "http://localhost:4000/media/",
+    );
+  });
+
+  test("is null for blank, missing and unparseable values", () => {
+    expect(httpUrl(undefined)).toBeNull();
+    expect(httpUrl(null)).toBeNull();
+    expect(httpUrl("")).toBeNull();
+    expect(httpUrl("   ")).toBeNull();
+    expect(httpUrl("not a url")).toBeNull();
+    expect(httpUrl("/relative")).toBeNull();
+  });
+
+  test("is null for a scheme that isn't http(s)", () => {
+    expect(httpUrl("ftp://bucket.example/media")).toBeNull();
+    expect(httpUrl("data:image/png;base64,AAAA")).toBeNull();
+    expect(httpUrl("javascript:alert(1)")).toBeNull();
+  });
+});
 
 describe("httpOrigin", () => {
   test("returns the origin of an http(s) URL, dropping any path", () => {

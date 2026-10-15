@@ -14,6 +14,8 @@
  * map and hands back a URL under a fake host, so the whole pipeline is
  * exercised without network or credentials.
  */
+import { httpUrl } from "../../utils/http-origin";
+import { log } from "../logger";
 
 export interface MediaStorage {
   /** Store `body` under `key`. Overwrites. */
@@ -96,28 +98,17 @@ const nonEmpty = (value: string | undefined): string | null => {
   return trimmed ? trimmed : null;
 };
 
-/**
- * An http(s) URL from an env value, or `null`.
- *
- * Used for `MEDIA_PUBLIC_BASE_URL`: it becomes every stored rendition's public
- * URL — rendered into the site's pages and its CSP `img-src` — so a value that
- * isn't an absolute http(s) URL is treated as unset rather than published. A
- * bare host, a relative path or a `javascript:`/`data:` value is not something
- * a page can load, and `new URL` is what rejects the last two.
- */
-const httpUrl = (value: string | undefined): string | null => {
-  const trimmed = nonEmpty(value);
-  if (!trimmed) return null;
+// One warning per process. The config is read wherever storage is used, and a
+// bad value should be reported once, not on every upload the CMS attempts.
+let warnedInvalidPublicBaseUrl = false;
 
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    return trimmed;
-  } catch {
-    return null;
-  }
+const warnInvalidPublicBaseUrl = (value: string): void => {
+  if (warnedInvalidPublicBaseUrl) return;
+  warnedInvalidPublicBaseUrl = true;
+  log.warn(
+    "media",
+    `MEDIA_PUBLIC_BASE_URL is set but is not an absolute http(s) URL (${value}); treating it as unset, so uploads are refused.`,
+  );
 };
 
 /**
@@ -127,6 +118,13 @@ const httpUrl = (value: string | undefined): string | null => {
  * storing bytes the site can't then load (no public URL) is worse than refusing
  * the upload with a clear message. Region and endpoint stay optional so an AWS
  * deployment needs neither and an S3-compatible one sets only the endpoint.
+ *
+ * `MEDIA_PUBLIC_BASE_URL` is checked by the shared http(s) rule
+ * (`utils/http-origin`) rather than a local copy, because it becomes every
+ * stored rendition's public URL — rendered into pages and the CSP `img-src` —
+ * so a bare host, a relative path or a `javascript:`/`data:` value must not
+ * reach either. A value that is set but rejected is warned about once, so a
+ * typo does not turn every upload into a silent refusal.
  */
 export const mediaStorageConfigFromEnv = (
   env: Record<string, string | undefined> = process.env,
@@ -134,7 +132,11 @@ export const mediaStorageConfigFromEnv = (
   const bucket = nonEmpty(env.S3_BUCKET);
   const accessKeyId = nonEmpty(env.S3_ACCESS_KEY_ID);
   const secretAccessKey = nonEmpty(env.S3_SECRET_ACCESS_KEY);
-  const publicBaseUrl = httpUrl(env.MEDIA_PUBLIC_BASE_URL);
+  const configuredBaseUrl = nonEmpty(env.MEDIA_PUBLIC_BASE_URL);
+  const publicBaseUrl =
+    configuredBaseUrl && httpUrl(configuredBaseUrl) ? configuredBaseUrl : null;
+  if (configuredBaseUrl && !publicBaseUrl)
+    warnInvalidPublicBaseUrl(configuredBaseUrl);
 
   if (!bucket || !accessKeyId || !secretAccessKey || !publicBaseUrl)
     return null;
@@ -182,8 +184,9 @@ export const setMediaStorageForTest = (
   override = storage;
 };
 
-/** Drop the memoised storage and any test override. */
+/** Drop the memoised storage, any test override, and the one-time warning. */
 export const resetMediaStorageForTest = (): void => {
   configured = undefined;
   override = undefined;
+  warnedInvalidPublicBaseUrl = false;
 };
