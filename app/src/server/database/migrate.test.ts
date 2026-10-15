@@ -15,6 +15,43 @@ const unusedSql = (() => {
   throw new Error("the database must not be touched on this path");
 }) as unknown as SQL;
 
+/**
+ * A generic fingerprint of everything the CMS owns: the `cms_%` relations in
+ * `pg_class` (tables, views, indexes, sequences and materialised views) plus
+ * the `cms_%` columns in `information_schema.columns`.
+ *
+ * Deliberately not tied to any one migration — the point is to move when *any*
+ * migration's `down()` undoes its `up()`. `pg_class` is where an index shows up,
+ * which is what makes the current last migration (014, an index-only one) prove
+ * that `rollbackLastMigration` really runs `down()` rather than only deleting
+ * the `cms_migrations` row.
+ */
+const schemaFingerprint = async (sql: SQL): Promise<string[]> => {
+  const relations = (await sql`
+    SELECT relname, relkind
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname LIKE 'cms\\_%'
+    ORDER BY relname
+  `) as { relname: string; relkind: string }[];
+
+  const columns = (await sql`
+    SELECT table_name, column_name, data_type
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name LIKE 'cms\\_%'
+    ORDER BY table_name, column_name
+  `) as { table_name: string; column_name: string; data_type: string }[];
+
+  return [
+    ...relations.map((row) => `relation:${row.relname}:${row.relkind}`),
+    ...columns.map(
+      (row) => `column:${row.table_name}.${row.column_name}:${row.data_type}`,
+    ),
+  ];
+};
+
 describe("runMigration", () => {
   test("refuses a filename that is not a migration on disk", async () => {
     // `runRollback` builds the name from a `cms_migrations` row, so a path like
@@ -74,6 +111,8 @@ describe("rollbackLastMigration", () => {
           }[]
         ).map((row) => row.id);
 
+      const fingerprintBefore = await schemaFingerprint(sql);
+
       const before = await appliedIds();
       const last = before[before.length - 1];
       expect(last).toBeDefined();
@@ -83,11 +122,16 @@ describe("rollbackLastMigration", () => {
       const after = await appliedIds();
       expect(after).toEqual(before.slice(0, -1));
 
+      // The schema actually moved: the row deletion above would pass even if
+      // `down()` never ran.
+      expect(await schemaFingerprint(sql)).not.toEqual(fingerprintBefore);
+
       // And the rolled-back migration is a normal pending one again.
       expect(await getPendingMigrations(sql)).toEqual([`${last}.ts`]);
 
       await runMigrations(sql);
       expect(await appliedIds()).toEqual(before);
+      expect(await schemaFingerprint(sql)).toEqual(fingerprintBefore);
     } finally {
       await temp.drop();
     }

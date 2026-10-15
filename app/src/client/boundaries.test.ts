@@ -22,12 +22,12 @@ const NETWORK_AND_MARKUP_ALLOWED = new Set([`${CLIENT}/reactive/request.ts`]);
 //
 // So the headroom is the number that matters, not the ceiling: 16,000 bytes
 // (15.6 KiB) leaves room for roughly five more components at that size before a
-// deliberate decision is needed. It was 12,000 bytes, which sounds generous but
-// left room for barely one more component, and the next one tripped a failure
-// message accusing code that was doing exactly what this layer is for. Raise it
-// again only with the same arithmetic written down — the number moving is the
-// signal that something is being built on the client that belongs on the
-// server.
+// deliberate decision is needed. It was 12,000 bytes when main.js was about
+// 9.1 KB, which sounds generous but left room for barely one more component,
+// and the next one tripped a failure message accusing code that was doing
+// exactly what this layer is for. Raise it again only with the same arithmetic
+// written down — the number moving is the signal that something is being built
+// on the client that belongs on the server.
 const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 
 // Minified bytes for the block editor, `cms-form.ts`. It is 9,751 bytes

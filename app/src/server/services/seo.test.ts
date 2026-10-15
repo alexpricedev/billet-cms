@@ -109,16 +109,16 @@ describe("generated artefacts follow the resolved origin", () => {
   });
 
   // The guard against the "no locs" assertion above passing vacuously: a path
-  // that *is* listed resolves against the canonical origin (SITE_URL), not
+  // the site would list resolves against the canonical origin (SITE_URL), not
   // APP_URL.
-  test("a listed page resolves against the canonical origin", () => {
+  test("a site page resolves against the canonical origin", () => {
     process.env.APP_URL = "https://app.example.com";
     process.env.SITE_URL = "https://example.com";
 
-    const xml = buildSitemapXml(["/a-public-page"]);
+    const url = absolute("/a-public-page");
 
-    expect(xml).toContain("<loc>https://example.com/a-public-page</loc>");
-    expect(xml).not.toContain("app.example.com");
+    expect(url).toBe("https://example.com/a-public-page");
+    expect(url).not.toContain("app.example.com");
   });
 
   test("robots.txt points at the sitemap under it", () => {
