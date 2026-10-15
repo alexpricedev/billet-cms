@@ -55,6 +55,10 @@ describe("migrate status", () => {
 });
 
 describe("rollbackLastMigration", () => {
+  // Asserted against whatever migration file is last on disk, not a hardcoded
+  // id: adding the next migration must not break this test. What a specific
+  // migration's `down()` restores (014's index, say) belongs in that
+  // migration's own test — migration-014-handoff-index.test.ts.
   test("rolls the last migration back in one transaction and can re-apply it", async () => {
     const temp = await createTempDatabase("migrate-rollback");
 
@@ -63,10 +67,6 @@ describe("rollbackLastMigration", () => {
       await createSiteTables(sql);
       await runMigrations(sql);
 
-      const hasIndex = async (name: string): Promise<boolean> => {
-        const rows = await sql`SELECT to_regclass(${name}) AS relation`;
-        return (rows[0] as { relation: string | null }).relation !== null;
-      };
       const appliedIds = async (): Promise<string[]> =>
         (
           (await sql`SELECT id FROM cms_migrations ORDER BY id`) as {
@@ -76,24 +76,18 @@ describe("rollbackLastMigration", () => {
 
       const before = await appliedIds();
       const last = before[before.length - 1];
-      expect(last).toBe("014_drop_handoff_user_index");
-      expect(await hasIndex("cms_handoff_tokens_user_id_idx")).toBe(false);
+      expect(last).toBeDefined();
 
       await rollbackLastMigration(sql);
 
       const after = await appliedIds();
       expect(after).toEqual(before.slice(0, -1));
-      // 014's down() recreates the index it dropped.
-      expect(await hasIndex("cms_handoff_tokens_user_id_idx")).toBe(true);
 
-      // And the rollback is a normal pending migration again.
-      expect(await getPendingMigrations(sql)).toEqual([
-        "014_drop_handoff_user_index.ts",
-      ]);
+      // And the rolled-back migration is a normal pending one again.
+      expect(await getPendingMigrations(sql)).toEqual([`${last}.ts`]);
 
       await runMigrations(sql);
       expect(await appliedIds()).toEqual(before);
-      expect(await hasIndex("cms_handoff_tokens_user_id_idx")).toBe(false);
     } finally {
       await temp.drop();
     }
