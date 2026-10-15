@@ -7,6 +7,7 @@ import {
   CMS_SIGN_IN_PATH,
   type MediaVariant,
 } from "../packages/billet-cms/src/contract/index.ts";
+import { createContentReader } from "../packages/billet-cms/src/server/index.ts";
 import { siteDefinitions } from "./cms.config.ts";
 import { createSite, type E2eSite } from "./site.ts";
 
@@ -453,6 +454,36 @@ describe("the ticket's Done when, end to end", () => {
     ctx.site.invalidate();
     expect(await siteHtml()).toContain("Draft heading");
   }, 30_000);
+
+  test("a cold slot costs one version read and one joined query on real Postgres", async () => {
+    // Wrap the real pool to count what the reader asks it for. A fresh reader
+    // has no cached version, so this is the cold path straight after a publish.
+    let queries = 0;
+    const counting = new Proxy(ctx.sql, {
+      get(target, property, receiver) {
+        if (property === "unsafe") {
+          return (query: string, params?: unknown[]) => {
+            queries += 1;
+            return (
+              target.unsafe as (q: string, p?: unknown[]) => Promise<unknown>
+            ).call(target, query, params);
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as SQL;
+
+    const reader = createContentReader({ sql: counting, onSkip: () => {} });
+    const content = await reader.getSlot("home.hero");
+    expect(content).not.toBeNull();
+    // One version read and one slot query — not the three queries a cold slot
+    // used to cost (slot, block type, revision).
+    expect(queries).toBe(2);
+
+    // Warm: the cached slot and the throttled version cost nothing.
+    await reader.getSlot("home.hero");
+    expect(queries).toBe(2);
+  });
 
   test("the site keeps serving after the CMS is stopped", async () => {
     ctx.cms.kill();
