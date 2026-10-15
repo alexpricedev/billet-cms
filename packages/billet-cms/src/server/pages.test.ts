@@ -735,6 +735,8 @@ describe("the catch-all's render context", () => {
               block_removed_at: null,
               revision_found: "slot-rev-1",
               content: { heading: "Published hero" },
+              latest_revision_id: "slot-rev-2",
+              latest_content: { heading: "Draft hero" },
             },
           ]);
         }

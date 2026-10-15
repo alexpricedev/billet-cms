@@ -522,6 +522,41 @@ describe("the ticket's Done when, end to end", () => {
     expect(versionReads).toBe(2);
   });
 
+  // r1-2: invalidate() has to reset the media reader as well as the slot one. A
+  // media-only change does not move `content_version` (only a publish does), so
+  // without the media reset the site would keep rendering the media it cached.
+  test("invalidate() drops the media reader's cache too, not just the slot's", async () => {
+    // Warm the site's slot and media caches through the live site.
+    expect(await siteHtml()).toContain("https://bucket.example/e2e/1920.jpg");
+
+    // Change the media row out of band: the renditions point somewhere else,
+    // and `content_version` deliberately does not move.
+    const changed = VARIANTS.map((variant) => ({
+      ...variant,
+      webpKey: variant.webpKey.replace("e2e/", "changed/"),
+      fallbackKey: variant.fallbackKey.replace("e2e/", "changed/"),
+      webpUrl: variant.webpUrl.replace("bucket.example", "changed.example"),
+      fallbackUrl: variant.fallbackUrl.replace(
+        "bucket.example",
+        "changed.example",
+      ),
+    }));
+    await ctx.sql`
+      UPDATE cms_media SET variants = ${changed} WHERE id = ${ctx.mediaId}
+    `;
+
+    // A hard reset must drop the media reader's entry, not only the slot's.
+    ctx.site.invalidate();
+    expect(await siteHtml()).toContain("https://changed.example/e2e/1920.jpg");
+
+    // Restore for the tests after this one.
+    await ctx.sql`
+      UPDATE cms_media SET variants = ${VARIANTS} WHERE id = ${ctx.mediaId}
+    `;
+    ctx.site.invalidate();
+    expect(await siteHtml()).toContain("https://bucket.example/e2e/1920.jpg");
+  });
+
   test("the site keeps serving after the CMS is stopped", async () => {
     ctx.cms.kill();
     await ctx.cms.exited;
