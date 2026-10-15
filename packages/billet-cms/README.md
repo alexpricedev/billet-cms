@@ -111,6 +111,19 @@ focal-point or alt change shows within about a second.
 > Without it the browser blocks every CMS image — the markup is correct and the
 > network tab is the only place it shows.
 
+> **Caching:** set `Cache-Control: public, max-age=31536000, immutable` on
+> `media/*` as a bucket or CDN rule. Object keys carry a UUID per upload and are
+> never rewritten, so a browser (or CDN) can keep an image indefinitely without
+> a revalidation or a stale file. The CMS can't set the header itself — Bun's S3
+> client has no per-object cache-control option — so it belongs in the bucket's
+> configuration.
+>
+> **Deleting an image doesn't purge a CDN.** The CMS removes the object from the
+> bucket, but a CDN edge that already holds it can keep serving its copy until
+> that edge's own TTL expires. If a deletion has to take effect immediately
+> (a mistaken upload of something private), purge the `media/<id>/…` paths in the
+> CDN by hand as well as deleting the row.
+
 ## Installing in a site
 
 ```bash

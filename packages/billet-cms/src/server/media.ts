@@ -69,7 +69,10 @@ export interface CmsMediaOptions {
 export interface CmsMediaReader {
   /** The upload with this id, or `null` when there is none to render. */
   getMedia(id: string): Promise<CmsMedia | null>;
-  /** Drop the cache and force the next read to re-check `content_version`. */
+  /**
+   * A hard reset: drop every cached entry and re-read `content_version` on the
+   * next read.
+   */
   invalidate(): void;
 }
 

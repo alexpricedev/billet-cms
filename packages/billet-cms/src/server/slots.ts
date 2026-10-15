@@ -20,9 +20,10 @@
  * Reads are cached in memory and re-checked against `cms_meta.content_version`
  * at most once a second (Q3, `./cache.ts`), so a publish is visible on the site
  * within seconds and the steady state costs no queries. A valid preview token
- * (`./preview`, Phase 6) bypasses that cache for its own subject: pass the
- * access `getPreviewAccess` returned to `getSlot` and the slot's draft is read
- * instead, uncached.
+ * (`./preview`, Phase 6) bypasses that cache for its own subject only: pass the
+ * access `getPreviewAccess` returned to `getSlot` and the slot the token names
+ * has its draft read instead, uncached, while every other slot on the page is
+ * still served from the cache.
  */
 import type { SQL } from "bun";
 import { TABLES } from "../contract";
@@ -63,8 +64,9 @@ export interface SlotReadOptions {
    * The preview access the request carried, from `getPreviewAccess`, or `null`
    * for a published read. When the token's subject is this slot, the newest
    * draft is read instead of the published revision, and the read bypasses the
-   * content-version cache. `null` is accepted so a site can forward the access
-   * the catch-all handed its render function without branching.
+   * content-version cache for this slot only — every other slot still reads
+   * from it. `null` is accepted so a site can forward the access the catch-all
+   * handed its render function without branching.
    */
   preview?: PreviewAccess | null;
 }
@@ -81,7 +83,10 @@ export interface ContentReader {
     name: string,
     options?: SlotReadOptions,
   ): Promise<T | null>;
-  /** Drop the cache and force the next read to re-check `content_version`. */
+  /**
+   * A hard reset: drop every cached entry and re-read `content_version` on the
+   * next read.
+   */
   invalidate(): void;
 }
 
@@ -93,13 +98,32 @@ interface SlotRow {
   published_revision_id: string | null;
 }
 
-interface BlockTypeRow {
-  json_schema: Record<string, unknown>;
-  removed_at: Date | null;
+/**
+ * The slot row joined to its block type and its published revision, in one
+ * read.
+ *
+ * The two `LEFT JOIN`s are what turn the three sequential queries a cold slot
+ * used to cost (slot, block type, revision) into one; a missing block or
+ * revision arrives as a null column rather than a second round trip. The `*_found`
+ * columns are the join's own existence checks, so a null `content` is
+ * distinguishable from a null `json_schema` without re-reading either table.
+ */
+interface JoinedSlotRow extends SlotRow {
+  block_found: string | null;
+  json_schema: Record<string, unknown> | null;
+  block_removed_at: Date | null;
+  revision_found: string | null;
+  content: Record<string, unknown> | null;
 }
 
-interface RevisionRow {
-  content: Record<string, unknown>;
+/**
+ * The value the slot cache holds: the published content plus the row id, so a
+ * preview can tell whether a token names this slot. `null` (no cache entry at
+ * all) means the slot isn't declared.
+ */
+interface CachedSlot {
+  slotId: string;
+  content: SlotContent | null;
 }
 
 const readContentVersion = async (sql: SQL): Promise<number> => {
@@ -122,17 +146,29 @@ export const createContentReader = (
   const { sql } = options;
   const onSkip = options.onSkip ?? defaultSkipLogger;
 
-  /** The slot row for `name`, shared by the published and preview reads. */
-  const readSlotRow = async (name: string): Promise<SlotRow | null> => {
+  /**
+   * The slot row, its block type and its published revision, in one query.
+   *
+   * The joins are what a cold slot used to pay three round trips for. The row
+   * still lets each skip below name the same problem it always did, from the
+   * joined columns rather than a second read.
+   */
+  const readSlotRow = async (name: string): Promise<JoinedSlotRow | null> => {
     const slots = (await sql.unsafe(
-      `SELECT id, name, block_name, removed_at, published_revision_id
-       FROM ${TABLES.slots} WHERE name = $1`,
+      `SELECT s.id, s.name, s.block_name, s.removed_at, s.published_revision_id,
+              b.name AS block_found, b.json_schema,
+              b.removed_at AS block_removed_at,
+              r.id AS revision_found, r.content
+       FROM ${TABLES.slots} s
+       LEFT JOIN ${TABLES.blockTypes} b ON b.name = s.block_name
+       LEFT JOIN ${TABLES.revisions} r ON r.id = s.published_revision_id
+       WHERE s.name = $1`,
       [name],
-    )) as SlotRow[];
+    )) as JoinedSlotRow[];
     return slots[0] ?? null;
   };
 
-  const loadSlot = async (name: string): Promise<SlotContent | null> => {
+  const loadSlot = async (name: string): Promise<CachedSlot | null> => {
     const slot = await readSlotRow(name);
     if (!slot) return null;
     if (slot.removed_at !== null) {
@@ -141,23 +177,23 @@ export const createContentReader = (
     }
 
     // Never published: nothing to render, and nothing wrong.
-    if (!slot.published_revision_id) return null;
-    return await readSlotRevision(slot, slot.published_revision_id);
+    if (!slot.published_revision_id) {
+      return { slotId: slot.id, content: null };
+    }
+    return {
+      slotId: slot.id,
+      content: readSlotRevision(slot, slot.content),
+    };
   };
 
   /**
-   * Read a draft when the preview token's subject is this slot.
+   * Read the draft when the preview token's subject is this slot.
    *
-   * The slot is found by name, then its newest revision is read uncached — a
-   * preview must reflect the editor's latest save, not a value held against
-   * `content_version`. A token for a different subject (or a page token) falls
-   * through to the published revision, so previewing one slot does not show
-   * drafts for every other slot on the page.
+   * The joined row already carries the block type; only the newest revision is
+   * a further read, uncached, because a preview must reflect the editor's
+   * latest save rather than a value held against `content_version`.
    */
-  const loadPreviewSlot = async (
-    name: string,
-    access: PreviewAccess,
-  ): Promise<SlotContent | null> => {
+  const loadPreviewSlot = async (name: string): Promise<SlotContent | null> => {
     const slot = await readSlotRow(name);
     if (!slot) return null;
     if (slot.removed_at !== null) {
@@ -165,46 +201,52 @@ export const createContentReader = (
       return null;
     }
 
-    let revisionId = slot.published_revision_id;
-    if (access.subjectType === "slot" && access.subjectId === slot.id) {
-      revisionId = await latestRevisionId(sql, "slot", slot.id);
-    }
-
+    const revisionId = await latestRevisionId(sql, "slot", slot.id);
     if (!revisionId) return null;
-    return await readSlotRevision(slot, revisionId);
+    // Reuse the joined content when the newest revision is also the published
+    // one, rather than reading the same row twice.
+    const content =
+      revisionId === slot.published_revision_id
+        ? slot.content
+        : await readRevisionContent(revisionId);
+    return readSlotRevision(slot, content);
   };
 
-  /** Validate one stored revision against the block type's published contract. */
-  const readSlotRevision = async (
-    slot: SlotRow,
+  /** One revision's stored content, for a preview read that names it. */
+  const readRevisionContent = async (
     revisionId: string,
-  ): Promise<SlotContent | null> => {
-    const blockTypes = (await sql.unsafe(
-      `SELECT json_schema, removed_at FROM ${TABLES.blockTypes} WHERE name = $1`,
-      [slot.block_name],
-    )) as BlockTypeRow[];
+  ): Promise<Record<string, unknown> | null> => {
+    const revisions = (await sql.unsafe(
+      `SELECT content FROM ${TABLES.revisions} WHERE id = $1`,
+      [revisionId],
+    )) as { content: Record<string, unknown> }[];
+    return revisions[0]?.content ?? null;
+  };
 
-    const blockType = blockTypes[0];
-    if (!blockType) {
+  /**
+   * Validate one stored revision against the block type's published contract.
+   *
+   * Pure over the joined row and the revision's content: the block-type checks
+   * and the validation the published and preview reads share happen here, with
+   * the same skip messages and in the same order for both.
+   */
+  const readSlotRevision = (
+    slot: JoinedSlotRow,
+    content: Record<string, unknown> | null,
+  ): SlotContent | null => {
+    if (!slot.block_found) {
       onSkip(
         `slot "${slot.name}" uses block "${slot.block_name}", which is not published`,
       );
       return null;
     }
-    if (blockType.removed_at !== null) {
+    if (slot.block_removed_at !== null) {
       onSkip(
         `slot "${slot.name}" uses block "${slot.block_name}", which was removed by a deploy`,
       );
       return null;
     }
-
-    const revisions = (await sql.unsafe(
-      `SELECT content FROM ${TABLES.revisions} WHERE id = $1`,
-      [revisionId],
-    )) as RevisionRow[];
-
-    const revision = revisions[0];
-    if (!revision) {
+    if (content === null) {
       onSkip(`slot "${slot.name}" points at a revision that no longer exists`);
       return null;
     }
@@ -212,13 +254,9 @@ export const createContentReader = (
     // Removed top-level fields are tolerated (Q4): the CMS keeps them and the
     // read side must not fail a whole slot over a key nobody renders. Anything
     // genuinely invalid — a missing required field, a wrong type — is skipped.
-    const validation = validateContent(
-      blockType.json_schema,
-      revision.content,
-      {
-        allowAdditionalFields: true,
-      },
-    );
+    const validation = validateContent(slot.json_schema ?? {}, content, {
+      allowAdditionalFields: true,
+    });
     if (!validation.success) {
       const detail = validation.issues
         .map(
@@ -232,7 +270,7 @@ export const createContentReader = (
     return validation.data as SlotContent;
   };
 
-  const cache = new ContentCache<SlotContent | null>({
+  const cache = new ContentCache<CachedSlot | null>({
     readVersion: () => readContentVersion(sql),
     load: loadSlot,
     // A failed version check keeps serving what is cached (see `ContentCache`);
@@ -253,11 +291,23 @@ export const createContentReader = (
       options?: SlotReadOptions,
     ): Promise<T | null> {
       try {
-        // A preview bypasses the cache: the draft must not be served from, or
-        // written to, the published cache, and must reflect the newest save.
-        const content = options?.preview
-          ? await loadPreviewSlot(name, options.preview)
-          : await cache.get(name);
+        // A preview bypasses the cache only for the token's own subject: the
+        // draft must not be served from, or written to, the published cache,
+        // and must reflect the newest save. Every other slot on the page reads
+        // the published value from the cache, so previewing one slot does not
+        // pay an uncached read for the whole page.
+        const preview = options?.preview;
+        let content: SlotContent | null;
+        if (preview?.subjectType === "slot") {
+          const cached = await cache.get(name);
+          content =
+            cached && cached.slotId === preview.subjectId
+              ? await loadPreviewSlot(name)
+              : (cached?.content ?? null);
+        } else {
+          // No preview, or a page's token: every slot reads as published.
+          content = (await cache.get(name))?.content ?? null;
+        }
         if (content === null) return null;
 
         // The stored schema is the published contract; the site's own block
@@ -334,7 +384,8 @@ const readerFor = (sql: SQL): ContentReader => {
  *
  * Pass `{ preview }` with the access `getPreviewAccess` returned — or the
  * `null` the catch-all hands a render function — to read the draft a token
- * covers, uncached. `null` is the published read.
+ * covers, uncached. Only the token's own slot leaves the cache; any other slot
+ * still reads as published. `null` is the published read.
  */
 export function getSlot<T = SlotContent>(
   sql: SQL,

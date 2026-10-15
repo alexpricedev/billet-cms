@@ -31,13 +31,13 @@
  * wraps the rendered page in the banner and the no-cache headers.
  */
 import type { SQL } from "bun";
-import { TABLES } from "../contract";
+import { PREVIEW_QUERY_PARAM, TABLES } from "../contract";
 import type { LinkValue } from "../fields/field";
 import { sameOriginPath } from "../fields/path";
 import type { PreviewAccess } from "../preview";
 import { applyPreview, getPreviewAccess } from "../preview";
 import { validateContent } from "../schema";
-import { ContentCache } from "./cache";
+import { CONTENT_VERSION_POLL_MS, ContentCache } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
 import { latestRevisionId } from "./revisions";
 
@@ -104,7 +104,10 @@ export interface CmsPagesReader {
   resolveLink(link: LinkValue): Promise<string | null>;
   /** The published pages a site merges into its sitemap, in URL order. */
   listSitemapEntries(): Promise<CmsSitemapEntry[]>;
-  /** Drop the cache and force the next read to re-check `content_version`. */
+  /**
+   * A hard reset: drop every cached entry and re-read `content_version` on the
+   * next read.
+   */
   invalidate(): void;
 }
 
@@ -347,8 +350,35 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     return await renderPage(page, revisionId);
   };
 
+  /**
+   * The routing table's last successful load, kept across failures.
+   *
+   * A failure to read the table is transient — the CMS is down, or
+   * mid-migration — and the site must keep rendering with the routes it last
+   * saw rather than 404 every page. It survives `invalidate()`: it is a failure
+   * fallback, not a cache entry, so it is replaced by the next successful load
+   * rather than dropped with the cached entries. The content may be newer than
+   * the fallback, but it is the best available.
+   */
+  let lastGoodRoutes: RouteTable | null = null;
+  /**
+   * The last routes failure and when it happened, for the back-off.
+   *
+   * Kept whether or not there is a last good table, so a database that is still
+   * failing is queried at most once per poll interval rather than once per
+   * request — the failure must not be frozen into the cache, but it must not be
+   * re-attempted on every read either.
+   */
+  let routesError: { error: unknown; at: number } | null = null;
+  /** When "serving the last good table" was last reported, for the back-off. */
+  let routesErrorLoggedAt = Number.NEGATIVE_INFINITY;
+  const pollMs = options.versionPollMs ?? CONTENT_VERSION_POLL_MS;
+
   // One loader dispatching on the key: `ContentCache` caches one value per key
   // but has a single `load`, so the key is what tells it what to read on a miss.
+  // The routes load stays strict: a throw is a miss the cache does not store, so
+  // a transient failure can't be cached under the current version and outlive
+  // the outage. `routes()` below is what turns that throw into a fallback.
   const loadByKey = async (key: string): Promise<unknown> => {
     if (key === "routes") return await loadRoutes(sql);
     const prefix = "page:";
@@ -368,6 +398,47 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       : {}),
   });
 
+  /**
+   * Load the routing table, tolerating a failure.
+   *
+   * The cache read is strict, so a failure never lands in the cache; this is
+   * where it becomes a fallback. With a last good table, the failure is logged
+   * once per interval and that table is served, so a site keeps its links and
+   * 301s while the database is briefly unreachable. With none (the first read
+   * after boot), the failure is remembered for one poll interval so a broken
+   * database is queried at most once a second rather than once per request, and
+   * re-thrown for the caller to report. The next successful load replaces the
+   * fallback and clears the failure, so a recovered database is seen on the
+   * first read past the interval.
+   */
+  const routes = async (): Promise<RouteTable> => {
+    const now = options.now?.() ?? Date.now();
+    if (routesError !== null && now - routesError.at < pollMs) {
+      if (lastGoodRoutes !== null) return lastGoodRoutes;
+      throw routesError.error;
+    }
+
+    try {
+      const table = (await cache.get("routes")) as RouteTable;
+      lastGoodRoutes = table;
+      routesError = null;
+      return table;
+    } catch (error) {
+      const failedAt = options.now?.() ?? Date.now();
+      routesError = { error, at: failedAt };
+      if (lastGoodRoutes !== null) {
+        if (failedAt - routesErrorLoggedAt >= pollMs) {
+          onSkip(
+            `could not read the CMS routing table, serving the last good one: ${describe(error)}`,
+          );
+          routesErrorLoggedAt = failedAt;
+        }
+        return lastGoodRoutes;
+      }
+      throw error;
+    }
+  };
+
   return {
     async getPage(
       path: string,
@@ -381,8 +452,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
         // from it while the editor is looking at an unpublished change.
         if (preview) return await loadPreviewPage(canonical, preview);
 
-        const routes = (await cache.get("routes")) as RouteTable;
-        const pageId = routes.byUrl.get(canonical);
+        const table = await routes();
+        const pageId = table.byUrl.get(canonical);
         // A miss is a 404, not a query: no page is loaded and no cache entry is
         // keyed by the path that wasn't there.
         if (!pageId) return null;
@@ -396,8 +467,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async getRedirect(path: string): Promise<string | null> {
       const canonical = canonicalPath(path);
       try {
-        const routes = (await cache.get("routes")) as RouteTable;
-        return routes.redirects.get(canonical) ?? null;
+        const table = await routes();
+        return table.redirects.get(canonical) ?? null;
       } catch (error) {
         onSkip(`could not read redirect "${canonical}": ${describe(error)}`);
         return null;
@@ -407,8 +478,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async resolveLink(link: LinkValue): Promise<string | null> {
       if (link.type === "url") return link.url;
       try {
-        const routes = (await cache.get("routes")) as RouteTable;
-        return routes.byId.get(link.pageId) ?? null;
+        const table = await routes();
+        return table.byId.get(link.pageId) ?? null;
       } catch (error) {
         onSkip(
           `could not resolve a link to page "${link.pageId}": ${describe(error)}`,
@@ -458,6 +529,12 @@ export interface CmsPageRenderContext {
 
 export interface CmsPageRouteOptions extends CmsPagesOptions {
   /**
+   * Use this reader instead of building one. A site that already holds the
+   * process-wide reader (or one it built with custom options) can pass it so
+   * the catch-all shares its cache and its version poll.
+   */
+  reader?: CmsPagesReader;
+  /**
    * Render a resolved page to a Response. The site owns the layout and the block
    * render functions; the plugin owns the redirect/page/404 decision around it.
    * The context carries the preview access, so the page can forward it to any
@@ -476,11 +553,20 @@ export interface CmsPageRouteOptions extends CmsPagesOptions {
  * URL, query string preserved), then a published page is rendered, then `null`
  * so the site's own `render404` runs. A non-GET/HEAD request is left to the site
  * — the CMS serves pages, not form posts.
+ *
+ * With no `reader` and no custom `now`/`versionPollMs`/`onSkip`, it uses the
+ * process-wide reader for `sql` (the same one `getPage` and
+ * `listSitemapEntries` use), so mounting the catch-all and reading a page
+ * directly run one cache and one version poll rather than two.
  */
 export const createCmsPageRoute = (
   options: CmsPageRouteOptions,
 ): ((req: Request) => Promise<Response | null>) => {
-  const reader = createCmsPages(options);
+  const reader =
+    options.reader ??
+    (options.now || options.versionPollMs !== undefined || options.onSkip
+      ? createCmsPages(options)
+      : getCmsPagesReader(options.sql));
   const onSkip = options.onSkip ?? defaultSkipLogger;
 
   return async (req: Request): Promise<Response | null> => {
@@ -496,9 +582,17 @@ export const createCmsPageRoute = (
     const redirected = await reader.getRedirect(url.pathname);
     const location = redirected === null ? null : sameOriginPath(redirected);
     if (location !== null) {
+      // A redirect that carries a preview token is part of a previewed read, so
+      // it must not be cached; the target page's own response is `no-store` too.
+      // Any other rename is rare and stable, so a browser may keep the 301 for
+      // an hour rather than asking on every visit.
+      const carriesPreview = url.searchParams.has(PREVIEW_QUERY_PARAM);
       return new Response("", {
         status: 301,
-        headers: { Location: `${location}${url.search}` },
+        headers: {
+          Location: `${location}${url.search}`,
+          "Cache-Control": carriesPreview ? "no-store" : "public, max-age=3600",
+        },
       });
     }
 

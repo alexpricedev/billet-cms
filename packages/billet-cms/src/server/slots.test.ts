@@ -13,13 +13,19 @@ const throwingSql = {
 const HERO_CONTENT = { heading: "Cached hero" };
 
 /**
- * A pool that answers the reader's four queries from memory, so a test can make
- * the version check fail without a database. `versionFails` stands in for the
- * CMS becoming unreachable between two reads: the content the cache already
+ * A pool that answers the reader's joined slot query from memory, so a test can
+ * make the version check fail without a database. `versionFails` stands in for
+ * the CMS becoming unreachable between two reads: the content the cache already
  * holds is still the last published revision the site saw.
  */
-const fakeSql = (content: Record<string, unknown> = HERO_CONTENT) => {
-  const state = { now: 0, version: 1, versionReads: 0, versionFails: false };
+const fakeSql = (content: Record<string, unknown> | null = HERO_CONTENT) => {
+  const state = {
+    now: 0,
+    version: 1,
+    versionReads: 0,
+    slotReads: 0,
+    versionFails: false,
+  };
   const sql = {
     unsafe: (query: string) => {
       if (query.includes("cms_meta")) {
@@ -30,24 +36,26 @@ const fakeSql = (content: Record<string, unknown> = HERO_CONTENT) => {
         return Promise.resolve([{ content_version: state.version }]);
       }
       if (query.includes("cms_slots")) {
+        // The slot, its block type and its published revision, as the one
+        // joined query returns them.
+        state.slotReads += 1;
         return Promise.resolve([
           {
             id: "slot-1",
+            name: "home.hero",
             block_name: "hero",
             removed_at: null,
-            published_revision_id: "rev-1",
+            published_revision_id: content === null ? null : "rev-1",
+            block_found: "hero",
+            // Permissive on purpose: the stored contract accepts the row, so
+            // any rejection a test below sees comes from the site's own block
+            // schema.
+            json_schema: { type: "object" },
+            block_removed_at: null,
+            revision_found: content === null ? null : "rev-1",
+            content,
           },
         ]);
-      }
-      if (query.includes("cms_block_types")) {
-        // Permissive on purpose: the stored contract accepts the row, so any
-        // rejection a test below sees comes from the site's own block schema.
-        return Promise.resolve([
-          { json_schema: { type: "object" }, removed_at: null },
-        ]);
-      }
-      if (query.includes("cms_revisions")) {
-        return Promise.resolve([{ content }]);
       }
       return Promise.resolve([]);
     },
@@ -202,17 +210,18 @@ describe("getSlot with the site's own block", () => {
 
 describe("getSlot with preview access", () => {
   /**
-   * A pool with a published revision and a newer draft. Preview reads must
-   * bypass the cache, so the version check it queries is deliberately left to
-   * return a value the cache would otherwise keep serving from.
+   * A pool with a published revision and a newer draft, returning the joined
+   * slot row the reader now selects in one query.
    */
-  const previewSql = (published = "Published", draft = "Draft") =>
-    ({
+  const previewSql = (published = "Published", draft = "Draft") => {
+    const state = { version: 1, slotReads: 0, revisionReads: 0 };
+    const sql = {
       unsafe: (query: string, params: unknown[] = []) => {
         if (query.includes("cms_meta")) {
-          return Promise.resolve([{ content_version: 1 }]);
+          return Promise.resolve([{ content_version: state.version }]);
         }
         if (query.includes("cms_slots")) {
+          state.slotReads += 1;
           return Promise.resolve([
             {
               id: "slot-1",
@@ -220,57 +229,61 @@ describe("getSlot with preview access", () => {
               block_name: "hero",
               removed_at: null,
               published_revision_id: "rev-1",
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: "rev-1",
+              content: { heading: published },
             },
-          ]);
-        }
-        if (query.includes("cms_block_types")) {
-          return Promise.resolve([
-            { json_schema: { type: "object" }, removed_at: null },
           ]);
         }
         if (query.includes("cms_revisions")) {
           if (query.includes("LIMIT 1") && query.includes("target_id")) {
             return Promise.resolve([{ id: "rev-2" }]);
           }
+          state.revisionReads += 1;
           return Promise.resolve([
             { content: { heading: params[0] === "rev-2" ? draft : published } },
           ]);
         }
         return Promise.resolve([]);
       },
-    }) as unknown as SQL;
+    } as unknown as SQL;
+
+    return { state, sql };
+  };
 
   const reader = (sql: SQL) => createContentReader({ sql, onSkip: () => {} });
 
   test("the token's own slot reads its newest draft", async () => {
-    const content = await reader(previewSql()).getSlot("home.hero", {
+    const content = await reader(previewSql().sql).getSlot("home.hero", {
       preview: { subjectType: "slot", subjectId: "slot-1" },
     });
     expect(content).toEqual({ heading: "Draft" });
   });
 
   test("previewing another slot leaves this one published", async () => {
-    const content = await reader(previewSql()).getSlot("home.hero", {
+    const content = await reader(previewSql().sql).getSlot("home.hero", {
       preview: { subjectType: "slot", subjectId: "slot-2" },
     });
     expect(content).toEqual({ heading: "Published" });
   });
 
   test("a page token never shows a slot's draft", async () => {
-    const content = await reader(previewSql()).getSlot("home.hero", {
+    const content = await reader(previewSql().sql).getSlot("home.hero", {
       preview: { subjectType: "page", subjectId: "slot-1" },
     });
     expect(content).toEqual({ heading: "Published" });
   });
 
-  test("a preview read bypasses the cache", async () => {
-    const sql = previewSql();
+  test("a preview read bypasses the cache for its own slot", async () => {
+    const { sql } = previewSql();
     const slots = reader(sql);
 
     // Warm the published cache.
     expect((await slots.getSlot("home.hero"))?.heading).toBe("Published");
 
-    // The preview read must not be served from it.
+    // The preview of its own slot must not be served from it.
     const draft = await slots.getSlot("home.hero", {
       preview: { subjectType: "slot", subjectId: "slot-1" },
     });
@@ -281,9 +294,183 @@ describe("getSlot with preview access", () => {
   });
 
   test("a null preview is the published read", async () => {
-    const content = await reader(previewSql()).getSlot("home.hero", {
+    const content = await reader(previewSql().sql).getSlot("home.hero", {
       preview: null,
     });
     expect(content).toEqual({ heading: "Published" });
+  });
+
+  // The point of keeping the cache during a preview: a token for one slot must
+  // not force every other slot on the page to re-read.
+  test("a slot token reads slots it does not cover from the cache", async () => {
+    const state = { version: 1, slotReads: 0 };
+    const sql = {
+      unsafe: (query: string, params: unknown[] = []) => {
+        if (query.includes("cms_meta")) {
+          return Promise.resolve([{ content_version: state.version }]);
+        }
+        if (query.includes("cms_slots")) {
+          state.slotReads += 1;
+          const name = params[0] as string;
+          return Promise.resolve([
+            {
+              id: `slot-${name}`,
+              name,
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: "rev-1",
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: "rev-1",
+              content: { heading: `${name} published` },
+            },
+          ]);
+        }
+        if (query.includes("cms_revisions")) {
+          if (query.includes("LIMIT 1") && query.includes("target_id")) {
+            return Promise.resolve([{ id: "rev-2" }]);
+          }
+          return Promise.resolve([{ content: { heading: "draft" } }]);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+    const slots = reader(sql);
+    const preview = { subjectType: "slot" as const, subjectId: "slot-a" };
+
+    // Warm both slots.
+    await slots.getSlot("a", { preview });
+    await slots.getSlot("b", { preview });
+    const afterWarmup = state.slotReads;
+
+    // Only the token's own slot re-reads (one joined query); the other is
+    // served from the cache with no query at all.
+    await slots.getSlot("a", { preview });
+    expect(state.slotReads).toBe(afterWarmup + 1);
+    await slots.getSlot("b", { preview });
+    expect(state.slotReads).toBe(afterWarmup + 1);
+  });
+
+  // A slot that has never been published still has a row and an id, so its
+  // first draft can be previewed before the slot ever goes live.
+  test("previews the first draft of a never-published slot", async () => {
+    const state = { version: 1, slotReads: 0 };
+    const sql = {
+      unsafe: (query: string) => {
+        if (query.includes("cms_meta")) {
+          return Promise.resolve([{ content_version: state.version }]);
+        }
+        if (query.includes("cms_slots")) {
+          state.slotReads += 1;
+          return Promise.resolve([
+            {
+              id: "slot-1",
+              name: "home.hero",
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: null,
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: null,
+              content: null,
+            },
+          ]);
+        }
+        if (query.includes("cms_revisions")) {
+          if (query.includes("LIMIT 1") && query.includes("target_id")) {
+            return Promise.resolve([{ id: "rev-2" }]);
+          }
+          return Promise.resolve([{ content: { heading: "First draft" } }]);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+
+    const content = await reader(sql).getSlot("home.hero", {
+      preview: { subjectType: "slot", subjectId: "slot-1" },
+    });
+    expect(content).toEqual({ heading: "First draft" });
+  });
+});
+
+describe("slot query counts", () => {
+  /** A pool with `names` as published slots, counting the queries it answers. */
+  const countingSql = (names: string[]) => {
+    const state = { version: 1, versionReads: 0, slotReads: 0 };
+    const sql = {
+      unsafe: (query: string, params: unknown[] = []) => {
+        if (query.includes("cms_meta")) {
+          state.versionReads += 1;
+          return Promise.resolve([{ content_version: state.version }]);
+        }
+        if (query.includes("cms_slots")) {
+          state.slotReads += 1;
+          const name = params[0] as string;
+          if (!names.includes(name)) return Promise.resolve([]);
+          return Promise.resolve([
+            {
+              id: `slot-${name}`,
+              name,
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: `rev-${name}`,
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: `rev-${name}`,
+              content: { heading: name },
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+    return { state, sql };
+  };
+
+  test("a cold slot costs one version read and one query", async () => {
+    const { state, sql } = countingSql(["a"]);
+    const reader = createContentReader({ sql, onSkip: () => {} });
+
+    const content = await reader.getSlot("a");
+    expect(content).toEqual({ heading: "a" });
+    expect(state.versionReads).toBe(1);
+    expect(state.slotReads).toBe(1);
+  });
+
+  test("four slots after a publish cost one query each", async () => {
+    const { state, sql } = countingSql(["a", "b", "c", "d"]);
+    let now = 0;
+    const reader = createContentReader({
+      sql,
+      now: () => now,
+      onSkip: () => {},
+    });
+
+    for (const name of ["a", "b", "c", "d"]) await reader.getSlot(name);
+    const slotReads = state.slotReads;
+    const versionReads = state.versionReads;
+
+    // A publish moves the version, dropping every entry: a page with four slots
+    // then costs one version read and one query per slot, not three per slot.
+    state.version += 1;
+    now += 1000;
+    for (const name of ["a", "b", "c", "d"]) await reader.getSlot(name);
+    expect(state.slotReads - slotReads).toBe(4);
+    expect(state.versionReads - versionReads).toBe(1);
+  });
+
+  test("simultaneous cold reads of one slot share one load", async () => {
+    const { state, sql } = countingSql(["a"]);
+    const reader = createContentReader({ sql, onSkip: () => {} });
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => reader.getSlot("a")),
+    );
+    for (const result of results) expect(result).toEqual({ heading: "a" });
+    expect(state.versionReads).toBe(1);
+    expect(state.slotReads).toBe(1);
   });
 });

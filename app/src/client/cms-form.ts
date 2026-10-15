@@ -483,6 +483,48 @@ const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
 };
 
 /**
+ * Fill an image picker from the form's one reuse-list template.
+ *
+ * The server renders the upload options once, in a `<template
+ * data-media-options>`, rather than in every image field: a page with many
+ * image fields (and several list rows of them) would otherwise repeat the whole
+ * library per control. A picker is filled the first time it is focused, so the
+ * cost is paid only for a picker the editor actually reached. Its current image
+ * is already an option there and may be older than the newest ones the template
+ * lists; when the template does carry it, the option is relabelled from the
+ * template so the picker shows a real label rather than a bare id, and the
+ * stored value is not duplicated.
+ */
+const fillPickerFromOptions = (
+  form: HTMLFormElement,
+  picker: HTMLSelectElement,
+): void => {
+  if (picker.hasAttribute("data-media-filled")) return;
+  const template = form.querySelector<HTMLTemplateElement>(
+    "template[data-media-options]",
+  );
+  if (!template) return;
+  picker.setAttribute("data-media-filled", "");
+
+  const present = new Map(
+    Array.from(
+      picker.querySelectorAll("option"),
+      (option) => [option.value, option] as const,
+    ),
+  );
+  for (const option of Array.from(
+    template.content.querySelectorAll("option"),
+  )) {
+    const existing = present.get(option.value);
+    if (existing) {
+      existing.textContent = option.textContent;
+      continue;
+    }
+    picker.append(option.cloneNode(true));
+  }
+};
+
+/**
  * Wire the rich text toolbars and the repeatable lists through one delegated
  * listener on the form.
  *
@@ -504,6 +546,18 @@ const wireControls = (form: HTMLFormElement): void => {
   // The image picker is a convenience over the media-id input, which stays the
   // field's value: choosing an upload writes its id there, and a hand-typed id
   // works exactly the same. With JavaScript off the picker isn't read at all.
+  // `focusin` bubbles, so a picker cloned into a list row later is covered too;
+  // it fills itself from the form's one options template the first time it is
+  // focused.
+  form.addEventListener("focusin", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const picker = target.closest("[data-image-picker]");
+    if (picker instanceof HTMLSelectElement) {
+      fillPickerFromOptions(form, picker);
+    }
+  });
+
   form.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;

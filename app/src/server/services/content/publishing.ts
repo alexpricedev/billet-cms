@@ -161,7 +161,7 @@ export const publishSlot = async (
       return {
         ok: false as const,
         reason: "invalid" as const,
-        issues: formatIssues(validation.issues),
+        issues: formatIssues(validation.issues, revision.content),
       };
     }
 

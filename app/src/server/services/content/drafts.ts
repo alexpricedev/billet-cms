@@ -112,18 +112,53 @@ const plainMessage = (message: string): string => {
 };
 
 /**
+ * Walk a dotted issue path into the content it came from.
+ *
+ * Numeric segments address list entries; string segments address object keys.
+ * Returns `undefined` as soon as the path leaves the value, so a path that
+ * doesn't line up with the content is treated as "no parent object" rather than
+ * throwing.
+ */
+const valueAtPath = (content: unknown, path: (string | number)[]): unknown => {
+  let current: unknown = content;
+  for (const segment of path) {
+    if (typeof current !== "object" || current === null) return undefined;
+    current = (current as Record<string, unknown>)[String(segment)];
+  }
+  return current;
+};
+
+/** True when a value is a page-mode link that hasn't chosen a page yet. */
+const isUnchosenPageLink = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (record.type !== "page") return false;
+  const pageId = record.pageId;
+  // A missing `pageId`, or one left as an empty string, is "no page chosen yet".
+  // A *malformed* non-empty id is a different problem and keeps its own message.
+  return pageId === undefined || pageId === null || pageId === "";
+};
+
+/**
  * Rewrite the validator's issues into copy an editor can act on.
  *
  * Shared with the publish path, which validates a stored revision the same way
- * a save does and shows the same field-level messages.
+ * a save does and shows the same field-level messages. The content the issues
+ * came from is what makes the link check precise: "Choose a page." is only for
+ * a page-mode link whose `pageId` is missing or blank, so a malformed id — or an
+ * unrelated field that happens to be called `pageId` — gets its own plain
+ * message instead (review round 1 follow-up).
  */
-export const formatIssues = (issues: ValidationIssue[]): FieldIssue[] =>
+export const formatIssues = (
+  issues: ValidationIssue[],
+  content: unknown,
+): FieldIssue[] =>
   issues.map((issue) => {
     const path = issue.path.length > 0 ? issue.path.join(".") : "(content)";
-    // A page-mode link with no page chosen fails on `pageId`; name the problem
-    // rather than leaving the generic "This value isn't valid" (review round 1).
+    const last = issue.path[issue.path.length - 1];
+    const parent = valueAtPath(content, issue.path.slice(0, -1));
     const message =
-      issue.path[issue.path.length - 1] === "pageId"
+      last === "pageId" && isUnchosenPageLink(parent)
         ? "Choose a page."
         : plainMessage(issue.message);
     return { path, message };
@@ -215,7 +250,7 @@ export const saveSlotDraft = async (
     return {
       ok: false,
       reason: "invalid",
-      issues: formatIssues(validation.issues),
+      issues: formatIssues(validation.issues, input.content),
     };
   }
 

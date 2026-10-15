@@ -13,6 +13,13 @@
  * Only the version check is throttled. A cache miss (the first read of a slot
  * after a publish) goes straight to the database, so a fresh visitor never
  * waits longer than the interval for content they don't have cached.
+ *
+ * Two kinds of in-flight work are shared rather than repeated: a version read,
+ * so simultaneous misses in one process cost one `cms_meta` query rather than
+ * one each, and a load, so simultaneous misses for the same key cost one read
+ * rather than one each. The sharing is scoped to the generation in flight, so a
+ * load that started before a publish is neither stored nor handed to callers
+ * reading on the newer version.
  */
 
 /** How often a process re-reads `content_version`. */
@@ -60,6 +67,35 @@ export class ContentCache<V> {
    */
   #generation = 0;
 
+  /**
+   * The version read currently in flight, or `null`.
+   *
+   * A miss after a publish, hit by several requests at once, would otherwise
+   * each read `cms_meta`; the first one to arrive starts the read and the rest
+   * await it. It is cleared as soon as it settles, so the failure fallback and
+   * the back-off below behave exactly as if each caller had read on its own.
+   * The entry carries when it started: a read older than one interval is not
+   * joined any more, so a single hung query can't hold every call behind it.
+   */
+  #pendingVersion: { promise: Promise<number>; startedAt: number } | null =
+    null;
+
+  /**
+   * The loads currently in flight, keyed by the cache key.
+   *
+   * A load that is still running joins a request that arrives for the same key
+   * under the same generation, so ten simultaneous misses for one cold slot
+   * cost one query. The entry carries the generation it started under: a load
+   * from before a publish is not shared with callers reading on the newer
+   * version, which start their own instead. It also carries when it started, so
+   * a load older than one interval is not joined either — a hung key load must
+   * not stall every read for that key forever.
+   */
+  #loads = new Map<
+    string,
+    { generation: number; promise: Promise<V>; startedAt: number }
+  >();
+
   constructor(options: ContentCacheOptions<V>) {
     this.#readVersion = options.readVersion;
     this.#load = options.load;
@@ -98,18 +134,49 @@ export class ContentCache<V> {
     ) {
       throw this.#versionError.error;
     }
+    // A read already in flight answers this caller too, rather than starting a
+    // second one. It is cleared when it settles, so a failure is not cached
+    // here — `#readVersion` decides that, exactly as before. A read that has
+    // been in flight longer than one interval is abandoned rather than joined:
+    // one hung query must not hold every read in the process behind it.
+    const pending = this.#pendingVersion;
+    if (pending && now - pending.startedAt < this.#intervalMs) {
+      return await pending.promise;
+    }
 
+    const entry = { promise: this.#readAndStore(now), startedAt: now };
+    this.#pendingVersion = entry;
+    try {
+      return await entry.promise;
+    } finally {
+      if (this.#pendingVersion === entry) this.#pendingVersion = null;
+    }
+  }
+
+  /** Read the version and apply it, the work `version()` shares. */
+  async #readAndStore(now: number): Promise<number> {
+    const generation = this.#generation;
     try {
       const next = await this.#readVersion();
+      // A reset (or a version move by another read) while this was in flight
+      // means the value is not ours to store: return it, and let the next read
+      // re-check rather than pretending the cache is fresh.
+      if (generation !== this.#generation) return next;
       if (next !== this.#version) {
         this.#entries.clear();
+        // A load from before the publish must not be handed to a caller
+        // reading on the new version: drop it and let that caller start fresh.
+        this.#loads.clear();
         this.#version = next;
         this.#generation += 1;
       }
       this.#checkedAt = now;
       this.#versionError = null;
-      return this.#version;
+      return this.#version as number;
     } catch (error) {
+      // A reset while this read was in flight means the failure is not the
+      // reset cache's to remember either.
+      if (generation !== this.#generation) throw error;
       this.#checkedAt = now;
       if (this.#version !== null) {
         this.#onVersionError?.(error);
@@ -126,18 +193,54 @@ export class ContentCache<V> {
     if (this.#entries.has(key)) return this.#entries.get(key) as V;
 
     const generation = this.#generation;
-    const value = await this.#load(key);
-    // The version may have moved while the load was in flight. The value the
-    // caller gets is still the one it asked for, but caching it would leave the
-    // cache holding pre-publish content under the new version.
-    if (this.#generation === generation) {
-      this.#entries.set(key, value);
+    // A load for the same key, started on this generation and still fresh,
+    // answers too: ten simultaneous first reads of one slot cost one query, not
+    // ten. A load older than one interval is left to finish on its own rather
+    // than joined, so a hung key load can't stall every read for that key.
+    const now = this.#now();
+    const pending = this.#loads.get(key);
+    if (
+      pending &&
+      pending.generation === generation &&
+      now - pending.startedAt < this.#intervalMs
+    ) {
+      return await pending.promise;
     }
-    return value;
+
+    const promise = (async () => this.#load(key))();
+    this.#loads.set(key, { generation, promise, startedAt: now });
+    try {
+      const value = await promise;
+      // The version may have moved while the load was in flight. The value the
+      // caller gets is still the one it asked for, but caching it would leave
+      // the cache holding pre-publish content under the new version.
+      if (this.#generation === generation) {
+        this.#entries.set(key, value);
+      }
+      return value;
+    } finally {
+      // A rejected load is removed here too, so the next read starts a fresh
+      // one rather than joining a promise that has already failed.
+      const current = this.#loads.get(key);
+      if (current?.promise === promise) this.#loads.delete(key);
+    }
   }
 
-  /** Forget when the version was last checked, forcing the next `get` to re-read it. */
+  /**
+   * Drop every cached entry and force the next read to re-check the version.
+   *
+   * A hard reset, as the readers document it: the entries, any load in flight
+   * and any remembered failure go, and `content_version` is re-read by the next
+   * read even when the interval has not passed. The generation moves too, so a
+   * load that started before the reset cannot write its value back.
+   */
   invalidate(): void {
+    this.#entries.clear();
+    this.#loads.clear();
+    this.#pendingVersion = null;
+    this.#version = null;
     this.#checkedAt = Number.NEGATIVE_INFINITY;
+    this.#versionError = null;
+    this.#generation += 1;
   }
 }

@@ -94,7 +94,8 @@ repo. This file is only the invariants.
   `Cache-Control: no-store` / `X-Robots-Tag: noindex`. A slot's `previewPath`
   (declared on `slot()`, published to `cms_slots.preview_path`) is the site page
   the CMS opens for it. An unknown, expired or missing token is the published
-  view; a preview read always bypasses the `content_version` cache.
+  view; a preview bypasses the `content_version` cache for the token's own
+  subject only, so the other slots on the page stay cached.
 - **Media lives in an S3-compatible bucket, behind `cms_media`.** The CMS
   uploads an image once (JPEG, PNG or WebP, sniffed from its bytes — SVG and
   animated GIF are refused), caps it at 20 MB and 100 megapixels, applies EXIF

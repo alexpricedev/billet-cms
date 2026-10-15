@@ -51,6 +51,7 @@ import {
   getMediaUsage,
   listMedia,
   MAX_ALT_LENGTH,
+  toMediaOption,
   updateMediaAlt,
   updateMediaFocalPoint,
 } from "./media";
@@ -205,6 +206,94 @@ describe("createMedia", () => {
     if (result.ok) return;
     expect(result.issues[0]?.message).toMatch(/couldn't save that image/);
     expect(await listMedia()).toHaveLength(0);
+  });
+
+  // The puts run together, so one failing mid-batch must still clean up every
+  // object the upload could have written — including the one whose put rejected,
+  // which may have landed before it failed.
+  test("deletes every planned object when one put fails mid-batch", async () => {
+    const memory = createMemoryMediaStorage();
+    const attempted: string[] = [];
+    const deleted: string[] = [];
+    let calls = 0;
+    const storage = {
+      ...memory,
+      put: async (key: string, body: Uint8Array, contentType: string) => {
+        calls += 1;
+        attempted.push(key);
+        if (calls === 3) throw new Error("bucket hiccup");
+        memory.objects.set(key, { body: body.slice(), contentType });
+      },
+      delete: async (key: string) => {
+        deleted.push(key);
+        memory.objects.delete(key);
+      },
+    };
+
+    const result = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "Half written",
+      actorId: null,
+      storage,
+    });
+
+    expect(result.ok).toBe(false);
+    // More than the failed put landed, and all of it is gone.
+    expect(memory.objects.size).toBe(0);
+    // Every key the upload planned was attempted and then deleted, not just the
+    // four puts that reported success.
+    expect(attempted.length).toBe(5);
+    expect([...deleted].sort()).toEqual([...attempted].sort());
+    expect(await listMedia()).toHaveLength(0);
+  });
+
+  test("listMedia returns the whole library newest first, and a limit takes the newest", async () => {
+    const storage = createMemoryMediaStorage();
+    for (const alt of ["First", "Second", "Third"]) {
+      const result = await createMedia({
+        bytes: await makeJpeg(800, 400),
+        alt,
+        actorId: null,
+        storage,
+      });
+      expect(result.ok).toBe(true);
+    }
+
+    const all = await listMedia();
+    expect(all).toHaveLength(3);
+    // Newest first: each row is at least as new as the one after it.
+    for (let index = 1; index < all.length; index += 1) {
+      expect(all[index - 1].createdAt.getTime()).toBeGreaterThanOrEqual(
+        all[index].createdAt.getTime(),
+      );
+    }
+
+    const limited = await listMedia({ limit: 2 });
+    expect(limited).toHaveLength(2);
+    // A limit takes the head of the same newest-first list, not a different set.
+    expect(limited.map((row) => row.id)).toEqual(
+      all.slice(0, 2).map((row) => row.id),
+    );
+  });
+
+  // The picker only needs these four fields; the old shape's thumbnail URL was
+  // never read and is gone, so a large library isn't walked for it.
+  test("toMediaOption carries only the picker's fields", async () => {
+    const result = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "A field",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    if (!result.ok) throw new Error("upload failed");
+
+    expect(Object.keys(toMediaOption(result.media)).sort()).toEqual([
+      "alt",
+      "height",
+      "id",
+      "width",
+    ]);
+    expect(toMediaOption(result.media).alt).toBe("A field");
   });
 
   test("refuses an animated WebP", async () => {

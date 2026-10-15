@@ -64,14 +64,18 @@ export interface MediaRecord {
  */
 export const MAX_ALT_LENGTH = 1000;
 
-/** Enough of an upload for a picker or a reuse list. */
+/**
+ * Enough of an upload for a picker or a reuse list.
+ *
+ * Only what a form control shows. The thumbnail URL the old shape carried was
+ * never read by a control, so it is gone rather than computed for every row of
+ * a large library.
+ */
 export interface MediaOption {
   id: string;
   alt: string;
   width: number;
   height: number;
-  /** The largest fallback's URL, for a thumbnail. */
-  url: string;
 }
 
 interface MediaRow {
@@ -117,18 +121,12 @@ const toMedia = (row: MediaRow): MediaRecord => ({
 const MEDIA_COLUMNS = `id, object_key, content_type, byte_size, width, height,
               alt, focal_x, focal_y, variants, created_at, updated_at`;
 
-/** The largest rendition's fallback URL, for a thumbnail. */
-const thumbnailUrl = (row: MediaRow): string => {
-  const variants = parseVariants(row.variants);
-  return variants[variants.length - 1]?.fallbackUrl ?? "";
-};
-
-const toOption = (row: MediaRow): MediaOption => ({
-  id: row.id,
-  alt: row.alt,
-  width: row.width,
-  height: row.height,
-  url: thumbnailUrl(row),
+/** The subset of a row a picker needs, from an already-read record. */
+export const toMediaOption = (media: MediaRecord): MediaOption => ({
+  id: media.id,
+  alt: media.alt,
+  width: media.width,
+  height: media.height,
 });
 
 export interface MediaIssue {
@@ -250,37 +248,53 @@ export const createMedia = async (
   const id = randomUUID();
   const originalKey = `media/${id}/original.${processed.original.extension}`;
 
-  const written: string[] = [];
-  try {
-    await storage.put(
-      originalKey,
-      processed.original.bytes,
-      processed.original.contentType,
+  // Everything the upload writes: the original plus a WebP and a fallback per
+  // width, described up front so the puts can run together.
+  const objects: { key: string; body: Uint8Array; contentType: string }[] = [
+    {
+      key: originalKey,
+      body: processed.original.bytes,
+      contentType: processed.original.contentType,
+    },
+  ];
+  const variants: MediaVariant[] = [];
+  for (const rendition of processed.renditions) {
+    const webpKey = `media/${id}/${rendition.width}.webp`;
+    const fallbackKey = `media/${id}/${rendition.width}.${rendition.fallbackExtension}`;
+    objects.push(
+      { key: webpKey, body: rendition.webp, contentType: "image/webp" },
+      {
+        key: fallbackKey,
+        body: rendition.fallback,
+        contentType: rendition.fallbackContentType,
+      },
     );
-    written.push(originalKey);
 
-    const variants: MediaVariant[] = [];
-    for (const rendition of processed.renditions) {
-      const webpKey = `media/${id}/${rendition.width}.webp`;
-      const fallbackKey = `media/${id}/${rendition.width}.${rendition.fallbackExtension}`;
-      await storage.put(webpKey, rendition.webp, "image/webp");
-      written.push(webpKey);
-      await storage.put(
-        fallbackKey,
-        rendition.fallback,
-        rendition.fallbackContentType,
-      );
-      written.push(fallbackKey);
+    variants.push({
+      width: rendition.width,
+      height: rendition.height,
+      webpKey,
+      webpUrl: storage.publicUrl(webpKey),
+      fallbackKey,
+      fallbackUrl: storage.publicUrl(fallbackKey),
+    });
+  }
 
-      variants.push({
-        width: rendition.width,
-        height: rendition.height,
-        webpKey,
-        webpUrl: storage.publicUrl(webpKey),
-        fallbackKey,
-        fallbackUrl: storage.publicUrl(fallbackKey),
-      });
-    }
+  // The puts run together rather than in turn. `allSettled` lets every put be
+  // attempted even when one fails, and cleanup deletes *every* key the upload
+  // could have written rather than only the puts that reported success: a put
+  // that rejects may still have landed its object, so deleting by outcome would
+  // leak it. Deleting a key that was never written is harmless.
+  try {
+    const results = await Promise.allSettled(
+      objects.map((object) =>
+        storage.put(object.key, object.body, object.contentType),
+      ),
+    );
+    const failed = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed) throw failed.reason;
 
     // `variants` is bound through `jsonbValue` so the column holds a jsonb
     // *array*; `JSON.stringify` here would store one long jsonb string that the
@@ -304,11 +318,11 @@ export const createMedia = async (
     // A half-written upload is cleaned up rather than left as orphan objects;
     // a failure here is logged and dropped, because the row is what matters.
     await Promise.all(
-      written.map((key) =>
-        storage.delete(key).catch((cleanupError) => {
+      objects.map((object) =>
+        storage.delete(object.key).catch((cleanupError) => {
           log.warn(
             "media",
-            `Could not clean up ${key} after a failed upload: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+            `Could not clean up ${object.key} after a failed upload: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
           );
         }),
       ),
@@ -323,12 +337,42 @@ export const createMedia = async (
   }
 };
 
-export const listMedia = async (): Promise<MediaRecord[]> => {
+export interface ListMediaOptions {
+  /**
+   * Return at most this many of the newest uploads. Omitted, the whole library
+   * is returned (the library page lists everything).
+   */
+  limit?: number;
+}
+
+/**
+ * The newest uploads the page and slot forms offer for reuse.
+ *
+ * A library can hold thousands of images; shipping them all into every form
+ * would make the page heavy and the picker unusable. The forms list only this
+ * many newest, and an editor who needs an older one pastes its id, which the
+ * media detail page prints.
+ */
+export const MEDIA_PICKER_LIMIT = 50;
+
+/**
+ * The library, newest first.
+ *
+ * Pass `limit` for a picker list; the page and slot forms ask for
+ * `MEDIA_PICKER_LIMIT` rather than shipping the whole library into every form.
+ * This is the one read both the library page and the pickers use, so a picker
+ * and a list can't drift. `LIMIT NULL` is Postgres for "no limit", so one query
+ * serves both shapes.
+ */
+export const listMedia = async (
+  options: ListMediaOptions = {},
+): Promise<MediaRecord[]> => {
   const rows = (await db`
     SELECT id, object_key, content_type, byte_size, width, height,
            alt, focal_x, focal_y, variants, created_at, updated_at
     FROM cms_media
     ORDER BY created_at DESC, id DESC
+    LIMIT ${options.limit ?? null}
   `) as MediaRow[];
   return rows.map(toMedia);
 };
@@ -342,17 +386,6 @@ export const getMediaById = async (
     [id],
   )) as MediaRow[];
   return rows.length > 0 ? toMedia(rows[0]) : null;
-};
-
-/** The uploads a picker offers, newest first. */
-export const listMediaOptions = async (): Promise<MediaOption[]> => {
-  const rows = (await db`
-    SELECT id, object_key, content_type, byte_size, width, height,
-           alt, focal_x, focal_y, variants, created_at, updated_at
-    FROM cms_media
-    ORDER BY created_at DESC, id DESC
-  `) as MediaRow[];
-  return rows.map(toOption);
 };
 
 export type UpdateMediaResult =

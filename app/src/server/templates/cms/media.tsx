@@ -244,6 +244,11 @@ export const MediaDetail = ({
         <span>{media.alt}</span>
       </p>
       <h1>Image</h1>
+      {/* The reuse lists in the page and slot forms list only the newest
+          uploads, and an editor who needs an older one pastes its id here. */}
+      <p className="cms-media-meta">
+        Media id <code>{media.id}</code>
+      </p>
 
       {notice && (
         <div

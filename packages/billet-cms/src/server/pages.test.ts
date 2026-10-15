@@ -6,6 +6,7 @@ import {
   type CmsPage,
   createCmsPageRoute,
   createCmsPages,
+  getPage,
   sameOriginPath,
 } from "./pages";
 import { getSlot } from "./slots";
@@ -106,7 +107,7 @@ const fakeSql = (
     },
   } as unknown as SQL;
 
-  return { state, sql };
+  return { state, sql, redirects };
 };
 
 describe("createCmsPages", () => {
@@ -643,6 +644,11 @@ describe("the catch-all's render context", () => {
               block_name: "hero",
               removed_at: null,
               published_revision_id: "slot-rev-1",
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: "slot-rev-1",
+              content: { heading: "Published hero" },
             },
           ]);
         }
@@ -694,5 +700,174 @@ describe("the catch-all's render context", () => {
     expect(html).toContain("<h1>About us</h1>");
     expect(html).toContain("<p>Draft hero</p>");
     expect(html).toContain("cms-preview-banner");
+  });
+});
+
+describe("reader sharing and routing-table failures", () => {
+  const render = (page: { title: string }) =>
+    new Response(`<h1>${page.title}</h1>`, {
+      headers: { "Content-Type": "text/html" },
+    });
+
+  const isRoutesQuery = (query: string): boolean =>
+    query.includes("cms_pages") &&
+    query.includes("published_revision_id IS NOT NULL") &&
+    !query.includes("updated_at");
+
+  /** A pool whose routes query can be made to fail, counting that query. */
+  const flakySql = (options: Parameters<typeof fakeSql>[0] = {}) => {
+    const { state, sql, redirects } = fakeSql(options);
+    const base = sql as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const counters = { routeQueries: 0, fail: false };
+    const flaky = {
+      unsafe: (query: string, params?: unknown[]) => {
+        if (isRoutesQuery(query)) {
+          counters.routeQueries += 1;
+          if (counters.fail) throw new Error("the routes query is down");
+        }
+        return base.unsafe(query, params);
+      },
+    } as unknown as SQL;
+    return { state, counters, sql: flaky, redirects };
+  };
+
+  test("the 301 carries a cache lifetime", async () => {
+    const { sql } = fakeSql({
+      page: { ...PAGE_ROW, url: "/about-us" },
+      redirects: { "/about": "page-1" },
+    });
+    const route = createCmsPageRoute({ sql, render, onSkip: () => {} });
+
+    const res = await route(new Request("http://localhost/about"));
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Cache-Control")).toBe("public, max-age=3600");
+  });
+
+  // A preview must not be cached anywhere on the way, so a 301 that still
+  // carries the token is `no-store` rather than the usual hour-long lifetime.
+  test("a 301 carrying a preview token is not cached", async () => {
+    const { sql } = fakeSql({
+      page: { ...PAGE_ROW, url: "/about-us" },
+      redirects: { "/about": "page-1" },
+    });
+    const route = createCmsPageRoute({ sql, render, onSkip: () => {} });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good"),
+    );
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe("/about-us?cms_preview=good");
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  // A site that mounts the catch-all and also reads a page directly should pay
+  // for one cache and one poll, not two.
+  test("shares the pool reader with a direct getPage when no options are given", async () => {
+    const { sql } = fakeSql();
+    const base = sql as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    let queries = 0;
+    const counting = {
+      unsafe: (query: string, params?: unknown[]) => {
+        queries += 1;
+        return base.unsafe(query, params);
+      },
+    } as unknown as SQL;
+
+    // No `now`, `versionPollMs` or `onSkip`: the default reader for the pool.
+    const route = createCmsPageRoute({ sql: counting, render });
+    await route(new Request("http://localhost/about"));
+    const warm = queries;
+
+    // The direct read rides the route's cache: no query at all.
+    expect((await getPage(counting, "/about"))?.title).toBe("About us");
+    expect(queries).toBe(warm);
+  });
+
+  test("serves the last good routing table when a later load fails", async () => {
+    const { state, counters, sql } = flakySql();
+    let now = 0;
+    const skipped: string[] = [];
+    const pages = createCmsPages({
+      sql,
+      now: () => now,
+      onSkip: (message) => skipped.push(message),
+    });
+
+    expect((await pages.getPage("/about"))?.title).toBe("About us");
+
+    // A publish moves the version; the next routes load fails.
+    counters.fail = true;
+    state.version += 1;
+    now += 1000;
+
+    // The last good table is served, and the failure is reported.
+    expect((await pages.getPage("/about"))?.title).toBe("About us");
+    expect(skipped.some((line) => line.includes("last good"))).toBe(true);
+    const afterFailure = counters.routeQueries;
+
+    // Backed off: another request inside the interval does not re-query.
+    now += 100;
+    expect((await pages.getPage("/about"))?.title).toBe("About us");
+    expect(counters.routeQueries).toBe(afterFailure);
+  });
+
+  test("caches a routes failure for one interval when there is no last good table", async () => {
+    const { counters, sql } = flakySql();
+    counters.fail = true;
+    let now = 0;
+    const pages = createCmsPages({
+      sql,
+      now: () => now,
+      onSkip: () => {},
+    });
+
+    expect(await pages.getPage("/about")).toBeNull();
+    expect(counters.routeQueries).toBe(1);
+
+    // Inside the interval the stored failure is re-thrown without a query.
+    now += 100;
+    expect(await pages.getPage("/about")).toBeNull();
+    expect(counters.routeQueries).toBe(1);
+
+    // Past the interval it tries again.
+    now += 1000;
+    expect(await pages.getPage("/about")).toBeNull();
+    expect(counters.routeQueries).toBe(2);
+  });
+
+  // The failure must not be frozen into the cache: once the database recovers,
+  // the next read past the back-off loads a fresh table rather than serving the
+  // stale fallback until the next publish.
+  test("recovers a fresh routing table once a failed load succeeds again", async () => {
+    const { state, counters, sql, redirects } = flakySql({
+      redirects: { "/old": "page-1" },
+    });
+    let now = 0;
+    const pages = createCmsPages({
+      sql,
+      now: () => now,
+      onSkip: () => {},
+    });
+
+    expect(await pages.getRedirect("/old")).toBe("/about");
+
+    // A publish moves the version and the next routes load fails.
+    counters.fail = true;
+    state.version += 1;
+    now += 1000;
+    expect(await pages.getRedirect("/old")).toBe("/about");
+    const afterFailure = counters.routeQueries;
+
+    // The database comes back and a new redirect exists. Past the back-off the
+    // fresh table is loaded and the new route resolves.
+    counters.fail = false;
+    redirects["/new"] = "page-1";
+    now += 1000;
+    expect(await pages.getRedirect("/new")).toBe("/about");
+    expect(counters.routeQueries).toBe(afterFailure + 1);
   });
 });
