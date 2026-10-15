@@ -18,7 +18,7 @@ All absolute URLs — canonicals, Open Graph tags, the sitemap, `robots.txt`'s
 `Sitemap:` line, and JSON-LD — are built from `siteUrl()` in
 [`src/server/services/seo.ts`](../src/server/services/seo.ts), which returns
 **`APP_URL`'s origin**. `APP_URL` is already required, already validated at boot,
-and already the domain your emailed links and CSRF origin check use. So setting
+and already the origin the CSRF check compares the request against. So setting
 it to your production URL is the whole configuration step; there is no constant
 to remember to edit before deploying.
 

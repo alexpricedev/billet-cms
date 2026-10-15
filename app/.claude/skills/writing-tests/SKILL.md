@@ -9,8 +9,8 @@ description: Testing patterns for this repo — which layer gets mocked, how ser
 > `app/CLAUDE.md` list what the strip removed from upstream (todos, teams,
 > password auth, the user admin dashboard, the seed script, `scripts/qa-session.ts`)
 > and which tables were renamed to `cms_`. Where a generic example below still
-> names a table, read `users`, `sessions` and `user_tokens` as `cms_users`,
-> `cms_sessions` and `cms_user_tokens`.
+> names a table, read `users` as the site's `cms_identities` view, and
+> `sessions` / `user_tokens` as `cms_sessions` / `cms_user_tokens`.
 
 Tests are co-located: `media.test.tsx` sits next to `media.tsx`. Test user-visible behaviour rather
 than implementation, and cover both guest and authenticated paths for anything auth-aware.

@@ -15,8 +15,8 @@ const REQUIRED = [
 // happily and its `.origin` is the literal string "null", which would ship
 // canonicals reading "null/cms". In production `http:` is rejected too — a
 // plaintext canonical is a duplicate-content and mixed-content signal, and the
-// emailed links built from the same origin would go out unencrypted. Dev and
-// test stay on http://localhost.
+// same origin is what the CSRF check validates the request `Origin` against.
+// Dev and test stay on http://localhost.
 export const urlProblem = (key: string, value: string): string | null => {
   let parsed: URL;
   try {
