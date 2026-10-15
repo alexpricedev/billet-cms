@@ -218,7 +218,11 @@ export const validatePageContent = (
       // take the same rewrite, so the two editors speak the same language
       // (review follow-up).
       for (const issue of formatIssues(validation.issues, fields)) {
-        issues.push({ path: `${at}.${issue.path}`, message: issue.message });
+        // A whole-block issue (`validateContent`'s rich text nesting bound) has
+        // no field path, so it points at the block itself rather than at a
+        // field literally named "(content)" (review round 1).
+        const path = issue.path === "(content)" ? at : `${at}.${issue.path}`;
+        issues.push({ path, message: issue.message });
       }
     }
   });

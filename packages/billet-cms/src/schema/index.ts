@@ -63,6 +63,41 @@ export interface ValidateOptions {
   allowAdditionalFields?: boolean;
 }
 
+/**
+ * Flatten Zod's issues into one per field path.
+ *
+ * A union — a `link` value's page/url shapes — reports a single
+ * `invalid_union` issue at the union itself, with each option's own issues
+ * nested inside it. Left as-is, a page editor gets "This value isn't valid."
+ * beside the whole link instead of "Choose a page." beside the empty page
+ * picker. Drill into the option that failed least (the shape the value was
+ * closest to) and lift its issues up to the union's own path, so the message
+ * lands on the field that needs fixing (review round 1). A field whose stored
+ * schema carries both `format` and `pattern` — a link's `pageId` — produces two
+ * issues at one path; only the first is kept, since the editor shows one line
+ * per field.
+ */
+const flattenIssues = (
+  issues: z.core.$ZodIssue[],
+  prefix: (string | number)[] = [],
+): ValidationIssue[] => {
+  const out: ValidationIssue[] = [];
+  for (const issue of issues) {
+    const path = [...prefix, ...(issue.path as (string | number)[])];
+    if (issue.code === "invalid_union" && issue.errors.length > 0) {
+      const option = issue.errors.reduce((fewest, candidate) =>
+        candidate.length < fewest.length ? candidate : fewest,
+      );
+      out.push(...flattenIssues(option, path));
+      continue;
+    }
+    const key = path.join(".");
+    if (out.some((existing) => existing.path.join(".") === key)) continue;
+    out.push({ path, message: issue.message });
+  }
+  return out;
+};
+
 /** Parse `value` against a stored JSON Schema, returning issues instead of throwing. */
 export const validateContent = (
   jsonSchema: Record<string, unknown>,
@@ -94,11 +129,5 @@ export const validateContent = (
 
   if (parsed.success) return { success: true, data: parsed.data };
 
-  return {
-    success: false,
-    issues: parsed.error.issues.map((issue) => ({
-      path: issue.path as (string | number)[],
-      message: issue.message,
-    })),
-  };
+  return { success: false, issues: flattenIssues(parsed.error.issues) };
 };

@@ -501,13 +501,19 @@ export const pages = {
       socialImage: settings.socialImage,
     };
 
+    // The page type the editor chose, resolved to one the CMS can render the
+    // editor against. Every re-render below — an expired page, unreadable
+    // content, or a refused save — builds the blocks from this, not the stored
+    // type, so the form matches the type the editor picked (review round 1).
+    const formType = (await resolveWritablePageType(pageTypeName)) ?? pageType;
+
     // The page expired while it was open. Re-render what they posted behind a
     // fresh token instead of a 403 that would lose it.
     if (!csrf.ok) {
       return renderPageForm(
         ctx,
         page,
-        pageType,
+        formType,
         submitted.ok
           ? asPageContent(submitted.value).blocks
           : await baseContent(baseRevisionId, page),
@@ -533,7 +539,7 @@ export const pages = {
       return renderPageForm(
         ctx,
         page,
-        pageType,
+        formType,
         await baseContent(baseRevisionId, page),
         baseRevisionId,
         {
@@ -567,8 +573,6 @@ export const pages = {
     if (!result.ok) {
       // The blocks were checked against the page type the editor chose; render
       // the editor against that type so their work stays in the right shape.
-      const formType =
-        (await resolveWritablePageType(pageTypeName)) ?? pageType;
       if (result.reason === "conflict") {
         return renderPageForm(
           ctx,

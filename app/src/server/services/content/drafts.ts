@@ -81,6 +81,13 @@ export interface SaveSlotDraftInput {
  * schema jargon.
  */
 const plainMessage = (message: string): string => {
+  // The rich text nesting bound is already a sentence about the document, not
+  // validator jargon, so it passes through unchanged rather than falling
+  // through to the generic line (review round 1).
+  if (/^Rich text lists may nest at most \d+ deep\.$/.test(message)) {
+    return message;
+  }
+
   if (/received undefined$/.test(message)) return "This field is required.";
 
   const tooBig = message.match(/^Too big: expected (\w+) to have <=(\d+)/);

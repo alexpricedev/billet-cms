@@ -187,6 +187,10 @@ export const PageForm = ({
         : "Not published yet.";
 
   const uneditable = pageType === null;
+  // Whether a block below carries a field error. A limit issue (`blocks`) or an
+  // unreadable body (`(content)`) has no block to point at, so the banner must
+  // not tell the editor to look at blocks that aren't marked (review round 1).
+  const hasBlockErrors = (blockErrors?.size ?? 0) > 0;
 
   return (
     <Layout
@@ -242,8 +246,9 @@ export const PageForm = ({
         <div className="flash-error" role="alert">
           <p>
             {refusedPublish
-              ? "This content can't be published. Check the blocks marked below."
-              : "This content can't be saved. Check the blocks marked below."}
+              ? "This content can't be published."
+              : "This content can't be saved."}
+            {hasBlockErrors ? " Check the blocks marked below." : ""}
           </p>
           <ul>
             {contentIssues.map((issue, index) => (

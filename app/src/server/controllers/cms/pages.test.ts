@@ -415,8 +415,9 @@ describe("Pages controller", () => {
         `/cms/pages/${pageId}`,
         {
           pageType: "landing",
-          url: "/about",
-          title: "About us",
+          url: "/renamed",
+          title: "Renamed",
+          seoDescription: "Kept description.",
           content: oversized,
           base_revision: seeded.revision.id,
         },
@@ -432,6 +433,15 @@ describe("Pages controller", () => {
     expect(html).not.toContain("could not be read");
     // The revision they loaded is still on screen.
     expect(html).toContain("Kept heading");
+    // The settings half of the same submit survives the refusal (review round
+    // 1): the editor sees what they typed, not the stored row.
+    expect(html).toContain('value="/renamed"');
+    expect(html).toContain('value="Renamed"');
+    expect(html).toContain("Kept description.");
+    // No block carries a field error here — the body is over the size cap, not
+    // a field — so the banner must not point at blocks that aren't marked
+    // (review round 1).
+    expect(html).not.toContain("Check the blocks marked below.");
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
   });
@@ -477,6 +487,72 @@ describe("Pages controller", () => {
     const page = await getPageById(pageId);
     expect(page?.url).toBe("/about");
     expect(page?.title).toBe("About us");
+  });
+
+  // Both early refusals (unreadable content, an expired page) re-render the
+  // editor. The blocks must come from the page type the editor chose, not the
+  // page's stored type, so the form they see matches their pick (review round
+  // 1).
+  test("builds the editor from the posted page type on an early refusal", async () => {
+    await seedBlockType(db, prose);
+    await seedPageType(db, notes);
+
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    // Unreadable content: the `!submitted.ok` refusal.
+    const unreadable = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "notes",
+          url: "/about",
+          title: "About us",
+          content: "{not json",
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+    expect(unreadable.status).toBe(200);
+    const unreadableHtml = await unreadable.text();
+    // The notes page type's blocks are offered, not the stored landing type's.
+    expect(unreadableHtml).toContain('data-block-add="prose"');
+    expect(unreadableHtml).not.toContain('data-block-add="hero"');
+
+    // An expired page: the `!csrf.ok` refusal.
+    const formData = new FormData();
+    formData.append(
+      "_csrf",
+      await staleCsrfToken(sessionId, `/cms/pages/${pageId}`),
+    );
+    formData.append("pageType", "notes");
+    formData.append("url", "/about");
+    formData.append("title", "About us");
+    formData.append("content", JSON.stringify({ blocks: [] }));
+    formData.append("base_revision", "");
+    const expired = await pages.save(
+      createBunRequest(
+        `${ORIGIN}/cms/pages/${pageId}`,
+        {
+          method: "POST",
+          headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+          body: formData,
+        },
+        { id: pageId },
+      ),
+    );
+    expect(expired.status).toBe(200);
+    const expiredHtml = await expired.text();
+    expect(expiredHtml).toContain("This page expired");
+    expect(expiredHtml).toContain('data-block-add="prose"');
+    expect(expiredHtml).not.toContain('data-block-add="hero"');
   });
 
   test("keeps the editor's settings when the page expired while it was open", async () => {
