@@ -112,16 +112,6 @@ export function Layout({
           canonicalPath={canonicalPath}
           noindex={noindex}
         />
-        {/* Lottie loads from unpkg. Preconnect opens the TLS connection while
-            the HTML parses so the cross-origin fetch doesn't pay the handshake;
-            dns-prefetch is the cheaper fallback for browsers that ignore
-            preconnect. */}
-        <link
-          rel="preconnect"
-          href="https://unpkg.com"
-          crossOrigin="anonymous"
-        />
-        <link rel="dns-prefetch" href="https://unpkg.com" />
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />
         <meta property="og:image" content={absolute("/og-image.png")} />
@@ -148,12 +138,6 @@ export function Layout({
         </header>
         <main>{children}</main>
         <SiteFooter />
-        <script
-          async
-          src="https://unpkg.com/lottie-web@5.13.0/build/player/lottie_light.min.js"
-          integrity="sha384-Gr3FGWSrOz4fzm9bvrWwhuQH87JMUCLlOTaHhpddbnlHHWCZPxMeQ3KUPsomzIii"
-          crossOrigin="anonymous"
-        />
         <script type="module" src={getAssetUrl("/assets/main.js")} />
       </body>
     </html>
@@ -180,7 +164,7 @@ interface ErrorLayoutProps {
 }
 
 // Layout for error and maintenance pages (404, 500, 503). Deliberately ships NO
-// client JavaScript — no Lottie, no main bundle — so the page renders
+// client JavaScript — not even the nav's `main.js` bundle — so the page renders
 // instantly and stays legible even when the app is degraded or offline, the
 // spec's resilience baseline for error and 503 responses. Reuses the same
 // header/footer chrome as `Layout` for continuity, and is always noindex so

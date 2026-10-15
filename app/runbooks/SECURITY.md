@@ -2,9 +2,10 @@
 
 Billet ships a defensive HTTP baseline: a single set of security headers on
 **every** response, an enforcing Content Security Policy, HSTS in production,
-a `/.well-known/security.txt`, and Subresource Integrity on its one third-party
-script. Cookies and CSRF are covered separately in the root
-[`SECURITY.md`](../SECURITY.md).
+and a `/.well-known/security.txt`. Cookies and CSRF are covered separately in
+the root [`SECURITY.md`](../SECURITY.md). The CMS loads no third-party script:
+every `<script>` it renders is first-party, so `script-src` allows `'self'` and
+nothing else but the inline JSON-LD allowance below.
 
 This runbook covers what's applied automatically, the one required config step,
 how to extend each piece, the deploy- and DNS-layer steps a host can't do for
@@ -79,9 +80,14 @@ The policy is enforcing and host-allowlist based. Current directives:
 ```
 default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none';
 img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline';
-script-src 'self' 'unsafe-inline' https://unpkg.com;
+script-src 'self' 'unsafe-inline';
 connect-src 'self'; upgrade-insecure-requests
 ```
+
+`img-src` gains the media bucket's origin (`MEDIA_PUBLIC_BASE_URL`) when one is
+configured, so every thumbnail and focal preview loads; without it the picture
+is blocked by the CMS's own policy. The origin is accepted only when it is
+http(s) (`utils/http-origin.ts`), the same rule the preview site origin uses.
 
 `upgrade-insecure-requests` ships in production only, like HSTS: WebKit (unlike
 Chrome) applies the upgrade to `http://localhost` subresources too, which strips
@@ -90,13 +96,13 @@ every asset off the page in local dev and under the browser smoke tests.
 What it buys today: no other site can frame our pages (`frame-ancestors 'none'`),
 no plugins (`object-src 'none'`), no `<base>` injection (`base-uri 'none'`), any
 stray `http://` subresource is auto-upgraded to HTTPS, and code/styles/images may
-only load from us plus the one named CDN.
+only load from us.
 
 **Adding a new external source.** If you pull a script, style, image, font, or
 API from a new origin, add that origin to the matching directive in
 `security-headers.ts`:
 
-- external `<script src>` → `script-src`
+- external `<script src>` → `script-src` (plus an SRI `integrity` hash: see §4)
 - external stylesheet or `@font-face` host → `style-src` / `font-src`
 - `<img>` from a CDN → `img-src`
 - `fetch()`/XHR/WebSocket to an API → `connect-src`
@@ -110,8 +116,8 @@ because the page ships inline JSON-LD in
 protection. The hardening path (a follow-up, not done here) is nonce +
 `'strict-dynamic'`: generate a per-request nonce, stamp it on every inline and
 first-party `<script>`, add `'nonce-…' 'strict-dynamic'` to `script-src`, and
-drop `'unsafe-inline'`. The cleanest enabler is self-hosting lottie so there is
-no CDN script to allow.
+drop `'unsafe-inline'`. Every script is first-party now, so there is no CDN
+script left to allow first.
 
 **No `'unsafe-eval'`, by design.** The client's reactive layer
 (`src/client/reactive/`) binds state to markup through `data-*` attributes that
@@ -144,28 +150,29 @@ attacker-initiated posts. The header names live in `src/shared/protocol.ts`.
 
 ## 4. Subresource Integrity (third-party scripts)
 
-The full layout loads the lottie animation library from unpkg with a pinned version
-and a cryptographic hash in
-[`layouts.tsx`](../src/server/components/layouts.tsx):
+The CMS loads **no** third-party script: the Lottie player that used to come
+from unpkg — and the `script-src https://unpkg.com` entry and `preconnect` that
+existed only for it — is gone. Everything the page runs is first-party, so there
+is nothing for SRI to pin today.
+
+If you ever add a third-party `<script>`, pin it on an exact version and add an
+`integrity` hash, or a compromised CDN could swap the file:
 
 ```html
-<script async
-  src="https://unpkg.com/lottie-web@5.13.0/build/player/lottie_light.min.js"
+<script src="https://cdn.example/lib@1.2.3/lib.min.js"
   integrity="sha384-…" crossorigin="anonymous"></script>
 ```
 
-If unpkg ever serves a tampered file, the hash won't match and the browser
-refuses to run it. **SRI requires an exact version** — never point `integrity`
-at a floating range like `@5`.
-
-**Bumping the version.** Recompute the hash for the new file:
+Recompute the hash for a new version:
 
 ```bash
-curl -sL "https://unpkg.com/lottie-web@<NEW>/build/player/lottie_light.min.js" \
+curl -sL "https://cdn.example/lib@<NEW>/lib.min.js" \
   | openssl dgst -sha384 -binary | openssl base64 -A
 ```
 
-Update both the `src` version and the `integrity` value.
+**SRI requires an exact version** — never point `integrity` at a floating range
+like `@1`. Add the origin to `script-src` (§3) and, if it is a cross-origin
+fetch, a `preconnect` in `layouts.tsx` at the same time.
 
 ## 5. Deploy & transport layer (host, not code)
 
@@ -239,10 +246,11 @@ want a spotless console.
 - **Reporting API (`Reporting-Endpoints` + CSP `report-to`)** — needs a collector
   endpoint to receive violation reports. Add one to observe CSP breakage in the
   wild before tightening the policy.
-- **COEP / CORP** — `Cross-Origin-Embedder-Policy` would break the unpkg
-  script, and a strict `Cross-Origin-Resource-Policy` would block social scrapers
-  from fetching the OG image. Only `Cross-Origin-Opener-Policy` is set. Revisit
-  COEP if you ever need cross-origin isolation (e.g. `SharedArrayBuffer`).
+- **COEP / CORP** — `Cross-Origin-Embedder-Policy` would break cross-origin
+  embeds the site chooses to make, and a strict
+  `Cross-Origin-Resource-Policy` would block social scrapers from fetching the OG
+  image. Only `Cross-Origin-Opener-Policy` is set. Revisit COEP if you ever need
+  cross-origin isolation (e.g. `SharedArrayBuffer`).
 - **Trusted Types** (`require-trusted-types-for 'script'`) — pairs naturally with
   the nonce-based CSP upgrade in §3.
 - **Digest Fields (`Content-Digest`)** — transit-integrity hashes, optional and

@@ -3,6 +3,7 @@ import { log } from "../services/logger";
 import { indexingAllowed, SITE_NAME } from "../services/seo";
 import { withCompression } from "./compression";
 import { render500 } from "./errors";
+import { httpOrigin } from "./http-origin";
 import { maintenanceResponse } from "./maintenance";
 
 // Single source of truth for the security headers sent on every response —
@@ -14,31 +15,21 @@ const isProduction = process.env.NODE_ENV === "production";
 
 // The image source the media bucket adds to `img-src`, when one is configured.
 // It is read per request rather than fixed at module load because the CMS tests
-// set `MEDIA_PUBLIC_BASE_URL` on the process rather than in a .env file. Only an
-// http(s) origin is used: `new URL` parses `ftp:` happily and reports "null" for
-// `data:`/`javascript:`, and neither belongs in a source list. Anything else —
-// a bare host, a relative path — contributes nothing rather than breaking the
-// header.
-const mediaImgOrigin = (): string | null => {
-  const base = process.env.MEDIA_PUBLIC_BASE_URL?.trim();
-  if (!base) return null;
-  try {
-    const parsed = new URL(base);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    return parsed.origin;
-  } catch {
-    return null;
-  }
-};
+// set `MEDIA_PUBLIC_BASE_URL` on the process rather than in a .env file. The
+// url is held to the shared http(s)-origin rule (`./http-origin`), so a bare
+// host, a relative path or a non-http scheme contributes nothing rather than
+// breaking the header.
+const mediaImgOrigin = (): string | null =>
+  httpOrigin(process.env.MEDIA_PUBLIC_BASE_URL);
 
 // Content Security Policy. Enforcing, but deliberately host-allowlist based
-// rather than nonce + 'strict-dynamic': the page ships inline JSON-LD and pulls
-// lottie from unpkg. The inline block forces 'unsafe-inline' here. The real wins this still buys:
-// frame-ancestors (clickjacking), object-src/base-uri lockdown, a tight source
-// allowlist, and upgrade-insecure-requests. Hardening to nonce + 'strict-dynamic'
-// (which lets us drop 'unsafe-inline') is the documented follow-up.
+// rather than nonce + 'strict-dynamic': the page ships inline JSON-LD, and that
+// inline block is what forces 'unsafe-inline' in `script-src`. The real wins
+// this still buys: frame-ancestors (clickjacking), object-src/base-uri lockdown,
+// a tight source allowlist, and upgrade-insecure-requests. Every script is
+// first-party now that the Lottie player and its unpkg allowlist are gone, so
+// the remaining hardening to nonce + 'strict-dynamic' (which lets us drop
+// 'unsafe-inline') is the documented follow-up.
 export const contentSecurityPolicy = (): string => {
   const mediaOrigin = mediaImgOrigin();
   return [
@@ -53,7 +44,7 @@ export const contentSecurityPolicy = (): string => {
       : "img-src 'self' data:",
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "script-src 'self' 'unsafe-inline'",
     "connect-src 'self'",
     // Production only, like HSTS below: WebKit applies the upgrade to
     // http://localhost subresources too (Chrome exempts localhost), so in dev it
