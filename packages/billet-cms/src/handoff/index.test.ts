@@ -40,4 +40,39 @@ describe("createEditContentLink", () => {
       if (previous !== undefined) process.env.CMS_URL = previous;
     }
   });
+
+  test("checks the identity inside the insert, in one query", async () => {
+    const calls: { query: string; params: unknown[] }[] = [];
+    const sqlFor = (identity: boolean) =>
+      ({
+        unsafe: async (query: string, params: unknown[] = []) => {
+          calls.push({ query, params });
+          // The real `WHERE EXISTS` writes a row for an identity and none
+          // otherwise.
+          return identity ? [{ id: "handoff-token" }] : [];
+        },
+      }) as unknown as SQL;
+
+    const userId = "11111111-1111-4111-8111-111111111111";
+    const link = await createEditContentLink(sqlFor(true), {
+      userId,
+      cmsUrl: "https://cms.example.com",
+    });
+
+    expect(link).toStartWith("https://cms.example.com/handoff?token=");
+    // One round trip, and the identity check is the insert's own guard — no
+    // separate SELECT that could disagree with it.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].query).toContain("INSERT INTO");
+    expect(calls[0].query).toContain("WHERE EXISTS");
+    expect(calls[0].params[0]).toBe(userId);
+
+    calls.length = 0;
+    const hidden = await createEditContentLink(sqlFor(false), {
+      userId,
+      cmsUrl: "https://cms.example.com",
+    });
+    expect(hidden).toBeNull();
+    expect(calls).toHaveLength(1);
+  });
 });

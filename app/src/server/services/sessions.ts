@@ -154,29 +154,6 @@ export const getSessionContextFromDB = async (
   }
 };
 
-export const convertGuestToAuthenticated = async (
-  sessionHash: string,
-  userId: string,
-): Promise<boolean> => {
-  try {
-    const expiresAt = new Date(Date.now() + AUTH_EXPIRY_MS);
-
-    const result = await db`
-      UPDATE cms_sessions
-      SET user_id = ${userId},
-          session_type = 'authenticated',
-          expires_at = ${expiresAt.toISOString()}
-      WHERE id_hash = ${sessionHash}
-        AND session_type = 'guest'
-        AND expires_at > CURRENT_TIMESTAMP
-    `;
-
-    return hasAffectedRows(result as DatabaseMutationResult);
-  } catch {
-    return false;
-  }
-};
-
 export const deleteSession = async (rawSessionId: string): Promise<boolean> => {
   try {
     const sessionIdHash = computeHMAC(rawSessionId);
@@ -190,30 +167,6 @@ export const deleteSession = async (rawSessionId: string): Promise<boolean> => {
   } catch {
     return false;
   }
-};
-
-/**
- * Delete every session belonging to a user, optionally sparing one.
- *
- * A failure here throws rather than returning a falsy result: a swallowed error
- * would claim a purge that never happened.
- */
-export const deleteUserSessions = async (
-  userId: string,
-  exceptSessionHash?: string,
-): Promise<number> => {
-  const result = exceptSessionHash
-    ? await db`
-        DELETE FROM cms_sessions
-        WHERE user_id = ${userId}
-          AND id_hash != ${exceptSessionHash}
-      `
-    : await db`
-        DELETE FROM cms_sessions
-        WHERE user_id = ${userId}
-      `;
-
-  return (result as DatabaseMutationResult).count ?? 0;
 };
 
 export const renewSession = async (rawSessionId: string): Promise<boolean> => {

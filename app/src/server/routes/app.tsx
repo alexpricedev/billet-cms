@@ -1,5 +1,4 @@
 import {
-  forms,
   landing,
   llmsTxt,
   robotsTxt,
@@ -32,10 +31,6 @@ export const appRoutes = {
   "/sitemap.xml": sitemap.index,
   "/llms.txt": llmsTxt.index,
   "/.well-known/security.txt": securityTxt.index,
-  "/forms": createRouteHandler({
-    GET: forms.index,
-    POST: forms.create,
-  }),
   // The CMS has no sign-in of its own. A signed-out visitor is sent here, and
   // this route hands them to the site's sign-in route — see `controllers/auth/
   // sign-in.tsx` and the plugin's `handleCmsSignIn`.

@@ -13,7 +13,7 @@ const REQUIRED = [
 // time, so a malformed value is a throw on every page render rather than a
 // warning. The protocol check is not pedantry: `new URL("mailto:x")` parses
 // happily and its `.origin` is the literal string "null", which would ship
-// canonicals reading "null/forms". In production `http:` is rejected too — a
+// canonicals reading "null/cms". In production `http:` is rejected too — a
 // plaintext canonical is a duplicate-content and mixed-content signal, and the
 // emailed links built from the same origin would go out unencrypted. Dev and
 // test stay on http://localhost.

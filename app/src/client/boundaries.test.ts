@@ -28,6 +28,16 @@ const NETWORK_AND_MARKUP_ALLOWED = new Set([`${CLIENT}/reactive/request.ts`]);
 // client that belongs on the server.
 const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 
+// Minified bytes for the block editor, `cms-form.ts`. It is 8.6 KB at the time
+// of writing. This is the one recorded exception to "the client is presentation
+// only" (AGENTS.md): a contenteditable rich-text field, repeatable rows and the
+// media focal picker need client JS, and the script is kept to walking the
+// server-rendered DOM back into the hidden `content` field. 12 KB leaves room
+// for a small editor feature before a deliberate decision is needed — the same
+// arithmetic as the main bundle above, and the number moving is the signal that
+// the editor is growing into an application.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 12_000;
+
 const sources = (root: string): string[] =>
   Array.from(new Glob("**/*.{ts,tsx}").scanSync(root))
     .filter((file) => !file.includes(".test.") && !file.includes("test-utils"))
@@ -179,5 +189,24 @@ describe("client boundaries", () => {
       main?.size ?? Number.POSITIVE_INFINITY,
       "main.js is over budget — is this presentation over server-rendered rows, or a client application?",
     ).toBeLessThan(MAIN_BUNDLE_BUDGET_BYTES);
+  });
+
+  test("the block editor bundle stays under its byte budget", async () => {
+    // Built in memory with the same flags as `build:client`, so the number is
+    // the one that ships. Nothing is written to dist/.
+    const result = await Bun.build({
+      entrypoints: [`${CLIENT}/cms-form.ts`],
+      minify: true,
+      target: "browser",
+    });
+    expect(result.success).toBe(true);
+    const bundle = result.outputs.find(
+      (output) => output.kind === "entry-point",
+    );
+    expect(bundle).toBeDefined();
+    expect(
+      bundle?.size ?? Number.POSITIVE_INFINITY,
+      "cms-form.js is over budget — it is the one client-JS exception, kept to walking server-rendered DOM rather than a client application.",
+    ).toBeLessThan(CMS_FORM_BUNDLE_BUDGET_BYTES);
   });
 });

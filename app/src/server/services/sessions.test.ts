@@ -14,9 +14,7 @@ const {
   createGuestSession,
   createAuthenticatedSession,
   getSessionContextFromDB,
-  convertGuestToAuthenticated,
   deleteSession,
-  deleteUserSessions,
   renewSession,
 } = await import("./sessions");
 
@@ -126,54 +124,6 @@ describe("getSessionContextFromDB", () => {
   });
 });
 
-describe("convertGuestToAuthenticated", () => {
-  test("converts guest session to authenticated", async () => {
-    const rawId = await createGuestSession();
-    const hash = computeHMAC(rawId);
-    const user = await seedIdentity(db, "upgrade@example.com");
-
-    const result = await convertGuestToAuthenticated(hash, user.id);
-    expect(result).toBe(true);
-
-    const rows = await db`SELECT * FROM cms_sessions WHERE id_hash = ${hash}`;
-    expect(rows[0].session_type).toBe("authenticated");
-    expect(rows[0].user_id).toBe(user.id);
-  });
-
-  test("extends expiry to 30 days on conversion", async () => {
-    const rawId = await createGuestSession();
-    const hash = computeHMAC(rawId);
-    const user = await seedIdentity(db, "upgrade@example.com");
-
-    await convertGuestToAuthenticated(hash, user.id);
-
-    const rows =
-      await db`SELECT expires_at FROM cms_sessions WHERE id_hash = ${hash}`;
-    const expiresAt = new Date(rows[0].expires_at);
-    const days = (expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-    expect(days).toBeGreaterThan(29);
-  });
-
-  test("returns false for already-authenticated session", async () => {
-    const user = await seedIdentity(db, "auth@example.com");
-    const rawId = await createAuthenticatedSession(user.id);
-    const hash = computeHMAC(rawId);
-
-    const result = await convertGuestToAuthenticated(hash, user.id);
-    expect(result).toBe(false);
-  });
-
-  test("returns false for expired guest session", async () => {
-    const rawId = await createGuestSession();
-    const hash = computeHMAC(rawId);
-    await db`UPDATE cms_sessions SET expires_at = NOW() - INTERVAL '1 hour' WHERE id_hash = ${hash}`;
-
-    const user = await seedIdentity(db, "upgrade@example.com");
-    const result = await convertGuestToAuthenticated(hash, user.id);
-    expect(result).toBe(false);
-  });
-});
-
 describe("deleteSession", () => {
   test("deletes an existing session", async () => {
     const rawId = await createGuestSession();
@@ -188,55 +138,6 @@ describe("deleteSession", () => {
   test("returns false for non-existent session", async () => {
     const result = await deleteSession("non-existent");
     expect(result).toBe(false);
-  });
-});
-
-describe("deleteUserSessions", () => {
-  test("deletes every session for the user", async () => {
-    const user = await seedIdentity(db, "many@example.com");
-    await createAuthenticatedSession(user.id);
-    await createAuthenticatedSession(user.id);
-    await createAuthenticatedSession(user.id);
-
-    const deleted = await deleteUserSessions(user.id);
-    expect(deleted).toBe(3);
-
-    const rows =
-      await db`SELECT * FROM cms_sessions WHERE user_id = ${user.id}`;
-    expect(rows).toHaveLength(0);
-  });
-
-  test("spares the excepted session hash", async () => {
-    const user = await seedIdentity(db, "spare@example.com");
-    const keptRawId = await createAuthenticatedSession(user.id);
-    await createAuthenticatedSession(user.id);
-    const keptHash = computeHMAC(keptRawId);
-
-    const deleted = await deleteUserSessions(user.id, keptHash);
-    expect(deleted).toBe(1);
-
-    const rows =
-      await db`SELECT id_hash FROM cms_sessions WHERE user_id = ${user.id}`;
-    expect(rows).toHaveLength(1);
-    expect(rows[0].id_hash).toBe(keptHash);
-  });
-
-  test("leaves other users' sessions alone", async () => {
-    const mine = await seedIdentity(db, "mine@example.com");
-    const theirs = await seedIdentity(db, "theirs@example.com");
-    await createAuthenticatedSession(mine.id);
-    await createAuthenticatedSession(theirs.id);
-
-    await deleteUserSessions(mine.id);
-
-    const rows =
-      await db`SELECT * FROM cms_sessions WHERE user_id = ${theirs.id}`;
-    expect(rows).toHaveLength(1);
-  });
-
-  test("returns 0 when the user has no sessions", async () => {
-    const user = await seedIdentity(db, "none@example.com");
-    expect(await deleteUserSessions(user.id)).toBe(0);
   });
 });
 

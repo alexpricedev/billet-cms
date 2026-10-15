@@ -91,7 +91,7 @@ page passes its own metadata as props:
 |---|---|---|
 | `title` | `<title>` + `og:title` + `twitter:title` | Unique per page; keep under ~60 chars |
 | `description` | `<meta name="description">` + OG/Twitter | Unique per page; ~150 chars. Falls back to `SITE_DESCRIPTION` |
-| `canonicalPath` | `<link rel="canonical">` + `og:url` | Path only (e.g. `/forms`); resolved against the canonical origin (§1a) |
+| `canonicalPath` | `<link rel="canonical">` + `og:url` | Path only (e.g. `/cms/media`); resolved against the canonical origin (§1a) |
 | `noindex` | `<meta name="robots" content="noindex, nofollow">` | See §4 |
 
 Rule: **every page sets `title`, `description`, and `canonicalPath`.** The shared
@@ -100,13 +100,13 @@ set these once per page.
 
 ## 3. Adding a new public page to the sitemap
 
-The sitemap is generated, not hand-maintained. To include a new indexable page:
-
-1. Add its canonical path to `SITEMAP_PATHS` in
-   [`src/server/services/seo.ts`](../src/server/services/seo.ts).
-2. That's it — `/sitemap.xml` (served by
-   [`controllers/app/sitemap.ts`](../src/server/controllers/app/sitemap.ts))
-   rebuilds from that list on every request.
+The CMS serves no public pages of its own — the root redirects to the guarded
+`/cms` surface, and `/account`, `/cms`, the API and the sign-in handoff are
+private or `noindex` — so `/sitemap.xml` (served by
+[`controllers/app/sitemap.ts`](../src/server/controllers/app/sitemap.ts)) is an
+empty `<urlset>`. A site that adds its own public page contributes that page's
+own sitemap entry rather than editing the CMS: the sitemap route is generated,
+not hand-maintained, and the CMS keeps no list of site pages.
 
 Only list **canonical, indexable, public** URLs. Do **not** add `noindex` pages
 (`/account`, `/cms`), API endpoints, auth callbacks, or paginated/filtered
@@ -182,7 +182,7 @@ a JSON-LD block. Validate with the Rich Results Test (§8).
 ## 7. URLs, redirects, and headings
 
 - **Canonicalisation** — `src/server/main.ts` issues a `308` redirect from any
-  trailing-slash path to its slash-free form (e.g. `/forms/` → `/forms`),
+  trailing-slash path to its slash-free form (e.g. `/cms/` → `/cms`),
   preserving the query string. One URL per page, no duplicate crawling.
 - **URL structure** — keep new routes lowercase, hyphenated, descriptive, and
   shallow. Treat URLs as a stable public API; avoid renaming a live URL, and
@@ -205,7 +205,7 @@ without it the `robots` and indexing-policy steps are *supposed* to fail:
 - **robots** — `curl -s https://example.com/robots.txt` shows `Allow: /`, the
   disallow rules and the absolute `Sitemap:` line. A missing `Sitemap:` line
   means `ALLOW_INDEXING` is unset.
-- **Redirect** — `curl -sI https://example.com/forms/` returns `308` with a
+- **Redirect** — `curl -sI https://example.com/cms/` returns `308` with a
   `Location` of the slash-free path.
 - **Indexing policy** — view-source on a public page shows no `noindex`; on
   `/account` and `/cms` it shows `<meta name="robots" content="noindex, nofollow">`.

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { SITEMAP_PATHS, siteUrl } from "../../services/seo";
 import { sitemap } from "./sitemap";
 
 describe("Sitemap Controller", () => {
@@ -17,13 +16,11 @@ describe("Sitemap Controller", () => {
     );
   });
 
-  test("lists every public path as an absolute URL under the site origin", async () => {
+  test("lists no public paths — the CMS serves no public pages", async () => {
     const body = await sitemap.index().text();
 
-    for (const path of SITEMAP_PATHS) {
-      const loc = new URL(path, siteUrl()).href;
-      expect(body).toContain(`<loc>${loc}</loc>`);
-    }
+    expect(body).not.toContain("<loc>");
+    expect(body).not.toContain("</loc>");
   });
 
   test("omits private and non-indexable routes", async () => {
@@ -33,5 +30,7 @@ describe("Sitemap Controller", () => {
     expect(body).not.toContain("/login");
     expect(body).not.toContain("/sign-in");
     expect(body).not.toContain("/api/");
+    // The /forms demo was removed; a stale loc would send crawlers to a 404.
+    expect(body).not.toContain("/forms");
   });
 });

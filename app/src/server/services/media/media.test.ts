@@ -50,6 +50,7 @@ import {
   getMediaById,
   getMediaUsage,
   listMedia,
+  MAX_ALT_LENGTH,
   updateMediaAlt,
   updateMediaFocalPoint,
 } from "./media";
@@ -261,6 +262,23 @@ describe("createMedia", () => {
     expect(result.issues[0]?.message).toMatch(/SVG/);
   });
 
+  test("refuses alt text over the cap, before storing anything", async () => {
+    const storage = createMemoryMediaStorage();
+    const result = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "x".repeat(MAX_ALT_LENGTH + 1),
+      actorId: null,
+      storage,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [{ field: "alt" }],
+    });
+    expect(storage.objects.size).toBe(0);
+    expect(await listMedia()).toHaveLength(0);
+  });
+
   test("refuses GIF, animated or not", async () => {
     const result = await createMedia({
       bytes: gifBytes(),
@@ -350,6 +368,19 @@ describe("editing media", () => {
     expect(refused.ok).toBe(false);
     const stored = await getMediaById(id);
     expect(stored?.alt).toBe("A new alt");
+  });
+
+  test("refuses alt text over the cap and leaves the stored one alone", async () => {
+    const id = await upload();
+
+    const refused = await updateMediaAlt(id, "x".repeat(MAX_ALT_LENGTH + 1));
+    expect(refused).toMatchObject({ ok: false });
+    if (refused.ok) return;
+    expect(refused.message).toMatch(/1000 characters or fewer/);
+
+    const stored = await getMediaById(id);
+    expect(stored?.alt.length).toBeLessThanOrEqual(MAX_ALT_LENGTH);
+    expect(stored?.alt).not.toBe("x".repeat(MAX_ALT_LENGTH + 1));
   });
 
   test("clamps the focal point into the image", async () => {

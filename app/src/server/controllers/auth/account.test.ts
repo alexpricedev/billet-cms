@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { SQL } from "bun";
 import { createBunRequest } from "../../test-utils/bun-request";
 import { testDatabase } from "../../test-utils/database";
 import {
@@ -9,9 +10,36 @@ import {
 
 const connection = testDatabase();
 
+// Count the session-context read, so a double load shows up. The account page
+// used to call `requireAuth` (which loads and renews the context) and then load
+// the same session again itself. The CSRF secret lookup reads the same table, so
+// the match is the context query's own column list.
+let sessionRowReads = 0;
+
+const counting = new Proxy(connection, {
+  apply(target, thisArg, args) {
+    const [strings] = args as [TemplateStringsArray];
+    if (
+      Array.isArray(strings) &&
+      strings.join("").includes("id_hash, user_id, session_type")
+    ) {
+      sessionRowReads += 1;
+    }
+    return Reflect.apply(
+      target as unknown as (...a: unknown[]) => unknown,
+      thisArg,
+      args,
+    );
+  },
+  get(target, prop) {
+    const value = Reflect.get(target, prop, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  },
+}) as unknown as SQL;
+
 mock.module("../../services/database", () => ({
   get db() {
-    return connection;
+    return counting;
   },
 }));
 
@@ -63,6 +91,18 @@ describe("Account Controller", () => {
       const html = await (await account.index(getAccount(sessionId))).text();
 
       expect(html).toMatch(/name="_csrf" value="[^"]+"/);
+    });
+
+    test("reads the session once, not once per guard", async () => {
+      const user = await seedIdentity(db, "once@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+
+      sessionRowReads = 0;
+      await account.index(getAccount(sessionId));
+
+      // One SELECT of the session row. Two would mean the guard and the handler
+      // each re-read (and renew) the same session.
+      expect(sessionRowReads).toBe(1);
     });
 
     test("is noindex", async () => {

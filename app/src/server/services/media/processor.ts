@@ -24,7 +24,12 @@ import {
   MEDIA_WIDTHS,
 } from "@alexpricedev/billet-cms/contract";
 import sharp from "sharp";
-import { extensionFor, type ImageFormat } from "./sniff";
+import {
+  contentTypeFor,
+  extensionFor,
+  fallbackFor,
+  type ImageFormat,
+} from "./sniff";
 
 /** Visual quality for the lossy encodings. Chunky enough for the web, clean at 2x. */
 const WEBP_QUALITY = 82;
@@ -36,6 +41,10 @@ export interface ProcessedRendition {
   webp: Uint8Array;
   /** JPEG, or PNG when the source was a PNG. */
   fallback: Uint8Array;
+  /** The fallback's MIME type, so the writer never recomputes it from the format. */
+  fallbackContentType: string;
+  /** The fallback's file extension, without a dot. */
+  fallbackExtension: string;
 }
 
 export interface ProcessedImage {
@@ -68,10 +77,6 @@ export const renditionWidths = (sourceWidth: number): number[] => {
 
 /** A sharp pipeline, as the helpers below take it. */
 type SharpImage = ReturnType<typeof sharp>;
-
-/** The fallback encoding for a source: PNG keeps its alpha, everything else is JPEG. */
-const fallbackFormat = (format: ImageFormat): "png" | "jpeg" =>
-  format === "png" ? "png" : "jpeg";
 
 /** Encode a pipeline as WebP, returning the bytes and the output dimensions. */
 const encodeWebp = async (
@@ -147,12 +152,15 @@ export const processImage = async (
   for (const width of renditionWidths(original.width)) {
     const resized = source.clone().resize({ width, withoutEnlargement: true });
     const webp = await encodeWebp(resized);
-    const fallback = await encodeFallback(resized, fallbackFormat(format));
+    const fallbackFormat = fallbackFor(format);
+    const fallback = await encodeFallback(resized, fallbackFormat.encoder);
     renditions.push({
       width: fallback.width,
       height: fallback.height,
       webp: webp.bytes,
       fallback: fallback.bytes,
+      fallbackContentType: fallbackFormat.contentType,
+      fallbackExtension: fallbackFormat.extension,
     });
   }
 
@@ -160,12 +168,7 @@ export const processImage = async (
     width: original.width,
     height: original.height,
     original: {
-      contentType:
-        format === "png"
-          ? "image/png"
-          : format === "webp"
-            ? "image/webp"
-            : "image/jpeg",
+      contentType: contentTypeFor(format),
       extension: extensionFor(format),
       bytes: original.bytes,
     },

@@ -7,10 +7,10 @@ const req = (path: string) =>
 
 describe("handleFallback", () => {
   test("308-redirects a trailing slash to the canonical path, keeping the query", async () => {
-    const res = await req("/forms/?ref=x");
+    const res = await req("/cms/?ref=x");
 
     expect(res.status).toBe(308);
-    expect(res.headers.get("Location")).toBe("/forms?ref=x");
+    expect(res.headers.get("Location")).toBe("/cms?ref=x");
   });
 
   test("does not redirect the root path", async () => {

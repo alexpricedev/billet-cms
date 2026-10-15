@@ -6,18 +6,26 @@ import { handleCmsSignIn } from "./index";
 const CMS_URL = "https://cms.example.com";
 
 /**
- * A stand-in pool. The two paths under test are the identity check (a SELECT
- * against `cms_identities`) and the handoff-token insert; both go through
- * `unsafe`, so the fake dispatches on the query text and records what it saw.
+ * A stand-in pool. The paths under test are the identity check (a SELECT
+ * against `cms_identities`) and the handoff-token insert — which is one
+ * `INSERT ... SELECT ... WHERE EXISTS (SELECT 1 FROM cms_identities ...)`, so it
+ * names the same view. Both go through `unsafe`; the fake dispatches on the
+ * query text, matching the INSERT first, and records the insert parameters.
  */
 const fakeSql = (options: { identity: boolean } = { identity: true }) => {
   const inserts: unknown[][] = [];
   const sql = {
     unsafe: async (query: string, params?: unknown[]) => {
+      if (query.includes("INSERT INTO")) {
+        // The insert writes a row only when the identity exists, exactly as the
+        // real `WHERE EXISTS` does.
+        if (!options.identity) return [];
+        inserts.push(params ?? []);
+        return [{ id: "handoff-token" }];
+      }
       if (query.includes("cms_identities")) {
         return options.identity ? [{ "?column?": 1 }] : [];
       }
-      if (query.includes("INSERT INTO")) inserts.push(params ?? []);
       return [];
     },
   } as unknown as SQL;

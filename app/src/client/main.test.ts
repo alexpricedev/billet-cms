@@ -6,8 +6,7 @@ describe("main page router", () => {
     delete document.body.dataset.page;
   });
 
-  test("boots without throwing for a registered page", async () => {
-    document.body.dataset.page = "forms";
+  test("boots without throwing", async () => {
     await import("./main");
     expect(true).toBe(true);
   });

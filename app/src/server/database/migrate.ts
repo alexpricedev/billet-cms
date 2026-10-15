@@ -4,6 +4,7 @@ import { CONTRACT_VERSION } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
 import { db } from "../services/database";
 import { log } from "../services/logger";
+import { LOCK_NAMESPACE, MIGRATION_LOCK_SUBKEY } from "./advisory-locks";
 
 export type Migration = {
   id: string;
@@ -11,17 +12,10 @@ export type Migration = {
   applied_at: Date;
 };
 
-// The advisory lock key every CMS process takes while it migrates. Arbitrary
-// but fixed: it only has to be the same in every instance of this app, and
-// different from any other app sharing the database. Taken
-// transaction-scoped, so a crashed boot releases it with the transaction.
-//
-// Bound as a string and cast: a JS number would be sent as a numeric and match
-// no overload of pg_advisory_xact_lock.
-//
-// Exported so the concurrency test can hold the same lock and make the overlap
-// deterministic rather than hoped for.
-export const MIGRATION_LOCK_KEY = "8041000001";
+// The migration lock is the shared `billet-cms` advisory-lock namespace's subkey
+// 1 (`advisory-locks.ts`): it never waits on the identity-view lock (subkey 2),
+// and neither collides with another app's lock. It is taken transaction-scoped,
+// so a crashed boot releases it with the transaction.
 
 const MIGRATIONS_DIR = join(process.cwd(), "src/server/database/migrations");
 
@@ -41,10 +35,21 @@ export const ensureMigrationsTable = async (sql: SQL = db): Promise<void> => {
   `;
 };
 
+/**
+ * The migrations recorded as applied, without creating anything.
+ *
+ * Read-only on purpose: `migrate:status` calls this, and a status command must
+ * not write. `runMigrations` creates the table itself inside its locked
+ * transaction, so a database with no `cms_migrations` yet answers "nothing
+ * applied" rather than being altered to find out.
+ */
 export const getAppliedMigrations = async (
   sql: SQL = db,
 ): Promise<Migration[]> => {
-  await ensureMigrationsTable(sql);
+  const exists = (await sql`
+    SELECT to_regclass('cms_migrations') AS relation
+  `) as { relation: string | null }[];
+  if (!exists[0]?.relation) return [];
   const results =
     await sql`SELECT id, name, applied_at FROM cms_migrations ORDER BY id`;
   return results as Migration[];
@@ -58,8 +63,11 @@ export const recordMigration = async (
   await sql`INSERT INTO cms_migrations (id, name) VALUES (${id}, ${name})`;
 };
 
-export const removeMigration = async (id: string): Promise<void> => {
-  await db`DELETE FROM cms_migrations WHERE id = ${id}`;
+export const removeMigration = async (
+  id: string,
+  sql: SQL = db,
+): Promise<void> => {
+  await sql`DELETE FROM cms_migrations WHERE id = ${id}`;
 };
 
 /**
@@ -71,6 +79,25 @@ const listMigrationFiles = (): string[] =>
     .sort();
 
 const migrationId = (filename: string): string => filename.replace(".ts", "");
+
+/**
+ * The path of a migration that is actually on disk.
+ *
+ * `runMigration` and `rollbackMigration` import whatever they are handed, and
+ * `rollbackLastMigration` builds that name from a `cms_migrations` row — a row
+ * (or a caller) naming `../../something` would otherwise make the process import
+ * a file outside the migrations directory. Restricting the name to the files
+ * `listMigrationFiles` sees closes that and turns a typo into a clear "no such
+ * migration" instead of a module-resolution error.
+ */
+const migrationPath = (filename: string): string => {
+  if (!listMigrationFiles().includes(filename)) {
+    throw new Error(`No such migration: ${filename}`);
+  }
+  // `listMigrationFiles` only ever returns bare names, so this stays inside the
+  // directory.
+  return join(MIGRATIONS_DIR, filename);
+};
 
 /**
  * Migration files that haven't been applied yet, in filename order.
@@ -96,8 +123,8 @@ export const runMigration = async (
   filename: string,
   sql: SQL = db,
 ): Promise<void> => {
-  const migrationPath = join(MIGRATIONS_DIR, filename);
-  const migration = await import(migrationPath);
+  const path = migrationPath(filename);
+  const migration = await import(path);
 
   if (typeof migration.up !== "function") {
     throw new Error(`Migration ${filename} does not export an 'up' function`);
@@ -105,7 +132,7 @@ export const runMigration = async (
 
   await migration.up(sql);
 
-  const id = filename.replace(".ts", "");
+  const id = migrationId(filename);
   const name = filename.replace(/^\d+_/, "").replace(".ts", "");
   await recordMigration(id, name, sql);
 
@@ -117,8 +144,10 @@ export const runMigration = async (
  *
  * Upserted rather than inserted: a deploy of a newer CMS must overwrite the row
  * the previous build left, and the site's publish step reads it to decide
- * whether the two are compatible. `content_version` is left alone — the site
- * owns that counter.
+ * whether the two are compatible. It also creates the single row on a database
+ * that has the table (migration 004) but no row yet. `content_version` is left
+ * alone: the CMS bumps it when published content changes, and the site's plugin
+ * polls it.
  */
 export const syncContractVersion = async (sql: SQL = db): Promise<void> => {
   await sql`
@@ -151,7 +180,7 @@ export const runMigrations = async (sql: SQL = db): Promise<void> => {
     // booting together would otherwise race on `CREATE TABLE IF NOT EXISTS
     // cms_migrations` — a check-then-create that Postgres can still lose with a
     // duplicate-key error on its own system catalogue.
-    await tx`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK_KEY}::bigint)`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${LOCK_NAMESPACE}), ${MIGRATION_LOCK_SUBKEY})`;
 
     await ensureMigrationsTable(tx);
 
@@ -189,8 +218,8 @@ export const rollbackMigration = async (
   filename: string,
   sql: SQL = db,
 ): Promise<void> => {
-  const migrationPath = join(MIGRATIONS_DIR, filename);
-  const migration = await import(migrationPath);
+  const path = migrationPath(filename);
+  const migration = await import(path);
 
   if (typeof migration.down !== "function") {
     throw new Error(`Migration ${filename} does not export a 'down' function`);
@@ -198,22 +227,37 @@ export const rollbackMigration = async (
 
   await migration.down(sql);
 
-  const id = filename.replace(".ts", "");
-  await removeMigration(id);
+  const id = migrationId(filename);
+  await removeMigration(id, sql);
 
   log.info("migrations", `Rolled back: ${filename}`);
 };
 
-export const rollbackLastMigration = async (): Promise<void> => {
-  const appliedMigrations = await getAppliedMigrations();
+/**
+ * Roll the last applied migration back, once, under the same advisory lock a
+ * boot takes.
+ *
+ * The lock and the transaction are what `runMigrations` uses, for the same
+ * reason: two operators (or one racing with a boot) rolling back or applying at
+ * once would otherwise interleave DDL and the `cms_migrations` row. Postgres DDL
+ * is transactional, so a `down` that fails part-way rolls back with its row and
+ * the next run retries cleanly rather than leaving a half-dropped schema the
+ * runner thinks is still applied.
+ */
+export const rollbackLastMigration = async (sql: SQL = db): Promise<void> => {
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${LOCK_NAMESPACE}), ${MIGRATION_LOCK_SUBKEY})`;
+    await ensureMigrationsTable(tx);
 
-  if (appliedMigrations.length === 0) {
-    log.info("migrations", "No migrations to rollback");
-    return;
-  }
+    const rows = (await tx`
+      SELECT id FROM cms_migrations ORDER BY id DESC LIMIT 1
+    `) as { id: string }[];
 
-  const lastMigration = appliedMigrations[appliedMigrations.length - 1];
-  const filename = `${lastMigration.id}.ts`;
+    if (rows.length === 0) {
+      log.info("migrations", "No migrations to rollback");
+      return;
+    }
 
-  await rollbackMigration(filename);
+    await rollbackMigration(`${rows[0].id}.ts`, tx);
+  });
 };

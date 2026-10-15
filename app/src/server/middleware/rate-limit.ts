@@ -12,13 +12,13 @@ import { clientKey } from "./client-ip";
  * NAT out of signing in. The bucket name is half the key, so each budget is now
  * spent only by the requests it describes.
  *
- * Deliberately coarse. `auth` is reserved for the signed-out forms the CMS
- * renders (`/forms`, `/handoff`, and any future one) but no route spends it
- * today; keeping it one bucket means an attacker who can spread guesses over
- * several endpoints does not get several times the budget, and the limits
- * differ only in size, not in what they are protecting. `export` is its
- * own, much smaller bucket: one call reads the whole published site and the
- * media library, and `cms:pull` is a deliberate command, not a paging client.
+ * Deliberately coarse. `auth` is reserved for the signed-out form POSTs the CMS
+ * renders (`/handoff`, and any future one) but no route spends it today;
+ * keeping it one bucket means an attacker who can spread guesses over several
+ * endpoints does not get several times the budget, and the limits differ only in
+ * size, not in what they are protecting. `export` is its own, much smaller
+ * bucket: one call reads the whole published site and the media library, and
+ * `cms:pull` is a deliberate command, not a paging client.
  */
 export type RateLimitBucket = "auth" | "api-read" | "api-write" | "export";
 

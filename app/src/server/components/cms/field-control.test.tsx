@@ -66,6 +66,67 @@ describe("FieldControl list", () => {
     expect(html).toContain('aria-label="Add to Tags"');
     expect(html).toContain('aria-label="Remove from Tags"');
   });
+
+  test("spells out the maximum in the help text", () => {
+    expect(html).toContain("Up to 3 items.");
+  });
+
+  test("disables Add when the stored list is already at its maximum", () => {
+    const full = renderToString(
+      <FieldControl
+        field={list}
+        value={["one", "two", "three"]}
+        idBase="cms-field-tags"
+      />,
+    );
+    const add = /<button[^>]*data-list-add[^>]*>/.exec(full)?.[0] ?? "";
+
+    // `aria-disabled`, not `disabled`: the client keeps the element clickable
+    // and guards the click, so the state is announced but not enforced by the
+    // browser alone. (`aria-disabled="..."` contains the substring, so check for
+    // the attribute proper.)
+    expect(add).toContain('aria-disabled="true"');
+    expect(add).not.toContain(" disabled");
+    expect(add).not.toContain("disabled>");
+    // And the limit lives in the help text the button points at.
+    expect(add).toContain('aria-describedby="cms-field-tags-help"');
+    expect(full).toContain('id="cms-field-tags-help"');
+  });
+
+  test("leaves Add enabled and unlinked to help when there is no maximum", () => {
+    const unbounded: FieldMetadata = {
+      name: "tags",
+      kind: "list",
+      required: false,
+      of: { name: "item", kind: "text", required: true },
+    };
+    const html = renderToString(
+      <FieldControl
+        field={unbounded}
+        value={["one"]}
+        idBase="cms-field-tags"
+      />,
+    );
+    const add = /<button[^>]*data-list-add[^>]*>/.exec(html)?.[0] ?? "";
+
+    expect(add).not.toContain("aria-disabled");
+    expect(add).not.toContain("aria-describedby");
+  });
+
+  test("uses the singular for a one-item maximum", () => {
+    const one: FieldMetadata = {
+      name: "tag",
+      kind: "list",
+      required: false,
+      max: 1,
+      of: { name: "item", kind: "text", required: true },
+    };
+    const single = renderToString(
+      <FieldControl field={one} value={[]} idBase="cms-field-tag" />,
+    );
+
+    expect(single).toContain("Up to 1 item.");
+  });
 });
 
 describe("FieldControl link", () => {

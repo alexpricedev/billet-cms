@@ -30,14 +30,18 @@ switch (command) {
     const migrationId = `${timestamp}_${migrationName}`;
     const filename = `${migrationId}.ts`;
 
+    // The parameter is the migration's transaction connection, not the
+    // module-level pool: `runMigration` hands `up` the locked transaction so the
+    // DDL and its `cms_migrations` row commit together. Naming it `sql` here (as
+    // the runner does) keeps a generated migration from reaching for `db`.
     const template = `// Migration: ${migrationName}
 import type { SQL } from "bun";
 
-export const up = async (db: SQL): Promise<void> => {
+export const up = async (sql: SQL): Promise<void> => {
   // Add your migration code here
 };
 
-export const down = async (db: SQL): Promise<void> => {
+export const down = async (sql: SQL): Promise<void> => {
   // Add rollback code here
 };
 `;

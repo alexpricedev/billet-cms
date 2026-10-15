@@ -1,7 +1,11 @@
 import type { User } from "../services/users";
 import { CsrfField } from "./csrf-field";
 
-const navLinks = [{ href: "/forms", label: "Forms", name: "forms" }];
+// Public links in the nav. The CMS has no public pages of its own — the root
+// redirects to the guarded /cms surface, and the sign-in route hands off to the
+// site — so this list is empty. The Forms demo that used to sit here was
+// removed (14 Oct); a new public CMS page adds an entry.
+const navLinks: readonly { href: string; label: string; name: string }[] = [];
 
 // The CMS's own surface, shown only to someone signed in.
 const contentLink = { href: "/cms", label: "Content", name: "cms" };
@@ -12,67 +16,71 @@ interface NavProps {
   csrfToken?: string;
 }
 
-export const Nav = ({ page, user, csrfToken }: NavProps) => (
-  <nav data-component="nav" aria-label="Main navigation">
-    {" "}
-    {/* Rendered hidden and unhidden by src/client/components/nav-menu.ts. Without
-        that script — an error page ships none — the button would toggle nothing,
-        so the nav keeps wrapping onto two rows instead. */}
-    <button
-      type="button"
-      className="nav-toggle"
-      aria-expanded="false"
-      aria-controls="nav-menu"
-      hidden
-    >
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path
-          d="M4 7h16M4 12h16M4 17h16"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-        />
-      </svg>
-      <span className="sr-only">Menu</span>
-    </button>
-    {/* Wrapper only so the toggle has a single thing to reveal. It is
-        display: contents until the toggle takes over, which leaves the list and
-        the auth actions as direct flex children of the nav on desktop. */}
-    <div id="nav-menu" className="nav-panel">
-      <ul>
-        {(user ? [contentLink, ...navLinks] : navLinks).map(
-          ({ href, label, name }) => (
-            <li key={name}>
-              <a
-                href={href}
-                className={page === name ? "active" : undefined}
-                aria-current={page === name ? "page" : undefined}
-              >
-                {label}
+export const Nav = ({ page, user, csrfToken }: NavProps) => {
+  const links = user ? [contentLink, ...navLinks] : navLinks;
+
+  return (
+    <nav data-component="nav" aria-label="Main navigation">
+      {" "}
+      {/* Rendered hidden and unhidden by src/client/components/nav-menu.ts. Without
+          that script — an error page ships none — the button would toggle nothing,
+          so the nav keeps wrapping onto two rows instead. */}
+      <button
+        type="button"
+        className="nav-toggle"
+        aria-expanded="false"
+        aria-controls="nav-menu"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M4 7h16M4 12h16M4 17h16"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span className="sr-only">Menu</span>
+      </button>
+      {/* Wrapper only so the toggle has a single thing to reveal. It is
+          display: contents until the toggle takes over, which leaves the list and
+          the auth actions as direct flex children of the nav on desktop. */}
+      <div id="nav-menu" className="nav-panel">
+        {links.length > 0 && (
+          <ul>
+            {links.map(({ href, label, name }) => (
+              <li key={name}>
+                <a
+                  href={href}
+                  className={page === name ? "active" : undefined}
+                  aria-current={page === name ? "page" : undefined}
+                >
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="nav-auth">
+          {user ? (
+            <>
+              <a href="/account" className="btn-ghost">
+                Account
               </a>
-            </li>
-          ),
-        )}
-      </ul>
-      <div className="nav-auth">
-        {user ? (
-          <>
-            <a href="/account" className="btn-ghost">
-              Account
+              <form method="post" action="/auth/logout">
+                <CsrfField token={csrfToken ?? null} />
+                <button type="submit" className="btn-ghost">
+                  Sign out
+                </button>
+              </form>
+            </>
+          ) : (
+            <a href="/sign-in" className="btn-ghost">
+              Sign in
             </a>
-            <form method="post" action="/auth/logout">
-              <CsrfField token={csrfToken ?? null} />
-              <button type="submit" className="btn-ghost">
-                Sign out
-              </button>
-            </form>
-          </>
-        ) : (
-          <a href="/sign-in" className="btn-ghost">
-            Sign in
-          </a>
-        )}
+          )}
+        </div>
       </div>
-    </div>
-  </nav>
-);
+    </nav>
+  );
+};

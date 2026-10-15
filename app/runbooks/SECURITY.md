@@ -120,19 +120,17 @@ nothing on the page evaluates a string. Frameworks that put expressions in
 attributes (Alpine, petite-vue, in-DOM Vue) need `'unsafe-eval'`; adding one
 means widening this policy.
 
-**The signed-out forms are CSRF-checked too.** `/handoff` renders a confirm form
+**The signed-out form is CSRF-checked too.** `/handoff` renders a confirm form
 and validates it with `csrfProtection`
-([`middleware/csrf.ts`](../src/server/middleware/csrf.ts)); the public `/forms`
-demo runs the same check through `utils/form-action.ts`. `csrfProtection` clones
+([`middleware/csrf.ts`](../src/server/middleware/csrf.ts)). `csrfProtection` clones
 the request to read the token, so a controller that reads the form first 403s
 every request — it runs before the body parse, not after.
 
 Not having a session is no reason to skip it: without a check a cross-site post
 could spend whatever single-use token the form carries. So the `GET` sets the
 guest session cookie and mints the token against it — minting one without sending
-the cookie renders a token nothing can verify. On a stale CSRF token the two
-forms diverge: `/forms` returns the visitor to the form with what they typed,
-while `/handoff` answers a plain 403, so they start again from `/sign-in`.
+the cookie renders a token nothing can verify. On a stale CSRF token `/handoff`
+answers a plain 403, so the visitor starts again from `/sign-in`.
 
 **Enhanced form posts and CSRF.** `server.submit` (`src/client/reactive/request.ts`)
 posts a form with its CSRF token promoted to the `X-CSRF-Token` header, which
@@ -203,7 +201,7 @@ curl -sI https://yourdomain.com/ | grep -i x-robots-tag
 
 - **In a browser:** load the site, open the console, confirm no `Refused to
   load…` / CSP violations and that the client bundle mounts on a page that uses
-  one (`/forms`).
+  one (a signed-in CMS page such as `/cms`).
 - **Scanners:** [securityheaders.com](https://securityheaders.com),
   [Mozilla Observatory](https://observatory.mozilla.org), and Google's
   [CSP Evaluator](https://csp-evaluator.withgoogle.com) for policy strength.

@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { block, blockStoredSchema } from "./definition";
-import { type Field, image, link, list, richText, text } from "./field";
+import {
+  type Field,
+  image,
+  link,
+  list,
+  MAX_LIST_DEPTH,
+  richText,
+  text,
+} from "./field";
+import { MAX_RICH_TEXT_LIST_DEPTH } from "./rich-text";
 import { URL_PATTERN } from "./url";
 
 const UUID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
@@ -161,6 +170,31 @@ describe("richText", () => {
       ],
     };
     expect(richText().schema.safeParse(document).success).toBe(true);
+  });
+
+  // The nodes are recursive, so an unbounded document overflows the stack in
+  // the parse. The depth is checked before the recursive walk, so this is a
+  // failed validation rather than a RangeError.
+  test("rejects lists nested past the depth bound without overflowing", () => {
+    const nested = (depth: number) => {
+      let node: unknown = { type: "paragraph", content: [] };
+      for (let level = 0; level < depth; level += 1) {
+        node = {
+          type: "bulletList",
+          content: [{ type: "listItem", content: [node] }],
+        };
+      }
+      return { type: "doc", content: [node] };
+    };
+
+    expect(
+      richText().schema.safeParse(nested(MAX_RICH_TEXT_LIST_DEPTH)).success,
+    ).toBe(true);
+
+    const tooDeep = richText().schema.safeParse(
+      nested(MAX_RICH_TEXT_LIST_DEPTH + 1),
+    );
+    expect(tooDeep.success).toBe(false);
   });
 
   test("rejects an inline node directly in the doc", () => {
@@ -454,6 +488,20 @@ describe("list", () => {
   test("rejects an optional item field", () => {
     expect(() => list(text({ required: false }))).toThrow(
       /items must be required/,
+    );
+  });
+
+  test("bounds how deeply lists may nest", () => {
+    // The editor recurses the metadata tree to build one control per nesting,
+    // so an unbounded tree is an unbounded stack at render and on the client.
+    let field: Field = text();
+    for (let depth = 1; depth <= MAX_LIST_DEPTH; depth += 1) {
+      field = list(field);
+      expect(field.kind).toBe("list");
+    }
+
+    expect(() => list(field)).toThrow(
+      new RegExp(`nest at most ${MAX_LIST_DEPTH} deep`),
     );
   });
 });

@@ -158,7 +158,9 @@ export interface MediaVariant {
  * the page or slot it belongs to. `handoff_tokens` carries the single-use
  * tokens a site mints, written by the plugin and spent by the CMS — the Edit
  * content link and the CMS sign-in route both use it, so the CMS can hand a
- * signed-in site admin a session without a shared secret.
+ * signed-in site admin a session without a shared secret. `user_tokens` is
+ * migration history: the CMS's own magic-link sign-in was removed, so nothing
+ * writes it, but it is left in place rather than dropped.
  *
  * `pages` is the CMS's own content: one row per page an editor created against
  * a page type, with its settings (URL, title, SEO description, social image)
@@ -204,11 +206,26 @@ export const TABLES = {
 export type TableName = (typeof TABLES)[keyof typeof TABLES];
 
 /**
- * The keys the CMS keeps in `cms_meta`, alongside any site-specific rows.
+ * The keys the CMS keeps in `cms_meta`.
  *
- * `contract_version` is written at boot. `content_version` is bumped whenever
- * published definitions or content change; the plugin polls it to invalidate
- * its in-memory cache within seconds.
+ * `cms_meta` is exactly one row, `id = 1`, enforced by the table's primary key
+ * and its `CHECK (id = 1)`. Migration 004 creates the table; the row itself is
+ * upserted by the CMS at boot in `syncContractVersion`
+ * (`app/src/server/database/migrate.ts`), which is also the only writer of
+ * `contract_version`. The site's publish step reads that value and refuses to
+ * write against a CMS it can't read, so the row must exist for a site to deploy.
+ *
+ * `content_version` is the counter the site's plugin polls: it drops its
+ * in-memory cache when the value moves, so a content change reaches a live site
+ * within about a second instead of waiting for a TTL. It is bumped whenever
+ * *published* content changes, and only then — a draft save leaves it alone.
+ * Who bumps it:
+ *
+ * - the plugin's CLI — `billet-cms-publish` or `cms:pull` — when it changes a
+ *   definition (a block, page type or slot), which changes what the site
+ *   renders;
+ * - the CMS, on a page or slot publish, a page create / rename / settings change
+ *   / delete, and a media alt-text or focal-point edit.
  */
 export const META_KEYS = {
   contractVersion: "contract_version",
@@ -217,13 +234,14 @@ export const META_KEYS = {
 
 export type MetaKey = (typeof META_KEYS)[keyof typeof META_KEYS];
 
-const TABLES_BY_NAME: ReadonlyMap<string, TableName> = new Map(
-  Object.values(TABLES).map((name) => [name, name]),
-);
-
-/** True when `name` is a relation the CMS owns. */
+/**
+ * True when `name` is a relation the CMS owns.
+ *
+ * Every relation the CMS creates carries the prefix, so the prefix alone is the
+ * test; `TABLES` is kept only as the published list of what exists today.
+ */
 export const isCmsRelation = (name: string): boolean =>
-  TABLES_BY_NAME.has(name) || name.startsWith(TABLE_PREFIX);
+  name.startsWith(TABLE_PREFIX);
 
 /**
  * How a published definition is stored.

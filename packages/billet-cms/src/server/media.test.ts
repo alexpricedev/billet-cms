@@ -66,6 +66,27 @@ describe("renderCmsImage", () => {
     expect(escaped).toContain("&quot;");
   });
 
+  // `loading`/`decoding` ride straight into attributes, and a hand-edited row
+  // can carry non-numeric width/height; both are coerced or escaped so neither
+  // can close the tag (r1-26).
+  test("escapes loading/decoding and coerces width/height to numbers", () => {
+    const escaped = renderCmsImage(media, {
+      loading: 'lazy" onload="alert(1)' as unknown as "lazy",
+      decoding: 'async" onerror="alert(1)' as unknown as "async",
+    });
+    expect(escaped).not.toContain('onload="alert(1)"');
+    expect(escaped).not.toContain('onerror="alert(1)"');
+    expect(escaped).toContain("&quot;");
+
+    const coerced = renderCmsImage({
+      ...media,
+      width: "960" as unknown as number,
+      height: "540" as unknown as number,
+    });
+    expect(coerced).toContain('width="960"');
+    expect(coerced).toContain('height="540"');
+  });
+
   test("respects a sizes override", () => {
     const withSizes = renderCmsImage(media, {
       sizes: "(min-width: 40em) 50vw, 100vw",

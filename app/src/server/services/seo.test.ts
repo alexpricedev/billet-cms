@@ -96,13 +96,16 @@ describe("generated artefacts follow the resolved origin", () => {
     expect(absolute("/og-image.png")).toBe("https://example.com/og-image.png");
   });
 
-  test("the sitemap lists locs under it", () => {
+  test("the sitemap has no locs when the CMS serves no public pages", () => {
     process.env.APP_URL = "https://app.example.com";
     process.env.SITE_URL = "https://example.com";
 
     const xml = buildSitemapXml();
 
-    expect(xml).toContain("<loc>https://example.com/forms</loc>");
+    // Every route the CMS serves is private or noindex, so nothing is listed —
+    // and in particular the removed /forms demo is not.
+    expect(xml).not.toContain("<loc>");
+    expect(xml).not.toContain("/forms");
     expect(xml).not.toContain("app.example.com");
   });
 

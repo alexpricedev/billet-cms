@@ -6,14 +6,17 @@ DOM globals come from happy-dom, preloaded for every test file via `bunfig.toml`
 ## Page scripts
 
 Build a fixture matching the server-rendered HTML, call `init()`, assert on the DOM.
+(The CMS's only client entry today is the block editor, `src/client/cms-form.ts`,
+tested directly; the pattern below is for a future page script added through the
+page registry.)
 
 ```ts
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-describe("forms page", () => {
+describe("a page", () => {
   beforeEach(() => {
     document.body.innerHTML = `
-      <div class="form-card"><form><input name="name" required /></form></div>
+      <div class="card"><form><input name="field" required /></form></div>
     `;
   });
 
@@ -22,7 +25,7 @@ describe("forms page", () => {
   });
 
   test("sets a custom validity message", async () => {
-    const { init } = await import("./forms");
+    const { init } = await import("./the-page");
     init();
     // ...assert
   });
@@ -90,4 +93,5 @@ state, so give each throwaway component a unique name.
 
 Pages are wired in `src/client/main.ts` with `registerPage(name, { init })`, and dispatched from
 `document.body.dataset.page` — set by the `name` prop on `<Layout>`. A page script that isn't
-registered never runs, and no test will tell you.
+registered never runs, and no test will tell you. No page is registered today; the registry and
+nav-menu are the only entry points left in `main.ts`.

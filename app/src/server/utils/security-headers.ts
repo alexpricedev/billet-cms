@@ -14,14 +14,20 @@ const isProduction = process.env.NODE_ENV === "production";
 
 // The image source the media bucket adds to `img-src`, when one is configured.
 // It is read per request rather than fixed at module load because the CMS tests
-// set `MEDIA_PUBLIC_BASE_URL` on the process rather than in a .env file. A base
-// URL that isn't a valid http(s) URL contributes nothing rather than breaking
-// the header.
+// set `MEDIA_PUBLIC_BASE_URL` on the process rather than in a .env file. Only an
+// http(s) origin is used: `new URL` parses `ftp:` happily and reports "null" for
+// `data:`/`javascript:`, and neither belongs in a source list. Anything else —
+// a bare host, a relative path — contributes nothing rather than breaking the
+// header.
 const mediaImgOrigin = (): string | null => {
   const base = process.env.MEDIA_PUBLIC_BASE_URL?.trim();
   if (!base) return null;
   try {
-    return new URL(base).origin;
+    const parsed = new URL(base);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.origin;
   } catch {
     return null;
   }

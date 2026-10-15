@@ -6,7 +6,9 @@ import { absolute, SITE_DESCRIPTION, SITE_NAME } from "./seo";
 // one-line description per page. It controls nothing; it is purely a hint.
 //
 // The page list is kept in sync with the public routes by a drift test in
-// llms-txt.test.ts, so a new public page can't silently go unlisted.
+// llms-txt.test.ts, so a new public page can't silently go unlisted. The CMS
+// itself has no public pages, so PAGES is empty and the Pages section is
+// omitted from the body rather than shipped as a heading with nothing under it.
 
 interface LlmsPage {
   path: string;
@@ -14,14 +16,7 @@ interface LlmsPage {
   description: string;
 }
 
-const PAGES: LlmsPage[] = [
-  {
-    path: "/forms",
-    title: "Forms",
-    description:
-      "Server-rendered form handling with validation, CSRF protection, and progressive enhancement.",
-  },
-];
+const PAGES: LlmsPage[] = [];
 
 const RESOURCES: LlmsPage[] = [
   {
@@ -47,10 +42,7 @@ export const buildLlmsTxt = (): string =>
     "",
     "Billet CMS is the headless CMS service for a Billet site: it runs on its own host, shares the site's PostgreSQL database, and builds its forms from the block, slot and page definitions the site publishes. Sign-in goes through the site — the CMS has no login of its own.",
     "",
-    "## Pages",
-    "",
-    ...PAGES.map(linkLine),
-    "",
+    ...(PAGES.length > 0 ? ["## Pages", "", ...PAGES.map(linkLine), ""] : []),
     "## Resources",
     "",
     ...RESOURCES.map(linkLine),

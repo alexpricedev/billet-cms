@@ -96,6 +96,28 @@ const unsafeBodies = (source: string): string[] => {
   return bodies;
 };
 
+/**
+ * True when the file builds a pool that isn't visibly wrapped in `guardPool(`.
+ *
+ * The wrapped form is the whole point of the rule, so a `new SQL(` handed
+ * straight to `guardPool` — as `test-utils/database.ts` and
+ * `migration-helpers.ts` do — is not an offender. Pools assigned to a variable
+ * first (the real `db` in `services/database.ts`) are; those files stay in the
+ * exemption below.
+ */
+const unguardedPool = (source: string): boolean => {
+  // Assembled rather than written out, so this file's own text doesn't trip
+  // `database.test.ts`, which bans the literal in every test file.
+  const marker = ["new", "SQL("].join(" ");
+  let index = source.indexOf(marker);
+  while (index !== -1) {
+    const before = source.slice(Math.max(0, index - 60), index);
+    if (!/guardPool\s*\(\s*$/.test(before)) return true;
+    index = source.indexOf(marker, index + marker.length);
+  }
+  return false;
+};
+
 const FORBIDDEN: Rule[] = [
   {
     name: "an array bound into ANY()",
@@ -114,22 +136,20 @@ const FORBIDDEN: Rule[] = [
   },
   {
     name: "an unguarded pool",
-    match: (source) => /new SQL\(/.test(source),
-    why: "a pool built outside these files skips the parameter guard. Use `db` from services/database, or `testDatabase()` in a test",
-    // The two pools the codebase has, plus the runners that create and migrate
-    // databases before a guarded pool could exist.
+    match: unguardedPool,
+    why: "a pool built outside these files skips the parameter guard. Use `db` from services/database, `testDatabase()` in a test, or wrap the pool in `guardPool()`",
+    // The real pool, plus the runners that create and migrate databases before a
+    // guarded pool could exist. `test-utils/database.ts` and
+    // `migration-helpers.ts` are not here: they hand their pools straight to
+    // `guardPool`, which `unguardedPool` allows.
     allowed: new Set([
       "src/server/services/database.ts",
-      "src/server/test-utils/database.ts",
       "src/server/test-utils/bootstrap.ts",
       "src/server/test-utils/run-tests.ts",
       // Prepares each worker database before the suite: creates the site-side
       // `users` fixture and the identity view, against a database no guarded
       // pool has been built for yet.
       "src/server/test-utils/prepare-databases.ts",
-      // Creates throwaway databases for the migration tests — a database that
-      // doesn't exist yet, so no guarded pool could have been built for it.
-      "src/server/test-utils/migration-helpers.ts",
       // The test that bans the same call in test files; it names it in a string.
       "src/server/test-utils/database.test.ts",
     ]),
