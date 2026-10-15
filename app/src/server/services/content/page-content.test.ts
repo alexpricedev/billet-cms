@@ -257,22 +257,73 @@ describe("findUnavailableBlocks", () => {
 });
 
 describe("formatIssues", () => {
-  test("names a page-mode link's missing page", () => {
+  const PAGE_LINK = { type: "page", pageId: "" };
+
+  test("names a page-mode link with no page chosen", () => {
     expect(
-      formatIssues([
-        { path: ["hero", "cta", "pageId"], message: "Invalid UUID" },
-      ]),
+      formatIssues([{ path: ["cta", "pageId"], message: "Invalid UUID" }], {
+        cta: { type: "page", pageId: "" },
+      }),
+    ).toEqual([{ path: "cta.pageId", message: "Choose a page." }]);
+  });
+
+  // The value never reaching the schema is the other half of "no page chosen":
+  // a page-mode link with no `pageId` key at all.
+  test("names a page-mode link whose pageId is missing", () => {
+    expect(
+      formatIssues(
+        [
+          {
+            path: ["cta", "pageId"],
+            message: "Invalid input: expected string, received undefined",
+          },
+        ],
+        { cta: { type: "page" } },
+      ),
+    ).toEqual([{ path: "cta.pageId", message: "Choose a page." }]);
+  });
+
+  // A malformed non-empty id is a different problem: the editor picked a page
+  // and the value is wrong, so it keeps the field's own message.
+  test("keeps the plain message for a malformed page id", () => {
+    expect(
+      formatIssues([{ path: ["cta", "pageId"], message: "Invalid UUID" }], {
+        cta: { type: "page", pageId: "not-a-uuid" },
+      }),
+    ).toEqual([{ path: "cta.pageId", message: "Enter a valid id." }]);
+  });
+
+  // A field that merely happens to be called `pageId` is not a page link.
+  test("does not call a non-link pageId field a page", () => {
+    expect(
+      formatIssues([{ path: ["pageId"], message: "Invalid UUID" }], {
+        pageId: "not-a-uuid",
+      }),
+    ).toEqual([{ path: "pageId", message: "Enter a valid id." }]);
+  });
+
+  test("walks a nested path to find the link", () => {
+    expect(
+      formatIssues(
+        [{ path: ["hero", "cta", "pageId"], message: "Invalid UUID" }],
+        {
+          hero: { cta: PAGE_LINK },
+        },
+      ),
     ).toEqual([{ path: "hero.cta.pageId", message: "Choose a page." }]);
   });
 
   test("keeps an ordinary field message", () => {
     expect(
-      formatIssues([
-        {
-          path: ["heading"],
-          message: "Too big: expected string to have <=80 characters",
-        },
-      ]),
+      formatIssues(
+        [
+          {
+            path: ["heading"],
+            message: "Too big: expected string to have <=80 characters",
+          },
+        ],
+        { heading: "x".repeat(81) },
+      ),
     ).toEqual([{ path: "heading", message: "Use 80 characters or fewer." }]);
   });
 });

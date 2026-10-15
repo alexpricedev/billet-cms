@@ -210,17 +210,20 @@ export const buildExport = async (sql: SQL = db): Promise<CmsExport> => {
   `) as SlotRow[];
 
   // The published revisions of both pages and slots, in one read. Drafts belong
-  // to neither set, so they are structurally absent.
+  // to neither set, so they are structurally absent. An `IN` over the two
+  // pointers selects each revision row once without the full-row UNION the
+  // join version paid for.
   const revisionRows = (await sql`
     SELECT r.id, r.target_type, r.target_id, r.content, r.created_by,
            r.created_at
     FROM cms_revisions r
-    JOIN cms_pages p ON p.published_revision_id = r.id
-    UNION
-    SELECT r.id, r.target_type, r.target_id, r.content, r.created_by,
-           r.created_at
-    FROM cms_revisions r
-    JOIN cms_slots s ON s.published_revision_id = r.id
+    WHERE r.id IN (
+      SELECT published_revision_id FROM cms_pages
+      WHERE published_revision_id IS NOT NULL
+      UNION
+      SELECT published_revision_id FROM cms_slots
+      WHERE published_revision_id IS NOT NULL
+    )
   `) as RevisionRow[];
 
   const redirectRows = (await sql`
