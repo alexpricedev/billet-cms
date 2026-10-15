@@ -7,7 +7,10 @@ import {
   CMS_SIGN_IN_PATH,
   type MediaVariant,
 } from "../packages/billet-cms/src/contract/index.ts";
-import { createContentReader } from "../packages/billet-cms/src/server/index.ts";
+import {
+  createCmsPages,
+  createContentReader,
+} from "../packages/billet-cms/src/server/index.ts";
 import { siteDefinitions } from "./cms.config.ts";
 import { createSite, type E2eSite } from "./site.ts";
 
@@ -483,6 +486,40 @@ describe("the ticket's Done when, end to end", () => {
     // Warm: the cached slot and the throttled version cost nothing.
     await reader.getSlot("home.hero");
     expect(queries).toBe(2);
+  });
+
+  test("the readers share one version poll, and invalidate() forces it to re-read", async () => {
+    // Count `cms_meta` reads on the real pool: the slot, page and media readers
+    // built without a custom clock share one poll per pool.
+    let versionReads = 0;
+    const counting = new Proxy(ctx.sql, {
+      get(target, property, receiver) {
+        if (property === "unsafe") {
+          return (query: string, params?: unknown[]) => {
+            if (query.includes("cms_meta")) versionReads += 1;
+            return (
+              target.unsafe as (q: string, p?: unknown[]) => Promise<unknown>
+            ).call(target, query, params);
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as SQL;
+
+    const slots = createContentReader({ sql: counting, onSkip: () => {} });
+    const pages = createCmsPages({ sql: counting, onSkip: () => {} });
+
+    expect(await slots.getSlot("home.hero")).not.toBeNull();
+    // `getPage` shares the slot reader's poll: it must not read the version a
+    // second time.
+    await pages.getPage("/");
+    expect(versionReads).toBe(1);
+
+    // A hard reset on either reader forces the shared poll to re-read at once —
+    // inside the interval a fresh poll would have skipped until.
+    slots.invalidate();
+    await pages.getPage("/");
+    expect(versionReads).toBe(2);
   });
 
   test("the site keeps serving after the CMS is stopped", async () => {

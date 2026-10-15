@@ -18,8 +18,9 @@
  *    still renders the rest of itself (the spec's "the site keeps working").
  *
  * Reads are cached in memory and re-checked against `cms_meta.content_version`
- * at most once a second (Q3, `./cache.ts`), so a publish is visible on the site
- * within seconds and the steady state costs no queries. A valid preview token
+ * at most once a second (Q3, `./cache.ts`), one poll shared with the page and
+ * media readers, so a publish is visible on the site within seconds and the
+ * steady state costs no queries. A valid preview token
  * (`./preview`, Phase 6) bypasses that cache for its own subject only: pass the
  * access `getPreviewAccess` returned to `getSlot` and the slot the token names
  * has its draft read instead, uncached, while every other slot on the page is
@@ -36,7 +37,7 @@ import {
 } from "../fields/definition";
 import type { PreviewAccess } from "../preview";
 import { validateContent } from "../schema";
-import { ContentCache } from "./cache";
+import { ContentCache, contentVersionFor } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
 import { latestRevisionId } from "./revisions";
 
@@ -125,13 +126,6 @@ interface CachedSlot {
   slotId: string;
   content: SlotContent | null;
 }
-
-const readContentVersion = async (sql: SQL): Promise<number> => {
-  const rows = (await sql.unsafe(
-    `SELECT content_version FROM ${TABLES.meta} WHERE id = 1`,
-  )) as { content_version: string | number }[];
-  return rows.length > 0 ? Number(rows[0].content_version) : 0;
-};
 
 /**
  * Build a reader that caches per process.
@@ -271,14 +265,21 @@ export const createContentReader = (
   };
 
   const cache = new ContentCache<CachedSlot | null>({
-    readVersion: () => readContentVersion(sql),
+    // One poll for the whole pool: the page and media readers share it, so a
+    // process asks `cms_meta` once a second, not once per reader. A failed
+    // version check keeps serving what is cached (see `ContentCache`); the site
+    // hears about it through its skip logger like any other drop.
+    version: contentVersionFor(sql, {
+      ...(options.now ? { now: options.now } : {}),
+      ...(options.versionPollMs !== undefined
+        ? { intervalMs: options.versionPollMs }
+        : {}),
+      onError: (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        onSkip(`could not check the CMS content version: ${message}`);
+      },
+    }),
     load: loadSlot,
-    // A failed version check keeps serving what is cached (see `ContentCache`);
-    // the site hears about it through its skip logger like any other drop.
-    onVersionError: (error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      onSkip(`could not check the CMS content version: ${message}`);
-    },
     ...(options.now ? { now: options.now } : {}),
     ...(options.versionPollMs !== undefined
       ? { intervalMs: options.versionPollMs }

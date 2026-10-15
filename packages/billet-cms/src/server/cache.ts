@@ -14,6 +14,14 @@
  * after a publish) goes straight to the database, so a fresh visitor never
  * waits longer than the interval for content they don't have cached.
  *
+ * The version is a `ContentVersion`, one per pool and shared by every reader on
+ * it. A site mounts the page catch-all and reads slots and media, and all three
+ * would otherwise poll `cms_meta` separately: the slot reader, the page reader
+ * and the media reader each build a `ContentCache`, and they share one
+ * `ContentVersion` so a process asks "has it changed?" once a second rather
+ * than once per reader. Any reader's `invalidate()` clears the shared poll, so
+ * the next read from *any* reader goes back to the database.
+ *
  * Two kinds of in-flight work are shared rather than repeated: a version read,
  * so simultaneous misses in one process cost one `cms_meta` query rather than
  * one each, and a load, so simultaneous misses for the same key cost one read
@@ -21,13 +29,213 @@
  * load that started before a publish is neither stored nor handed to callers
  * reading on the newer version.
  */
+import type { SQL } from "bun";
+import { TABLES } from "../contract";
+import { defaultSkipLogger } from "./log";
 
 /** How often a process re-reads `content_version`. */
 export const CONTENT_VERSION_POLL_MS = 1000;
 
-export interface ContentCacheOptions<V> {
+/** Read `cms_meta.content_version` for a pool, or 0 when the row is missing. */
+const readContentVersion = async (sql: SQL): Promise<number> => {
+  const rows = (await sql.unsafe(
+    `SELECT content_version FROM ${TABLES.meta} WHERE id = 1`,
+  )) as { content_version: string | number }[];
+  return rows.length > 0 ? Number(rows[0].content_version) : 0;
+};
+
+const describe = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+export interface ContentVersionOptions {
   /** Read `cms_meta.content_version`. */
   readVersion: () => Promise<number>;
+  /** Injected clock in milliseconds, for tests. Defaults to `Date.now`. */
+  now?: () => number;
+  /** How often to re-read the version. Defaults to `CONTENT_VERSION_POLL_MS`. */
+  intervalMs?: number;
+  /**
+   * Called when the version check fails but the last version read is still
+   * usable. The site's readers wire this to their skip logger.
+   */
+  onError?: (error: unknown) => void;
+}
+
+/**
+ * One throttled `content_version` poll, shared by the readers on a pool.
+ *
+ * The readers each own a `ContentCache` for their own values but not the
+ * version: the counter is global, so one poll answering all of them is what
+ * keeps a site's steady state at one `cms_meta` query a second rather than one
+ * per reader. A failed re-read is not allowed to take away content a reader
+ * already has: with a last known version the poll serves it, backs off for one
+ * interval and reports the failure; with nothing read yet the error surfaces to
+ * the caller, but the same back-off applies so a database that is down when the
+ * process first looks isn't hit once per request.
+ */
+export class ContentVersion {
+  readonly #readVersion: () => Promise<number>;
+  readonly #now: () => number;
+  readonly #intervalMs: number;
+  readonly #onError: ((error: unknown) => void) | undefined;
+
+  #version: number | null = null;
+  #checkedAt = Number.NEGATIVE_INFINITY;
+  /**
+   * The error from the last failed version read, kept so a process that has
+   * never read a version can back off too: with nothing cached there is no
+   * value to serve, but the broken database should still not be re-queried on
+   * every request. The error is re-thrown until the next interval.
+   */
+  #error: { error: unknown } | null = null;
+  /**
+   * Bumped whenever the poll is reset. A read that started under one generation
+   * must not store its value after a reset: the value it read is from before
+   * whatever the reset was for, and storing it would pretend the poll is fresh.
+   */
+  #generation = 0;
+  /**
+   * The read currently in flight, or `null`.
+   *
+   * A miss after a publish, hit by several requests at once, would otherwise
+   * each read `cms_meta`; the first one to arrive starts the read and the rest
+   * await it. It is cleared as soon as it settles. The entry carries when it
+   * started: a read older than one interval is not joined any more, so a single
+   * hung query can't hold every call behind it.
+   */
+  #pending: { promise: Promise<number>; startedAt: number } | null = null;
+
+  constructor(options: ContentVersionOptions) {
+    this.#readVersion = options.readVersion;
+    this.#now = options.now ?? Date.now;
+    this.#intervalMs = options.intervalMs ?? CONTENT_VERSION_POLL_MS;
+    this.#onError = options.onError;
+  }
+
+  /** The current `content_version`, re-read at most once per interval. */
+  async read(): Promise<number> {
+    const now = this.#now();
+    if (this.#version !== null && now - this.#checkedAt < this.#intervalMs) {
+      return this.#version;
+    }
+    if (
+      this.#version === null &&
+      this.#error !== null &&
+      now - this.#checkedAt < this.#intervalMs
+    ) {
+      throw this.#error.error;
+    }
+    // A read already in flight answers this caller too, rather than starting a
+    // second one. It is cleared when it settles, so a failure is not cached
+    // here — `#readAndStore` decides that. A read that has been in flight
+    // longer than one interval is abandoned rather than joined: one hung query
+    // must not hold every read in the process behind it.
+    const pending = this.#pending;
+    if (pending && now - pending.startedAt < this.#intervalMs) {
+      return await pending.promise;
+    }
+
+    const entry = { promise: this.#readAndStore(now), startedAt: now };
+    this.#pending = entry;
+    try {
+      return await entry.promise;
+    } finally {
+      if (this.#pending === entry) this.#pending = null;
+    }
+  }
+
+  /** Read the version and apply it, the work `read()` shares. */
+  async #readAndStore(now: number): Promise<number> {
+    const generation = this.#generation;
+    try {
+      const next = await this.#readVersion();
+      // A reset while this was in flight means the value is not ours to store:
+      // return it, and let the next read re-check rather than pretending the
+      // poll is fresh.
+      if (generation !== this.#generation) return next;
+      this.#version = next;
+      this.#checkedAt = now;
+      this.#error = null;
+      return next;
+    } catch (error) {
+      // A reset while this read was in flight means the failure is not the
+      // reset poll's to remember either.
+      if (generation !== this.#generation) throw error;
+      this.#checkedAt = now;
+      if (this.#version !== null) {
+        this.#onError?.(error);
+        return this.#version;
+      }
+      this.#error = { error };
+      throw error;
+    }
+  }
+
+  /**
+   * Drop the remembered version and force the next read back to the database.
+   *
+   * `ContentCache.invalidate()` calls this, so any reader's hard reset also
+   * forces the shared poll to re-read, and the other readers see a publish that
+   * landed before any of them reached the interval.
+   */
+  invalidate(): void {
+    this.#version = null;
+    this.#checkedAt = Number.NEGATIVE_INFINITY;
+    this.#error = null;
+    this.#pending = null;
+    this.#generation += 1;
+  }
+}
+
+const versionErrorLogger = (error: unknown): void =>
+  defaultSkipLogger(
+    `could not check the CMS content version: ${describe(error)}`,
+  );
+
+/**
+ * The version poll for a pool, shared by every reader that doesn't customise
+ * the clock.
+ *
+ * A reader built with an injected `now` (tests) or interval gets its own poll,
+ * because the default one is keyed to the pool and its clock would fight the
+ * test's. Every other reader on the same pool shares one: the first to ask
+ * creates it and sets its error sink, and the readers a site actually builds
+ * from the convenience helpers all log through the same default logger.
+ */
+const sharedVersions = new WeakMap<SQL, ContentVersion>();
+
+export const contentVersionFor = (
+  sql: SQL,
+  options: {
+    now?: () => number;
+    intervalMs?: number;
+    onError?: (error: unknown) => void;
+  } = {},
+): ContentVersion => {
+  if (options.now !== undefined || options.intervalMs !== undefined) {
+    return new ContentVersion({
+      readVersion: () => readContentVersion(sql),
+      ...(options.now ? { now: options.now } : {}),
+      ...(options.intervalMs !== undefined
+        ? { intervalMs: options.intervalMs }
+        : {}),
+      ...(options.onError ? { onError: options.onError } : {}),
+    });
+  }
+
+  const existing = sharedVersions.get(sql);
+  if (existing) return existing;
+  const version = new ContentVersion({
+    readVersion: () => readContentVersion(sql),
+    onError: options.onError ?? versionErrorLogger,
+  });
+  sharedVersions.set(sql, version);
+  return version;
+};
+
+export interface ContentCacheOptions<V> {
+  /** Read `cms_meta.content_version`. Omit when a shared `version` is given. */
+  readVersion?: () => Promise<number>;
   /** Load the value for one key, when it isn't cached or the version moved. */
   load: (key: string) => Promise<V>;
   /** Injected clock in milliseconds, for tests. Defaults to `Date.now`. */
@@ -39,47 +247,29 @@ export interface ContentCacheOptions<V> {
    * version it read. The site's reader wires this to its skip logger.
    */
   onVersionError?: (error: unknown) => void;
+  /**
+   * A shared poll, so several readers on one pool cost one `cms_meta` query.
+   * Omit to build a private one from `readVersion`/`now`/`intervalMs`.
+   */
+  version?: ContentVersion;
 }
 
 export class ContentCache<V> {
-  readonly #readVersion: () => Promise<number>;
   readonly #load: (key: string) => Promise<V>;
+  readonly #versions: ContentVersion;
   readonly #now: () => number;
   readonly #intervalMs: number;
-  readonly #onVersionError: ((error: unknown) => void) | undefined;
 
   #version: number | null = null;
-  #checkedAt = Number.NEGATIVE_INFINITY;
   #entries = new Map<string, V>();
   /**
-   * The error from the last failed version read, kept so a process that has
-   * never read a version can back off too: with nothing cached there is no
-   * value to serve, but the broken database should still not be re-queried on
-   * every request. The error is re-thrown until the next interval.
-   */
-  #versionError: { error: unknown } | null = null;
-  /**
-   * Bumped whenever the version moves. A `get` that started under one
-   * generation must not write its value after the version has changed: the
-   * load it awaited may take longer than the interval, and the value it read is
-   * from before a publish. Tagging the write is what keeps a slow first read
-   * from resurrecting stale content behind a fresher load.
+   * Bumped whenever the version moves or the cache is reset. A `get` that
+   * started under one generation must not write its value after the version has
+   * changed: the load it awaited may take longer than the interval, and the
+   * value it read is from before a publish. Tagging the write is what keeps a
+   * slow first read from resurrecting stale content behind a fresher load.
    */
   #generation = 0;
-
-  /**
-   * The version read currently in flight, or `null`.
-   *
-   * A miss after a publish, hit by several requests at once, would otherwise
-   * each read `cms_meta`; the first one to arrive starts the read and the rest
-   * await it. It is cleared as soon as it settles, so the failure fallback and
-   * the back-off below behave exactly as if each caller had read on its own.
-   * The entry carries when it started: a read older than one interval is not
-   * joined any more, so a single hung query can't hold every call behind it.
-   */
-  #pendingVersion: { promise: Promise<number>; startedAt: number } | null =
-    null;
-
   /**
    * The loads currently in flight, keyed by the cache key.
    *
@@ -97,94 +287,46 @@ export class ContentCache<V> {
   >();
 
   constructor(options: ContentCacheOptions<V>) {
-    this.#readVersion = options.readVersion;
     this.#load = options.load;
     this.#now = options.now ?? Date.now;
     this.#intervalMs = options.intervalMs ?? CONTENT_VERSION_POLL_MS;
-    this.#onVersionError = options.onVersionError;
+    if (options.version) {
+      this.#versions = options.version;
+    } else if (options.readVersion) {
+      this.#versions = new ContentVersion({
+        readVersion: options.readVersion,
+        ...(options.now ? { now: options.now } : {}),
+        ...(options.intervalMs !== undefined
+          ? { intervalMs: options.intervalMs }
+          : {}),
+        ...(options.onVersionError ? { onError: options.onVersionError } : {}),
+      });
+    } else {
+      throw new TypeError(
+        "ContentCache needs a shared `version` or a `readVersion` to poll with",
+      );
+    }
   }
 
   /**
-   * The current `content_version`, re-read at most once per interval.
+   * The current `content_version`.
    *
-   * When the number changes the whole cache is dropped: the version is global,
-   * so a single publish can invalidate any cached slot, not just the one that
-   * changed. A no-op re-read keeps the cache warm, which is what makes the
-   * steady state free.
-   *
-   * A failed re-read is not allowed to take away content the process already
-   * has. The counter lives in the same database a public page reads from, so
-   * "could not read `cms_meta`" is a transient condition — the CMS is down, or
-   * mid-migration — and the site must keep rendering. When there is a last
-   * known version the cache keeps serving it, backs off for one interval so a
-   * broken database isn't re-queried on every request, and reports the failure.
-   * With nothing read yet there is nothing cached to serve either, so the error
-   * surfaces to the caller — but the same back-off applies, so a database that
-   * is down when the process first looks isn't hit once per request either.
+   * The number comes from the (possibly shared) version poll; this cache only
+   * has to notice when it moved and drop its own entries. The version is global,
+   * so a single publish can invalidate any cached value.
    */
   async version(): Promise<number> {
-    const now = this.#now();
-    if (this.#version !== null && now - this.#checkedAt < this.#intervalMs) {
-      return this.#version;
-    }
-    if (
-      this.#version === null &&
-      this.#versionError !== null &&
-      now - this.#checkedAt < this.#intervalMs
-    ) {
-      throw this.#versionError.error;
-    }
-    // A read already in flight answers this caller too, rather than starting a
-    // second one. It is cleared when it settles, so a failure is not cached
-    // here — `#readVersion` decides that, exactly as before. A read that has
-    // been in flight longer than one interval is abandoned rather than joined:
-    // one hung query must not hold every read in the process behind it.
-    const pending = this.#pendingVersion;
-    if (pending && now - pending.startedAt < this.#intervalMs) {
-      return await pending.promise;
-    }
-
-    const entry = { promise: this.#readAndStore(now), startedAt: now };
-    this.#pendingVersion = entry;
-    try {
-      return await entry.promise;
-    } finally {
-      if (this.#pendingVersion === entry) this.#pendingVersion = null;
-    }
-  }
-
-  /** Read the version and apply it, the work `version()` shares. */
-  async #readAndStore(now: number): Promise<number> {
     const generation = this.#generation;
-    try {
-      const next = await this.#readVersion();
-      // A reset (or a version move by another read) while this was in flight
-      // means the value is not ours to store: return it, and let the next read
-      // re-check rather than pretending the cache is fresh.
-      if (generation !== this.#generation) return next;
-      if (next !== this.#version) {
-        this.#entries.clear();
-        // A load from before the publish must not be handed to a caller
-        // reading on the new version: drop it and let that caller start fresh.
-        this.#loads.clear();
-        this.#version = next;
-        this.#generation += 1;
-      }
-      this.#checkedAt = now;
-      this.#versionError = null;
-      return this.#version as number;
-    } catch (error) {
-      // A reset while this read was in flight means the failure is not the
-      // reset cache's to remember either.
-      if (generation !== this.#generation) throw error;
-      this.#checkedAt = now;
-      if (this.#version !== null) {
-        this.#onVersionError?.(error);
-        return this.#version;
-      }
-      this.#versionError = { error };
-      throw error;
+    const next = await this.#versions.read();
+    // A reset while the read was in flight means the value is not ours to
+    // store: the reset stands and the next read re-checks.
+    if (generation === this.#generation && next !== this.#version) {
+      this.#entries.clear();
+      this.#loads.clear();
+      this.#version = next;
+      this.#generation += 1;
     }
+    return next;
   }
 
   /** The cached value for `key`, loading and caching it when absent or stale. */
@@ -232,15 +374,14 @@ export class ContentCache<V> {
    * A hard reset, as the readers document it: the entries, any load in flight
    * and any remembered failure go, and `content_version` is re-read by the next
    * read even when the interval has not passed. The generation moves too, so a
-   * load that started before the reset cannot write its value back.
+   * load that started before the reset cannot write its value back. The shared
+   * poll is reset as well, so a publish that landed is seen at once.
    */
   invalidate(): void {
     this.#entries.clear();
     this.#loads.clear();
-    this.#pendingVersion = null;
     this.#version = null;
-    this.#checkedAt = Number.NEGATIVE_INFINITY;
-    this.#versionError = null;
     this.#generation += 1;
+    this.#versions.invalidate();
   }
 }
