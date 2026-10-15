@@ -51,6 +51,7 @@ import {
   getMediaUsage,
   listMedia,
   MAX_ALT_LENGTH,
+  toMediaOption,
   updateMediaAlt,
   updateMediaFocalPoint,
 } from "./media";
@@ -205,6 +206,73 @@ describe("createMedia", () => {
     if (result.ok) return;
     expect(result.issues[0]?.message).toMatch(/couldn't save that image/);
     expect(await listMedia()).toHaveLength(0);
+  });
+
+  // The puts run together, so one failing mid-batch must still clean up every
+  // object that did land rather than leaking the ones the others wrote.
+  test("deletes every written object when one put fails mid-batch", async () => {
+    const memory = createMemoryMediaStorage();
+    let calls = 0;
+    const storage = {
+      ...memory,
+      put: async (key: string, body: Uint8Array, contentType: string) => {
+        calls += 1;
+        if (calls === 3) throw new Error("bucket hiccup");
+        memory.objects.set(key, { body: body.slice(), contentType });
+      },
+    };
+
+    const result = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "Half written",
+      actorId: null,
+      storage,
+    });
+
+    expect(result.ok).toBe(false);
+    // More than the failed put landed, and all of it is gone.
+    expect(memory.objects.size).toBe(0);
+    expect(await listMedia()).toHaveLength(0);
+  });
+
+  test("listMedia returns the whole library, and a limit returns the newest", async () => {
+    const storage = createMemoryMediaStorage();
+    for (const alt of ["First", "Second", "Third"]) {
+      const result = await createMedia({
+        bytes: await makeJpeg(800, 400),
+        alt,
+        actorId: null,
+        storage,
+      });
+      expect(result.ok).toBe(true);
+    }
+
+    expect(await listMedia()).toHaveLength(3);
+    const limited = await listMedia({ limit: 2 });
+    expect(limited).toHaveLength(2);
+    // The limited read is a subset of the full one, not a different set.
+    const ids = new Set((await listMedia()).map((row) => row.id));
+    for (const row of limited) expect(ids.has(row.id)).toBe(true);
+  });
+
+  // The picker only needs these four fields; the old shape's thumbnail URL was
+  // never read and is gone, so a large library isn't walked for it.
+  test("toMediaOption carries only the picker's fields", async () => {
+    const result = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "A field",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    if (!result.ok) throw new Error("upload failed");
+
+    expect(Object.keys(toMediaOption(result.media)).sort()).toEqual([
+      "alt",
+      "height",
+      "id",
+      "width",
+    ]);
+    expect(toMediaOption(result.media).alt).toBe("A field");
   });
 
   test("refuses an animated WebP", async () => {

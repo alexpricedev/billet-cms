@@ -14,7 +14,11 @@ import {
   saveSlotDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
-import { listMediaOptions } from "../../services/media";
+import {
+  listMedia,
+  type MediaOption,
+  toMediaOption,
+} from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import { SlotForm, SlotUnavailable } from "../../templates/cms/slot-form";
 import { render404 } from "../../utils/errors";
@@ -126,14 +130,15 @@ export const renderSlotForm = async (
     publishCsrfToken,
     previewCsrfToken,
     navCsrfToken,
-    media,
+    mediaItems,
   ] = await Promise.all([
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/preview`),
     createCsrfToken(sessionId, "POST", "/auth/logout"),
-    listMediaOptions(),
+    listMedia({ limit: 50 }),
   ]);
+  const media: MediaOption[] = mediaItems.map(toMediaOption);
 
   return render(
     <SlotForm

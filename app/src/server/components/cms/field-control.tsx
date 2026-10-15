@@ -70,9 +70,37 @@ export interface FieldControlProps {
   labelOverride?: string;
   /** The CMS pages a `link` field may point at, for the internal-link picker. */
   pages?: PageOption[];
-  /** The uploads an `image` field may reuse, for its picker. */
+  /**
+   * The uploads an `image` field may reuse. The options themselves are rendered
+   * once per form by `MediaOptionsTemplate`; this only says whether a picker is
+   * worth showing, so a 400-upload library does not repeat 400 options in every
+   * image field.
+   */
   media?: MediaOption[];
 }
+
+/**
+ * The image picker's options, rendered once for the whole form.
+ *
+ * A form with many image fields — and several list rows each — would otherwise
+ * render the whole reuse list per field. The client copies options out of this
+ * one template into a picker when it is first focused, so the library is in the
+ * document once, not once per control.
+ */
+export const MediaOptionsTemplate = ({
+  media,
+}: {
+  media?: MediaOption[];
+}): JSX.Element | null =>
+  media && media.length > 0 ? (
+    <template data-media-options>
+      {media.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.alt} ({option.width}×{option.height})
+        </option>
+      ))}
+    </template>
+  ) : null;
 
 const describedBy = (...ids: (string | undefined)[]): string | undefined => {
   const present = ids.filter((id): id is string => Boolean(id));
@@ -401,19 +429,20 @@ export const FieldControl = ({
                 <option value="" selected={!image.mediaId}>
                   Choose an image…
                 </option>
-                {/* The picker writes the chosen id into the media-id input
-                    below; the id input stays the field's own value, so a
-                    hand-typed id and a with-JavaScript picker both work. */}
-                {media.map((option) => (
-                  <option
-                    key={option.id}
-                    value={option.id}
-                    selected={option.id === image.mediaId}
-                  >
-                    {option.alt} ({option.width}×{option.height})
+                {/* Only the current image, so a picker in a long page is cheap;
+                    the client fills the rest from the form's one options
+                    template when the picker is first focused. The label falls
+                    back to the id when the stored alt override is empty. */}
+                {image.mediaId && (
+                  <option value={asString(image.mediaId)} selected>
+                    {asString(image.alt) || asString(image.mediaId)}
                   </option>
-                ))}
+                )}
               </select>
+              <span className="cms-field-help">
+                Only the newest 50 uploads are listed. To reuse an older one,
+                find its id on the Media page.
+              </span>
             </>
           )}
           <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>

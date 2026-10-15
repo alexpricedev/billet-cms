@@ -1009,6 +1009,76 @@ describe("media picker", () => {
     ).toBe(MEDIA_ID);
     expect(buildContent(form()).photo).toEqual({ mediaId: MEDIA_ID });
   });
+
+  test("fills a picker from the form's options template on first focus", () => {
+    mount(`
+      <form data-cms-form>
+        <template data-media-options>
+          <option value="${MEDIA_ID}">A photo (800×400)</option>
+        </template>
+        <div data-field data-field-kind="image" data-field-name="photo">
+          <select data-image-picker>
+            <option value="">Choose an image…</option>
+          </select>
+          <input type="text" data-image-id value="">
+          <input type="text" data-image-alt value="">
+        </div>
+      </form>
+    `);
+
+    const picker = document.querySelector<HTMLSelectElement>(
+      "[data-image-picker]",
+    );
+    if (!picker) throw new Error("no picker");
+    expect(picker.options.length).toBe(1);
+
+    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
+    expect(picker.options.length).toBe(2);
+    expect(
+      picker.querySelector(`option[value="${MEDIA_ID}"]`)?.textContent,
+    ).toBe("A photo (800×400)");
+
+    // Filling twice does not duplicate the options.
+    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
+    expect(picker.options.length).toBe(2);
+  });
+
+  test("fills a picker in a list row added after the page loaded", () => {
+    mount(`
+      <form data-cms-form>
+        <template data-media-options>
+          <option value="${MEDIA_ID}">A photo (800×400)</option>
+        </template>
+        <div data-field data-field-kind="list" data-field-name="gallery" data-list>
+          <div data-list-items></div>
+          <template data-list-template>
+            <div data-list-item>
+              <div data-field data-field-kind="image" data-field-name="item">
+                <select data-image-picker>
+                  <option value="">Choose an image…</option>
+                </select>
+                <input type="text" data-image-id value="">
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>
+          </template>
+          <button type="button" data-list-add>Add item</button>
+        </div>
+      </form>
+    `);
+
+    const add = document.querySelector("[data-list-add]");
+    if (!add) throw new Error("no add button");
+    click(add);
+
+    const picker = document.querySelector<HTMLSelectElement>(
+      "[data-image-picker]",
+    );
+    if (!picker) throw new Error("no picker");
+    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
+    expect(picker.options.length).toBe(2);
+    expect(picker.querySelector(`option[value="${MEDIA_ID}"]`)).not.toBeNull();
+  });
 });
 
 describe("focal point picker", () => {

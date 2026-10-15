@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import { renderToString } from "preact-render-to-string";
-import { FieldControl } from "./field-control";
+import type { MediaOption } from "../../services/media";
+import { FieldControl, MediaOptionsTemplate } from "./field-control";
 
 const emptyDocument: RichTextDocument = { type: "doc", content: [] };
 
@@ -126,6 +127,72 @@ describe("FieldControl list", () => {
     );
 
     expect(single).toContain("Up to 1 item.");
+  });
+});
+
+describe("FieldControl image picker", () => {
+  const image: FieldMetadata = { name: "photo", kind: "image", required: true };
+  const media: MediaOption[] = [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      alt: "A photo",
+      width: 800,
+      height: 400,
+    },
+    {
+      id: "22222222-2222-4222-8222-222222222222",
+      alt: "B photo",
+      width: 1200,
+      height: 600,
+    },
+  ];
+  const unlisted = "33333333-3333-4333-8333-333333333333";
+
+  test("renders the reuse list once for the form, not once per field", () => {
+    const html = renderToString(
+      <div>
+        <MediaOptionsTemplate media={media} />
+        <FieldControl
+          field={image}
+          value={{ mediaId: media[0].id }}
+          idBase="cms-field-photo"
+          media={media}
+        />
+        <FieldControl
+          field={image}
+          value={{ mediaId: media[1].id }}
+          idBase="cms-field-other"
+          media={media}
+        />
+      </div>,
+    );
+
+    // One template for the whole form, so a 400-upload library is not repeated
+    // in every image field.
+    expect(count(html, "data-media-options")).toBe(1);
+    expect(count(html, "B photo (1200×600)")).toBe(1);
+  });
+
+  test("each picker shows its current image, even one not in the list", () => {
+    const html = renderToString(
+      <div>
+        <MediaOptionsTemplate media={media} />
+        <FieldControl
+          field={image}
+          value={{ mediaId: unlisted, alt: "Stored alt" }}
+          idBase="cms-field-photo"
+          media={media}
+        />
+      </div>,
+    );
+
+    // The picker's own option carries the stored alt, is selected, and is the
+    // only place that id appears — the template lists other uploads.
+    expect(html).toContain(
+      `<option value="${unlisted}" selected>Stored alt</option>`,
+    );
+    expect(count(html, `<option value="${unlisted}"`)).toBe(1);
+    expect(html).toContain("Only the newest 50 uploads are listed");
   });
 });
 

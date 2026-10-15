@@ -1,5 +1,8 @@
 import { ContentFields } from "../../components/cms/content-fields";
-import type { FieldError } from "../../components/cms/field-control";
+import {
+  type FieldError,
+  MediaOptionsTemplate,
+} from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
 import { getAssetUrl } from "../../services/assets";
 import type {
@@ -189,6 +192,9 @@ export const SlotForm = ({
 
       <form method="POST" action={`/cms/slots/${slot.id}`} data-cms-form>
         <input type="hidden" name="_csrf" value={formCsrfToken} />
+        {/* The reuse list, once for the form; each image picker is filled from
+            it on focus rather than repeating it per field. */}
+        <MediaOptionsTemplate media={media} />
         {/* The whole document, so a save without JavaScript round-trips the
             stored content unchanged. The editor rebuilds this on submit. */}
         <input

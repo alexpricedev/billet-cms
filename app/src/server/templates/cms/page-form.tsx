@@ -1,4 +1,5 @@
 import type { FieldError } from "../../components/cms/field-control";
+import { MediaOptionsTemplate } from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
 import { getAssetUrl } from "../../services/assets";
 import type {
@@ -256,6 +257,9 @@ export const PageForm = ({
           data-cms-form
         >
           <input type="hidden" name="_csrf" value={formCsrfToken} />
+          {/* The reuse list, once for the form; each image picker is filled
+              from it on focus rather than repeating it per field. */}
+          <MediaOptionsTemplate media={media} />
           {/* The whole document, so a save without JavaScript round-trips the
               stored content unchanged. The editor rebuilds this on submit. */}
           <input

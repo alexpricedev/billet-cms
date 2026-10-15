@@ -18,6 +18,11 @@
  * The fallback format follows the source: a PNG keeps its alpha in a PNG
  * fallback, everything else falls back to JPEG. WebP is the primary rendition
  * either way.
+ *
+ * Each width is decoded once and encoded twice (WebP and the fallback) from that
+ * frame, so a source with N widths decodes N + 1 times rather than 2N + 1. The
+ * widths are still processed one after another: holding every resized frame at
+ * once would put a 100-megapixel source's whole raw pixel budget in memory.
  */
 import {
   MAX_UPLOAD_PIXELS,
@@ -77,6 +82,45 @@ export const renditionWidths = (sourceWidth: number): number[] => {
 
 /** A sharp pipeline, as the helpers below take it. */
 type SharpImage = ReturnType<typeof sharp>;
+
+/** One resized frame's raw pixels, before it is encoded into both formats. */
+interface RawFrame {
+  data: Buffer;
+  width: number;
+  height: number;
+  channels: 1 | 2 | 3 | 4;
+}
+
+/**
+ * Resize a pipeline once and hand back its raw pixels.
+ *
+ * The frame is decoded exactly once per width: encoding it into WebP and the
+ * fallback from the same buffer is what takes a source from `1 + 2N` decodes to
+ * `1 + N`. Widths still run one after another (see `processImage`), so peak
+ * memory stays one frame at a time rather than every width held at once.
+ */
+const resizeToRaw = async (
+  image: SharpImage,
+  width: number,
+): Promise<RawFrame> => {
+  const { data, info } = await image
+    .clone()
+    .resize({ width, withoutEnlargement: true })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return {
+    data,
+    width: info.width,
+    height: info.height,
+    channels: info.channels as 1 | 2 | 3 | 4,
+  };
+};
+
+/** A fresh pipeline over one resized frame, ready to encode. */
+const fromRaw = (frame: RawFrame): SharpImage =>
+  sharp(frame.data, {
+    raw: { width: frame.width, height: frame.height, channels: frame.channels },
+  });
 
 /** Encode a pipeline as WebP, returning the bytes and the output dimensions. */
 const encodeWebp = async (
@@ -150,10 +194,14 @@ export const processImage = async (
 
   const renditions: ProcessedRendition[] = [];
   for (const width of renditionWidths(original.width)) {
-    const resized = source.clone().resize({ width, withoutEnlargement: true });
-    const webp = await encodeWebp(resized);
+    // One decode per width, then both encodes from that frame in parallel.
+    // Widths run in turn so only one resized frame is decoded at a time.
+    const frame = await resizeToRaw(source, width);
     const fallbackFormat = fallbackFor(format);
-    const fallback = await encodeFallback(resized, fallbackFormat.encoder);
+    const [webp, fallback] = await Promise.all([
+      encodeWebp(fromRaw(frame)),
+      encodeFallback(fromRaw(frame), fallbackFormat.encoder),
+    ]);
     renditions.push({
       width: fallback.width,
       height: fallback.height,
