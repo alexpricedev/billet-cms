@@ -100,13 +100,13 @@ set these once per page.
 
 ## 3. Adding a new public page to the sitemap
 
-The sitemap is generated, not hand-maintained. To include a new indexable page:
-
-1. Add its canonical path to `SITEMAP_PATHS` in
-   [`src/server/services/seo.ts`](../src/server/services/seo.ts).
-2. That's it — `/sitemap.xml` (served by
-   [`controllers/app/sitemap.ts`](../src/server/controllers/app/sitemap.ts))
-   rebuilds from that list on every request.
+The CMS serves no public pages of its own — the root redirects to the guarded
+`/cms` surface, and `/account`, `/cms`, the API and the sign-in handoff are
+private or `noindex` — so `/sitemap.xml` (served by
+[`controllers/app/sitemap.ts`](../src/server/controllers/app/sitemap.ts)) is an
+empty `<urlset>`. A site that adds its own public page contributes that page's
+own sitemap entry rather than editing the CMS: the sitemap route is generated,
+not hand-maintained, and the CMS keeps no list of site pages.
 
 Only list **canonical, indexable, public** URLs. Do **not** add `noindex` pages
 (`/account`, `/cms`), API endpoints, auth callbacks, or paginated/filtered
