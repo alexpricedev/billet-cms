@@ -15,27 +15,29 @@ const SERVER = "src/server";
 // The one place the client talks to the server and parses what comes back.
 const NETWORK_AND_MARKUP_ALLOWED = new Set([`${CLIENT}/reactive/request.ts`]);
 
-// Minified bytes for the main entry point. It is 9.1 KB at the time of
-// writing, and an application component costs 1–2 KB — contact-directory and a
-// two-part comment thread, built to test this layer, cost 1.6 KB and 2.2 KB.
+// Minified bytes for the main entry point. It is 5,292 bytes (5.17 KiB) at the
+// time of writing, and an application component costs 1–2 KiB — contact-directory
+// and a two-part comment thread, built to test this layer, cost 1.6 KiB and
+// 2.2 KiB.
 //
-// So the headroom is the number that matters, not the ceiling: 16 KB leaves
-// room for roughly four more components before a deliberate decision is
-// needed. It was 12 KB, which sounds generous and is three components, and the
-// fourth tripped a failure message accusing code that was doing exactly what
-// this layer is for. Raise it again only with the same arithmetic written
-// down — the number moving is the signal that something is being built on the
-// client that belongs on the server.
+// So the headroom is the number that matters, not the ceiling: 16,000 bytes
+// (15.6 KiB) leaves room for roughly five more components at that size before a
+// deliberate decision is needed. It was 12,000 bytes, which sounds generous but
+// left room for barely one more component, and the next one tripped a failure
+// message accusing code that was doing exactly what this layer is for. Raise it
+// again only with the same arithmetic written down — the number moving is the
+// signal that something is being built on the client that belongs on the
+// server.
 const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 
-// Minified bytes for the block editor, `cms-form.ts`. It is 8.6 KB at the time
-// of writing. This is the one recorded exception to "the client is presentation
-// only" (AGENTS.md): a contenteditable rich-text field, repeatable rows and the
-// media focal picker need client JS, and the script is kept to walking the
-// server-rendered DOM back into the hidden `content` field. 12 KB leaves room
-// for a small editor feature before a deliberate decision is needed — the same
-// arithmetic as the main bundle above, and the number moving is the signal that
-// the editor is growing into an application.
+// Minified bytes for the block editor, `cms-form.ts`. It is 9,751 bytes
+// (9.52 KiB) at the time of writing. This is the one recorded exception to "the
+// client is presentation only" (AGENTS.md): a contenteditable rich-text field,
+// repeatable rows and the media focal picker need client JS, and the script is
+// kept to walking the server-rendered DOM back into the hidden `content` field.
+// 12,000 bytes leaves room for a small editor feature before a deliberate
+// decision is needed — the same arithmetic as the main bundle above, and the
+// number moving is the signal that the editor is growing into an application.
 const CMS_FORM_BUNDLE_BUDGET_BYTES = 12_000;
 
 const sources = (root: string): string[] =>

@@ -3,8 +3,8 @@ import { CsrfField } from "./csrf-field";
 
 // Public links in the nav. The CMS has no public pages of its own — the root
 // redirects to the guarded /cms surface, and the sign-in route hands off to the
-// site — so this list is empty. The Forms demo that used to sit here was
-// removed (14 Oct); a new public CMS page adds an entry.
+// site — so this list is empty. The Forms demo that used to sit here is gone;
+// a new public CMS page adds an entry.
 const navLinks: readonly { href: string; label: string; name: string }[] = [];
 
 // The CMS's own surface, shown only to someone signed in.
