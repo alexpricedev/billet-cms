@@ -1,4 +1,7 @@
-import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
+import {
+  type FieldMetadata,
+  MAX_ALT_LENGTH,
+} from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
@@ -476,6 +479,7 @@ export const FieldControl = ({
             placeholder="Alt text"
             aria-label={controlId ? undefined : "Alt text"}
             value={asString(image.alt)}
+            maxLength={MAX_ALT_LENGTH}
           />
           <FieldErrors errors={errors} id={errorId} />
           {field.image?.minWidth && (

@@ -184,6 +184,15 @@ describe("preview tokens", () => {
     expect(previewSiteOrigin("not a url")).toBeNull();
   });
 
+  // A non-http(s) value parses as a URL (`ftp:` even has a real origin string),
+  // so a bare parse would mint a token and then open a link no page can follow.
+  // The scheme rule is the one `httpOrigin` shares with the CSP's media origin.
+  test("previewSiteOrigin refuses a scheme that isn't http(s)", () => {
+    expect(previewSiteOrigin("ftp://example.com")).toBeNull();
+    expect(previewSiteOrigin("javascript:alert(1)")).toBeNull();
+    expect(previewSiteOrigin("mailto:editor@example.com")).toBeNull();
+  });
+
   test("a page token renders the draft, a bad token the published page", async () => {
     // Publish one revision, then save a newer draft on top.
     const saved = await savePageDraft({

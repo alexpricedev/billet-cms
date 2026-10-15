@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 import {
   DEFAULT_FOCAL_POINT,
   type FocalPoint,
+  MAX_ALT_LENGTH,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_PIXELS,
   type MediaVariant,
@@ -57,12 +58,13 @@ export interface MediaRecord {
 /**
  * The longest alt text the CMS stores, in characters.
  *
- * Alt text describes one image for a screen reader; a good description is a
- * sentence, and anything past a few hundred characters has stopped being one.
- * The cap is generous enough never to bite real copy and small enough that a
- * post can't stuff an unbounded string into every page that renders the image.
+ * Re-exported from the contract so the media service, the generated form
+ * controls and the site's own `image()` schema all read the one value: the cap
+ * on a stored upload's alt and the cap on a per-use `alt` override must be the
+ * same number, or a value the editor is allowed to type becomes one the save
+ * refuses. The rationale lives on the constant in `@alexpricedev/billet-cms/contract`.
  */
-export const MAX_ALT_LENGTH = 1000;
+export { MAX_ALT_LENGTH };
 
 /**
  * Enough of an upload for a picker or a reuse list.

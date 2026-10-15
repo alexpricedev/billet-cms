@@ -7,6 +7,7 @@ import {
   DEFAULT_FOCAL_POINT,
   hashJson,
   isCmsRelation,
+  MAX_ALT_LENGTH,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_PIXELS,
   MEDIA_WIDTHS,
@@ -110,6 +111,10 @@ describe("media contract", () => {
     ]);
     expect(ALLOWED_UPLOAD_TYPES).not.toContain("image/svg+xml");
     expect(ALLOWED_UPLOAD_TYPES).not.toContain("image/gif");
+  });
+
+  test("caps alt text so both the stored upload and a per-use override agree", () => {
+    expect(MAX_ALT_LENGTH).toBe(1000);
   });
 
   test("starts a new upload at its centre", () => {

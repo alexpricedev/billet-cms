@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
+import {
+  type FieldMetadata,
+  MAX_ALT_LENGTH,
+} from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import { renderToString } from "preact-render-to-string";
 import { MEDIA_PICKER_LIMIT, type MediaOption } from "../../services/media";
@@ -216,6 +219,20 @@ describe("FieldControl image picker", () => {
     expect(html).not.toContain(
       `<option value="${unlisted}" selected>${unlisted}</option>`,
     );
+  });
+
+  test("caps the per-use alt override input at the shared limit", () => {
+    const html = renderToString(
+      <FieldControl
+        field={image}
+        value={{ mediaId: unlisted, alt: "Stored alt" }}
+        idBase="cms-field-photo"
+      />,
+    );
+    const alt = /<input[^>]*data-image-alt[^>]*>/.exec(html)?.[0] ?? "";
+
+    // Preact lower-cases the attribute in the rendered HTML.
+    expect(alt).toContain(`maxlength="${MAX_ALT_LENGTH}"`);
   });
 
   test("shows the reuse help, tied to the picker, only when the list is capped", () => {
