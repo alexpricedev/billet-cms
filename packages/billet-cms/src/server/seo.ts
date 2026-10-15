@@ -64,6 +64,8 @@ const absolute = (siteUrl: string, path: string): string => {
  * The title and canonical path are the page's own; the description falls back to
  * the site's default so an unset SEO description never renders an empty
  * `<meta name="description">`, which the runbook treats as a per-page omission.
+ * A description that is only whitespace counts as unset and falls back too, so
+ * an editor who clears the field gets the site default rather than a blank tag.
  */
 export const pageSeo = (
   page: CmsPage,
@@ -77,7 +79,8 @@ export const pageSeo = (
 
   return {
     title: page.title,
-    description: page.seoDescription ?? options.fallbackDescription ?? "",
+    description:
+      page.seoDescription?.trim() || options.fallbackDescription?.trim() || "",
     canonicalPath: page.url,
     socialImage,
   };
@@ -93,22 +96,32 @@ export interface SeoTagOptions {
  *
  * Mirrors the runbook's `Layout` (canonical, `og:title`/`description`/`url`/`type`
  * and the `twitter:*` mirror) and adds the page's social image where the layout
- * would otherwise always use the site default. Values are escaped: a page title
- * is editor input, and an attribute is exactly where an unescaped quote becomes
- * markup.
+ * would otherwise always use the site default. An empty description omits both
+ * description tags rather than rendering `content=""`, which the runbook treats
+ * as a per-page omission. Values are escaped: a page title is editor input, and
+ * an attribute is exactly where an unescaped quote becomes markup.
  */
 export const renderSeoTags = (seo: PageSeo, options: SeoTagOptions): string => {
   const canonical = absolute(options.siteUrl, seo.canonicalPath);
-  const description = escapeHtml(seo.description);
   const title = escapeHtml(seo.title);
+  const description = escapeHtml(seo.description);
 
   const tags = [
     `<link rel="canonical" href="${escapeHtml(canonical)}">`,
     `<meta property="og:title" content="${title}">`,
-    `<meta property="og:description" content="${description}">`,
-    `<meta property="og:url" content="${escapeHtml(canonical)}">`,
-    `<meta property="og:type" content="website">`,
   ];
+
+  // An empty description is a per-page omission, not an empty tag: a site with
+  // no fallback for a page that never set one leaves both description tags out
+  // rather than rendering `content=""`.
+  if (seo.description !== "") {
+    tags.push(`<meta property="og:description" content="${description}">`);
+  }
+
+  tags.push(
+    `<meta property="og:url" content="${escapeHtml(canonical)}">`,
+    '<meta property="og:type" content="website">',
+  );
 
   if (seo.socialImage) {
     tags.push(
@@ -116,11 +129,11 @@ export const renderSeoTags = (seo: PageSeo, options: SeoTagOptions): string => {
     );
   }
 
-  tags.push(
-    '<meta name="twitter:card" content="summary_large_image">',
-    `<meta name="twitter:title" content="${title}">`,
-    `<meta name="twitter:description" content="${description}">`,
-  );
+  tags.push('<meta name="twitter:card" content="summary_large_image">');
+  tags.push(`<meta name="twitter:title" content="${title}">`);
+  if (seo.description !== "") {
+    tags.push(`<meta name="twitter:description" content="${description}">`);
+  }
 
   if (seo.socialImage) {
     tags.push(

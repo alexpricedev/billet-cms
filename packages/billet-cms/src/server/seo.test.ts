@@ -33,6 +33,20 @@ describe("pageSeo", () => {
     expect(seo.description).toBe("The site default.");
   });
 
+  test("treats a whitespace-only description as unset", () => {
+    const seo = pageSeo(page({ seoDescription: "   " }), {
+      fallbackDescription: "The site default.",
+    });
+    expect(seo.description).toBe("The site default.");
+  });
+
+  test("trims the fallback so a padded default is not the tag's value", () => {
+    const seo = pageSeo(page({ seoDescription: null }), {
+      fallbackDescription: "  The site default.  ",
+    });
+    expect(seo.description).toBe("The site default.");
+  });
+
   test("resolves a relative social image against the canonical origin", () => {
     const seo = pageSeo(page({ socialImage: "/og/about.png" }), {
       siteUrl: SITE,
@@ -94,6 +108,22 @@ describe("renderSeoTags", () => {
 
     expect(html).not.toContain("<script>");
     expect(html).toContain("&quot;&gt;&lt;script&gt;");
+  });
+
+  // A page that never set a description, on a site with no fallback, must not
+  // render an empty tag: the runbook treats it as a per-page omission.
+  test("leaves out both description tags when there is no description", () => {
+    const html = renderSeoTags(pageSeo(page({ seoDescription: null })), {
+      siteUrl: SITE,
+    });
+
+    expect(html).not.toContain("og:description");
+    expect(html).not.toContain("twitter:description");
+    // The rest of the tags are unaffected.
+    expect(html).toContain('<meta property="og:title" content="About us">');
+    expect(html).toContain(
+      '<meta name="twitter:card" content="summary_large_image">',
+    );
   });
 
   test("does not throw when the canonical origin can't resolve a path", () => {
