@@ -54,10 +54,15 @@ export const absolute = (path: string): string => new URL(path, siteUrl()).href;
 // guarded `/cms` surface, and /account, /cms, the API and the sign-in handoff
 // are private or noindex. So the sitemap is an empty <urlset> by default; the
 // /sitemap.xml route stays so a site that adds a public page can extend it.
-export const buildSitemapXml = (): string =>
+//
+// `paths` are site-declared constants, not request input: the CMS passes none,
+// and the parameter is the seam a site fork uses to list its own public pages
+// (see `runbooks/SEO.md` §3).
+export const buildSitemapXml = (paths: readonly string[] = []): string =>
   [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...paths.map((path) => `  <url><loc>${absolute(path)}</loc></url>`),
     "</urlset>",
     "",
   ].join("\n");
