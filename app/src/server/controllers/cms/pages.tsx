@@ -30,6 +30,7 @@ import {
 import { createCsrfToken } from "../../services/csrf";
 import {
   listMedia,
+  MEDIA_PICKER_LIMIT,
   type MediaOption,
   toMediaOption,
 } from "../../services/media";
@@ -184,7 +185,7 @@ export const renderPageForm = async (
     listBlockTypes(),
     listPageTypes(),
     listPageOptions(),
-    listMedia({ limit: 50 }),
+    listMedia({ limit: MEDIA_PICKER_LIMIT }),
     getLatestRevision("page", page.id),
   ]);
   const media: MediaOption[] = mediaItems.map(toMediaOption);

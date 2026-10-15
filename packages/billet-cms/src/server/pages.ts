@@ -31,7 +31,7 @@
  * wraps the rendered page in the banner and the no-cache headers.
  */
 import type { SQL } from "bun";
-import { TABLES } from "../contract";
+import { PREVIEW_QUERY_PARAM, TABLES } from "../contract";
 import type { LinkValue } from "../fields/field";
 import { sameOriginPath } from "../fields/path";
 import type { PreviewAccess } from "../preview";
@@ -361,56 +361,26 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
    * the fallback, but it is the best available.
    */
   let lastGoodRoutes: RouteTable | null = null;
-  /** The last routes failure with nothing good to serve, and when it happened. */
+  /**
+   * The last routes failure and when it happened, for the back-off.
+   *
+   * Kept whether or not there is a last good table, so a database that is still
+   * failing is queried at most once per poll interval rather than once per
+   * request — the failure must not be frozen into the cache, but it must not be
+   * re-attempted on every read either.
+   */
   let routesError: { error: unknown; at: number } | null = null;
   /** When "serving the last good table" was last reported, for the back-off. */
   let routesErrorLoggedAt = Number.NEGATIVE_INFINITY;
   const pollMs = options.versionPollMs ?? CONTENT_VERSION_POLL_MS;
 
-  /**
-   * Load the routing table, tolerating a failure.
-   *
-   * With a last good table, the failure is logged once per interval and that
-   * table is served, so a site keeps its links and 301s while the database is
-   * briefly unreachable. With none (the first read after boot), the failure is
-   * remembered for one poll interval so a broken database is queried at most
-   * once a second rather than once per request, and re-thrown for the caller to
-   * report.
-   */
-  const loadRoutesResilient = async (): Promise<RouteTable> => {
-    const now = options.now?.() ?? Date.now();
-    if (
-      lastGoodRoutes === null &&
-      routesError !== null &&
-      now - routesError.at < pollMs
-    ) {
-      throw routesError.error;
-    }
-
-    try {
-      const routes = await loadRoutes(sql);
-      lastGoodRoutes = routes;
-      routesError = null;
-      return routes;
-    } catch (error) {
-      if (lastGoodRoutes !== null) {
-        if (now - routesErrorLoggedAt >= pollMs) {
-          onSkip(
-            `could not read the CMS routing table, serving the last good one: ${describe(error)}`,
-          );
-          routesErrorLoggedAt = now;
-        }
-        return lastGoodRoutes;
-      }
-      routesError = { error, at: now };
-      throw error;
-    }
-  };
-
   // One loader dispatching on the key: `ContentCache` caches one value per key
   // but has a single `load`, so the key is what tells it what to read on a miss.
+  // The routes load stays strict: a throw is a miss the cache does not store, so
+  // a transient failure can't be cached under the current version and outlive
+  // the outage. `routes()` below is what turns that throw into a fallback.
   const loadByKey = async (key: string): Promise<unknown> => {
-    if (key === "routes") return await loadRoutesResilient();
+    if (key === "routes") return await loadRoutes(sql);
     const prefix = "page:";
     if (key.startsWith(prefix)) return await loadPage(key.slice(prefix.length));
     return null;
@@ -428,6 +398,47 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       : {}),
   });
 
+  /**
+   * Load the routing table, tolerating a failure.
+   *
+   * The cache read is strict, so a failure never lands in the cache; this is
+   * where it becomes a fallback. With a last good table, the failure is logged
+   * once per interval and that table is served, so a site keeps its links and
+   * 301s while the database is briefly unreachable. With none (the first read
+   * after boot), the failure is remembered for one poll interval so a broken
+   * database is queried at most once a second rather than once per request, and
+   * re-thrown for the caller to report. The next successful load replaces the
+   * fallback and clears the failure, so a recovered database is seen on the
+   * first read past the interval.
+   */
+  const routes = async (): Promise<RouteTable> => {
+    const now = options.now?.() ?? Date.now();
+    if (routesError !== null && now - routesError.at < pollMs) {
+      if (lastGoodRoutes !== null) return lastGoodRoutes;
+      throw routesError.error;
+    }
+
+    try {
+      const table = (await cache.get("routes")) as RouteTable;
+      lastGoodRoutes = table;
+      routesError = null;
+      return table;
+    } catch (error) {
+      const failedAt = options.now?.() ?? Date.now();
+      routesError = { error, at: failedAt };
+      if (lastGoodRoutes !== null) {
+        if (failedAt - routesErrorLoggedAt >= pollMs) {
+          onSkip(
+            `could not read the CMS routing table, serving the last good one: ${describe(error)}`,
+          );
+          routesErrorLoggedAt = failedAt;
+        }
+        return lastGoodRoutes;
+      }
+      throw error;
+    }
+  };
+
   return {
     async getPage(
       path: string,
@@ -441,8 +452,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
         // from it while the editor is looking at an unpublished change.
         if (preview) return await loadPreviewPage(canonical, preview);
 
-        const routes = (await cache.get("routes")) as RouteTable;
-        const pageId = routes.byUrl.get(canonical);
+        const table = await routes();
+        const pageId = table.byUrl.get(canonical);
         // A miss is a 404, not a query: no page is loaded and no cache entry is
         // keyed by the path that wasn't there.
         if (!pageId) return null;
@@ -456,8 +467,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async getRedirect(path: string): Promise<string | null> {
       const canonical = canonicalPath(path);
       try {
-        const routes = (await cache.get("routes")) as RouteTable;
-        return routes.redirects.get(canonical) ?? null;
+        const table = await routes();
+        return table.redirects.get(canonical) ?? null;
       } catch (error) {
         onSkip(`could not read redirect "${canonical}": ${describe(error)}`);
         return null;
@@ -467,8 +478,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async resolveLink(link: LinkValue): Promise<string | null> {
       if (link.type === "url") return link.url;
       try {
-        const routes = (await cache.get("routes")) as RouteTable;
-        return routes.byId.get(link.pageId) ?? null;
+        const table = await routes();
+        return table.byId.get(link.pageId) ?? null;
       } catch (error) {
         onSkip(
           `could not resolve a link to page "${link.pageId}": ${describe(error)}`,
@@ -571,13 +582,16 @@ export const createCmsPageRoute = (
     const redirected = await reader.getRedirect(url.pathname);
     const location = redirected === null ? null : sameOriginPath(redirected);
     if (location !== null) {
+      // A redirect that carries a preview token is part of a previewed read, so
+      // it must not be cached; the target page's own response is `no-store` too.
+      // Any other rename is rare and stable, so a browser may keep the 301 for
+      // an hour rather than asking on every visit.
+      const carriesPreview = url.searchParams.has(PREVIEW_QUERY_PARAM);
       return new Response("", {
         status: 301,
         headers: {
           Location: `${location}${url.search}`,
-          // A rename is rare and the target is stable, so a browser may keep the
-          // 301 for an hour rather than asking on every visit.
-          "Cache-Control": "public, max-age=3600",
+          "Cache-Control": carriesPreview ? "no-store" : "public, max-age=3600",
         },
       });
     }

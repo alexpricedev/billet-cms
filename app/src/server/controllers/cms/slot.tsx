@@ -16,6 +16,7 @@ import {
 import { createCsrfToken } from "../../services/csrf";
 import {
   listMedia,
+  MEDIA_PICKER_LIMIT,
   type MediaOption,
   toMediaOption,
 } from "../../services/media";
@@ -136,7 +137,7 @@ export const renderSlotForm = async (
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/preview`),
     createCsrfToken(sessionId, "POST", "/auth/logout"),
-    listMedia({ limit: 50 }),
+    listMedia({ limit: MEDIA_PICKER_LIMIT }),
   ]);
   const media: MediaOption[] = mediaItems.map(toMediaOption);
 

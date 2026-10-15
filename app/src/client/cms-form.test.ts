@@ -1043,6 +1043,39 @@ describe("media picker", () => {
     expect(picker.options.length).toBe(2);
   });
 
+  // The server renders a current image with only a fallback label; when the
+  // template lists that same image, filling relabels the existing option from
+  // it rather than skipping it and leaving the fallback (review round 1, item 2).
+  test("relabels a current image that is also in the newest uploads", () => {
+    mount(`
+      <form data-cms-form>
+        <template data-media-options>
+          <option value="${MEDIA_ID}">A photo (800×400)</option>
+        </template>
+        <div data-field data-field-kind="image" data-field-name="photo">
+          <select data-image-picker>
+            <option value="">Choose an image…</option>
+            <option value="${MEDIA_ID}" selected>Current image</option>
+          </select>
+          <input type="text" data-image-id value="${MEDIA_ID}">
+          <input type="text" data-image-alt value="">
+        </div>
+      </form>
+    `);
+
+    const picker = document.querySelector<HTMLSelectElement>(
+      "[data-image-picker]",
+    );
+    if (!picker) throw new Error("no picker");
+    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
+
+    expect(picker.options.length).toBe(2);
+    expect(
+      picker.querySelector(`option[value="${MEDIA_ID}"]`)?.textContent,
+    ).toBe("A photo (800×400)");
+    expect(picker.value).toBe(MEDIA_ID);
+  });
+
   test("fills a picker in a list row added after the page loaded", () => {
     mount(`
       <form data-cms-form>

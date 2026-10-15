@@ -371,4 +371,90 @@ describe("ContentCache", () => {
     expect(await cache.get("home.hero")).toBe("2:home.hero:fresh");
     expect(state.loads).toBe(2);
   });
+
+  // A version read that hangs must not hold every read in the process behind
+  // it: once it is older than the interval it is abandoned, not joined.
+  test("does not join a version read that has been in flight too long", async () => {
+    const state = { now: 0, reads: 0 };
+    const cache = new ContentCache<string>({
+      readVersion: () => {
+        state.reads += 1;
+        // The first read never settles, the way a hung query would not.
+        if (state.reads === 1) return new Promise<number>(() => {});
+        return Promise.resolve(1);
+      },
+      load: async (key) => key,
+      now: () => state.now,
+      intervalMs: 1000,
+    });
+
+    const hung = cache.version();
+    state.now = 1000;
+    expect(await cache.version()).toBe(1);
+    expect(state.reads).toBe(2);
+    void hung;
+  });
+
+  // The same for a key's load: a hung load is not shared forever, so the key
+  // still resolves for later callers instead of every read stalling on it.
+  test("does not join a load that has been in flight too long", async () => {
+    const state = { now: 0, loads: 0 };
+    const loadStarted = Promise.withResolvers<void>();
+    const cache = new ContentCache<string>({
+      readVersion: async () => 1,
+      load: (key) => {
+        state.loads += 1;
+        if (state.loads === 1) {
+          loadStarted.resolve();
+          return new Promise<string>(() => {});
+        }
+        return Promise.resolve(`fresh:${key}`);
+      },
+      now: () => state.now,
+      intervalMs: 1000,
+    });
+
+    const hung = cache.get("home.hero");
+    // Wait for the load to actually start under `now` before aging it.
+    await loadStarted.promise;
+    state.now = 1000;
+    expect(await cache.get("home.hero")).toBe("fresh:home.hero");
+    expect(state.loads).toBe(2);
+    void hung;
+  });
+
+  // invalidate() during an in-flight load must drop that load too: the value it
+  // read is from before the reset, so it is neither returned-to-cache nor
+  // joined by the next read.
+  test("does not cache a load that was in flight across invalidate", async () => {
+    const state = { loads: 0 };
+    let release!: (value: string) => void;
+    const started = Promise.withResolvers<void>();
+    const cache = new ContentCache<string>({
+      readVersion: async () => 1,
+      load: (key) => {
+        state.loads += 1;
+        if (state.loads === 1) {
+          started.resolve();
+          return new Promise<string>((resolve) => {
+            release = resolve;
+          });
+        }
+        return Promise.resolve(`fresh:${key}`);
+      },
+      now: () => 0,
+      intervalMs: 1000,
+    });
+
+    const pending = cache.get("home.hero");
+    await started.promise;
+    cache.invalidate();
+    release("stale");
+
+    // The caller still gets what it read...
+    expect(await pending).toBe("stale");
+    // ...but the reset stands: the load is not cached and the next read reloads.
+    expect(await cache.get("home.hero")).toBe("fresh:home.hero");
+    expect(state.loads).toBe(2);
+  });
 });

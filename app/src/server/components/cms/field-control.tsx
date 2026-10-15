@@ -2,7 +2,7 @@ import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
-import type { MediaOption } from "../../services/media";
+import { MEDIA_PICKER_LIMIT, type MediaOption } from "../../services/media";
 import { RichTextView } from "./rich-text";
 
 /**
@@ -425,24 +425,36 @@ export const FieldControl = ({
                 id={idFor("pick")}
                 data-image-picker
                 aria-label={controlId ? undefined : "Reuse an upload"}
+                aria-describedby={
+                  media.length >= MEDIA_PICKER_LIMIT
+                    ? idFor("pick-help")
+                    : undefined
+                }
               >
                 <option value="" selected={!image.mediaId}>
                   Choose an image…
                 </option>
                 {/* Only the current image, so a picker in a long page is cheap;
                     the client fills the rest from the form's one options
-                    template when the picker is first focused. The label falls
-                    back to the id when the stored alt override is empty. */}
+                    template when the picker is first focused, relabelling this
+                    option when the current image is one of them. The label falls
+                    back to "Current image" when the stored alt override is
+                    empty, so a raw id is never shown as a label. */}
                 {image.mediaId && (
                   <option value={asString(image.mediaId)} selected>
-                    {asString(image.alt) || asString(image.mediaId)}
+                    {asString(image.alt) || "Current image"}
                   </option>
                 )}
               </select>
-              <span className="cms-field-help">
-                Only the newest 50 uploads are listed. To reuse an older one,
-                find its id on the Media page.
-              </span>
+              {/* Only when the reuse list was actually capped: a library with
+                  fewer than the cap lists everything, so there is nothing older
+                  to go looking for. */}
+              {media.length >= MEDIA_PICKER_LIMIT && (
+                <span className="cms-field-help" id={idFor("pick-help")}>
+                  Showing the newest {MEDIA_PICKER_LIMIT} uploads. For an older
+                  one, paste its id under Media id.
+                </span>
+              )}
             </>
           )}
           <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>

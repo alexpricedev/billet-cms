@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import { renderToString } from "preact-render-to-string";
-import type { MediaOption } from "../../services/media";
+import { MEDIA_PICKER_LIMIT, type MediaOption } from "../../services/media";
 import { FieldControl, MediaOptionsTemplate } from "./field-control";
 
 const emptyDocument: RichTextDocument = { type: "doc", content: [] };
@@ -192,7 +192,55 @@ describe("FieldControl image picker", () => {
       `<option value="${unlisted}" selected>Stored alt</option>`,
     );
     expect(count(html, `<option value="${unlisted}"`)).toBe(1);
-    expect(html).toContain("Only the newest 50 uploads are listed");
+    // Two uploads is below the cap, so the "older ones" help line is not shown.
+    expect(html).not.toContain("Showing the newest");
+  });
+
+  // A current image with no stored alt override used to render its raw id as the
+  // option's label (review round 1, item 2).
+  test("labels a current image with no stored alt as 'Current image'", () => {
+    const html = renderToString(
+      <FieldControl
+        field={image}
+        value={{ mediaId: unlisted }}
+        idBase="cms-field-photo"
+        media={media}
+      />,
+    );
+
+    expect(html).toContain(
+      `<option value="${unlisted}" selected>Current image</option>`,
+    );
+    expect(html).not.toContain(
+      `<option value="${unlisted}" selected>${unlisted}</option>`,
+    );
+  });
+
+  test("shows the reuse help, tied to the picker, only when the list is capped", () => {
+    const capped: MediaOption[] = Array.from(
+      { length: MEDIA_PICKER_LIMIT },
+      (_, index) => ({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        alt: `Photo ${index}`,
+        width: 800,
+        height: 400,
+      }),
+    );
+    const html = renderToString(
+      <div>
+        <MediaOptionsTemplate media={capped} />
+        <FieldControl
+          field={image}
+          value={{ mediaId: capped[0].id, alt: "First" }}
+          idBase="cms-field-photo"
+          media={capped}
+        />
+      </div>,
+    );
+
+    expect(html).toContain("Showing the newest 50 uploads");
+    expect(html).toContain('id="cms-field-photo-pick-help"');
+    expect(html).toContain('aria-describedby="cms-field-photo-pick-help"');
   });
 });
 

@@ -280,20 +280,17 @@ export const createMedia = async (
     });
   }
 
-  // The puts run together rather than in turn; every one that lands is
-  // remembered, so a failure mid-batch can still delete exactly what was
-  // written. `allSettled` means one bad put does not abandon the others'
-  // cleanup.
-  const written: string[] = [];
+  // The puts run together rather than in turn. `allSettled` lets every put be
+  // attempted even when one fails, and cleanup deletes *every* key the upload
+  // could have written rather than only the puts that reported success: a put
+  // that rejects may still have landed its object, so deleting by outcome would
+  // leak it. Deleting a key that was never written is harmless.
   try {
     const results = await Promise.allSettled(
       objects.map((object) =>
         storage.put(object.key, object.body, object.contentType),
       ),
     );
-    for (const [index, result] of results.entries()) {
-      if (result.status === "fulfilled") written.push(objects[index].key);
-    }
     const failed = results.find(
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
@@ -321,11 +318,11 @@ export const createMedia = async (
     // A half-written upload is cleaned up rather than left as orphan objects;
     // a failure here is logged and dropped, because the row is what matters.
     await Promise.all(
-      written.map((key) =>
-        storage.delete(key).catch((cleanupError) => {
+      objects.map((object) =>
+        storage.delete(object.key).catch((cleanupError) => {
           log.warn(
             "media",
-            `Could not clean up ${key} after a failed upload: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+            `Could not clean up ${object.key} after a failed upload: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
           );
         }),
       ),
@@ -349,12 +346,23 @@ export interface ListMediaOptions {
 }
 
 /**
+ * The newest uploads the page and slot forms offer for reuse.
+ *
+ * A library can hold thousands of images; shipping them all into every form
+ * would make the page heavy and the picker unusable. The forms list only this
+ * many newest, and an editor who needs an older one pastes its id, which the
+ * media detail page prints.
+ */
+export const MEDIA_PICKER_LIMIT = 50;
+
+/**
  * The library, newest first.
  *
- * Pass `limit` for a picker list; the page and slot forms ask for the newest 50
- * rather than shipping the whole library into every form. This is the one read
- * both the library page and the pickers use, so a picker and a list can't drift.
- * `LIMIT NULL` is Postgres for "no limit", so one query serves both shapes.
+ * Pass `limit` for a picker list; the page and slot forms ask for
+ * `MEDIA_PICKER_LIMIT` rather than shipping the whole library into every form.
+ * This is the one read both the library page and the pickers use, so a picker
+ * and a list can't drift. `LIMIT NULL` is Postgres for "no limit", so one query
+ * serves both shapes.
  */
 export const listMedia = async (
   options: ListMediaOptions = {},

@@ -54,9 +54,9 @@ export const createS3MediaStorage = (config: S3StorageConfig): MediaStorage => {
       // Bun 1.4's `S3Options` has no cache-control field, so the long-lived
       // header on a media object is a bucket or CDN rule rather than a
       // per-object one: set `Cache-Control: public, max-age=31536000, immutable`
-      // on `media/*` (the README's Images section documents it). Object keys
-      // carry a UUID per upload and are never rewritten, so immutable is safe.
-      // When Bun lets a put set the header, set it here instead.
+      // on `media/*` (documented in `packages/billet-cms/README.md`). Object
+      // keys carry a UUID per upload and are never rewritten, so immutable is
+      // safe. When Bun lets a put set the header, set it here instead.
       await client.write(key, body, { type: contentType });
     },
     async delete(key) {

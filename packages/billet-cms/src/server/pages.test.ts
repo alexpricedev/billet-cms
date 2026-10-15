@@ -107,7 +107,7 @@ const fakeSql = (
     },
   } as unknown as SQL;
 
-  return { state, sql };
+  return { state, sql, redirects };
 };
 
 describe("createCmsPages", () => {
@@ -715,8 +715,8 @@ describe("reader sharing and routing-table failures", () => {
     !query.includes("updated_at");
 
   /** A pool whose routes query can be made to fail, counting that query. */
-  const flakySql = () => {
-    const { state, sql } = fakeSql();
+  const flakySql = (options: Parameters<typeof fakeSql>[0] = {}) => {
+    const { state, sql, redirects } = fakeSql(options);
     const base = sql as unknown as {
       unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
     };
@@ -730,7 +730,7 @@ describe("reader sharing and routing-table failures", () => {
         return base.unsafe(query, params);
       },
     } as unknown as SQL;
-    return { state, counters, sql: flaky };
+    return { state, counters, sql: flaky, redirects };
   };
 
   test("the 301 carries a cache lifetime", async () => {
@@ -743,6 +743,23 @@ describe("reader sharing and routing-table failures", () => {
     const res = await route(new Request("http://localhost/about"));
     expect(res?.status).toBe(301);
     expect(res?.headers.get("Cache-Control")).toBe("public, max-age=3600");
+  });
+
+  // A preview must not be cached anywhere on the way, so a 301 that still
+  // carries the token is `no-store` rather than the usual hour-long lifetime.
+  test("a 301 carrying a preview token is not cached", async () => {
+    const { sql } = fakeSql({
+      page: { ...PAGE_ROW, url: "/about-us" },
+      redirects: { "/about": "page-1" },
+    });
+    const route = createCmsPageRoute({ sql, render, onSkip: () => {} });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good"),
+    );
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe("/about-us?cms_preview=good");
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
   });
 
   // A site that mounts the catch-all and also reads a page directly should pay
@@ -820,5 +837,37 @@ describe("reader sharing and routing-table failures", () => {
     now += 1000;
     expect(await pages.getPage("/about")).toBeNull();
     expect(counters.routeQueries).toBe(2);
+  });
+
+  // The failure must not be frozen into the cache: once the database recovers,
+  // the next read past the back-off loads a fresh table rather than serving the
+  // stale fallback until the next publish.
+  test("recovers a fresh routing table once a failed load succeeds again", async () => {
+    const { state, counters, sql, redirects } = flakySql({
+      redirects: { "/old": "page-1" },
+    });
+    let now = 0;
+    const pages = createCmsPages({
+      sql,
+      now: () => now,
+      onSkip: () => {},
+    });
+
+    expect(await pages.getRedirect("/old")).toBe("/about");
+
+    // A publish moves the version and the next routes load fails.
+    counters.fail = true;
+    state.version += 1;
+    now += 1000;
+    expect(await pages.getRedirect("/old")).toBe("/about");
+    const afterFailure = counters.routeQueries;
+
+    // The database comes back and a new redirect exists. Past the back-off the
+    // fresh table is loaded and the new route resolves.
+    counters.fail = false;
+    redirects["/new"] = "page-1";
+    now += 1000;
+    expect(await pages.getRedirect("/new")).toBe("/about");
+    expect(counters.routeQueries).toBe(afterFailure + 1);
   });
 });

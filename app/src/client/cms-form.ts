@@ -489,10 +489,11 @@ const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
  * data-media-options>`, rather than in every image field: a page with many
  * image fields (and several list rows of them) would otherwise repeat the whole
  * library per control. A picker is filled the first time it is focused, so the
- * cost is paid only for a picker the editor actually reached. Its existing
- * options are kept — its current image is already there, and may be older than
- * the fifty the template lists — so a value the template also carries is not
- * duplicated.
+ * cost is paid only for a picker the editor actually reached. Its current image
+ * is already an option there and may be older than the newest ones the template
+ * lists; when the template does carry it, the option is relabelled from the
+ * template so the picker shows a real label rather than a bare id, and the
+ * stored value is not duplicated.
  */
 const fillPickerFromOptions = (
   form: HTMLFormElement,
@@ -505,13 +506,20 @@ const fillPickerFromOptions = (
   if (!template) return;
   picker.setAttribute("data-media-filled", "");
 
-  const present = new Set(
-    Array.from(picker.querySelectorAll("option"), (option) => option.value),
+  const present = new Map(
+    Array.from(
+      picker.querySelectorAll("option"),
+      (option) => [option.value, option] as const,
+    ),
   );
   for (const option of Array.from(
     template.content.querySelectorAll("option"),
   )) {
-    if (present.has(option.value)) continue;
+    const existing = present.get(option.value);
+    if (existing) {
+      existing.textContent = option.textContent;
+      continue;
+    }
     picker.append(option.cloneNode(true));
   }
 };

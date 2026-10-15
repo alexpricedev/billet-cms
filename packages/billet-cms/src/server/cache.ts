@@ -74,8 +74,11 @@ export class ContentCache<V> {
    * each read `cms_meta`; the first one to arrive starts the read and the rest
    * await it. It is cleared as soon as it settles, so the failure fallback and
    * the back-off below behave exactly as if each caller had read on its own.
+   * The entry carries when it started: a read older than one interval is not
+   * joined any more, so a single hung query can't hold every call behind it.
    */
-  #pendingVersion: Promise<number> | null = null;
+  #pendingVersion: { promise: Promise<number>; startedAt: number } | null =
+    null;
 
   /**
    * The loads currently in flight, keyed by the cache key.
@@ -84,9 +87,14 @@ export class ContentCache<V> {
    * under the same generation, so ten simultaneous misses for one cold slot
    * cost one query. The entry carries the generation it started under: a load
    * from before a publish is not shared with callers reading on the newer
-   * version, which start their own instead.
+   * version, which start their own instead. It also carries when it started, so
+   * a load older than one interval is not joined either — a hung key load must
+   * not stall every read for that key forever.
    */
-  #loads = new Map<string, { generation: number; promise: Promise<V> }>();
+  #loads = new Map<
+    string,
+    { generation: number; promise: Promise<V>; startedAt: number }
+  >();
 
   constructor(options: ContentCacheOptions<V>) {
     this.#readVersion = options.readVersion;
@@ -128,15 +136,20 @@ export class ContentCache<V> {
     }
     // A read already in flight answers this caller too, rather than starting a
     // second one. It is cleared when it settles, so a failure is not cached
-    // here — `#readVersion` decides that, exactly as before.
-    if (this.#pendingVersion) return await this.#pendingVersion;
+    // here — `#readVersion` decides that, exactly as before. A read that has
+    // been in flight longer than one interval is abandoned rather than joined:
+    // one hung query must not hold every read in the process behind it.
+    const pending = this.#pendingVersion;
+    if (pending && now - pending.startedAt < this.#intervalMs) {
+      return await pending.promise;
+    }
 
-    const pending = this.#readAndStore(now);
-    this.#pendingVersion = pending;
+    const entry = { promise: this.#readAndStore(now), startedAt: now };
+    this.#pendingVersion = entry;
     try {
-      return await pending;
+      return await entry.promise;
     } finally {
-      if (this.#pendingVersion === pending) this.#pendingVersion = null;
+      if (this.#pendingVersion === entry) this.#pendingVersion = null;
     }
   }
 
@@ -180,15 +193,22 @@ export class ContentCache<V> {
     if (this.#entries.has(key)) return this.#entries.get(key) as V;
 
     const generation = this.#generation;
-    // A load for the same key, started on this generation, answers too: ten
-    // simultaneous first reads of one slot cost one query, not ten.
+    // A load for the same key, started on this generation and still fresh,
+    // answers too: ten simultaneous first reads of one slot cost one query, not
+    // ten. A load older than one interval is left to finish on its own rather
+    // than joined, so a hung key load can't stall every read for that key.
+    const now = this.#now();
     const pending = this.#loads.get(key);
-    if (pending && pending.generation === generation) {
+    if (
+      pending &&
+      pending.generation === generation &&
+      now - pending.startedAt < this.#intervalMs
+    ) {
       return await pending.promise;
     }
 
     const promise = (async () => this.#load(key))();
-    this.#loads.set(key, { generation, promise });
+    this.#loads.set(key, { generation, promise, startedAt: now });
     try {
       const value = await promise;
       // The version may have moved while the load was in flight. The value the
