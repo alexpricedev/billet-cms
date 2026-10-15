@@ -237,6 +237,17 @@ describe("pageType", () => {
     expect(stored.schemaHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  // The page content schema is a discriminated union keyed on `type`. Its
+  // stored JSON Schema is `oneOf` over the same variants, which for distinct
+  // literals accepts exactly the documents `anyOf` did.
+  test("stores the block variants as a discriminated union", () => {
+    const stored = pageTypeStoredSchema(
+      pageType("landing", { allowedBlocks: [hero, prose] }),
+    );
+    const items = stored.jsonSchema.items as { oneOf?: unknown[] };
+    expect(items.oneOf).toHaveLength(2);
+  });
+
   test("changes the schema hash when only the label or help changes", () => {
     const plain = pageTypeStoredSchema(
       pageType("landing", { allowedBlocks: [hero] }),
@@ -303,22 +314,38 @@ describe("name validation", () => {
       "home",
       "home.hero",
       "footer.legal-notice",
+      "home.hero-2",
       "a".repeat(64),
     ]) {
       expect(() => slot(name, hero)).not.toThrow();
     }
   });
 
+  // A dot anywhere used to pass, so a name like "home..hero" named a page the
+  // CMS could never match. Each segment now has to be non-empty.
   test("rejects an invalid slot name", () => {
     for (const name of [
       "Home.hero",
       "1home",
       ".hero",
+      "home.",
+      "home..hero",
+      "home.hero.",
       "home hero",
       "home/hero",
+      "a".repeat(65),
       "",
     ]) {
       expect(() => slot(name, hero)).toThrow(/Invalid slot name/);
     }
+  });
+
+  test("refuses a page option that isn't a well-formed name", () => {
+    for (const page of ["Home", "home hero", "home.hero", "1home", ""]) {
+      expect(() => slot("home.hero", hero, { page })).toThrow(
+        /Invalid slot page name .* for slot "home\.hero"/,
+      );
+    }
+    expect(() => slot("home.hero", hero, { page: "marketing" })).not.toThrow();
   });
 });

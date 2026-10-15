@@ -366,11 +366,11 @@ describe("browser smoke", () => {
 
     // Back on the CMS's confirm step. The GET only shows the button; the POST
     // spends the token. Wait on the subtitle: the site's own page carries an
-    // "Edit content" link, so the heading alone matches before the hop.
+    // "Edit content" link, so a shared word alone could match before the hop.
     const confirm = await until(bodyText, (text) =>
       text.includes("You'll be signed in to Billet CMS"),
     );
-    expect(confirm).toContain("Edit content");
+    expect(confirm).toContain("Continue to Billet CMS");
 
     await clickThrough("form button.login-submit");
 
@@ -506,7 +506,7 @@ describe("browser smoke", () => {
     const confirm = await until(bodyText, (text) =>
       text.includes("You'll be signed in to Billet CMS"),
     );
-    expect(confirm).toContain("Edit content");
+    expect(confirm).toContain("Continue to Billet CMS");
 
     await clickThrough("form button.login-submit");
     const signedIn = await until(bodyText, (text) => text.includes("Sign out"));

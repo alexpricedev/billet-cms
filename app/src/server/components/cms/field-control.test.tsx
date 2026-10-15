@@ -64,8 +64,10 @@ describe("FieldControl list", () => {
   });
 
   test("names each Add and Remove after the list it belongs to", () => {
-    expect(html).toContain('aria-label="Add to Tags"');
+    expect(html).toContain('aria-label="Add item to Tags"');
     expect(html).toContain('aria-label="Remove from Tags"');
+    // The visible text stays short; only the accessible name names the list.
+    expect(html).toContain(">Add item<");
   });
 
   test("spells out the maximum in the help text", () => {

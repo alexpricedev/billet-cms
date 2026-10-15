@@ -113,6 +113,7 @@ export const pagePublish = {
           revision?.id ?? null,
           {
             errors: result.issues,
+            refusedPublish: true,
           },
         );
       }

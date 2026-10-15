@@ -49,12 +49,18 @@ import { createEditContentLink } from "@alexpricedev/billet-cms/handoff";
 import { handleCmsSignIn } from "@alexpricedev/billet-cms/sign-in";
 import { ensureIdentitiesView } from "../../database/identity-view";
 import { runMigrations } from "../../database/migrate";
+import { clearRateLimitLog } from "../../middleware/rate-limit";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
 import { cleanupTestData } from "../../test-utils/helpers";
+import { computeHMAC } from "../../utils/crypto";
 import { handoff } from "./handoff";
 
 const CMS_URL = "https://cms.example.com";
+const SITE_URL = "https://site.example.com";
 const APP_URL = process.env.APP_URL as string;
+
+/** The site's own session cookie, set by its login and read here. */
+const SITE_SESSION_COOKIE = "site_session";
 
 /** The two site shapes the CMS has to work against. */
 type Mode = "magic-link" | "password";
@@ -124,15 +130,74 @@ const submitHandoff = async (opts: {
 
 /** The plugin route, with the site's own user lookup stubbed. */
 const requestSignIn = (getUserId: () => string | null) =>
-  handleCmsSignIn(new Request("https://site.example.com/cms/sign-in"), {
+  handleCmsSignIn(new Request(`${SITE_URL}/cms/sign-in`), {
     sql: connection,
     cmsUrl: CMS_URL,
     getUserId,
   });
 
-/** The whole journey: the plugin route mints, then the CMS spends. */
-const signInThroughSite = async (userId: string) => {
-  const pluginResponse = await requestSignIn(() => userId);
+const readSiteSessionCookie = (req: Request): string | null => {
+  const header = req.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (name === SITE_SESSION_COOKIE) return rest.join("=") || null;
+  }
+  return null;
+};
+
+/**
+ * Write a real site session for `userId`, the way the site's own login would,
+ * and return the raw cookie value. The row lives in the site's `sessions`
+ * table, hashed exactly as Billet hashes a session id, so the lookup below is
+ * the site's real one rather than a stub.
+ */
+const createSiteSession = async (userId: string): Promise<string> => {
+  const rawSessionId = crypto.randomUUID();
+  await connection`
+    INSERT INTO sessions (id_hash, user_id, session_type, expires_at)
+    VALUES (
+      ${computeHMAC(rawSessionId)},
+      ${userId},
+      'authenticated',
+      ${new Date(Date.now() + 60 * 60 * 1000).toISOString()}
+    )
+  `;
+  return rawSessionId;
+};
+
+/**
+ * The site's session lookup, wired to the plugin the way a real site wires it:
+ * the cookie names a session row, and the row names the account. A missing,
+ * unknown or expired session is signed out.
+ */
+const siteUserIdFromSession = async (req: Request): Promise<string | null> => {
+  const rawSessionId = readSiteSessionCookie(req);
+  if (!rawSessionId) return null;
+  const rows = await connection`
+    SELECT s.user_id
+    FROM sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.id_hash = ${computeHMAC(rawSessionId)}
+      AND s.expires_at > CURRENT_TIMESTAMP
+  `;
+  return (rows[0]?.user_id as string) ?? null;
+};
+
+/**
+ * The plugin route reached with a real site session: no stub, the request
+ * carries the site's cookie and the lookup reads the session row back.
+ */
+const requestSignInWithSession = (rawSessionId: string) =>
+  handleCmsSignIn(
+    new Request(`${SITE_URL}/cms/sign-in`, {
+      headers: { cookie: `${SITE_SESSION_COOKIE}=${rawSessionId}` },
+    }),
+    { sql: connection, cmsUrl: CMS_URL, getUserId: siteUserIdFromSession },
+  );
+
+/** Spend the token the plugin minted: open the confirm page, then submit it. */
+const spendHandoff = async (pluginResponse: Response) => {
   expect(pluginResponse.status).toBe(303);
   const token = tokenFrom(pluginResponse.headers.get("location") as string);
 
@@ -142,6 +207,13 @@ const signInThroughSite = async (userId: string) => {
     csrfToken: opened.csrfToken,
     sessionId: opened.sessionId,
   });
+  return { token, opened, res };
+};
+
+/** The whole journey: the plugin route mints, then the CMS spends. */
+const signInThroughSite = async (userId: string) => {
+  const pluginResponse = await requestSignIn(() => userId);
+  const { opened, res } = await spendHandoff(pluginResponse);
   return { pluginResponse, opened, res };
 };
 
@@ -199,6 +271,9 @@ for (const mode of MODES) {
 
     beforeEach(async () => {
       await cleanupTestData(connection);
+      // The auth rate-limit budget is global state; clear it so the many handoff
+      // posts across this file's cases don't spend each other's.
+      clearRateLimitLog();
     });
 
     test("signed in on the site: straight into the CMS with a session", async () => {
@@ -245,10 +320,62 @@ for (const mode of MODES) {
         `/login?next=${encodeURIComponent("/cms/sign-in")}`,
       );
 
-      // The site's login has now signed them in (password or magic link — the
-      // route doesn't care which); hitting the `next` continues into the CMS.
-      const { res } = await signInThroughSite(admin.id);
+      // The site's own login has now run (password or magic link — the route
+      // doesn't care which) and left a real site session behind. Re-requesting
+      // the `next` continues into the CMS, resolving the site user through that
+      // session rather than a stub.
+      const rawSessionId = await createSiteSession(admin.id);
+      const pluginResponse = await requestSignInWithSession(rawSessionId);
+      expect(pluginResponse.status).toBe(303);
+      expect(
+        pluginResponse.headers
+          .get("location")
+          ?.startsWith(`${CMS_URL}/handoff?token=`),
+      ).toBe(true);
+
+      const { res } = await spendHandoff(pluginResponse);
       expect(res.headers.get("location")).toBe("/cms");
+
+      const sessions = await connection`
+        SELECT user_id FROM cms_sessions WHERE session_type = 'authenticated'
+      `;
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].user_id).toBe(admin.id);
+    });
+
+    test("a handoff token minted by the site's sign-in route expires unspent", async () => {
+      const admin = await seedSiteAdmin("admin@example.com");
+
+      // The plugin mints a real token through a real site session, then the
+      // 60-second window passes before the browser comes back to spend it.
+      const rawSessionId = await createSiteSession(admin.id);
+      const pluginResponse = await requestSignInWithSession(rawSessionId);
+
+      await connection`
+        UPDATE cms_handoff_tokens
+        SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second'
+        WHERE user_id = ${admin.id}
+      `;
+
+      const { res } = await spendHandoff(pluginResponse);
+
+      // The expired token signs nobody in: back to sign-in, no session started.
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe("/sign-in");
+      expect(
+        await connection`
+          SELECT user_id FROM cms_sessions WHERE user_id IS NOT NULL
+        `,
+      ).toHaveLength(0);
+
+      // And it is not left claimable: the row is still unspent but expired.
+      const rows = await connection`
+        SELECT used_at, expires_at FROM cms_handoff_tokens WHERE user_id = ${admin.id}
+      `;
+      expect(rows[0].used_at).toBeNull();
+      expect(new Date(rows[0].expires_at as string).getTime()).toBeLessThan(
+        Date.now(),
+      );
     });
 
     test("refuses a signed-in site user who is not an identity, writing nothing", async () => {

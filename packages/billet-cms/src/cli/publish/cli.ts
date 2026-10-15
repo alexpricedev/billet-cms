@@ -12,6 +12,7 @@
 import { SQL } from "bun";
 import { loadDefinitions } from "./load";
 import { type PublishSummary, publish } from "./publish";
+import { CmsNotSetUpError, ContractVersionMismatchError } from "./version";
 
 const configPath = process.argv[2] ?? "cms.config.ts";
 const databaseUrl = process.env.DATABASE_URL;
@@ -47,13 +48,29 @@ const describe = (summary: PublishSummary): string => {
 
 const sql = new SQL(databaseUrl, { max: 1 });
 
+/**
+ * Failures the CLI has a written message for: the CMS isn't set up, or its
+ * contract version doesn't match. Everything else — an unreachable database, a
+ * config module that throws, a bug — is unexpected, and its message alone
+ * usually hides the cause.
+ */
+const isExpectedFailure = (error: unknown): error is Error =>
+  error instanceof CmsNotSetUpError ||
+  error instanceof ContractVersionMismatchError;
+
 try {
   const definitions = await loadDefinitions(configPath);
   const summary = await publish(sql, definitions);
   console.log(describe(summary));
 } catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`\n${message}\n`);
+  if (isExpectedFailure(error)) {
+    console.error(`\n${error.message}\n`);
+  } else {
+    // Print the whole error, stack and all: an operator reading a deploy log
+    // needs something to go on, and a wrapped one-line message would not.
+    console.error("\nUnexpected error while publishing definitions:\n");
+    console.error(error);
+  }
   process.exitCode = 1;
 } finally {
   await sql.end();

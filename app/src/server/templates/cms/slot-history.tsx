@@ -1,24 +1,20 @@
 import { Layout } from "../../components/layouts";
 import type { SlotRecord, SlotRevisionSummary } from "../../services/content";
 import type { User } from "../../services/users";
+import { formatWhen } from "../../utils/format";
 
 export interface SlotHistoryProps {
   user: User;
   slot: SlotRecord;
   revisions: SlotRevisionSummary[];
+  /** Where "Show older" points, when older revisions remain; null on the last page. */
+  olderHref?: string | null;
   /** The CSRF token bound to the restore POST. */
   restoreCsrfToken: string;
   navCsrfToken?: string;
   /** Why a restore didn't land, when one was attempted. */
   notice?: string | null;
 }
-
-const formatWhen = (date: Date): string =>
-  date.toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  });
 
 /**
  * A slot's revision history.
@@ -32,6 +28,7 @@ export const SlotHistory = ({
   user,
   slot,
   revisions,
+  olderHref,
   restoreCsrfToken,
   navCsrfToken,
   notice,
@@ -62,9 +59,11 @@ export const SlotHistory = ({
     )}
 
     {revisions.length === 0 ? (
-      <div className="cms-history-empty" role="status">
-        This slot has no saved revisions yet.
-      </div>
+      <p className="cms-history-empty">
+        {olderHref
+          ? "No revisions on this page."
+          : "This slot has no saved revisions yet."}
+      </p>
     ) : (
       <ol className="cms-history">
         {revisions.map((revision) => (
@@ -103,6 +102,12 @@ export const SlotHistory = ({
           </li>
         ))}
       </ol>
+    )}
+
+    {olderHref && (
+      <p className="cms-history-older">
+        <a href={olderHref}>Show older</a>
+      </p>
     )}
   </Layout>
 );

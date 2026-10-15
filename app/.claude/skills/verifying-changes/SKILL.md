@@ -52,7 +52,9 @@ the database.
    mock or mutated global in one file can't leak into the next. One process, one shared transpile
    cache — not one process per file.
 3. Kills the run if it exceeds 10 minutes (`TEST_TIMEOUT_MS`) rather than hanging the job. Per-test
-   timeouts are Bun's own (`--timeout`, 5s by default).
+   timeouts are Bun's own `--timeout`, raised to 30s (`TEST_CASE_TIMEOUT_MS`): under `--parallel` the
+   first test in a file carries its temp database's migrations, and one worker per core can push that
+   past Bun's 5s default.
 4. Writes per-file durations to `.timings.json` (`--update-timings`) and prints the ten slowest.
 5. Runs the files across worker processes (`--parallel`, one per core), each with its own database
    — created and migrated before the run. `TEST_WORKERS=1` runs serially in one process, which is

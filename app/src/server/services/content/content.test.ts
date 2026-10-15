@@ -7,6 +7,7 @@ import {
   list,
   richText,
   text,
+  URL_PATTERN_MESSAGE,
 } from "@alexpricedev/billet-cms/fields";
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
@@ -167,6 +168,29 @@ describe("content write layer", () => {
     if (result.ok || result.reason !== "invalid") return;
     const heading = result.issues.find((issue) => issue.path === "heading");
     expect(heading?.message).toBe("Use 80 characters or fewer.");
+  });
+
+  // The link's allowlist reaches the editor as a JSON Schema `pattern`, which
+  // Zod reports only as "must match pattern <source>". The write layer names the
+  // link with the same copy the site-side schema uses, rather than a generic
+  // "expected format" that hides what a usable link looks like.
+  test("names a link that fails the allowlist with its own copy", async () => {
+    const result = await saveSlotDraft({
+      slotId,
+      content: {
+        ...validContent,
+        cta: { type: "url", url: "javascript:alert(1)" },
+      },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    expect(
+      result.issues.some((issue) => issue.message === URL_PATTERN_MESSAGE),
+      JSON.stringify(result.issues),
+    ).toBe(true);
   });
 
   test("names a missing required field in plain copy", async () => {

@@ -222,16 +222,11 @@ export const validatePageContent = (
 
   if (issues.length > 0) return { ok: false, issues };
 
-  const limitIssues = checkPageLimits(pageType, content.blocks, blockTypes);
+  const limitIssues = checkPageLimits(pageType, content.blocks);
   if (limitIssues.length > 0) return { ok: false, issues: limitIssues };
 
   return { ok: true, content };
 };
-
-const blockLabel = (
-  name: string,
-  blockTypes: Map<string, BlockTypeRecord>,
-): string => blockTypes.get(name)?.name ?? name;
 
 /**
  * The page type's required blocks and per-block limits.
@@ -240,11 +235,14 @@ const blockLabel = (
  * first block, a footer CTA at the bottom means it is the last. A type limited
  * to `max: 1, position: "top"` therefore reads as "exactly one, and it leads" —
  * the constraint the spec's "one hero, at the top" names.
+ *
+ * The messages name the block by its type name. A block label would read nicer,
+ * but the metadata carries none today (labels are deferred to the UI refresh),
+ * so the messages use the name the editor sees on the block.
  */
 export const checkPageLimits = (
   pageType: PageTypeRecord,
   blocks: PageBlock[],
-  blockTypes: Map<string, BlockTypeRecord> = new Map(),
 ): FieldIssue[] => {
   const issues: FieldIssue[] = [];
 
@@ -252,7 +250,7 @@ export const checkPageLimits = (
     if (!blocks.some((block) => block.type === required)) {
       issues.push({
         path: "blocks",
-        message: `Add a "${blockLabel(required, blockTypes)}" block — the page type requires one.`,
+        message: `Add a "${required}" block — the page type requires one.`,
       });
     }
   }
@@ -270,13 +268,13 @@ export const checkPageLimits = (
     if (max !== undefined && positions.length > max) {
       issues.push({
         path: "blocks",
-        message: `Use no more than ${max} ${blockLabel(name, blockTypes)} ${max === 1 ? "block" : "blocks"}.`,
+        message: `Use no more than ${max} ${name} ${max === 1 ? "block" : "blocks"}.`,
       });
     }
     if (min !== undefined && positions.length < min) {
       issues.push({
         path: "blocks",
-        message: `Add at least ${min} ${blockLabel(name, blockTypes)} ${min === 1 ? "block" : "blocks"}.`,
+        message: `Add at least ${min} ${name} ${min === 1 ? "block" : "blocks"}.`,
       });
     }
 
@@ -287,7 +285,7 @@ export const checkPageLimits = (
     ) {
       issues.push({
         path: "blocks",
-        message: `The ${blockLabel(name, blockTypes)} block has to be first.`,
+        message: `The ${name} block has to be first.`,
       });
     }
     if (
@@ -297,7 +295,7 @@ export const checkPageLimits = (
     ) {
       issues.push({
         path: "blocks",
-        message: `The ${blockLabel(name, blockTypes)} block has to be last.`,
+        message: `The ${name} block has to be last.`,
       });
     }
   }

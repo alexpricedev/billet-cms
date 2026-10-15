@@ -360,6 +360,21 @@ describe("Slot form controller", () => {
       expect(getHtml).toContain("no longer defined in code");
       expect(getHtml).toContain("droppedField");
 
+      // A re-render — a save that fails validation — posts only the declared
+      // fields, so the notice has to be read back from the revision the editor
+      // loaded rather than from the posted document. Otherwise it vanishes the
+      // moment a save fails.
+      const invalid = await slotForm.create(
+        await post({
+          content: JSON.stringify({ ...validContent, heading: "x".repeat(81) }),
+          base_revision: seeded.id,
+        }),
+      );
+      expect(invalid.status).toBe(200);
+      const invalidHtml = await invalid.text();
+      expect(invalidHtml).toContain("This content can't be saved");
+      expect(invalidHtml).toContain("droppedField");
+
       // The client no longer sends removed fields; the server carries them
       // through from the revision the editor loaded.
       const res = await slotForm.create(
@@ -415,6 +430,39 @@ describe("Slot form controller", () => {
       // Nothing written until the editor confirms.
       const latest = await db`
         SELECT content FROM cms_revisions ORDER BY created_at DESC LIMIT 1
+      `;
+      expect(latest[0].content.heading).toBe("Theirs");
+    });
+
+    // The first save can lose a race too: the form loaded with nothing saved
+    // yet, so it posts no base revision, but someone has saved one since.
+    test("warns when the first revision was saved while the form was open", async () => {
+      const first = await saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "Theirs" },
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!first.ok) throw new Error("first save failed");
+
+      const res = await slotForm.create(
+        await post({
+          content: JSON.stringify({ ...validContent, heading: "Mine" }),
+          base_revision: "",
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("newer version");
+      expect(html).toContain("editor@example.com");
+      // The form now points at their revision, so a second save overwrites.
+      expect(hiddenValue(html, "base_revision")).toBe(first.revision.id);
+      // The editor's work is kept.
+      expect(html).toContain("Mine");
+
+      const latest = await db`
+        SELECT content FROM cms_revisions ORDER BY created_at DESC, id DESC LIMIT 1
       `;
       expect(latest[0].content.heading).toBe("Theirs");
     });

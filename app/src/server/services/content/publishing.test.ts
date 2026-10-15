@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import {
   block,
@@ -10,6 +11,7 @@ import {
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
+import { jsonbValue } from "../../utils/sql";
 
 const connection = testDatabase();
 
@@ -23,6 +25,7 @@ import { db } from "../database";
 import {
   createRevision,
   getLatestRevision,
+  HISTORY_PAGE_SIZE,
   listSlotHistory,
   publishSlot,
   restoreSlotRevision,
@@ -243,7 +246,7 @@ describe("history and restore", () => {
 
     const slot = await getSlotById(slotId);
     if (!slot) throw new Error("slot missing");
-    const history = await listSlotHistory(slot);
+    const { revisions: history } = await listSlotHistory(slot);
 
     expect(history.map((entry) => entry.id)).toEqual([second.id, first.id]);
     expect(history[0].isLatest).toBe(true);
@@ -252,6 +255,54 @@ describe("history and restore", () => {
     expect(history[1].isLatest).toBe(false);
     expect(history[1].isPublished).toBe(true);
     expect(history[1].authorEmail).toBe("editor@example.com");
+  });
+
+  // Slot history is paged: the newest 50, then a cursor to the next-oldest
+  // revision via `?before=<id>`. Ordering is `(created_at, id)`, so the cursor
+  // is that pair and equal timestamps don't skip or repeat a row.
+  test("pages the newest 50 revisions, with a cursor for the older page", async () => {
+    const total = HISTORY_PAGE_SIZE + 5;
+    const ids: string[] = [];
+    const base = Date.UTC(2026, 0, 1, 0, 0, 0);
+    for (let i = 0; i < total; i += 1) {
+      const id = randomUUID();
+      ids.push(id);
+      await db`
+        INSERT INTO cms_revisions
+          (id, target_type, target_id, content, created_by, created_at)
+        VALUES (
+          ${id},
+          'slot',
+          ${slotId},
+          ${jsonbValue({ heading: `#${i}` })},
+          ${editorId},
+          ${new Date(base + i * 1000)}
+        )
+      `;
+    }
+
+    const slot = await getSlotById(slotId);
+    if (!slot) throw new Error("slot missing");
+
+    const first = await listSlotHistory(slot);
+    expect(first.revisions).toHaveLength(HISTORY_PAGE_SIZE);
+    expect(first.hasOlder).toBe(true);
+    // Newest first, and only the top page marks the current draft.
+    expect(first.revisions[0]?.id).toBe(ids[total - 1]);
+    expect(first.revisions[0]?.isLatest).toBe(true);
+
+    const cursor = first.revisions[first.revisions.length - 1]?.id as string;
+    const second = await listSlotHistory(slot, { before: cursor });
+    expect(second.revisions).toHaveLength(total - HISTORY_PAGE_SIZE);
+    expect(second.hasOlder).toBe(false);
+    expect(second.revisions.some((revision) => revision.isLatest)).toBe(false);
+
+    // No revision appears on both pages, and together they are all of them.
+    const paged = new Set(
+      [...first.revisions, ...second.revisions].map((revision) => revision.id),
+    );
+    expect(paged.size).toBe(total);
+    expect(paged).toEqual(new Set(ids));
   });
 
   test("restores an old revision by copying it into a new draft", async () => {
