@@ -54,7 +54,10 @@ The `Tests` job is tuned in two ways a fork should keep:
   to catch a run that has stopped making progress, not to enforce a speed: a runner
   is slower than a laptop even with the database in RAM, and a run killed at the
   wire counts every test in it as lost — which reads as a broken test rather than
-  the timing accident it is. Per-test timeouts are Bun's own `--timeout`.
+  the timing accident it is. Per-test timeouts are Bun's own `--timeout`; the
+  runner raises it from Bun's 5s default to 30s (`TEST_CASE_TIMEOUT_MS`) for the
+  same reason, since a file's first test carries its temp database's migrations
+  and `--parallel` runs one worker per core.
 
 ## 1a. The browser smoke tests
 
