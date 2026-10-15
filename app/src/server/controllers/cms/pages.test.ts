@@ -380,6 +380,59 @@ describe("Pages controller", () => {
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
+  // The page editor shows what a slot editor shows: a block's field issues are
+  // rewritten into plain language before they reach the form, so an editor sees
+  // "Use 80 characters or fewer." and "Choose a page." rather than the
+  // validator's "Too big: expected string to have <=80 characters" and "Invalid
+  // UUID" (subtask: the page editor uses the plain-language messages).
+  test("shows a block's plain-language field messages, not the validator's", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/about",
+          title: "About us",
+          content: JSON.stringify({
+            blocks: [
+              {
+                type: "hero",
+                heading: "x".repeat(81),
+                body: document,
+                cta: { type: "page", pageId: "" },
+              },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // The length limit is a sentence, not the validator's bound.
+    expect(html).toContain("Use 80 characters or fewer.");
+    expect(html).not.toContain("Too big: expected string");
+    // The empty page picker names the field, not the id format.
+    expect(html).toContain("Choose a page.");
+    expect(html).not.toContain("Invalid UUID");
+    // The block carries field errors, so the summary points at the marked
+    // blocks (the other half of the whole-document-error behaviour).
+    expect(html).toContain("Check the blocks marked below.");
+    // Nothing was written.
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
   test("an over-size content save says so and keeps the base revision", async () => {
     const created = await createPage({
       pageType: "landing",
