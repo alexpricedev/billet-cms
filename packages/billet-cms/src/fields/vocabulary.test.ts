@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { block, blockStoredSchema } from "./definition";
 import {
   type Field,
+  type FieldOptions,
   image,
   link,
   list,
@@ -276,6 +277,55 @@ describe("richText", () => {
     };
     expect(richText().schema.safeParse(document).success).toBe(true);
   });
+
+  // The link mark and the link field share one allowlist, so the field's cases
+  // have to hold through a rich text mark too — the same `href` on a site
+  // anchor, reached by the other field kind.
+  test("applies the URL allowlist to a rich text link mark", () => {
+    const withHref = (href: string) => ({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "click",
+              marks: [{ type: "link", attrs: { href } }],
+            },
+          ],
+        },
+      ],
+    });
+
+    for (const href of [
+      "https://example.com/a?b=c#d",
+      "http://example.com",
+      "HTTPS://EXAMPLE.COM",
+      "mailto:hello@example.com",
+      "tel:+441234567890",
+      "/about/team",
+      "#section",
+    ]) {
+      expect(
+        richText().schema.safeParse(withHref(href)).success,
+        `expected ${href} to be allowed`,
+      ).toBe(true);
+    }
+
+    for (const href of [
+      "javascript:alert(1)",
+      "data:text/html;base64,PHNjcmlwdD4=",
+      "//evil.example",
+      "/\\evil.example",
+      "https://",
+    ]) {
+      expect(
+        richText().schema.safeParse(withHref(href)).success,
+        `expected ${href} to be rejected`,
+      ).toBe(false);
+    }
+  });
 });
 
 describe("field value types", () => {
@@ -287,6 +337,18 @@ describe("field value types", () => {
 
     expect(required.required).toBe(true);
     expect(optional.required).toBe(false);
+  });
+
+  // A non-literal flag (a variable, not an inline literal) could be either
+  // way, so the value has to widen. Before this, `FieldOptions` did not match
+  // `{ required: false }` and the field was typed as if it were required.
+  test("a non-literal required flag widens to T | undefined", () => {
+    const options: FieldOptions = { required: false };
+
+    // The annotation is the test: it only compiles if FieldValue widened.
+    const widened: Field<string | undefined> = text(options);
+
+    expect(widened.required).toBe(false);
   });
 });
 

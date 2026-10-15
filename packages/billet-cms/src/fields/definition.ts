@@ -114,6 +114,13 @@ export const slot = (
 ): SlotDefinition => {
   assertName(name, "slot", { pattern: SLOT_NAME_PATTERN });
 
+  // `page` becomes `cms_slots.page`, the value the CMS groups slots under, so a
+  // typo (`page: "Home"`, or a stray dot) is caught beside the declaration
+  // rather than showing up as a page the CMS lists but the site never uses.
+  if (options.page !== undefined) {
+    assertName(options.page, "slot page", { context: `for slot "${name}"` });
+  }
+
   const previewPath = options.previewPath ?? "/";
   // The CMS opens this path in the editor's browser, so a config mistake that
   // sends them off-site — a bare host, `//host`, or a backslash the browser
@@ -238,8 +245,11 @@ export const blockContentReadSchema = (
 /**
  * A block as it appears inside a page's content array: its fields plus a `type`
  * discriminator, so several block types can share one array and be told apart.
+ *
+ * Returned as the concrete object rather than a widened `z.ZodType` so
+ * `discriminatedUnion` can see the `type` literal it keys on.
  */
-const blockVariantSchema = (definition: BlockDefinitionShape): z.ZodType =>
+const blockVariantSchema = (definition: BlockDefinitionShape) =>
   z.strictObject({
     type: z.literal(definition.name),
     ...fieldShape(definition.fields),
@@ -251,11 +261,15 @@ export const pageTypeContentSchema = (
 ): z.ZodType => {
   const variants = definition.allowedBlocks.map(blockVariantSchema);
   if (variants.length === 0) return z.array(z.never());
-  const items =
-    variants.length === 1
-      ? variants[0]
-      : z.union([variants[0], ...variants.slice(1)]);
-  return z.array(items);
+  if (variants.length === 1) return z.array(variants[0]);
+
+  // A page's blocks are told apart by their `type` literal, which is exactly
+  // what `discriminatedUnion` keys on: it fails fast with "invalid
+  // discriminator" rather than walking every branch. Its stored JSON Schema is
+  // equivalent to the `anyOf` a plain union emitted — only one branch can match
+  // a distinct literal, so `oneOf` and `anyOf` accept the same documents.
+  const [first, ...rest] = variants;
+  return z.array(z.discriminatedUnion("type", [first, ...rest]));
 };
 
 /** Flatten a block type to the document stored in `cms_block_types`. */

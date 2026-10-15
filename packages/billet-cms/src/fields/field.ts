@@ -21,6 +21,18 @@ export interface FieldOptions {
 }
 
 /**
+ * The options of a call that passes none.
+ *
+ * Deliberately not `FieldOptions`: that carries `required?: boolean`, which
+ * `FieldValue` has to read as "might be false" and so widens to
+ * `T | undefined`. An empty object type carries no `required` key, so an
+ * optionless `text()` stays required while a variable typed `FieldOptions`
+ * widens. `Record<never, never>` is the empty object type without the banned
+ * `{}`.
+ */
+type DefaultOptions = Record<never, never>;
+
+/**
  * The value a field produces, given its options.
  *
  * A field is required unless `required: false` says otherwise, so the common
@@ -28,12 +40,22 @@ export interface FieldOptions {
  * `T | undefined`. This is what a block's render function sees: a required
  * field is present, and the site is no longer asked to handle `undefined` for
  * one it declared as required.
+ *
+ * The check is sound for a non-literal flag, which is why it does not simply
+ * test `O extends { required: false }`. When `required` is a `boolean` in
+ * option type — a variable of type `FieldOptions`, not an inline literal — the
+ * compiler cannot know which way it went, so the value could be absent and the
+ * only honest answer is `T | undefined`. Only an options type that does not
+ * carry a `required` key at all (the default an optionless call uses, or one
+ * that sets other options) is treated as present.
  */
 export type FieldValue<T, O extends FieldOptions> = O extends {
-  required: false;
+  required: true;
 }
-  ? T | undefined
-  : T;
+  ? T
+  : "required" extends keyof O
+    ? T | undefined
+    : T;
 
 /**
  * One declared field.
@@ -115,7 +137,7 @@ const optional = <T, O extends FieldOptions>(
   >;
 
 /** A short, single-line string. */
-export const text = <O extends TextOptions = TextOptions>(
+export const text = <O extends TextOptions = DefaultOptions>(
   options: O = {} as O,
 ): Field<FieldValue<string, O>> => {
   if (options.max !== undefined)
@@ -137,7 +159,7 @@ export const text = <O extends TextOptions = TextOptions>(
 };
 
 /** A rich text document, in the restricted structured-JSON format (Q1). */
-export const richText = <O extends FieldOptions = FieldOptions>(
+export const richText = <O extends FieldOptions = DefaultOptions>(
   options: O = {} as O,
 ): Field<FieldValue<RichTextDocument, O>> => ({
   kind: "richText",
@@ -152,7 +174,7 @@ const imageValue = z.strictObject({
 });
 
 /** A reference to an image in the media library. */
-export const image = <O extends ImageOptions = ImageOptions>(
+export const image = <O extends ImageOptions = DefaultOptions>(
   options: O = {} as O,
 ): Field<FieldValue<ImageValue, O>> => {
   if (options.minWidth !== undefined) {
@@ -199,7 +221,7 @@ const urlLink = z.strictObject({
 const linkValue = z.discriminatedUnion("type", [pageLink, urlLink]);
 
 /** A link to a CMS page or a free URL. */
-export const link = <O extends FieldOptions = FieldOptions>(
+export const link = <O extends FieldOptions = DefaultOptions>(
   options: O = {} as O,
 ): Field<FieldValue<LinkValue, O>> => ({
   kind: "link",
@@ -229,7 +251,7 @@ export const MAX_LIST_DEPTH = 8;
 const listDepths = new WeakMap<Field, number>();
 
 /** A repeatable list of another field. */
-export const list = <T, O extends ListOptions = ListOptions>(
+export const list = <T, O extends ListOptions = DefaultOptions>(
   of: Field<T>,
   options: O = {} as O,
 ): Field<FieldValue<T[], O>> => {
