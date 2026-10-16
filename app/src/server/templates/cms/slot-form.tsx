@@ -36,8 +36,10 @@ export interface SlotFormProps {
   publishedRevisionId: string | null;
   /** Fields present in the saved content but no longer published (Q4). */
   removedFieldNames: string[];
-  /** The uploads an `image` field's picker offers. */
+  /** The uploads an `image` field's picker offers, rendered once for the form. */
   media?: MediaOption[];
+  /** Whether that reuse list was capped, so the picker's help line is true. */
+  pickerCapped?: boolean;
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
   /**
@@ -66,6 +68,7 @@ export const SlotForm = ({
   publishedRevisionId,
   removedFieldNames,
   media,
+  pickerCapped,
   errors,
   conflict,
   refusedPublish,
@@ -227,7 +230,8 @@ export const SlotForm = ({
           fields={blockType.fields}
           content={content}
           errorsByField={errorsByField}
-          media={media}
+          hasMedia={Boolean(media && media.length > 0)}
+          pickerCapped={pickerCapped}
         />
 
         <button type="submit" className="cms-save">

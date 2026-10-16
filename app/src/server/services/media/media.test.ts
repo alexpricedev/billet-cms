@@ -48,10 +48,13 @@ import {
   createMedia,
   deleteMedia,
   getMediaById,
+  getMediaOptionsByIds,
   getMediaUsage,
   listMedia,
+  listMediaOptions,
+  listPickerMedia,
   MAX_ALT_LENGTH,
-  toMediaOption,
+  MEDIA_PICKER_LIMIT,
   updateMediaAlt,
   updateMediaFocalPoint,
 } from "./media";
@@ -214,6 +217,7 @@ describe("createMedia", () => {
   test("deletes every planned object when one put fails mid-batch", async () => {
     const memory = createMemoryMediaStorage();
     const attempted: string[] = [];
+    const landed: string[] = [];
     const deleted: string[] = [];
     let calls = 0;
     const storage = {
@@ -223,6 +227,7 @@ describe("createMedia", () => {
         attempted.push(key);
         if (calls === 3) throw new Error("bucket hiccup");
         memory.objects.set(key, { body: body.slice(), contentType });
+        landed.push(key);
       },
       delete: async (key: string) => {
         deleted.push(key);
@@ -238,12 +243,63 @@ describe("createMedia", () => {
     });
 
     expect(result.ok).toBe(false);
-    // More than the failed put landed, and all of it is gone.
+    // Several objects landed before the failing put, so an empty store below
+    // really proves the cleanup ran rather than that nothing was written.
+    expect(landed.length).toBeGreaterThanOrEqual(2);
     expect(memory.objects.size).toBe(0);
     // Every key the upload planned was attempted and then deleted, not just the
     // four puts that reported success.
     expect(attempted.length).toBe(5);
     expect([...deleted].sort()).toEqual([...attempted].sort());
+    expect(await listMedia()).toHaveLength(0);
+  });
+
+  // The row write can fail after every object has landed. The cleanup is driven
+  // by the plan rather than the puts' outcomes, so the whole set still goes and
+  // the editor gets a retryable form issue.
+  test("deletes every stored object when the row insert fails after the puts", async () => {
+    const memory = createMemoryMediaStorage();
+    const landed: string[] = [];
+    const deleted: string[] = [];
+    const storage = {
+      ...memory,
+      put: async (key: string, body: Uint8Array, contentType: string) => {
+        await memory.put(key, body, contentType);
+        landed.push(key);
+      },
+      delete: async (key: string) => {
+        deleted.push(key);
+        memory.objects.delete(key);
+      },
+    };
+
+    // A trigger that refuses the row stands in for any constraint, connection
+    // or column failure after the bucket writes have succeeded.
+    await db`CREATE OR REPLACE FUNCTION cms_media_refuse_insert() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'insert refused for the test'; END;
+    $$ LANGUAGE plpgsql`;
+    await db`CREATE TRIGGER cms_media_refuse_insert BEFORE INSERT ON cms_media
+      FOR EACH ROW EXECUTE FUNCTION cms_media_refuse_insert()`;
+    try {
+      const result = await createMedia({
+        bytes: await makeJpeg(800, 400),
+        alt: "All written, no row",
+        actorId: null,
+        storage,
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.issues[0]?.message).toMatch(/couldn't save that image/);
+    } finally {
+      await db`DROP TRIGGER IF EXISTS cms_media_refuse_insert ON cms_media`;
+      await db`DROP FUNCTION IF EXISTS cms_media_refuse_insert()`;
+    }
+
+    // Every object was stored, and every one was deleted again.
+    expect(landed.length).toBe(5);
+    expect(memory.objects.size).toBe(0);
+    expect([...deleted].sort()).toEqual([...landed].sort());
     expect(await listMedia()).toHaveLength(0);
   });
 
@@ -261,12 +317,8 @@ describe("createMedia", () => {
 
     const all = await listMedia();
     expect(all).toHaveLength(3);
-    // Newest first: each row is at least as new as the one after it.
-    for (let index = 1; index < all.length; index += 1) {
-      expect(all[index - 1].createdAt.getTime()).toBeGreaterThanOrEqual(
-        all[index].createdAt.getTime(),
-      );
-    }
+    // Newest first, named: the third upload is the newest and comes back first.
+    expect(all.map((row) => row.alt)).toEqual(["Third", "Second", "First"]);
 
     const limited = await listMedia({ limit: 2 });
     expect(limited).toHaveLength(2);
@@ -274,11 +326,13 @@ describe("createMedia", () => {
     expect(limited.map((row) => row.id)).toEqual(
       all.slice(0, 2).map((row) => row.id),
     );
+    expect(limited.map((row) => row.alt)).toEqual(["Third", "Second"]);
   });
 
-  // The picker only needs these four fields; the old shape's thumbnail URL was
-  // never read and is gone, so a large library isn't walked for it.
-  test("toMediaOption carries only the picker's fields", async () => {
+  // The picker only needs these four fields; the old shape read the whole row
+  // (and its thumbnail URL) to build them, so a large library is now walked for
+  // neither.
+  test("listMediaOptions selects only the picker's fields", async () => {
     const result = await createMedia({
       bytes: await makeJpeg(800, 400),
       alt: "A field",
@@ -287,13 +341,67 @@ describe("createMedia", () => {
     });
     if (!result.ok) throw new Error("upload failed");
 
-    expect(Object.keys(toMediaOption(result.media)).sort()).toEqual([
+    const options = await listMediaOptions();
+    expect(options).toHaveLength(1);
+    expect(Object.keys(options[0]).sort()).toEqual([
       "alt",
       "height",
       "id",
       "width",
     ]);
-    expect(toMediaOption(result.media).alt).toBe("A field");
+    expect(options[0].alt).toBe("A field");
+  });
+
+  // The picker lists the newest uploads capped at the limit, tells the caller
+  // whether the library was really bigger, and adds any image the content
+  // references so its label survives outside the cap.
+  test("listPickerMedia caps the list and carries referenced rows", async () => {
+    const storage = createMemoryMediaStorage();
+    for (let index = 0; index < MEDIA_PICKER_LIMIT; index += 1) {
+      const result = await createMedia({
+        bytes: await makeJpeg(40, 40),
+        alt: `Upload ${index}`,
+        actorId: null,
+        storage,
+      });
+      if (!result.ok) throw new Error("upload failed");
+    }
+
+    const atCap = await listPickerMedia({});
+    expect(atCap.media).toHaveLength(MEDIA_PICKER_LIMIT);
+    expect(atCap.capped).toBe(false);
+
+    // One more upload and the library is genuinely bigger than the cap.
+    const extra = await createMedia({
+      bytes: await makeJpeg(40, 40),
+      alt: "Newest",
+      actorId: null,
+      storage,
+    });
+    if (!extra.ok) throw new Error("upload failed");
+
+    const overCap = await listPickerMedia({});
+    expect(overCap.media).toHaveLength(MEDIA_PICKER_LIMIT);
+    expect(overCap.capped).toBe(true);
+    // The oldest upload fell out of the cap and is not referenced, so it is gone.
+    expect(overCap.media.some((option) => option.alt === "Upload 0")).toBe(
+      false,
+    );
+
+    // A reference to an upload outside the newest cap brings its row back, so
+    // its label survives outside the cap.
+    const oldest = atCap.media.find((option) => option.alt === "Upload 0");
+    const referenced = await listPickerMedia({
+      photo: { mediaId: oldest?.id },
+    });
+    expect(referenced.media).toHaveLength(MEDIA_PICKER_LIMIT + 1);
+    expect(referenced.media.some((option) => option.alt === "Upload 0")).toBe(
+      true,
+    );
+  });
+
+  test("getMediaOptionsByIds reads nothing for an empty id list", async () => {
+    expect(await getMediaOptionsByIds([])).toEqual([]);
   });
 
   test("refuses an animated WebP", async () => {

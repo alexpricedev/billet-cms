@@ -493,7 +493,10 @@ const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
  * is already an option there and may be older than the newest ones the template
  * lists; when the template does carry it, the option is relabelled from the
  * template so the picker shows a real label rather than a bare id, and the
- * stored value is not duplicated.
+ * stored value is not duplicated. A current image the editor gave a per-use alt
+ * keeps that label — it is what the site renders for this use, and the library's
+ * own alt would quietly replace it. The server marks such an option with
+ * `data-media-keep-label`.
  */
 const fillPickerFromOptions = (
   form: HTMLFormElement,
@@ -517,6 +520,7 @@ const fillPickerFromOptions = (
   )) {
     const existing = present.get(option.value);
     if (existing) {
+      if (existing.hasAttribute("data-media-keep-label")) continue;
       existing.textContent = option.textContent;
       continue;
     }

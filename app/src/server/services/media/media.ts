@@ -26,10 +26,12 @@ import {
   type MediaVariant,
 } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
-import { jsonbValue } from "../../utils/sql";
+import { inList, jsonbValue } from "../../utils/sql";
 import { bumpContentVersion } from "../content/publishing";
 import { db } from "../database";
 import { log } from "../logger";
+import { collectMediaIds } from "./guidance";
+import { MEDIA_PICKER_LIMIT } from "./limits";
 import { processImage } from "./processor";
 import {
   type ImageFormat,
@@ -122,14 +124,6 @@ const toMedia = (row: MediaRow): MediaRecord => ({
 
 const MEDIA_COLUMNS = `id, object_key, content_type, byte_size, width, height,
               alt, focal_x, focal_y, variants, created_at, updated_at`;
-
-/** The subset of a row a picker needs, from an already-read record. */
-export const toMediaOption = (media: MediaRecord): MediaOption => ({
-  id: media.id,
-  alt: media.alt,
-  width: media.width,
-  height: media.height,
-});
 
 export interface MediaIssue {
   field: "file" | "alt";
@@ -353,18 +347,18 @@ export interface ListMediaOptions {
  * A library can hold thousands of images; shipping them all into every form
  * would make the page heavy and the picker unusable. The forms list only this
  * many newest, and an editor who needs an older one pastes its id, which the
- * media detail page prints.
+ * media detail page prints. The value lives in `./limits` so a component and
+ * its tests can read it without loading this module; it is re-exported here so
+ * the service's surface is unchanged.
  */
-export const MEDIA_PICKER_LIMIT = 50;
+export { MEDIA_PICKER_LIMIT };
 
 /**
- * The library, newest first.
+ * The library, newest first, with every column.
  *
- * Pass `limit` for a picker list; the page and slot forms ask for
- * `MEDIA_PICKER_LIMIT` rather than shipping the whole library into every form.
- * This is the one read both the library page and the pickers use, so a picker
- * and a list can't drift. `LIMIT NULL` is Postgres for "no limit", so one query
- * serves both shapes.
+ * The library page lists the whole thing; the pickers take the narrow read
+ * below instead. Pass `limit` to page it. `LIMIT NULL` is Postgres for "no
+ * limit", so one query serves both shapes.
  */
 export const listMedia = async (
   options: ListMediaOptions = {},
@@ -377,6 +371,70 @@ export const listMedia = async (
     LIMIT ${options.limit ?? null}
   `) as MediaRow[];
   return rows.map(toMedia);
+};
+
+/**
+ * The picker's fields only, newest first.
+ *
+ * A picker shows an upload's alt and size and nothing else, so it reads the
+ * four columns it uses rather than the full row — a large library is not walked
+ * for object keys and variants that never reach the form.
+ */
+export const listMediaOptions = async (
+  options: ListMediaOptions = {},
+): Promise<MediaOption[]> => {
+  const rows = (await db`
+    SELECT id, alt, width, height
+    FROM cms_media
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${options.limit ?? null}
+  `) as MediaOption[];
+  return rows;
+};
+
+/** The picker's fields for the uploads named, newest first. */
+export const getMediaOptionsByIds = async (
+  ids: readonly string[],
+): Promise<MediaOption[]> => {
+  if (ids.length === 0) return [];
+  const rows = (await db`
+    SELECT id, alt, width, height
+    FROM cms_media
+    WHERE id IN ${inList(ids)}
+    ORDER BY created_at DESC, id DESC
+  `) as MediaOption[];
+  return rows;
+};
+
+export interface PickerMedia {
+  /** The newest uploads, plus any the content references that fall outside them. */
+  media: MediaOption[];
+  /**
+   * Whether the library held more than `MEDIA_PICKER_LIMIT` uploads, so the
+   * list really was capped. At exactly the cap nothing is older and the picker
+   * has no "older ones" help line to show.
+   */
+  capped: boolean;
+}
+
+/**
+ * The options a page or slot form's picker offers.
+ *
+ * The newest `MEDIA_PICKER_LIMIT` uploads, plus the rows the content references
+ * that fall outside them — so a current image older than the cap still carries
+ * its "alt (W×H)" label rather than a bare id. The limit is read one row past
+ * the cap to tell a capped library from one that ends exactly at it.
+ */
+export const listPickerMedia = async (
+  content: unknown,
+): Promise<PickerMedia> => {
+  const rows = await listMediaOptions({ limit: MEDIA_PICKER_LIMIT + 1 });
+  const capped = rows.length > MEDIA_PICKER_LIMIT;
+  const newest = rows.slice(0, MEDIA_PICKER_LIMIT);
+  const listed = new Set(newest.map((option) => option.id));
+  const referenced = collectMediaIds(content).filter((id) => !listed.has(id));
+  const extras = await getMediaOptionsByIds(referenced);
+  return { media: [...newest, ...extras], capped };
 };
 
 export const getMediaById = async (
