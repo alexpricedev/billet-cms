@@ -20,11 +20,13 @@
  * either way.
  *
  * Each width below the source's own is decoded once and encoded twice (WebP and
- * the fallback) from that frame, so a source with N widths decodes N + 1 times
- * rather than 2N + 1. The full-width rung is streamed straight from the rotated
- * source rather than resized to the size it already is. The widths are still
- * processed one after another: holding every resized frame at once would put a
- * 100-megapixel source's whole raw pixel budget in memory.
+ * the fallback) from that frame, so those widths take `1 + N` decodes rather
+ * than `1 + 2N`. The full-width rung is streamed straight from the rotated
+ * source rather than resized to the size it already is, so it isn't held as a
+ * raw frame — that one costs a decode per output plus the original's, a saving
+ * in memory rather than in decode count. The widths are still processed one
+ * after another: holding every resized frame at once would put a 100-megapixel
+ * source's whole raw pixel budget in memory.
  */
 import {
   MAX_UPLOAD_PIXELS,
@@ -203,9 +205,10 @@ export const processImage = async (
   for (const width of renditionWidths(original.width)) {
     const fallbackFormat = fallbackFor(format);
     // The full-size rung skips the resize: encoding it straight from the rotated
-    // source avoids decoding the largest frame just to resize it to its own
-    // size. Every smaller rung decodes once, then encodes twice from that frame.
-    // Widths run in turn so only one resized frame is decoded at a time.
+    // source avoids holding the largest frame as raw pixels. It still decodes
+    // that source once per output. Every smaller rung decodes once, then encodes
+    // twice from that frame. Widths run in turn so only one resized frame is
+    // held at a time.
     let webp: Encoded;
     let fallback: Encoded;
     if (width >= original.width) {
