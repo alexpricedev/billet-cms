@@ -1,6 +1,6 @@
 # billet-cms
 
-A headless CMS for Billet sites. Three things live here:
+A headless CMS for [Billet](https://github.com/alexpricedev/Billet) sites. Three things live here:
 
 | Path | What it is |
 |---|---|
@@ -76,8 +76,9 @@ An admin creates an export token in the CMS (**Export**). Then, in the local
 environment:
 
 ```bash
-bun run cms:pull --from https://cms.example.com
-# token from --token or CMS_EXPORT_TOKEN
+# Set CMS_EXPORT_TOKEN rather than passing --token, so the secret doesn't land
+# in your shell history or a process listing.
+CMS_EXPORT_TOKEN=… bun run cms:pull --from https://cms.example.com
 ```
 
 It fetches the CMS's published content and replaces local `cms_` content with
@@ -89,31 +90,42 @@ production bucket's URLs, and it refuses to run under `NODE_ENV=production`.
 
 ## Releasing the plugin
 
-`@alexpricedev/billet-cms` is published to public npm by hand — TypeScript
-source, no build step. Alex runs:
+`@alexpricedev/billet-cms` is published to public npm by
+`.github/workflows/release.yml` when its version tag is pushed. TypeScript
+source, no build step: what ships is `src/`, `README.md`, `CHANGELOG.md` and
+`LICENSE`.
+
+To release:
+
+1. In a PR, bump `version` in `packages/billet-cms/package.json` and add a
+   matching `## <version>` section at the top of
+   `packages/billet-cms/CHANGELOG.md`. Merge it.
+2. Tag the merged commit on main and push the tag:
+
+   ```bash
+   git switch main && git pull --ff-only
+   git tag @alexpricedev/billet-cms@<version>
+   git push origin @alexpricedev/billet-cms@<version>
+   ```
+
+The workflow then:
+
+- checks the tag matches `package.json`, the CHANGELOG has that section, the
+  commit is on main and the version isn't already on npm
+- runs the full CI (lint, typecheck, build, tests, browser smoke tests)
+- publishes to npm through trusted publishing (no npm token anywhere;
+  provenance is added automatically)
+- creates a GitHub release whose notes are that CHANGELOG section
+
+If any check fails, nothing is published. Fix it, delete the tag
+(`git push origin :refs/tags/@alexpricedev/billet-cms@<version>` and
+`git tag -d …`), and tag again.
+
+To see what would ship before tagging:
 
 ```bash
-# 1. From a clean main, with the version bumped in packages/billet-cms/package.json
-#    and a matching section written in packages/billet-cms/CHANGELOG.md.
-
-# 2. Dry-run to see exactly what would ship (src/, README, CHANGELOG, package.json).
 bun pm pack --dry-run --cwd packages/billet-cms
-
-# 3. Log in (once per machine).
-npm login
-
-# 4. Publish. `publishConfig.access: public` is already set for the scoped name.
-#    npm has no --cwd, so name the directory.
-npm publish ./packages/billet-cms
-
-# 5. Tag the release on the commit that carries the bump.
-git tag @alexpricedev/billet-cms@0.1.0
-git push origin @alexpricedev/billet-cms@0.1.0
 ```
-
-Sites install a released version; the workspace version in this repo is the next
-release's. There is no build step, so what is published is the `src/` here,
-imported directly.
 
 ## End-to-end tests
 

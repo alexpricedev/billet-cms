@@ -23,9 +23,9 @@ import { stateHelpers } from "./state";
 
 /**
  * Who may post. `"session"` is anyone with a session cookie, guests included;
- * `"user"` is `requireAuth`. A function is a custom guard — `requireOrgRole`
- * adapted, say — that either refuses with a Response or hands the handler a
- * value, and may carry the session context it already loaded so it isn't read
+ * `"user"` is `requireAuth`. A function is a custom guard — a machine-token
+ * check adapted, say — that either refuses with a Response or hands the handler
+ * a value, and may carry the session context it already loaded so it isn't read
  * twice.
  */
 export type ActionGuard<G> = (

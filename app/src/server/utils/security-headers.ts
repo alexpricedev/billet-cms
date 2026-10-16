@@ -3,6 +3,7 @@ import { log } from "../services/logger";
 import { indexingAllowed, SITE_NAME } from "../services/seo";
 import { withCompression } from "./compression";
 import { render500 } from "./errors";
+import { httpOrigin } from "./http-origin";
 import { maintenanceResponse } from "./maintenance";
 
 // Single source of truth for the security headers sent on every response —
@@ -14,25 +15,21 @@ const isProduction = process.env.NODE_ENV === "production";
 
 // The image source the media bucket adds to `img-src`, when one is configured.
 // It is read per request rather than fixed at module load because the CMS tests
-// set `MEDIA_PUBLIC_BASE_URL` on the process rather than in a .env file. A base
-// URL that isn't a valid http(s) URL contributes nothing rather than breaking
-// the header.
-const mediaImgOrigin = (): string | null => {
-  const base = process.env.MEDIA_PUBLIC_BASE_URL?.trim();
-  if (!base) return null;
-  try {
-    return new URL(base).origin;
-  } catch {
-    return null;
-  }
-};
+// set `MEDIA_PUBLIC_BASE_URL` on the process rather than in a .env file. The
+// url is held to the shared http(s)-origin rule (`./http-origin`), so a bare
+// host, a relative path or a non-http scheme contributes nothing rather than
+// breaking the header.
+const mediaImgOrigin = (): string | null =>
+  httpOrigin(process.env.MEDIA_PUBLIC_BASE_URL);
 
 // Content Security Policy. Enforcing, but deliberately host-allowlist based
-// rather than nonce + 'strict-dynamic': the page ships inline JSON-LD and pulls
-// lottie from unpkg. The inline block forces 'unsafe-inline' here. The real wins this still buys:
-// frame-ancestors (clickjacking), object-src/base-uri lockdown, a tight source
-// allowlist, and upgrade-insecure-requests. Hardening to nonce + 'strict-dynamic'
-// (which lets us drop 'unsafe-inline') is the documented follow-up.
+// rather than nonce + 'strict-dynamic': the page ships inline JSON-LD, and that
+// inline block is what forces 'unsafe-inline' in `script-src`. The real wins
+// this still buys: frame-ancestors (clickjacking), object-src/base-uri lockdown,
+// a tight source allowlist, and upgrade-insecure-requests. Every script is
+// first-party now that the Lottie player and its unpkg allowlist are gone, so
+// the remaining hardening to nonce + 'strict-dynamic' (which lets us drop
+// 'unsafe-inline') is the documented follow-up.
 export const contentSecurityPolicy = (): string => {
   const mediaOrigin = mediaImgOrigin();
   return [
@@ -47,7 +44,7 @@ export const contentSecurityPolicy = (): string => {
       : "img-src 'self' data:",
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "script-src 'self' 'unsafe-inline'",
     "connect-src 'self'",
     // Production only, like HSTS below: WebKit applies the upgrade to
     // http://localhost subresources too (Chrome exempts localhost), so in dev it
@@ -140,8 +137,8 @@ export const withSecurityHeaders = (res: Response): Response => {
   // Sign every redirect with the software that issued it, so anyone tracing a
   // redirect chain can see which layer to fix (spec: resilience/redirect-by).
   // Gating on Location covers every redirect source — the `redirect()` helper,
-  // the trailing-slash 308, and the inline 303s in the auth/admin middleware —
-  // without each having to remember to set it.
+  // the trailing-slash 308, and the inline 303s in the auth middleware and
+  // controllers — without each having to remember to set it.
   if (res.headers.has("Location") && !res.headers.has("X-Redirect-By")) {
     res.headers.set("X-Redirect-By", SITE_NAME);
   }

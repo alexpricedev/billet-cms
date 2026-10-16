@@ -7,19 +7,18 @@ import { clientKey } from "./client-ip";
  *
  * A budget is only a budget if nothing else spends it. Keyed on the address
  * alone, every limit in the app shared one counter — so five `/api/*` reads
- * left the next `/login` POST from that address over the auth limiter's 5, and
- * one cheap unauthenticated GET per attempt was enough to lock a whole NAT out
- * of signing in. The bucket name is half the key, so each budget is now spent
- * only by the requests it describes.
+ * left the next signed-out form POST from that address over the auth budget,
+ * and one cheap unauthenticated GET per attempt was enough to lock a whole
+ * NAT out of signing in. The bucket name is half the key, so each budget is now
+ * spent only by the requests it describes.
  *
- * Deliberately coarse. `auth` is one bucket across every credential and
- * signed-out form (`/forms`, and any future one),
- * `/account/password`, `/auth/verify*`, `/team/invites`, `/invites/accept`)
- * because that is the budget those routes have always shared: an attacker who
- * can spread guesses over four endpoints has four times the budget, and the
- * limits differ only in size, not in what they are protecting. `export` is its
- * own, much smaller bucket: one call reads the whole published site and the
- * media library, and `cms:pull` is a deliberate command, not a paging client.
+ * Deliberately coarse. `auth` is the signed-out form POST the CMS renders
+ * (`/handoff`), the one budget spent before a session exists; keeping it one
+ * bucket means an attacker who can spread guesses over several endpoints does
+ * not get several times the budget, and the limits differ only in size, not in
+ * what they are protecting. `export` is its own, much smaller bucket: one call
+ * reads the whole published site and the media library, and `cms:pull` is a
+ * deliberate command, not a paging client.
  */
 export type RateLimitBucket = "auth" | "api-read" | "api-write" | "export";
 

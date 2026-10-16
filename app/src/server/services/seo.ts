@@ -44,28 +44,23 @@ export const indexingAllowed = (): boolean =>
 
 export const SITE_NAME = "Billet CMS";
 export const SITE_DESCRIPTION =
-  "Guardrails for your AI coding agents — a full-stack TypeScript starter on Bun";
-
-// Public, indexable routes included in the sitemap. Private or noindex routes
-// (/account, /cms), API endpoints, and the sign-in handoff are intentionally
-// omitted.
-export const SITEMAP_PATHS = ["/", "/stack", "/forms"] as const;
+  "Billet CMS — a headless CMS for Billet sites, on Bun and PostgreSQL";
 
 // Absolute URL for a site-relative path. Exported so llms-txt.ts resolves against
 // the same origin rather than keeping its own copy of this line.
 export const absolute = (path: string): string => new URL(path, siteUrl()).href;
 
-export const buildSitemapXml = (): string => {
-  const urls = SITEMAP_PATHS.map(
-    (path) => `  <url>\n    <loc>${absolute(path)}</loc>\n  </url>`,
-  ).join("\n");
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls}
-</urlset>
-`;
-};
+// The CMS serves no public pages of its own: the root is a redirect to the
+// guarded `/cms` surface, and /account, /cms, the API and the sign-in handoff
+// are private or noindex. So the sitemap is an empty <urlset>; the /sitemap.xml
+// route stays so a site that adds a public page has the shape to fill in.
+export const buildSitemapXml = (): string =>
+  [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    "</urlset>",
+    "",
+  ].join("\n");
 
 // Named AI crawlers we call out explicitly in robots.txt so the allow posture
 // is unambiguous rather than only implied by the wildcard group. In robots.txt

@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 import {
   DEFAULT_FOCAL_POINT,
   type FocalPoint,
+  MAX_ALT_LENGTH,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_PIXELS,
   type MediaVariant,
@@ -31,8 +32,6 @@ import { db } from "../database";
 import { log } from "../logger";
 import { processImage } from "./processor";
 import {
-  contentTypeFor,
-  extensionFor,
   type ImageFormat,
   isAnimatedImage,
   readImageSize,
@@ -56,14 +55,29 @@ export interface MediaRecord {
   updatedAt: Date;
 }
 
-/** Enough of an upload for a picker or a reuse list. */
+/**
+ * The longest alt text the CMS stores, in characters.
+ *
+ * Re-exported from the contract so the media service, the generated form
+ * controls and the site's own `image()` schema all read the one value: the cap
+ * on a stored upload's alt and the cap on a per-use `alt` override must be the
+ * same number, or a value the editor is allowed to type becomes one the save
+ * refuses. The rationale lives on the constant in `@alexpricedev/billet-cms/contract`.
+ */
+export { MAX_ALT_LENGTH };
+
+/**
+ * Enough of an upload for a picker or a reuse list.
+ *
+ * Only what a form control shows. The thumbnail URL the old shape carried was
+ * never read by a control, so it is gone rather than computed for every row of
+ * a large library.
+ */
 export interface MediaOption {
   id: string;
   alt: string;
   width: number;
   height: number;
-  /** The largest fallback's URL, for a thumbnail. */
-  url: string;
 }
 
 interface MediaRow {
@@ -109,18 +123,12 @@ const toMedia = (row: MediaRow): MediaRecord => ({
 const MEDIA_COLUMNS = `id, object_key, content_type, byte_size, width, height,
               alt, focal_x, focal_y, variants, created_at, updated_at`;
 
-/** The largest rendition's fallback URL, for a thumbnail. */
-const thumbnailUrl = (row: MediaRow): string => {
-  const variants = parseVariants(row.variants);
-  return variants[variants.length - 1]?.fallbackUrl ?? "";
-};
-
-const toOption = (row: MediaRow): MediaOption => ({
-  id: row.id,
-  alt: row.alt,
-  width: row.width,
-  height: row.height,
-  url: thumbnailUrl(row),
+/** The subset of a row a picker needs, from an already-read record. */
+export const toMediaOption = (media: MediaRecord): MediaOption => ({
+  id: media.id,
+  alt: media.alt,
+  width: media.width,
+  height: media.height,
 });
 
 export interface MediaIssue {
@@ -177,6 +185,17 @@ export const createMedia = async (
       issues: [{ field: "alt", message: "Enter alt text." }],
     };
   }
+  if (alt.length > MAX_ALT_LENGTH) {
+    return {
+      ok: false,
+      issues: [
+        {
+          field: "alt",
+          message: `Alt text must be ${MAX_ALT_LENGTH} characters or fewer.`,
+        },
+      ],
+    };
+  }
 
   const bytes = input.bytes;
   if (bytes.length === 0) {
@@ -229,40 +248,55 @@ export const createMedia = async (
   }
 
   const id = randomUUID();
-  const originalKey = `media/${id}/original.${extensionFor(format)}`;
-  const fallbackExtension = format === "png" ? "png" : "jpg";
+  const originalKey = `media/${id}/original.${processed.original.extension}`;
 
-  const written: string[] = [];
-  try {
-    await storage.put(
-      originalKey,
-      processed.original.bytes,
-      processed.original.contentType,
+  // Everything the upload writes: the original plus a WebP and a fallback per
+  // width, described up front so the puts can run together.
+  const objects: { key: string; body: Uint8Array; contentType: string }[] = [
+    {
+      key: originalKey,
+      body: processed.original.bytes,
+      contentType: processed.original.contentType,
+    },
+  ];
+  const variants: MediaVariant[] = [];
+  for (const rendition of processed.renditions) {
+    const webpKey = `media/${id}/${rendition.width}.webp`;
+    const fallbackKey = `media/${id}/${rendition.width}.${rendition.fallbackExtension}`;
+    objects.push(
+      { key: webpKey, body: rendition.webp, contentType: "image/webp" },
+      {
+        key: fallbackKey,
+        body: rendition.fallback,
+        contentType: rendition.fallbackContentType,
+      },
     );
-    written.push(originalKey);
 
-    const variants: MediaVariant[] = [];
-    for (const rendition of processed.renditions) {
-      const webpKey = `media/${id}/${rendition.width}.webp`;
-      const fallbackKey = `media/${id}/${rendition.width}.${fallbackExtension}`;
-      await storage.put(webpKey, rendition.webp, "image/webp");
-      written.push(webpKey);
-      await storage.put(
-        fallbackKey,
-        rendition.fallback,
-        `image/${fallbackExtension === "png" ? "png" : "jpeg"}`,
-      );
-      written.push(fallbackKey);
+    variants.push({
+      width: rendition.width,
+      height: rendition.height,
+      webpKey,
+      webpUrl: storage.publicUrl(webpKey),
+      fallbackKey,
+      fallbackUrl: storage.publicUrl(fallbackKey),
+    });
+  }
 
-      variants.push({
-        width: rendition.width,
-        height: rendition.height,
-        webpKey,
-        webpUrl: storage.publicUrl(webpKey),
-        fallbackKey,
-        fallbackUrl: storage.publicUrl(fallbackKey),
-      });
-    }
+  // The puts run together rather than in turn. `allSettled` lets every put be
+  // attempted even when one fails, and cleanup deletes *every* key the upload
+  // could have written rather than only the puts that reported success: a put
+  // that rejects may still have landed its object, so deleting by outcome would
+  // leak it. Deleting a key that was never written is harmless.
+  try {
+    const results = await Promise.allSettled(
+      objects.map((object) =>
+        storage.put(object.key, object.body, object.contentType),
+      ),
+    );
+    const failed = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed) throw failed.reason;
 
     // `variants` is bound through `jsonbValue` so the column holds a jsonb
     // *array*; `JSON.stringify` here would store one long jsonb string that the
@@ -272,7 +306,7 @@ export const createMedia = async (
         (id, object_key, content_type, byte_size, width, height, alt, variants,
          created_by)
       VALUES (
-        ${id}, ${originalKey}, ${contentTypeFor(format)},
+        ${id}, ${originalKey}, ${processed.original.contentType},
         ${processed.original.bytes.length}, ${processed.width},
         ${processed.height}, ${alt}, ${jsonbValue(variants)},
         ${input.actorId}
@@ -286,11 +320,11 @@ export const createMedia = async (
     // A half-written upload is cleaned up rather than left as orphan objects;
     // a failure here is logged and dropped, because the row is what matters.
     await Promise.all(
-      written.map((key) =>
-        storage.delete(key).catch((cleanupError) => {
+      objects.map((object) =>
+        storage.delete(object.key).catch((cleanupError) => {
           log.warn(
             "media",
-            `Could not clean up ${key} after a failed upload: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+            `Could not clean up ${object.key} after a failed upload: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
           );
         }),
       ),
@@ -305,12 +339,42 @@ export const createMedia = async (
   }
 };
 
-export const listMedia = async (): Promise<MediaRecord[]> => {
+export interface ListMediaOptions {
+  /**
+   * Return at most this many of the newest uploads. Omitted, the whole library
+   * is returned (the library page lists everything).
+   */
+  limit?: number;
+}
+
+/**
+ * The newest uploads the page and slot forms offer for reuse.
+ *
+ * A library can hold thousands of images; shipping them all into every form
+ * would make the page heavy and the picker unusable. The forms list only this
+ * many newest, and an editor who needs an older one pastes its id, which the
+ * media detail page prints.
+ */
+export const MEDIA_PICKER_LIMIT = 50;
+
+/**
+ * The library, newest first.
+ *
+ * Pass `limit` for a picker list; the page and slot forms ask for
+ * `MEDIA_PICKER_LIMIT` rather than shipping the whole library into every form.
+ * This is the one read both the library page and the pickers use, so a picker
+ * and a list can't drift. `LIMIT NULL` is Postgres for "no limit", so one query
+ * serves both shapes.
+ */
+export const listMedia = async (
+  options: ListMediaOptions = {},
+): Promise<MediaRecord[]> => {
   const rows = (await db`
     SELECT id, object_key, content_type, byte_size, width, height,
            alt, focal_x, focal_y, variants, created_at, updated_at
     FROM cms_media
     ORDER BY created_at DESC, id DESC
+    LIMIT ${options.limit ?? null}
   `) as MediaRow[];
   return rows.map(toMedia);
 };
@@ -324,17 +388,6 @@ export const getMediaById = async (
     [id],
   )) as MediaRow[];
   return rows.length > 0 ? toMedia(rows[0]) : null;
-};
-
-/** The uploads a picker offers, newest first. */
-export const listMediaOptions = async (): Promise<MediaOption[]> => {
-  const rows = (await db`
-    SELECT id, object_key, content_type, byte_size, width, height,
-           alt, focal_x, focal_y, variants, created_at, updated_at
-    FROM cms_media
-    ORDER BY created_at DESC, id DESC
-  `) as MediaRow[];
-  return rows.map(toOption);
 };
 
 export type UpdateMediaResult =
@@ -367,6 +420,12 @@ export const updateMedia = async (
   if (input.alt !== undefined) {
     const trimmed = input.alt.trim();
     if (trimmed === "") return { ok: false, message: "Enter alt text." };
+    if (trimmed.length > MAX_ALT_LENGTH) {
+      return {
+        ok: false,
+        message: `Alt text must be ${MAX_ALT_LENGTH} characters or fewer.`,
+      };
+    }
     alt = trimmed;
   }
 

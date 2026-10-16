@@ -1,11 +1,12 @@
 import { TABLES } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
 import { log } from "../services/logger";
+import { IDENTITY_VIEW_LOCK_SUBKEY, LOCK_NAMESPACE } from "./advisory-locks";
 
 // Taken around the check-and-create so two instances booting at once cannot
-// both decide the view is missing. A different key from the migration lock, so
-// the two never wait on each other.
-const IDENTITY_VIEW_LOCK_KEY = "8041000002";
+// both decide the view is missing. The shared `billet-cms` namespace's subkey 2
+// (`advisory-locks.ts`), so it never waits on the migration lock (subkey 1) and
+// neither collides with another app's lock.
 
 /**
  * The default definition of the CMS's identity view.
@@ -58,7 +59,7 @@ export const ensureIdentitiesView = async (sql?: SQL): Promise<void> => {
   const target = sql ?? (await import("../services/database")).db;
 
   await target.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(${IDENTITY_VIEW_LOCK_KEY}::bigint)`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${LOCK_NAMESPACE}), ${IDENTITY_VIEW_LOCK_SUBKEY})`;
 
     const existing = await tx`
       SELECT to_regclass(

@@ -399,6 +399,62 @@ const FOCUSABLE = "input, select, textarea, button, [contenteditable], a[href]";
 const firstControl = (row: Element | null): HTMLElement | null =>
   row ? row.querySelector<HTMLElement>(FOCUSABLE) : null;
 
+/** The rows container and parsed maximum of a list element. */
+const listRows = (list: Element): Element | null =>
+  list.querySelector(":scope > [data-list-items]");
+
+const listMax = (list: Element): number | null => {
+  const max = Number.parseInt(list.getAttribute("data-max") ?? "", 10);
+  return Number.isSafeInteger(max) ? max : null;
+};
+
+/** A list at its maximum can't take another row. */
+const canAddRow = (list: Element, items: Element): boolean => {
+  const max = listMax(list);
+  return max === null || items.children.length < max;
+};
+
+/**
+ * Keep the Add button's disabled state in step with the row count.
+ *
+ * The server renders it `aria-disabled` when the stored content is already at
+ * the maximum; this covers every Add and Remove after that. It is a state, not
+ * a `disabled` attribute, so the button stays focusable and clickable and the
+ * guard in the click handler is what actually refuses the extra row — a
+ * programmatic click ignores `aria-disabled` just as it ignores `disabled`.
+ */
+const syncListAdd = (list: Element, items?: Element | null): void => {
+  const add = list.querySelector<HTMLButtonElement>(":scope > [data-list-add]");
+  if (!add) return;
+  const max = listMax(list);
+  if (max === null) {
+    add.removeAttribute("aria-disabled");
+    return;
+  }
+  const container = items ?? listRows(list);
+  if ((container?.children.length ?? 0) >= max) {
+    add.setAttribute("aria-disabled", "true");
+  } else {
+    add.removeAttribute("aria-disabled");
+  }
+};
+
+/**
+ * Bring every list in a subtree — the element itself included — in step.
+ *
+ * A row or block is cloned from a `<template>`, and a list inside it was
+ * rendered against the template's empty value. A nested list whose maximum is
+ * one therefore arrives with a row and an enabled Add, so the clone has to be
+ * re-synced rather than trusted.
+ */
+const syncListsIn = (root: Element | null): void => {
+  if (!root) return;
+  const lists = root.matches("[data-list]")
+    ? [root, ...Array.from(root.querySelectorAll("[data-list]"))]
+    : Array.from(root.querySelectorAll("[data-list]"));
+  for (const list of lists) syncListAdd(list);
+};
+
 /**
  * Record a flagged block's removal in the form's `removed_blocks` field.
  *
@@ -427,6 +483,48 @@ const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
 };
 
 /**
+ * Fill an image picker from the form's one reuse-list template.
+ *
+ * The server renders the upload options once, in a `<template
+ * data-media-options>`, rather than in every image field: a page with many
+ * image fields (and several list rows of them) would otherwise repeat the whole
+ * library per control. A picker is filled the first time it is focused, so the
+ * cost is paid only for a picker the editor actually reached. Its current image
+ * is already an option there and may be older than the newest ones the template
+ * lists; when the template does carry it, the option is relabelled from the
+ * template so the picker shows a real label rather than a bare id, and the
+ * stored value is not duplicated.
+ */
+const fillPickerFromOptions = (
+  form: HTMLFormElement,
+  picker: HTMLSelectElement,
+): void => {
+  if (picker.hasAttribute("data-media-filled")) return;
+  const template = form.querySelector<HTMLTemplateElement>(
+    "template[data-media-options]",
+  );
+  if (!template) return;
+  picker.setAttribute("data-media-filled", "");
+
+  const present = new Map(
+    Array.from(
+      picker.querySelectorAll("option"),
+      (option) => [option.value, option] as const,
+    ),
+  );
+  for (const option of Array.from(
+    template.content.querySelectorAll("option"),
+  )) {
+    const existing = present.get(option.value);
+    if (existing) {
+      existing.textContent = option.textContent;
+      continue;
+    }
+    picker.append(option.cloneNode(true));
+  }
+};
+
+/**
  * Wire the rich text toolbars and the repeatable lists through one delegated
  * listener on the form.
  *
@@ -439,9 +537,27 @@ const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
  * button.
  */
 const wireControls = (form: HTMLFormElement): void => {
+  // A list whose stored content already sits at its maximum ships with Add
+  // disabled; this brings every list in step before any interaction.
+  for (const list of Array.from(form.querySelectorAll("[data-list]"))) {
+    syncListAdd(list);
+  }
+
   // The image picker is a convenience over the media-id input, which stays the
   // field's value: choosing an upload writes its id there, and a hand-typed id
   // works exactly the same. With JavaScript off the picker isn't read at all.
+  // `focusin` bubbles, so a picker cloned into a list row later is covered too;
+  // it fills itself from the form's one options template the first time it is
+  // focused.
+  form.addEventListener("focusin", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const picker = target.closest("[data-image-picker]");
+    if (picker instanceof HTMLSelectElement) {
+      fillPickerFromOptions(form, picker);
+    }
+  });
+
   form.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -477,15 +593,22 @@ const wireControls = (form: HTMLFormElement): void => {
       const list = add.closest("[data-list]");
       if (!list) return;
 
-      const items = list.querySelector(":scope > [data-list-items]");
+      const items = listRows(list);
       const template = list.querySelector<HTMLTemplateElement>(
         ":scope > [data-list-template]",
       );
       if (!items || !template) return;
 
-      const max = Number.parseInt(list.getAttribute("data-max") ?? "", 10);
-      if (Number.isSafeInteger(max) && items.children.length >= max) return;
+      // The button is aria-disabled at the maximum, but a programmatic click
+      // ignores that, so the guard stays.
+      if (!canAddRow(list, items)) return;
       items.append(template.content.cloneNode(true));
+      syncListAdd(list, items);
+      const addedRow = items.lastElementChild;
+      // A list nested inside the new row was cloned from an empty template, so
+      // its own Add state has to be recomputed against the rows it now holds.
+      syncListsIn(addedRow);
+      firstControl(addedRow)?.focus();
       return;
     }
 
@@ -509,6 +632,10 @@ const wireControls = (form: HTMLFormElement): void => {
 
       list.append(template.content.cloneNode(true));
       const added = list.lastElementChild;
+      // Lists inside the cloned block were rendered against an empty value; a
+      // nested list already holding the template's one row, at max one, arrives
+      // with an enabled Add.
+      syncListsIn(added);
       // `:scope >` so a nested control (a list row) is not what gets focused.
       firstControl(added)?.focus();
       return;
@@ -568,6 +695,7 @@ const wireControls = (form: HTMLFormElement): void => {
     const next = item.nextElementSibling;
     const previous = item.previousElementSibling;
     item.remove();
+    if (list) syncListAdd(list);
 
     const nextFocus: HTMLElement | null | undefined =
       firstControl(next) ??

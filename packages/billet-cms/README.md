@@ -1,6 +1,6 @@
 # @alexpricedev/billet-cms
 
-The block plugin a Billet site installs, and the contract the site and the
+The block plugin a [Billet](https://github.com/alexpricedev/Billet) site installs, and the contract the site and the
 `billet-cms` service share. A site declares its blocks, slots and page types
 with the field vocabulary and publishes them on deploy; the CMS service reads
 those rows and never imports site code.
@@ -110,6 +110,19 @@ focal-point or alt change shows within about a second.
 > `img-src` must allow the bucket's host (the origin in `MEDIA_PUBLIC_BASE_URL`).
 > Without it the browser blocks every CMS image — the markup is correct and the
 > network tab is the only place it shows.
+
+> **Caching:** set `Cache-Control: public, max-age=31536000, immutable` on
+> `media/*` as a bucket or CDN rule. Object keys carry a UUID per upload and are
+> never rewritten, so a browser (or CDN) can keep an image indefinitely without
+> a revalidation or a stale file. The CMS can't set the header itself — Bun's S3
+> client has no per-object cache-control option — so it belongs in the bucket's
+> configuration.
+>
+> **Deleting an image doesn't purge a CDN.** The CMS removes the object from the
+> bucket, but a CDN edge that already holds it can keep serving its copy until
+> that edge's own TTL expires. If a deletion has to take effect immediately
+> (a mistaken upload of something private), purge the `media/<id>/…` paths in the
+> CDN by hand as well as deleting the row.
 
 ## Installing in a site
 
@@ -222,9 +235,12 @@ Pull production content into a local or preview environment without database
 credentials:
 
 ```bash
-bunx billet-cms-pull --from https://cms.example.com
-# or, with the script below: bun run cms:pull --from https://cms.example.com
+CMS_EXPORT_TOKEN=… bunx billet-cms-pull --from https://cms.example.com
+# or, with the script below: CMS_EXPORT_TOKEN=… bun run cms:pull --from https://cms.example.com
 ```
+
+Prefer the `CMS_EXPORT_TOKEN` environment variable over `--token` so the token
+doesn't land in your shell history or a process listing.
 
 Add the convenience script to the site's `package.json`:
 
@@ -232,8 +248,8 @@ Add the convenience script to the site's `package.json`:
 "cms:pull": "billet-cms-pull"
 ```
 
-The token comes from `--token` or `CMS_EXPORT_TOKEN`; an admin creates it in the
-CMS under **Export**. The command fetches `GET /export` and **replaces** local
+The token comes from `CMS_EXPORT_TOKEN` (preferred) or `--token`; an admin
+creates it in the CMS under **Export**. The command fetches `GET /export` and **replaces** local
 `cms_` content (pages, slots, published revisions, redirects, media rows) with
 what came back. It is one-way and the export never contains drafts, definitions,
 users, sessions or tokens — but because it replaces local content wholesale, it

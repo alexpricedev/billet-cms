@@ -1,7 +1,12 @@
 import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
 import { Layout } from "../../components/layouts";
 import { getAssetUrl } from "../../services/assets";
-import type { MediaIssue, MediaRecord, MediaUsage } from "../../services/media";
+import {
+  MAX_ALT_LENGTH,
+  type MediaIssue,
+  type MediaRecord,
+  type MediaUsage,
+} from "../../services/media";
 import type { User } from "../../services/users";
 
 export interface MediaListProps {
@@ -30,21 +35,37 @@ const formatBytes = (bytes: number): string => {
  * the largest rendition wastes the bucket's bandwidth on every card. The 2x
  * factor keeps it sharp on a high-density screen; when the source is smaller
  * than the target the largest rendition it has is used instead.
+ *
+ * `maxWidth` caps how wide the chosen rendition may be, for a surface that
+ * doesn't need the full-size picture. The focal picker is the one that uses it:
+ * it is a click target with a marker, so a 960px rendition is sharp enough and
+ * the 1600/2400 ones are wasted bytes. Renditions above the cap are ignored
+ * only when something at or below it exists, so a source that has none still
+ * gets the smallest it does have rather than nothing.
  */
 export const variantForDisplay = (
   media: MediaRecord,
   displayWidth: number,
+  maxWidth?: number,
 ): MediaVariant | undefined => {
   const sorted = [...media.variants].sort((a, b) => a.width - b.width);
+  const withinCap =
+    maxWidth === undefined
+      ? sorted
+      : sorted.filter((variant) => variant.width <= maxWidth);
+  const pool = withinCap.length > 0 ? withinCap : sorted;
   return (
-    sorted.find((variant) => variant.width >= displayWidth * 2) ??
-    sorted[sorted.length - 1]
+    pool.find((variant) => variant.width >= displayWidth * 2) ??
+    pool[pool.length - 1]
   );
 };
 
 /** The CSS display width in pixels of each surface, at a 16px root. */
 const GRID_THUMBNAIL_WIDTH = 12 * 16;
 const FOCAL_PICKER_WIDTH = 32 * 16;
+// The picker is a click target, not a full-bleed image, so it stops at the 960
+// rendition rather than pulling the 1600/2400 one the 2x rule would pick.
+const FOCAL_PICKER_MAX_WIDTH = 960;
 const FOCAL_PREVIEW_WIDTH = 10 * 16;
 const DELETE_PREVIEW_WIDTH = 24 * 16;
 
@@ -125,8 +146,13 @@ export const MediaList = ({
           id="cms-media-alt"
           name="alt"
           required
+          maxLength={MAX_ALT_LENGTH}
           value={values?.alt ?? ""}
+          aria-describedby="cms-media-alt-help"
         />
+        <span className="cms-field-help" id="cms-media-alt-help">
+          Up to {MAX_ALT_LENGTH} characters.
+        </span>
       </div>
       <button type="submit" className="cms-save">
         Upload
@@ -199,7 +225,8 @@ export const MediaDetail = ({
   errors,
 }: MediaDetailProps) => {
   const pickerUrl =
-    variantForDisplay(media, FOCAL_PICKER_WIDTH)?.fallbackUrl ?? "";
+    variantForDisplay(media, FOCAL_PICKER_WIDTH, FOCAL_PICKER_MAX_WIDTH)
+      ?.fallbackUrl ?? "";
   const previewUrl =
     variantForDisplay(media, FOCAL_PREVIEW_WIDTH)?.fallbackUrl ?? "";
   const x = media.focalX * 100;
@@ -221,6 +248,11 @@ export const MediaDetail = ({
         <span>{media.alt}</span>
       </p>
       <h1>Image</h1>
+      {/* The reuse lists in the page and slot forms list only the newest
+          uploads, and an editor who needs an older one pastes its id here. */}
+      <p className="cms-media-meta">
+        Media id <code>{media.id}</code>
+      </p>
 
       {notice && (
         <div
@@ -309,10 +341,13 @@ export const MediaDetail = ({
             id="cms-media-alt"
             name="alt"
             required
+            maxLength={MAX_ALT_LENGTH}
             value={media.alt}
+            aria-describedby="cms-media-alt-help"
           />
-          <span className="cms-field-help">
-            A page can override this for one use.
+          <span className="cms-field-help" id="cms-media-alt-help">
+            A page can override this for one use. Up to {MAX_ALT_LENGTH}{" "}
+            characters.
           </span>
         </div>
 

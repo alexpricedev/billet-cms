@@ -12,6 +12,7 @@ mock.module("../../services/database", () => ({
   },
 }));
 
+import { clearRateLimitLog } from "../../middleware/rate-limit";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
@@ -75,6 +76,9 @@ const submit = async (opts: {
 describe("Handoff Controller", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
+    // The auth budget is global (a Map keyed by bucket + address); clear it so
+    // one case's posts don't spend another's.
+    clearRateLimitLog();
   });
 
   afterAll(async () => {
@@ -89,7 +93,8 @@ describe("Handoff Controller", () => {
       const { res, html } = await open(token);
 
       expect(res.status).toBe(200);
-      expect(html).toContain("Edit content");
+      expect(html).toContain("Sign in to Billet CMS");
+      expect(html).toContain("Continue to Billet CMS");
       expect(html).toContain(`name="token" value="${token}"`);
 
       const rows = await db`SELECT used_at FROM cms_handoff_tokens`;
@@ -216,6 +221,24 @@ describe("Handoff Controller", () => {
       expect(res.status).toBe(403);
       const rows = await db`SELECT used_at FROM cms_handoff_tokens`;
       expect(rows[0].used_at).toBeNull();
+    });
+
+    // /handoff is the one signed-out form POST the CMS renders, so it is the
+    // route that spends the reserved `auth` budget. Ten posts fit (and are
+    // refused at the CSRF step); the eleventh is stopped before any work.
+    test("rate limits repeated submissions on the auth budget", async () => {
+      const token = await mintTokenFor("admin@example.com");
+      const opened = await open(token);
+      const sessionId = cookieValue(opened.req, "cms_session");
+
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const { res } = await submit({ token, sessionId });
+        expect(res.status).toBe(403);
+      }
+
+      const { res } = await submit({ token, sessionId });
+      expect(res.status).toBe(429);
+      expect(res.headers.get("retry-after")).toBeTruthy();
     });
   });
 });

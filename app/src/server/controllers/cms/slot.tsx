@@ -14,12 +14,22 @@ import {
   saveSlotDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
-import { listMediaOptions } from "../../services/media";
+import {
+  listMedia,
+  MEDIA_PICKER_LIMIT,
+  type MediaOption,
+  toMediaOption,
+} from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import { SlotForm, SlotUnavailable } from "../../templates/cms/slot-form";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
-import { nonEmpty, parseJsonObject, UUID_PATTERN } from "./params";
+import {
+  contentParseMessage,
+  nonEmpty,
+  parseContent,
+  UUID_PATTERN,
+} from "./params";
 
 /**
  * A one-line outcome shown above the form after a save, a publish or a restore.
@@ -65,13 +75,6 @@ export const formNotice = (params: URLSearchParams): Notice | null => {
         "The block type for this slot is no longer published, so it can't be published.",
     };
   }
-  if (params.get("preview") === "unavailable") {
-    return {
-      kind: "warning",
-      message:
-        "Preview isn't available: the CMS isn't pointed at a site URL, so it has nowhere to open the page.",
-    };
-  }
   if (params.get("preview") === "failed") {
     return {
       kind: "warning",
@@ -85,6 +88,8 @@ export const formNotice = (params: URLSearchParams): Notice | null => {
 interface FormExtras {
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
+  /** True when the errors came from a refused publish, not a save. */
+  refusedPublish?: boolean;
   notice?: Notice | null;
 }
 
@@ -107,13 +112,29 @@ export const renderSlotForm = async (
   extras: FormExtras = {},
 ): Promise<Response> => {
   const sessionId = ctx.sessionId as string;
-  const removed = findRemovedFields(content, blockType.fields);
 
   // The newest revision, looked up rather than inferred from what the editor
   // posted: the hidden `base_revision` can point at an older revision (a
   // validation failure re-renders with the posted base), and the form's status
   // and Publish button have to reflect what is actually newest.
   const latest = await getLatestRevision("slot", slot.id);
+
+  // A re-render posts only the declared fields: the hidden `content` field the
+  // form renders holds no removed ones, so a save's carried-through fields have
+  // to be read back from the revision the editor loaded. Without that, the
+  // notice naming them disappears the moment a save fails.
+  const base =
+    baseRevisionId && baseRevisionId !== latest?.id
+      ? await getRevisionById(baseRevisionId)
+      : latest;
+  const baseContent =
+    base && base.targetType === "slot" && base.targetId === slot.id
+      ? base.content
+      : {};
+  const removed = findRemovedFields(
+    { ...baseContent, ...content },
+    blockType.fields,
+  );
 
   // The hidden `content` field carries only the declared fields. Removed ones
   // are re-attached server-side from the base revision, so a save with
@@ -128,14 +149,15 @@ export const renderSlotForm = async (
     publishCsrfToken,
     previewCsrfToken,
     navCsrfToken,
-    media,
+    mediaItems,
   ] = await Promise.all([
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/preview`),
     createCsrfToken(sessionId, "POST", "/auth/logout"),
-    listMediaOptions(),
+    listMedia({ limit: MEDIA_PICKER_LIMIT }),
   ]);
+  const media: MediaOption[] = mediaItems.map(toMediaOption);
 
   return render(
     <SlotForm
@@ -154,6 +176,7 @@ export const renderSlotForm = async (
       media={media}
       errors={extras.errors}
       conflict={extras.conflict ?? null}
+      refusedPublish={extras.refusedPublish ?? false}
       notice={extras.notice ?? null}
     />,
   );
@@ -253,7 +276,7 @@ export const slotForm = {
 
     const formData = await req.formData();
     const baseRevisionId = nonEmpty(formData.get("base_revision"));
-    const submitted = parseJsonObject(formData.get("content"));
+    const parsed = parseContent(formData.get("content"));
 
     // The page expired while it was open. Re-render what they posted behind a
     // fresh token instead of a 403 that would lose it.
@@ -262,7 +285,7 @@ export const slotForm = {
         ctx,
         slot,
         blockType,
-        submitted ?? (await baseContent(baseRevisionId, slot)),
+        parsed.ok ? parsed.value : await baseContent(baseRevisionId, slot),
         baseRevisionId,
         {
           errors: [
@@ -276,9 +299,10 @@ export const slotForm = {
       );
     }
 
-    if (!submitted) {
-      // Nothing readable was posted. Fall back to the revision they loaded
-      // rather than an empty form that looks like the content was lost.
+    if (!parsed.ok) {
+      // Nothing usable was posted. Fall back to the revision they loaded rather
+      // than an empty form that looks like the content was lost, and say
+      // whether the body was malformed or simply over the size cap.
       return renderSlotForm(
         ctx,
         slot,
@@ -289,13 +313,14 @@ export const slotForm = {
           errors: [
             {
               path: "(content)",
-              message: "The submitted content could not be read.",
+              message: contentParseMessage(parsed.reason),
             },
           ],
         },
       );
     }
 
+    const submitted = parsed.value;
     const result = await saveSlotDraft({
       slotId: slot.id,
       slot,

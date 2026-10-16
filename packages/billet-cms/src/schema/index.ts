@@ -16,6 +16,10 @@
  * them again, flags them in the form, and never silently drops them.
  */
 import { z } from "zod";
+import {
+  MAX_RICH_TEXT_LIST_DEPTH,
+  richTextListDepth,
+} from "../fields/rich-text";
 
 /** One reason a value failed its stored schema, with a path a form can point at. */
 export interface ValidationIssue {
@@ -65,6 +69,24 @@ export const validateContent = (
   value: unknown,
   options: ValidateOptions = {},
 ): ValidationResult => {
+  // The stored schema round-trips through `z.toJSONSchema`/`z.fromJSONSchema`,
+  // which leaves rich text's `$defs` recursion unbounded: a document nested
+  // deeply enough overflows the stack in the parse (a RangeError, not a
+  // validation failure). The list-nesting bound is checked here, before the
+  // recursive parse, on the raw value. Only list nodes count, so no legitimate
+  // content is affected; a shallow document pays one cheap walk.
+  if (richTextListDepth(value) > MAX_RICH_TEXT_LIST_DEPTH) {
+    return {
+      success: false,
+      issues: [
+        {
+          path: [],
+          message: `Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.`,
+        },
+      ],
+    };
+  }
+
   const source = options.allowAdditionalFields
     ? withAdditionalFields(jsonSchema)
     : jsonSchema;

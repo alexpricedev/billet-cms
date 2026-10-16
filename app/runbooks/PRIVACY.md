@@ -2,8 +2,8 @@
 
 > **Billet CMS fork.** The CMS has no sign-in of its own and no email delivery:
 > it reads the site's accounts through `cms_identities` and hands sign-in to the
-> site. Sections below that mention magic links, password credentials or emailed
-> tokens describe upstream Billet and the site's own app.
+> site. The consent-banner and privacy-policy guidance below still applies to
+> whatever the CMS or its site goes on to collect.
 
 Billet ships **privacy-clean by default**: no analytics, no advertising, no
 third-party trackers, and only strictly-necessary first-party cookies. Out of
@@ -27,7 +27,7 @@ by default and hand you the pattern.
 | Area | Default state | Where |
 |---|---|---|
 | Analytics | None. `analytics.ts` is a mock (`getVisitorStats()` returns a fake count); `/api/stats` is unused | [`src/server/services/analytics.ts`](../src/server/services/analytics.ts) |
-| Cookies | Only strictly-necessary: `session_id` (auth) and `flash_*` (transient/OAuth state), all HMAC-signed, `HttpOnly`, `SameSite=Lax`, `Secure` in production | [`sessions.ts`](../src/server/services/sessions.ts), [`utils/flash.ts`](../src/server/utils/flash.ts) |
+| Cookies | Only strictly-necessary: `cms_session` (auth) and `flash_*` (transient post-redirect-get state), both HMAC-protected, `HttpOnly`, `SameSite=Lax`, `Secure` in production | [`sessions.ts`](../src/server/services/sessions.ts), [`utils/flash.ts`](../src/server/utils/flash.ts) |
 | Client storage | None. No `localStorage`/`sessionStorage`/`IndexedDB` anywhere in `src/client/` | — |
 | Fonts | Self-hosted (`font-src 'self'`) — no Google Fonts, no external font CDN | [`security-headers.ts`](../src/server/utils/security-headers.ts) |
 | Third-party egress | `connect-src 'self'` blocks XHR/fetch/beacon to other origins | [`security-headers.ts`](../src/server/utils/security-headers.ts) |
@@ -50,7 +50,7 @@ any of:
 - Any client code writing to `localStorage`/`sessionStorage`/`IndexedDB` for a
   non-essential purpose
 
-**Strictly-necessary cookies never need consent** — Billet's `session_id` and
+**Strictly-necessary cookies never need consent** — the CMS's `cms_session` and
 `flash_*` stay banner-free. The rule is *behavioural*: what your site does before
 the user interacts, not whether a banner is on screen.
 
@@ -165,8 +165,9 @@ must disclose, at minimum:
 
 1. **Controller identity** — legal/entity name, postal address, privacy contact
 2. **Data categories** — what you collect (account, usage, IP/technical, payment…).
-   With `AUTH_MODE=password` this includes an authentication credential: the
-   stored argon2id hash of the user's password, plus `email_verified_at`
+   The CMS itself stores no account and no credential: `cms_identities` is a view
+   over the site's `users` exposing `id`, `email` and `role`, and the site's own
+   app owns authentication. Anything the site collects belongs in the site's policy
 3. **Processing purposes** — why, per category
 4. **Lawful basis** — GDPR Art. 6 per purpose (consent, contract, legitimate interest…)
 5. **Recipients / processors** — name them (e.g. your analytics vendor, host), and any non-EU/UK transfers + safeguards
@@ -204,8 +205,10 @@ you add one:
   [`security-headers.ts`](../src/server/utils/security-headers.ts) — keep the
   default `connect-src 'self'` as tight as possible.
 - **Prefer self-hosting** fonts, libraries, and icons over CDN loads.
-- **Pin with Subresource Integrity** on stable URLs (as Billet already does for
-  the Lottie script) so a compromised CDN can't swap the file.
+- **Pin with Subresource Integrity** on stable URLs so a compromised CDN can't
+  swap the file. The CMS currently loads no third-party script, so there is
+  nothing to pin — add the `integrity` hash with the first one you do
+  (see [`SECURITY.md`](SECURITY.md) §4).
 - **Gate non-essential scripts behind consent** (§3, Step 4).
 - **Re-audit periodically** — list every contacted domain in DevTools' network
   panel and justify each one.
@@ -217,31 +220,22 @@ keep it out of logs. Billet's request path already logs no PII — preserve that
 
 - **Don't log IPs, user-agents, headers, or request bodies** in production. Use
   `log.*(category, message)` from [`services/logger.ts`](../src/server/services/logger.ts)
-  with non-PII messages. This matters more in password mode: the bodies of
-  `POST /login`, `/signup`, `/reset-password`, and `/account/password` all carry
-  a plaintext password. Nothing in the request path logs them today — don't add
-  a body dump to debug a form.
+  with non-PII messages. The CMS has no credential forms of its own — sign-in
+  happens on the site — but a body dump is still the wrong instinct to reach for
+  when debugging a form.
 - **Don't store raw IPs.** The rate-limit middleware keys an in-memory map by IP
   and never persists it — keep it that way if you wire it into routes.
 - **Redact secrets and personal data** before logging; separate identifiers from
   behavioural data; set and enforce retention windows on anything you do store.
 - **Expired rows are swept hourly**, not left to accumulate.
   [`services/cleanup.ts`](../src/server/services/cleanup.ts) starts a timer from
-  `main.ts` that deletes expired `user_tokens` and `sessions`, plus — with
-  `TEAMS_ENABLED=true` — expired invites that were never accepted. Nothing reads
-  an expired row either way (every query filters `expires_at`), so this is
-  purely a retention measure: a spent magic-link token keeps a live-looking hash,
-  and a lapsed invite keeps the invitee's email address. Accepted invites are
-  kept deliberately as the record of who joined via whom. **A new table with an
-  expiry needs its own sweep added there** — the runbook's "enforce retention
-  windows" line is that file, and nothing else will notice the omission.
-
-> Framework maintainer note: `ConsoleLogProvider`
-> ([`email-providers/console.ts`](../src/server/services/email-providers/console.ts))
-> logs the full outbound email — recipient address and the single-use URL, be it
-> a magic-link sign-in, an address confirmation, or a password reset — to stdout. It is a dev provider; make sure your production `EmailService` wiring
-> ([`email.ts`](../src/server/services/email.ts)) never selects it, or those land
-> in platform logs.
+  `main.ts` that deletes expired `cms_user_tokens`, `cms_handoff_tokens`,
+  `cms_preview_tokens` and `cms_sessions` rows. Nothing reads an expired row
+  either way (every query filters `expires_at`), so this is purely a retention
+  measure: a spent handoff or preview token keeps a live-looking hash until the
+  sweep. **A new table with an expiry needs its own sweep added there** — the
+  runbook's "enforce retention windows" line is that file, and nothing else will
+  notice the omission.
 
 ## 8. Verify
 

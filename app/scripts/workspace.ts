@@ -193,9 +193,7 @@ async function provision(): Promise<void> {
   }
 
   console.log(`  port ${port} — dev server, APP_URL http://localhost:${port}`);
-  console.log(
-    "  migrations and seed data are applied on first boot by main.ts",
-  );
+  console.log("  migrations are applied on first boot by main.ts");
 }
 
 // ---------------------------------------------------------------------------

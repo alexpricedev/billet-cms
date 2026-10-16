@@ -1,6 +1,7 @@
 import { Layout } from "../../components/layouts";
 import type { ExportTokenRecord } from "../../services/export";
 import type { User } from "../../services/users";
+import { formatWhen } from "../../utils/format";
 
 export interface ExportPageProps {
   user: User;
@@ -17,13 +18,6 @@ export interface ExportPageProps {
   /** Shown beside the create form when the label is missing. */
   error?: string | null;
 }
-
-const formatWhen = (date: Date): string =>
-  date.toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  });
 
 /**
  * The export tokens screen: the list, the create form, and — right after a

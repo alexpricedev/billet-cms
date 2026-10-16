@@ -43,7 +43,6 @@ const CMS_PORT = 3987;
 const SITE_PORT = 3988;
 const CMS_BASE = `http://localhost:${CMS_PORT}`;
 const SITE_BASE = `http://localhost:${SITE_PORT}`;
-const SCREENSHOT_DIR = "/tmp/billet-browser-smoke";
 
 let sql: SQL;
 let server: Subprocess;
@@ -277,10 +276,12 @@ beforeAll(async () => {
   })();
 
   // Bun.fetch, not fetch: the happy-dom preload replaces global fetch with
-  // one that enforces the Same Origin Policy against its fake window.
+  // one that enforces the Same Origin Policy against its fake window. Probe
+  // /health, not the root: the root is a redirect into the site's sign-in, and
+  // the stand-in site is not started until after this readiness check.
   const ready = await until(
     () =>
-      Bun.fetch(CMS_BASE)
+      Bun.fetch(`${CMS_BASE}/health`)
         .then((res) => res.ok)
         .catch(() => false),
     (ok) => ok === true,
@@ -348,62 +349,10 @@ afterAll(async () => {
 });
 
 describe("browser smoke", () => {
-  test("home renders with a title and an applied stylesheet", async () => {
-    await goto(`${CMS_BASE}/`);
-
-    const title = await view.evaluate<string>("document.title");
-    expect(title.length).toBeGreaterThan(0);
-
-    // A missing or CSP-blocked stylesheet leaves styleSheets empty while the
-    // HTML still renders — the classic "passes every test, unstyled in prod".
-    const styleSheets = await view.evaluate<number>(
-      "document.styleSheets.length",
-    );
-    expect(styleSheets).toBeGreaterThan(0);
-  });
-
-  test("the client bundle runs the forms page script", async () => {
-    await goto(`${CMS_BASE}/forms`);
-
-    // set only by src/client/pages/forms.ts at init — proves main.js was
-    // served, passed CSP, executed, and the page registry dispatched.
-    const validationMessage = await until(
-      () =>
-        view.evaluate<string>(
-          `document.querySelector("input[name='name']")?.validationMessage ?? ""`,
-        ),
-      (msg) => msg.length > 0,
-    );
-    expect(validationMessage).toBe("Oi, enter your name.");
-  });
-
-  test("a guest submits the form through the CSRF round-trip", async () => {
-    await goto(`${CMS_BASE}/forms`);
-
-    await view.click("input[name='name']");
-    await view.type("Smoke Tester");
-    await view.click("textarea[name='message']");
-    await view.type("Filed by the browser smoke test.");
-    await clickThrough(".form-card button[type='submit']");
-
-    // The POST redirects back to /forms with the flash cookie set.
-    const flash = await until(bodyText, (text) =>
-      text.includes("Submitted successfully"),
-    );
-    expect(flash).toContain("Submitted successfully");
-
-    const { mkdirSync } = await import("node:fs");
-    mkdirSync(SCREENSHOT_DIR, { recursive: true });
-    await Bun.write(
-      `${SCREENSHOT_DIR}/forms-success.png`,
-      await view.screenshot(),
-    );
-  });
-
   test("a signed-out CMS visit signs in through the site and back", async () => {
-    // No cookie yet: /cms answers a redirect chain out to the site's sign-in
-    // route and then to the site's own login.
-    await goto(`${CMS_BASE}/cms`);
+    // No cookie yet: the root redirects to /cms, and /cms answers a redirect
+    // chain out to the site's sign-in route and then to the site's own login.
+    await goto(`${CMS_BASE}/`);
 
     const loginUrl = await until(
       async () => view.url,
@@ -417,11 +366,11 @@ describe("browser smoke", () => {
 
     // Back on the CMS's confirm step. The GET only shows the button; the POST
     // spends the token. Wait on the subtitle: the site's own page carries an
-    // "Edit content" link, so the heading alone matches before the hop.
+    // "Edit content" link, so a shared word alone could match before the hop.
     const confirm = await until(bodyText, (text) =>
       text.includes("You'll be signed in to Billet CMS"),
     );
-    expect(confirm).toContain("Edit content");
+    expect(confirm).toContain("Continue to Billet CMS");
 
     await clickThrough("form button.login-submit");
 
@@ -435,13 +384,44 @@ describe("browser smoke", () => {
     expect(url.startsWith(`${CMS_BASE}/cms`)).toBe(true);
   });
 
+  test("a CMS page renders with a title and an applied stylesheet", async () => {
+    // Continues signed in from the journey above: /cms is the CMS's own page.
+    await goto(`${CMS_BASE}/cms`);
+
+    const title = await view.evaluate<string>("document.title");
+    expect(title.length).toBeGreaterThan(0);
+
+    // A missing or CSP-blocked stylesheet leaves styleSheets empty while the
+    // HTML still renders — the classic "passes every test, unstyled in prod".
+    const styleSheets = await view.evaluate<number>(
+      "document.styleSheets.length",
+    );
+    expect(styleSheets).toBeGreaterThan(0);
+  });
+
+  test("the client bundle runs the nav script", async () => {
+    await goto(`${CMS_BASE}/cms`);
+
+    // `data-nav-enhanced` is set only by src/client/components/nav-menu.ts at
+    // init — proves main.js was served, passed CSP, executed, and the nav was
+    // wired. (The Forms demo used to provide this proof; it was removed.)
+    const enhanced = await until(
+      () =>
+        view.evaluate<string>(
+          `document.querySelector('[data-component="nav"]')?.dataset.navEnhanced ?? "missing"`,
+        ),
+      (value) => value !== "missing",
+    );
+    expect(enhanced).toBe("");
+  });
+
   test("the CMS form script rebuilds the content field on save", async () => {
     // Continues signed in from the journey above.
     await goto(`${CMS_BASE}/cms/slots/${slotId}`);
 
     // The server rendered one empty list row; the client script appends a
     // second on click. That only happens if cms-form.js loaded, passed CSP and
-    // ran — the same proof the forms page gives for main.js.
+    // ran — a CSP-blocked bundle passes every unit test and fails only here.
     const rowCount = () =>
       view.evaluate<number>(
         `document.querySelectorAll("[data-list-items] > [data-list-item]").length`,
@@ -526,7 +506,7 @@ describe("browser smoke", () => {
     const confirm = await until(bodyText, (text) =>
       text.includes("You'll be signed in to Billet CMS"),
     );
-    expect(confirm).toContain("Edit content");
+    expect(confirm).toContain("Continue to Billet CMS");
 
     await clickThrough("form button.login-submit");
     const signedIn = await until(bodyText, (text) => text.includes("Sign out"));

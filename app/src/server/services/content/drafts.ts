@@ -15,6 +15,10 @@
  *    to show the editor, not a row. The check and the insert run in one
  *    transaction, under a row lock on the slot, so two saves can't both pass.
  */
+import {
+  URL_PATTERN,
+  URL_PATTERN_MESSAGE,
+} from "@alexpricedev/billet-cms/fields";
 import type { ValidationIssue } from "@alexpricedev/billet-cms/schema";
 import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { SQL } from "bun";
@@ -83,7 +87,9 @@ const plainMessage = (message: string): string => {
   if (tooBig) {
     const [, kind, rawLimit] = tooBig;
     const limit = Number(rawLimit);
-    if (kind === "string") return `Use ${limit} characters or fewer.`;
+    if (kind === "string") {
+      return `Use ${limit} ${limit === 1 ? "character" : "characters"} or fewer.`;
+    }
     if (kind === "array")
       return `Add no more than ${limit} ${limit === 1 ? "item" : "items"}.`;
     return "This value is too large.";
@@ -93,7 +99,9 @@ const plainMessage = (message: string): string => {
   if (tooSmall) {
     const [, kind, rawLimit] = tooSmall;
     const limit = Number(rawLimit);
-    if (kind === "string") return `Use at least ${limit} characters.`;
+    if (kind === "string") {
+      return `Use at least ${limit} ${limit === 1 ? "character" : "characters"}.`;
+    }
     if (kind === "array")
       return `Add at least ${limit} ${limit === 1 ? "item" : "items"}.`;
     return "This value is too small.";
@@ -105,25 +113,79 @@ const plainMessage = (message: string): string => {
   const unknown = message.match(/^Unrecognized keys?: (.+)$/);
   if (unknown) return `Unknown field: ${unknown[1]}.`;
   if (message === "Invalid UUID") return "Enter a valid id.";
-  if (/^Invalid string: must match pattern/.test(message)) {
+  if (message.startsWith("Invalid string: must match pattern")) {
+    // The link field stores the allowlist as a JSON Schema `pattern`, so a bad
+    // link reaches the editor as "must match pattern <source>". Name the link
+    // when it is that allowlist that failed, rather than a generic "expected
+    // format" that hides what a usable link looks like.
+    if (message.includes(URL_PATTERN.source)) return URL_PATTERN_MESSAGE;
     return "This value isn't in the expected format.";
   }
   return "This value isn't valid.";
 };
 
 /**
+ * Walk a dotted issue path into the content it came from.
+ *
+ * Numeric segments address list entries; string segments address object keys.
+ * Returns `undefined` as soon as the path leaves the value, so a path that
+ * doesn't line up with the content is treated as "no parent object" rather than
+ * throwing.
+ */
+const valueAtPath = (content: unknown, path: (string | number)[]): unknown => {
+  let current: unknown = content;
+  for (const segment of path) {
+    if (typeof current !== "object" || current === null) return undefined;
+    current = (current as Record<string, unknown>)[String(segment)];
+  }
+  return current;
+};
+
+/** True when a value is a page-mode link that hasn't chosen a page yet. */
+const isUnchosenPageLink = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  if (record.type !== "page") return false;
+  const pageId = record.pageId;
+  // A missing `pageId`, or one left as an empty string, is "no page chosen yet".
+  // A *malformed* non-empty id is a different problem and keeps its own message.
+  return pageId === undefined || pageId === null || pageId === "";
+};
+
+/** True when a value is a url-mode link whose `url` fails the shared allowlist. */
+const isBadLinkUrl = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as { type?: unknown; url?: unknown };
+  return (
+    record.type === "url" &&
+    typeof record.url === "string" &&
+    !URL_PATTERN.test(record.url)
+  );
+};
+
+/**
  * Rewrite the validator's issues into copy an editor can act on.
  *
  * Shared with the publish path, which validates a stored revision the same way
- * a save does and shows the same field-level messages.
+ * a save does and shows the same field-level messages. The content the issues
+ * came from is what makes the link check precise: a bad `url` is a link whose
+ * allowlist pattern failed, and "Choose a page." is only for a page-mode link
+ * whose `pageId` is missing or blank, so a malformed id — or an unrelated field
+ * that happens to be called `pageId` — gets its own plain message instead
+ * (review round 1 follow-up).
  */
-export const formatIssues = (issues: ValidationIssue[]): FieldIssue[] =>
+export const formatIssues = (
+  issues: ValidationIssue[],
+  content: unknown,
+): FieldIssue[] =>
   issues.map((issue) => {
     const path = issue.path.length > 0 ? issue.path.join(".") : "(content)";
-    // A page-mode link with no page chosen fails on `pageId`; name the problem
-    // rather than leaving the generic "This value isn't valid" (review round 1).
-    const message =
-      issue.path[issue.path.length - 1] === "pageId"
+    const last = issue.path[issue.path.length - 1];
+    const parent = valueAtPath(content, issue.path.slice(0, -1));
+    const value = valueAtPath(content, issue.path);
+    const message = isBadLinkUrl(value)
+      ? URL_PATTERN_MESSAGE
+      : last === "pageId" && isUnchosenPageLink(parent)
         ? "Choose a page."
         : plainMessage(issue.message);
     return { path, message };
@@ -215,7 +277,7 @@ export const saveSlotDraft = async (
     return {
       ok: false,
       reason: "invalid",
-      issues: formatIssues(validation.issues),
+      issues: formatIssues(validation.issues, input.content),
     };
   }
 

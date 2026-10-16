@@ -7,6 +7,10 @@ import {
   CMS_SIGN_IN_PATH,
   type MediaVariant,
 } from "../packages/billet-cms/src/contract/index.ts";
+import {
+  createCmsPages,
+  createContentReader,
+} from "../packages/billet-cms/src/server/index.ts";
 import { siteDefinitions } from "./cms.config.ts";
 import { createSite, type E2eSite } from "./site.ts";
 
@@ -453,6 +457,105 @@ describe("the ticket's Done when, end to end", () => {
     ctx.site.invalidate();
     expect(await siteHtml()).toContain("Draft heading");
   }, 30_000);
+
+  test("a cold slot costs one version read and one joined query on real Postgres", async () => {
+    // Wrap the real pool to count what the reader asks it for. A fresh reader
+    // has no cached version, so this is the cold path straight after a publish.
+    let queries = 0;
+    const counting = new Proxy(ctx.sql, {
+      get(target, property, receiver) {
+        if (property === "unsafe") {
+          return (query: string, params?: unknown[]) => {
+            queries += 1;
+            return (
+              target.unsafe as (q: string, p?: unknown[]) => Promise<unknown>
+            ).call(target, query, params);
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as SQL;
+
+    const reader = createContentReader({ sql: counting, onSkip: () => {} });
+    const content = await reader.getSlot("home.hero");
+    expect(content).not.toBeNull();
+    // One version read and one slot query — not the three queries a cold slot
+    // used to cost (slot, block type, revision).
+    expect(queries).toBe(2);
+
+    // Warm: the cached slot and the throttled version cost nothing.
+    await reader.getSlot("home.hero");
+    expect(queries).toBe(2);
+  });
+
+  test("the readers share one version poll, and invalidate() forces it to re-read", async () => {
+    // Count `cms_meta` reads on the real pool: the slot, page and media readers
+    // built without a custom clock share one poll per pool.
+    let versionReads = 0;
+    const counting = new Proxy(ctx.sql, {
+      get(target, property, receiver) {
+        if (property === "unsafe") {
+          return (query: string, params?: unknown[]) => {
+            if (query.includes("cms_meta")) versionReads += 1;
+            return (
+              target.unsafe as (q: string, p?: unknown[]) => Promise<unknown>
+            ).call(target, query, params);
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as SQL;
+
+    const slots = createContentReader({ sql: counting, onSkip: () => {} });
+    const pages = createCmsPages({ sql: counting, onSkip: () => {} });
+
+    expect(await slots.getSlot("home.hero")).not.toBeNull();
+    // `getPage` shares the slot reader's poll: it must not read the version a
+    // second time.
+    await pages.getPage("/");
+    expect(versionReads).toBe(1);
+
+    // A hard reset on either reader forces the shared poll to re-read at once —
+    // inside the interval a fresh poll would have skipped until.
+    slots.invalidate();
+    await pages.getPage("/");
+    expect(versionReads).toBe(2);
+  });
+
+  // r1-2: invalidate() has to reset the media reader as well as the slot one. A
+  // media-only change does not move `content_version` (only a publish does), so
+  // without the media reset the site would keep rendering the media it cached.
+  test("invalidate() drops the media reader's cache too, not just the slot's", async () => {
+    // Warm the site's slot and media caches through the live site.
+    expect(await siteHtml()).toContain("https://bucket.example/e2e/1920.jpg");
+
+    // Change the media row out of band: the renditions point somewhere else,
+    // and `content_version` deliberately does not move.
+    const changed = VARIANTS.map((variant) => ({
+      ...variant,
+      webpKey: variant.webpKey.replace("e2e/", "changed/"),
+      fallbackKey: variant.fallbackKey.replace("e2e/", "changed/"),
+      webpUrl: variant.webpUrl.replace("bucket.example", "changed.example"),
+      fallbackUrl: variant.fallbackUrl.replace(
+        "bucket.example",
+        "changed.example",
+      ),
+    }));
+    await ctx.sql`
+      UPDATE cms_media SET variants = ${changed} WHERE id = ${ctx.mediaId}
+    `;
+
+    // A hard reset must drop the media reader's entry, not only the slot's.
+    ctx.site.invalidate();
+    expect(await siteHtml()).toContain("https://changed.example/e2e/1920.jpg");
+
+    // Restore for the tests after this one.
+    await ctx.sql`
+      UPDATE cms_media SET variants = ${VARIANTS} WHERE id = ${ctx.mediaId}
+    `;
+    ctx.site.invalidate();
+    expect(await siteHtml()).toContain("https://bucket.example/e2e/1920.jpg");
+  });
 
   test("the site keeps serving after the CMS is stopped", async () => {
     ctx.cms.kill();

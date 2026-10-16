@@ -35,24 +35,33 @@ gets that. A forged or cross-origin token fails hard with no header, exactly as 
 see `isRecoverableCsrfFailure` for why the distinction is load-bearing.
 
 `server.submit` sends `redirect: "manual"`, so a controller that redirects reads as a failure rather
-than a login page handed back as a row; `formAction` answers a fragment request that a guard
-refused with a 401 (sent to `/login`) or 403 instead of the redirect. On any failure the component
-falls back to `form.submit()`, and the server's flash says what happened. Never return a full page
-to a fragment request, and never return a fragment to a plain post.
+than a login page handed back as a row; upstream `formAction` answered a fragment request that a
+guard refused with a 401 (sent to `/login`) or 403 instead of the redirect. On any failure the
+component falls back to `form.submit()`, and the server's flash says what happened. Never return a
+full page to a fragment request, and never return a fragment to a plain post.
 
-## POST controllers are `formAction` handlers, and GET controllers mint with `csrfTokens`
+> **None of the fragment machinery above is used by this fork.** The CMS has no
+> enhanced forms: its only client script is `src/client/cms-form.ts`, and every
+> mutation is a full-page POST that redirects. The section is kept for a future
+> port; the CMS-side token pattern is the next section.
 
-`formAction` (`src/server/utils/form-action.ts`) owns everything around the decision: the guard
-(`"session"`, `"user"`, or a function such as `orgRoleGuard`), the CSRF check with stale-token
-recovery on both paths, and the response — redirect-and-flash for a plain post, fragment or bare
-status for a fragment request. A handler returns an outcome, not a Response: `{ flash, fragment,
-status }` for success, `{ reject, flash }` for a refusal, or a `Response` as the escape hatch. The
-same handler serves both kinds of request; it never checks which it got. Every POST controller
-outside `controllers/auth/` uses it; the auth routes stay on the raw `checkCsrf` on purpose,
-because re-issuing a token around a credential-bearing action is a different risk calculation.
+## POST controllers check CSRF directly; the `formAction` wrapper is upstream-only
 
-`csrfTokens(ctx)` (`src/server/utils/csrf-tokens.ts`) is the GET side: `for(path)`,
-`forUser(path)`, `forEach(rows, path)` and `nav()`, each null (or absent) when the session can't
-mint, which the templates already treat as "render the form anyway". Tokens are minted in the
-controller and passed as props; templates stay pure functions, which is what lets client tests
-render them as fixtures.
+> **This fork does not use `formAction`.** The CMS's POST controllers call
+> `checkCsrf(req, { method: "POST", path })` and mint GET-side tokens with
+> `createCsrfToken(sessionId, "POST", path)` from `services/csrf.ts`; the
+> `csrfTokens(...)` helper this section used to describe was removed with the
+> upstream strip. `src/server/utils/form-action.ts` and
+> `src/server/utils/form-data.ts` (`readFormValues`) are kept as unused upstream
+> code so a future port diffs cleanly — nothing in the CMS imports them.
+
+`formAction` (`src/server/utils/form-action.ts`) owned everything around the
+decision upstream: the guard (`"session"`, `"user"`, or a function such as
+`orgRoleGuard`), the CSRF check with stale-token recovery on both paths, and the
+response — redirect-and-flash for a plain post, fragment or bare status for a
+fragment request. A handler returns an outcome, not a Response: `{ flash,
+fragment, status }` for success, `{ reject, flash }` for a refusal, or a
+`Response` as the escape hatch. The CMS's own controllers instead do the guard,
+the check and the response by hand — see `controllers/cms/slot.tsx` and
+`controllers/cms/pages.tsx` for the shape (`requireAuth`, `checkCsrf` with
+`isRecoverableCsrfFailure`, then `render` or `redirect`).

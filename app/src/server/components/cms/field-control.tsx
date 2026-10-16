@@ -1,8 +1,11 @@
-import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
+import {
+  type FieldMetadata,
+  MAX_ALT_LENGTH,
+} from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
-import type { MediaOption } from "../../services/media";
+import { MEDIA_PICKER_LIMIT, type MediaOption } from "../../services/media";
 import { RichTextView } from "./rich-text";
 
 /**
@@ -70,9 +73,37 @@ export interface FieldControlProps {
   labelOverride?: string;
   /** The CMS pages a `link` field may point at, for the internal-link picker. */
   pages?: PageOption[];
-  /** The uploads an `image` field may reuse, for its picker. */
+  /**
+   * The uploads an `image` field may reuse. The options themselves are rendered
+   * once per form by `MediaOptionsTemplate`; this only says whether a picker is
+   * worth showing, so a 400-upload library does not repeat 400 options in every
+   * image field.
+   */
   media?: MediaOption[];
 }
+
+/**
+ * The image picker's options, rendered once for the whole form.
+ *
+ * A form with many image fields — and several list rows each — would otherwise
+ * render the whole reuse list per field. The client copies options out of this
+ * one template into a picker when it is first focused, so the library is in the
+ * document once, not once per control.
+ */
+export const MediaOptionsTemplate = ({
+  media,
+}: {
+  media?: MediaOption[];
+}): JSX.Element | null =>
+  media && media.length > 0 ? (
+    <template data-media-options>
+      {media.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.alt} ({option.width}×{option.height})
+        </option>
+      ))}
+    </template>
+  ) : null;
 
 const describedBy = (...ids: (string | undefined)[]): string | undefined => {
   const present = ids.filter((id): id is string => Boolean(id));
@@ -80,6 +111,23 @@ const describedBy = (...ids: (string | undefined)[]): string | undefined => {
 };
 
 const fieldName = (field: FieldMetadata): string => field.label ?? field.name;
+
+/**
+ * A list field's help text, with its maximum spelled out.
+ *
+ * The Add button disables at `max`, so the editor is told "Up to N items"
+ * instead of discovering the limit through a refused save. The field's own
+ * `help` is kept and the limit joined into the single help element the
+ * control's `aria-describedby` points at.
+ */
+const listHelp = (field: FieldMetadata): string | undefined => {
+  const limit =
+    field.max === undefined
+      ? null
+      : `Up to ${field.max} ${field.max === 1 ? "item" : "items"}.`;
+  if (field.help && limit) return `${field.help} ${limit}`;
+  return field.help ?? limit ?? undefined;
+};
 
 const FieldLabelText = ({ field }: { field: FieldMetadata }): JSX.Element => (
   <>
@@ -380,23 +428,36 @@ export const FieldControl = ({
                 id={idFor("pick")}
                 data-image-picker
                 aria-label={controlId ? undefined : "Reuse an upload"}
+                aria-describedby={
+                  media.length >= MEDIA_PICKER_LIMIT
+                    ? idFor("pick-help")
+                    : undefined
+                }
               >
                 <option value="" selected={!image.mediaId}>
                   Choose an image…
                 </option>
-                {/* The picker writes the chosen id into the media-id input
-                    below; the id input stays the field's own value, so a
-                    hand-typed id and a with-JavaScript picker both work. */}
-                {media.map((option) => (
-                  <option
-                    key={option.id}
-                    value={option.id}
-                    selected={option.id === image.mediaId}
-                  >
-                    {option.alt} ({option.width}×{option.height})
+                {/* Only the current image, so a picker in a long page is cheap;
+                    the client fills the rest from the form's one options
+                    template when the picker is first focused, relabelling this
+                    option when the current image is one of them. The label falls
+                    back to "Current image" when the stored alt override is
+                    empty, so a raw id is never shown as a label. */}
+                {image.mediaId && (
+                  <option value={asString(image.mediaId)} selected>
+                    {asString(image.alt) || "Current image"}
                   </option>
-                ))}
+                )}
               </select>
+              {/* Only when the reuse list was actually capped: a library with
+                  fewer than the cap lists everything, so there is nothing older
+                  to go looking for. */}
+              {media.length >= MEDIA_PICKER_LIMIT && (
+                <span className="cms-field-help" id={idFor("pick-help")}>
+                  Showing the newest {MEDIA_PICKER_LIMIT} uploads. For an older
+                  one, paste its id under Media id.
+                </span>
+              )}
             </>
           )}
           <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>
@@ -418,7 +479,13 @@ export const FieldControl = ({
             placeholder="Alt text"
             aria-label={controlId ? undefined : "Alt text"}
             value={asString(image.alt)}
+            maxLength={MAX_ALT_LENGTH}
+            aria-describedby={idFor("alt-help")}
           />
+          <span className="cms-field-help" id={idFor("alt-help")}>
+            Optional. Leave blank to use the upload's own alt text. Up to{" "}
+            {MAX_ALT_LENGTH} characters.
+          </span>
           <FieldErrors errors={errors} id={errorId} />
           {field.image?.minWidth && (
             <span className="cms-field-help">
@@ -544,6 +611,9 @@ export const FieldControl = ({
         );
       }
 
+      // "Up to N items" sits in the field's own help line, so there is one help
+      // element per control (the id `aria-describedby` points at).
+      const help = listHelp(field);
       // An empty list still renders one row, so a required list has somewhere
       // to type before the editor adds a second entry.
       const rows = items.length > 0 ? items : [undefined];
@@ -551,6 +621,7 @@ export const FieldControl = ({
       // list's own label is what makes each row's Add and Remove say which
       // list they belong to.
       const listLabel = fieldName(field);
+      const atMax = field.max !== undefined && items.length >= field.max;
 
       return (
         <fieldset
@@ -598,12 +669,14 @@ export const FieldControl = ({
             type="button"
             className="cms-list-add"
             data-list-add
-            aria-label={`Add to ${listLabel}`}
+            aria-disabled={atMax ? "true" : undefined}
+            aria-describedby={help ? helpId : undefined}
+            aria-label={`Add item to ${listLabel}`}
           >
             Add item
           </button>
           <FieldErrors errors={errors} id={errorId} />
-          <FieldHelp help={field.help} id={helpId} />
+          <FieldHelp help={help} id={helpId} />
         </fieldset>
       );
     }

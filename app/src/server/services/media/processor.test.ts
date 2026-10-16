@@ -106,4 +106,31 @@ describe("processImage", () => {
     expect(webp.format).toBe("webp");
     expect(webp.hasAlpha).toBe(true);
   });
+
+  // The writer names and types each object from what the processor reports, so
+  // the content type and extension have to travel with the bytes rather than be
+  // recomputed from the source format in a second place (r1-27).
+  test("carries the original's content type and extension", async () => {
+    const jpeg = await processImage(await makeJpeg(800, 400), "jpeg");
+    expect(jpeg.original.contentType).toBe("image/jpeg");
+    expect(jpeg.original.extension).toBe("jpg");
+
+    const png = await processImage(await makePng(800, 400), "png");
+    expect(png.original.contentType).toBe("image/png");
+    expect(png.original.extension).toBe("png");
+  });
+
+  test("carries each rendition's fallback content type and extension", async () => {
+    const jpeg = await processImage(await makeJpeg(800, 400), "jpeg");
+    for (const rendition of jpeg.renditions) {
+      expect(rendition.fallbackContentType).toBe("image/jpeg");
+      expect(rendition.fallbackExtension).toBe("jpg");
+    }
+
+    const png = await processImage(await makePng(800, 400), "png");
+    for (const rendition of png.renditions) {
+      expect(rendition.fallbackContentType).toBe("image/png");
+      expect(rendition.fallbackExtension).toBe("png");
+    }
+  });
 });

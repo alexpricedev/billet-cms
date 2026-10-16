@@ -1,11 +1,9 @@
 import {
-  forms,
-  home,
+  landing,
   llmsTxt,
   robotsTxt,
   securityTxt,
   sitemap,
-  stack,
   webmanifest,
 } from "../controllers/app";
 import { account, handoff, logout, signIn } from "../controllers/auth";
@@ -24,17 +22,15 @@ import { createRouteHandler } from "../utils/route-handler";
 // `/health` is not here: it is answered by the catch-all fallback so it stays
 // up when the database is down. See `handleFallback`.
 export const appRoutes = {
-  "/": home.index,
+  // The CMS root is a redirect, not a page: the bare origin goes to the CMS
+  // surface, which is guarded, so a signed-out visitor is handed to the site's
+  // sign-in route. See `controllers/app/landing.ts`.
+  "/": landing.index,
   "/robots.txt": robotsTxt.index,
   "/site.webmanifest": webmanifest.index,
   "/sitemap.xml": sitemap.index,
   "/llms.txt": llmsTxt.index,
   "/.well-known/security.txt": securityTxt.index,
-  "/stack": stack.index,
-  "/forms": createRouteHandler({
-    GET: forms.index,
-    POST: forms.create,
-  }),
   // The CMS has no sign-in of its own. A signed-out visitor is sent here, and
   // this route hands them to the site's sign-in route — see `controllers/auth/
   // sign-in.tsx` and the plugin's `handleCmsSignIn`.

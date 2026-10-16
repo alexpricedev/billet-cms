@@ -112,6 +112,24 @@ export const ALLOWED_UPLOAD_TYPES = [
 
 export type AllowedUploadType = (typeof ALLOWED_UPLOAD_TYPES)[number];
 
+/**
+ * The longest alt text the CMS stores or accepts, in characters.
+ *
+ * This is the shared cap for both places alt text lives: the upload's own alt
+ * on `cms_media` (`services/media`), and the per-use override an `image()`
+ * value may carry (`alt` on the field's stored value). Alt text describes one
+ * image for a screen reader; a good description is a sentence, and anything
+ * past a few hundred characters has stopped being one. The cap is generous
+ * enough never to bite real copy and small enough that a post can't stuff an
+ * unbounded string into every page that renders the image.
+ *
+ * It reaches the content side through the vocabulary: `image()` compiles the
+ * override to `maxLength` in the published JSON Schema, so the CMS refuses an
+ * over-long value at save time with the same limit the site's own schema
+ * enforces. Both sides importing the constant is what keeps them equal.
+ */
+export const MAX_ALT_LENGTH = 1000;
+
 /** The focal point a new upload starts at: the centre. */
 export const DEFAULT_FOCAL_POINT = { x: 0.5, y: 0.5 } as const;
 
@@ -158,7 +176,9 @@ export interface MediaVariant {
  * the page or slot it belongs to. `handoff_tokens` carries the single-use
  * tokens a site mints, written by the plugin and spent by the CMS — the Edit
  * content link and the CMS sign-in route both use it, so the CMS can hand a
- * signed-in site admin a session without a shared secret.
+ * signed-in site admin a session without a shared secret. `user_tokens` is
+ * migration history: the CMS's own magic-link sign-in was removed, so nothing
+ * writes it, but it is left in place rather than dropped.
  *
  * `pages` is the CMS's own content: one row per page an editor created against
  * a page type, with its settings (URL, title, SEO description, social image)
@@ -204,11 +224,26 @@ export const TABLES = {
 export type TableName = (typeof TABLES)[keyof typeof TABLES];
 
 /**
- * The keys the CMS keeps in `cms_meta`, alongside any site-specific rows.
+ * The keys the CMS keeps in `cms_meta`.
  *
- * `contract_version` is written at boot. `content_version` is bumped whenever
- * published definitions or content change; the plugin polls it to invalidate
- * its in-memory cache within seconds.
+ * `cms_meta` is exactly one row, `id = 1`, enforced by the table's primary key
+ * and its `CHECK (id = 1)`. Migration 004 creates the table; the row itself is
+ * upserted by the CMS at boot in `syncContractVersion`
+ * (`app/src/server/database/migrate.ts`), which is also the only writer of
+ * `contract_version`. The site's publish step reads that value and refuses to
+ * write against a CMS it can't read, so the row must exist for a site to deploy.
+ *
+ * `content_version` is the counter the site's plugin polls: it drops its
+ * in-memory cache when the value moves, so a content change reaches a live site
+ * within about a second instead of waiting for a TTL. It is bumped whenever
+ * *published* content changes, and only then — a draft save leaves it alone.
+ * Who bumps it:
+ *
+ * - the plugin's CLI — `billet-cms-publish` or `cms:pull` — when it changes a
+ *   definition (a block, page type or slot), which changes what the site
+ *   renders;
+ * - the CMS, on a page or slot publish, a page create / rename / settings change
+ *   / delete, and a media alt-text or focal-point edit.
  */
 export const META_KEYS = {
   contractVersion: "contract_version",
@@ -217,13 +252,14 @@ export const META_KEYS = {
 
 export type MetaKey = (typeof META_KEYS)[keyof typeof META_KEYS];
 
-const TABLES_BY_NAME: ReadonlyMap<string, TableName> = new Map(
-  Object.values(TABLES).map((name) => [name, name]),
-);
-
-/** True when `name` is a relation the CMS owns. */
+/**
+ * True when `name` is a relation the CMS owns.
+ *
+ * Every relation the CMS creates carries the prefix, so the prefix alone is the
+ * test; `TABLES` is kept only as the published list of what exists today.
+ */
 export const isCmsRelation = (name: string): boolean =>
-  TABLES_BY_NAME.has(name) || name.startsWith(TABLE_PREFIX);
+  name.startsWith(TABLE_PREFIX);
 
 /**
  * How a published definition is stored.

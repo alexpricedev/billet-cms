@@ -31,7 +31,7 @@ import { hero } from "./cms.config.ts";
 export interface E2eSite {
   /** The request handler, mounted by the test on a real `Bun.serve`. */
   handler: (req: Request) => Promise<Response>;
-  /** Drop the reader's cache so a just-published change is picked up at once. */
+  /** Drop the readers' caches so a just-published change is picked up at once. */
   invalidate: () => void;
 }
 
@@ -191,5 +191,15 @@ export const createSite = (sql: SQL, options: E2eSiteOptions = {}): E2eSite => {
     return applyPreview(response, preview);
   };
 
-  return { handler, invalidate: () => reader.invalidate() };
+  return {
+    handler,
+    // A hard reset of both readers, not just the slot one: a just-published
+    // image change (or any content the media reader caches) has to be dropped
+    // too, or the site would keep serving the media it last read until
+    // `content_version` happens to move.
+    invalidate: () => {
+      reader.invalidate();
+      mediaReader.invalidate();
+    },
+  };
 };

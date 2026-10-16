@@ -83,21 +83,27 @@ export const createEditContentLink = async (
   if (!cmsUrl) return null;
 
   try {
-    if (!(await isCmsIdentity(sql, options.userId))) return null;
-
     const now = options.now ?? new Date();
     const ttlMs = (options.ttlSeconds ?? HANDOFF_TOKEN_TTL_SECONDS) * 1000;
     const rawToken = randomBytes(HANDOFF_TOKEN_BYTES).toString("base64url");
 
-    await sql.unsafe(
+    // One query, not a check-then-insert: the INSERT writes a row only when
+    // `cms_identities` has the user, so a signed-in non-admin writes nothing and
+    // two round trips can't disagree about whether they were an identity. No row
+    // back means "not a CMS identity".
+    const inserted = (await sql.unsafe(
       `INSERT INTO ${TABLES.handoffTokens} (user_id, token_hash, expires_at)
-       VALUES ($1, $2, $3)`,
+       SELECT $1, $2, $3
+       WHERE EXISTS (SELECT 1 FROM ${TABLES.identities} WHERE id = $1)
+       RETURNING id`,
       [
         options.userId,
         hashHandoffToken(rawToken),
         new Date(now.getTime() + ttlMs),
       ],
-    );
+    )) as unknown[];
+
+    if (inserted.length === 0) return null;
 
     const base = cmsUrl.replace(/\/+$/, "");
     const path = options.path ?? "/handoff";

@@ -1,5 +1,8 @@
 import { ContentFields } from "../../components/cms/content-fields";
-import type { FieldError } from "../../components/cms/field-control";
+import {
+  type FieldError,
+  MediaOptionsTemplate,
+} from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
 import { getAssetUrl } from "../../services/assets";
 import type {
@@ -10,6 +13,7 @@ import type {
 } from "../../services/content";
 import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
+import { formatWhen } from "../../utils/format";
 
 export interface SlotFormProps {
   user: User;
@@ -36,16 +40,14 @@ export interface SlotFormProps {
   media?: MediaOption[];
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
+  /**
+   * True when the errors came from a refused publish rather than a save, so the
+   * banner names the action the editor took.
+   */
+  refusedPublish?: boolean;
   /** A one-line outcome from a save, publish or restore. */
   notice?: { kind: "success" | "warning"; message: string } | null;
 }
-
-const formatWhen = (date: Date): string =>
-  date.toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  });
 
 /** The top-level field a dotted issue path points at: `gallery.0.mediaId` → `gallery`. */
 const topLevelField = (path: string): string => path.split(".")[0];
@@ -66,6 +68,7 @@ export const SlotForm = ({
   media,
   errors,
   conflict,
+  refusedPublish,
   notice,
 }: SlotFormProps) => {
   const labelFor = (name: string): string => {
@@ -149,7 +152,11 @@ export const SlotForm = ({
 
       {errors && errors.length > 0 && (
         <div className="flash-error" role="alert">
-          <p>This content can't be saved. Check the fields marked below.</p>
+          <p>
+            {refusedPublish
+              ? "This content can't be published. Check the fields marked below."
+              : "This content can't be saved. Check the fields marked below."}
+          </p>
           <ul>
             {errors.map((issue, index) => {
               const name = topLevelField(issue.path);
@@ -189,6 +196,9 @@ export const SlotForm = ({
 
       <form method="POST" action={`/cms/slots/${slot.id}`} data-cms-form>
         <input type="hidden" name="_csrf" value={formCsrfToken} />
+        {/* The reuse list, once for the form; each image picker is filled from
+            it on focus rather than repeating it per field. */}
+        <MediaOptionsTemplate media={media} />
         {/* The whole document, so a save without JavaScript round-trips the
             stored content unchanged. The editor rebuilds this on submit. */}
         <input

@@ -2,13 +2,15 @@ import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
 import { block, text } from "../fields";
 import { hashPreviewToken } from "../preview";
+import { createCmsMedia } from "./media";
 import {
   type CmsPage,
   createCmsPageRoute,
   createCmsPages,
+  getPage,
   sameOriginPath,
 } from "./pages";
-import { getSlot } from "./slots";
+import { createContentReader, getSlot } from "./slots";
 
 const PAGE_ROW: {
   id: string;
@@ -106,7 +108,7 @@ const fakeSql = (
     },
   } as unknown as SQL;
 
-  return { state, sql };
+  return { state, sql, redirects };
 };
 
 describe("createCmsPages", () => {
@@ -117,6 +119,28 @@ describe("createCmsPages", () => {
     const page = await pages.getPage("/about");
     expect(page?.title).toBe("About us");
     expect(page?.blocks).toEqual([{ type: "hero", heading: "Hello" }]);
+  });
+
+  // The reader's contract is "null means unset", and the editor trims on write,
+  // but a hand edit or an old pull can leave a whitespace-only description. A
+  // site reading the field directly rather than through `pageSeo` must not get
+  // one it would render as a blank tag.
+  test("treats a whitespace-only SEO description as unset", async () => {
+    const { sql } = fakeSql({
+      page: { ...PAGE_ROW, seo_description: "   " },
+    });
+    const pages = createCmsPages({ sql, onSkip: () => {} });
+
+    expect((await pages.getPage("/about"))?.seoDescription).toBeNull();
+  });
+
+  test("trims a padded SEO description", async () => {
+    const { sql } = fakeSql({
+      page: { ...PAGE_ROW, seo_description: "  Who we are.  " },
+    });
+    const pages = createCmsPages({ sql, onSkip: () => {} });
+
+    expect((await pages.getPage("/about"))?.seoDescription).toBe("Who we are.");
   });
 
   test("returns nothing for a page that is only a draft", async () => {
@@ -386,7 +410,13 @@ describe("preview reads", () => {
           if (query.includes("WHERE id = $1")) {
             return Promise.resolve(page.id === params[0] ? [page] : []);
           }
-          return Promise.resolve([{ id: page.id, url: page.url }]);
+          // The routing table, as the real reader loads it: published pages
+          // only, so an unpublished page is found only by the URL lookup.
+          return Promise.resolve(
+            page.published_revision_id === null
+              ? []
+              : [{ id: page.id, url: page.url }],
+          );
         }
         if (query.includes("cms_revisions")) {
           if (query.includes("LIMIT 1") && query.includes("target_id")) {
@@ -416,6 +446,31 @@ describe("preview reads", () => {
       expires_at: new Date("2099-01-01T00:00:00Z"),
     },
   });
+
+  const slotToken = (subjectId: string) => ({
+    [hashPreviewToken("good")]: {
+      subject_type: "slot" as const,
+      subject_id: subjectId,
+      expires_at: new Date("2099-01-01T00:00:00Z"),
+    },
+  });
+
+  /** A pool that counts every query, over one of the preview pools above. */
+  const countingPreviewSql = (
+    sql: SQL,
+  ): { sql: SQL; queries: () => number } => {
+    const base = sql as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    let queries = 0;
+    const counting = {
+      unsafe: (query: string, params?: unknown[]) => {
+        queries += 1;
+        return base.unsafe(query, params);
+      },
+    } as unknown as SQL;
+    return { sql: counting, queries: () => queries };
+  };
 
   test("renders the newest draft, with the banner and no cache", async () => {
     const sql = previewSql({ tokens: pageToken("page-1") });
@@ -548,6 +603,44 @@ describe("preview reads", () => {
     expect(html).toContain("cms-preview-banner");
   });
 
+  // The slot reader keeps the cache for slots a token does not cover; the page
+  // reader has to do the same, or previewing one slot would re-read every page
+  // on the site. A slot's token shows the published page, from the cache.
+  test("a slot token serves the published page from the cache", async () => {
+    const { sql, queries } = countingPreviewSql(
+      previewSql({ tokens: slotToken("slot-1") }),
+    );
+    const pages = createCmsPages({ sql, onSkip: () => {}, now: () => 0 });
+    const preview = { subjectType: "slot" as const, subjectId: "slot-1" };
+
+    const first = await pages.getPage("/about", { preview });
+    expect(first?.blocks).toEqual([{ type: "hero", heading: "Published" }]);
+
+    const warm = queries();
+    const second = await pages.getPage("/about", { preview });
+    expect(second?.blocks).toEqual([{ type: "hero", heading: "Published" }]);
+    // A second read inside the interval costs nothing: the page stayed cached.
+    expect(queries()).toBe(warm);
+  });
+
+  // Same for a page token that names a different page: only the token's own
+  // page leaves the cache.
+  test("a page token for another page serves this one from the cache", async () => {
+    const { sql, queries } = countingPreviewSql(
+      previewSql({ tokens: pageToken("page-2") }),
+    );
+    const pages = createCmsPages({ sql, onSkip: () => {}, now: () => 0 });
+    const preview = { subjectType: "page" as const, subjectId: "page-2" };
+
+    const first = await pages.getPage("/about", { preview });
+    expect(first?.blocks).toEqual([{ type: "hero", heading: "Published" }]);
+
+    const warm = queries();
+    const second = await pages.getPage("/about", { preview });
+    expect(second?.blocks).toEqual([{ type: "hero", heading: "Published" }]);
+    expect(queries()).toBe(warm);
+  });
+
   test("getPage with preview bypasses the cache", async () => {
     const sql = previewSql({ tokens: pageToken("page-1") });
     const pages = createCmsPages({ sql, onSkip: () => {}, now: () => 0 });
@@ -560,6 +653,65 @@ describe("preview reads", () => {
     // The published read is unaffected and still separate.
     const published = await pages.getPage("/about");
     expect(published?.blocks).toEqual([{ type: "hero", heading: "Published" }]);
+  });
+
+  // A1: a page token used to run the uncached `url = $1` page lookup on every
+  // path the routing table didn't know — every 404 a previewed page asked for.
+  // When the token's page is already published at another URL that lookup can
+  // only miss: a page's URL lives on the page row, so a draft cannot move it.
+  test("a page token does not run the URL lookup for an unpublished path", async () => {
+    const inner = previewSql({ tokens: pageToken("page-1") }) as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const seen: string[] = [];
+    const sql = {
+      unsafe: (query: string, params?: unknown[]) => {
+        seen.push(query);
+        return inner.unsafe(query, params);
+      },
+    } as unknown as SQL;
+
+    const pages = createCmsPages({ sql, onSkip: () => {}, now: () => 0 });
+    const preview = { subjectType: "page" as const, subjectId: "page-1" };
+
+    expect(await pages.getPage("/missing", { preview })).toBeNull();
+
+    const urlLookups = seen.filter(
+      (query) =>
+        query.includes("cms_pages") && query.includes("WHERE url = $1"),
+    );
+    expect(urlLookups).toHaveLength(0);
+  });
+
+  // The same guard must not hide a genuinely unpublished page: with nothing in
+  // the routing table, the token is the only way to reach it, so the URL lookup
+  // still runs.
+  test("a page token still finds an unpublished page by URL", async () => {
+    const inner = previewSql({
+      page: { ...PAGE_ROW, published_revision_id: null },
+      tokens: pageToken("page-1"),
+    }) as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const seen: string[] = [];
+    const sql = {
+      unsafe: (query: string, params?: unknown[]) => {
+        seen.push(query);
+        return inner.unsafe(query, params);
+      },
+    } as unknown as SQL;
+
+    const pages = createCmsPages({ sql, onSkip: () => {}, now: () => 0 });
+    const preview = { subjectType: "page" as const, subjectId: "page-1" };
+
+    const page = await pages.getPage("/about", { preview });
+    expect(page?.blocks).toEqual([{ type: "hero", heading: "Draft" }]);
+    expect(
+      seen.some(
+        (query) =>
+          query.includes("cms_pages") && query.includes("WHERE url = $1"),
+      ),
+    ).toBe(true);
   });
 
   test("serves a HEAD request that carries a token", async () => {
@@ -643,6 +795,13 @@ describe("the catch-all's render context", () => {
               block_name: "hero",
               removed_at: null,
               published_revision_id: "slot-rev-1",
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: "slot-rev-1",
+              content: { heading: "Published hero" },
+              latest_revision_id: "slot-rev-2",
+              latest_content: { heading: "Draft hero" },
             },
           ]);
         }
@@ -694,5 +853,261 @@ describe("the catch-all's render context", () => {
     expect(html).toContain("<h1>About us</h1>");
     expect(html).toContain("<p>Draft hero</p>");
     expect(html).toContain("cms-preview-banner");
+  });
+});
+
+describe("reader sharing and routing-table failures", () => {
+  const render = (page: { title: string }) =>
+    new Response(`<h1>${page.title}</h1>`, {
+      headers: { "Content-Type": "text/html" },
+    });
+
+  const isRoutesQuery = (query: string): boolean =>
+    query.includes("cms_pages") &&
+    query.includes("published_revision_id IS NOT NULL") &&
+    !query.includes("updated_at");
+
+  /** A pool whose routes query can be made to fail, counting that query. */
+  const flakySql = (options: Parameters<typeof fakeSql>[0] = {}) => {
+    const { state, sql, redirects } = fakeSql(options);
+    const base = sql as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const counters = { routeQueries: 0, fail: false };
+    const flaky = {
+      unsafe: (query: string, params?: unknown[]) => {
+        if (isRoutesQuery(query)) {
+          counters.routeQueries += 1;
+          if (counters.fail) throw new Error("the routes query is down");
+        }
+        return base.unsafe(query, params);
+      },
+    } as unknown as SQL;
+    return { state, counters, sql: flaky, redirects };
+  };
+
+  test("the 301 carries a cache lifetime", async () => {
+    const { sql } = fakeSql({
+      page: { ...PAGE_ROW, url: "/about-us" },
+      redirects: { "/about": "page-1" },
+    });
+    const route = createCmsPageRoute({ sql, render, onSkip: () => {} });
+
+    const res = await route(new Request("http://localhost/about"));
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Cache-Control")).toBe("public, max-age=3600");
+  });
+
+  // A preview must not be cached anywhere on the way, so a 301 that still
+  // carries the token is `no-store` rather than the usual hour-long lifetime.
+  test("a 301 carrying a preview token is not cached", async () => {
+    const { sql } = fakeSql({
+      page: { ...PAGE_ROW, url: "/about-us" },
+      redirects: { "/about": "page-1" },
+    });
+    const route = createCmsPageRoute({ sql, render, onSkip: () => {} });
+
+    const res = await route(
+      new Request("http://localhost/about?cms_preview=good"),
+    );
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe("/about-us?cms_preview=good");
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  // A site that mounts the catch-all and also reads a page directly should pay
+  // for one cache and one poll, not two.
+  test("shares the pool reader with a direct getPage when no options are given", async () => {
+    const { sql } = fakeSql();
+    const base = sql as unknown as {
+      unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+    };
+    let queries = 0;
+    const counting = {
+      unsafe: (query: string, params?: unknown[]) => {
+        queries += 1;
+        return base.unsafe(query, params);
+      },
+    } as unknown as SQL;
+
+    // No `now`, `versionPollMs` or `onSkip`: the default reader for the pool.
+    const route = createCmsPageRoute({ sql: counting, render });
+    await route(new Request("http://localhost/about"));
+    const warm = queries;
+
+    // The direct read rides the route's cache: no query at all.
+    expect((await getPage(counting, "/about"))?.title).toBe("About us");
+    expect(queries).toBe(warm);
+  });
+
+  test("serves the last good routing table when a later load fails", async () => {
+    const { state, counters, sql } = flakySql();
+    let now = 0;
+    const skipped: string[] = [];
+    const pages = createCmsPages({
+      sql,
+      now: () => now,
+      onSkip: (message) => skipped.push(message),
+    });
+
+    expect((await pages.getPage("/about"))?.title).toBe("About us");
+
+    // A publish moves the version; the next routes load fails.
+    counters.fail = true;
+    state.version += 1;
+    now += 1000;
+
+    // The last good table is served, and the failure is reported.
+    expect((await pages.getPage("/about"))?.title).toBe("About us");
+    expect(skipped.some((line) => line.includes("last good"))).toBe(true);
+    const afterFailure = counters.routeQueries;
+
+    // Backed off: another request inside the interval does not re-query.
+    now += 100;
+    expect((await pages.getPage("/about"))?.title).toBe("About us");
+    expect(counters.routeQueries).toBe(afterFailure);
+  });
+
+  test("caches a routes failure for one interval when there is no last good table", async () => {
+    const { counters, sql } = flakySql();
+    counters.fail = true;
+    let now = 0;
+    const pages = createCmsPages({
+      sql,
+      now: () => now,
+      onSkip: () => {},
+    });
+
+    expect(await pages.getPage("/about")).toBeNull();
+    expect(counters.routeQueries).toBe(1);
+
+    // Inside the interval the stored failure is re-thrown without a query.
+    now += 100;
+    expect(await pages.getPage("/about")).toBeNull();
+    expect(counters.routeQueries).toBe(1);
+
+    // Past the interval it tries again.
+    now += 1000;
+    expect(await pages.getPage("/about")).toBeNull();
+    expect(counters.routeQueries).toBe(2);
+  });
+
+  // The failure must not be frozen into the cache: once the database recovers,
+  // the next read past the back-off loads a fresh table rather than serving the
+  // stale fallback until the next publish.
+  test("recovers a fresh routing table once a failed load succeeds again", async () => {
+    const { state, counters, sql, redirects } = flakySql({
+      redirects: { "/old": "page-1" },
+    });
+    let now = 0;
+    const pages = createCmsPages({
+      sql,
+      now: () => now,
+      onSkip: () => {},
+    });
+
+    expect(await pages.getRedirect("/old")).toBe("/about");
+
+    // A publish moves the version and the next routes load fails.
+    counters.fail = true;
+    state.version += 1;
+    now += 1000;
+    expect(await pages.getRedirect("/old")).toBe("/about");
+    const afterFailure = counters.routeQueries;
+
+    // The database comes back and a new redirect exists. Past the back-off the
+    // fresh table is loaded and the new route resolves.
+    counters.fail = false;
+    redirects["/new"] = "page-1";
+    now += 1000;
+    expect(await pages.getRedirect("/new")).toBe("/about");
+    expect(counters.routeQueries).toBe(afterFailure + 1);
+  });
+});
+
+describe("one content_version poll per pool", () => {
+  /** A pool answering both the slot and the page reader, counting version reads. */
+  const sharedSql = () => {
+    const state = { versionReads: 0, version: 1 };
+    const sql = {
+      unsafe: (query: string) => {
+        if (query.includes("cms_meta")) {
+          state.versionReads += 1;
+          return Promise.resolve([{ content_version: state.version }]);
+        }
+        if (query.includes("cms_slots")) {
+          return Promise.resolve([
+            {
+              id: "slot-1",
+              name: "home.hero",
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: "slot-rev-1",
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: "slot-rev-1",
+              content: { heading: "Hero" },
+            },
+          ]);
+        }
+        if (query.includes("cms_pages")) {
+          return Promise.resolve([{ id: "page-1", url: "/about" }]);
+        }
+        if (query.includes("cms_media")) {
+          return Promise.resolve([
+            {
+              id: "media-1",
+              alt: "A fox",
+              width: 960,
+              height: 540,
+              focal_x: 0.5,
+              focal_y: 0.5,
+              variants: [],
+            },
+          ]);
+        }
+        if (query.includes("cms_revisions")) {
+          return Promise.resolve([{ content: { blocks: [] } }]);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+    return { state, sql };
+  };
+
+  test("the slot, page and media readers share one poll", async () => {
+    const { state, sql } = sharedSql();
+    const slots = createContentReader({ sql, onSkip: () => {} });
+    const pages = createCmsPages({ sql, onSkip: () => {} });
+    const media = createCmsMedia({ sql, onSkip: () => {} });
+
+    await slots.getSlot("home.hero");
+    await pages.getPage("/about");
+    await media.getMedia("media-1");
+    // One `content_version` read for the process, not one per reader.
+    expect(state.versionReads).toBe(1);
+
+    // A second read inside the interval shares the poll too.
+    await slots.getSlot("home.hero");
+    await pages.getPage("/about");
+    await media.getMedia("media-1");
+    expect(state.versionReads).toBe(1);
+  });
+
+  // An invalidate is a hard reset, and with a shared poll that has to reach the
+  // poll: invalidating the slot reader forces the page reader's next read back
+  // to the database as well.
+  test("invalidating one reader forces the shared poll to re-read", async () => {
+    const { state, sql } = sharedSql();
+    const slots = createContentReader({ sql, onSkip: () => {} });
+    const pages = createCmsPages({ sql, onSkip: () => {} });
+
+    await slots.getSlot("home.hero");
+    expect(state.versionReads).toBe(1);
+
+    slots.invalidate();
+    await pages.getPage("/about");
+    expect(state.versionReads).toBe(2);
   });
 });

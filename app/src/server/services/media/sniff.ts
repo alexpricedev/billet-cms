@@ -273,3 +273,23 @@ export const extensionFor = (format: ImageFormat): string => {
   if (format === "png") return "png";
   return "webp";
 };
+
+/**
+ * The fallback rendition's encoder and extension for a source format.
+ *
+ * One source of truth for a decision made in two places: the processor picks the
+ * Sharp encoder (`png` or `jpeg`), and the media service names the fallback
+ * object (`png` or `jpg`). Both read it here, so a new fallback format can't be
+ * spelled one way in the bytes and another in the key. PNG keeps its alpha;
+ * everything else falls back to JPEG.
+ */
+export const fallbackFor = (
+  format: ImageFormat,
+): {
+  encoder: "png" | "jpeg";
+  extension: "png" | "jpg";
+  contentType: "image/png" | "image/jpeg";
+} =>
+  format === "png"
+    ? { encoder: "png", extension: "png", contentType: "image/png" }
+    : { encoder: "jpeg", extension: "jpg", contentType: "image/jpeg" };

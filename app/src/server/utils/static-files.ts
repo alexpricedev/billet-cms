@@ -3,10 +3,9 @@
 // validator, and answers conditional requests with a 304. Fingerprinted bundles
 // take the immutable path in services/assets.ts instead.
 
-// public/ assets (favicons, og-image, cube.json) are not
-// fingerprinted, so they revalidate rather than caching forever: a short max-age
-// with stale-while-revalidate/stale-if-error for resilience under load or origin
-// errors.
+// public/ assets (favicons, og-image) are not fingerprinted, so they revalidate
+// rather than caching forever: a short max-age with stale-while-revalidate and
+// stale-if-error for resilience under load or origin errors.
 const STATIC_CACHE_CONTROL =
   "public, max-age=3600, stale-while-revalidate=86400, stale-if-error=604800";
 

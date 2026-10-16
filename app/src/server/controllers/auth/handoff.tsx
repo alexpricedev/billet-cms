@@ -1,6 +1,7 @@
 import type { BunRequest } from "bun";
 import { getSessionContext } from "../../middleware/auth";
 import { csrfProtection } from "../../middleware/csrf";
+import { rateLimit } from "../../middleware/rate-limit";
 import { createCsrfToken } from "../../services/csrf";
 import { redeemHandoffToken } from "../../services/handoff";
 import {
@@ -48,6 +49,12 @@ export const handoff = {
   },
 
   async create(req: BunRequest): Promise<Response> {
+    // The one signed-out form POST the CMS renders, so it spends the `auth`
+    // budget: a script hammering /handoff can't turn token guesses or session
+    // churn into load.
+    const limited = rateLimit(req, "auth");
+    if (limited) return limited;
+
     const csrfFailure = await csrfProtection(req, {
       method: "POST",
       path: HANDOFF_PATH,

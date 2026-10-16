@@ -36,7 +36,11 @@ import {
   savePageDraft,
   saveSlotDraft,
 } from "./index";
-import { buildPreviewUrl, createPreviewToken } from "./preview";
+import {
+  buildPreviewUrl,
+  createPreviewToken,
+  previewSiteOrigin,
+} from "./preview";
 
 const hero = block(
   "hero",
@@ -164,6 +168,29 @@ describe("preview tokens", () => {
     expect(
       buildPreviewUrl({ baseUrl: "", path: "/about", rawToken: "tok" }),
     ).toBeNull();
+  });
+
+  test("previewSiteOrigin accepts only a configured, parseable URL", () => {
+    expect(previewSiteOrigin("https://example.com/x?y=1")).toBe(
+      "https://example.com",
+    );
+    expect(previewSiteOrigin("  http://localhost:4000/  ")).toBe(
+      "http://localhost:4000",
+    );
+    // Blank, missing and unparseable values all mean "no site to open".
+    expect(previewSiteOrigin(undefined)).toBeNull();
+    expect(previewSiteOrigin("")).toBeNull();
+    expect(previewSiteOrigin("   ")).toBeNull();
+    expect(previewSiteOrigin("not a url")).toBeNull();
+  });
+
+  // A non-http(s) value parses as a URL (`ftp:` even has a real origin string),
+  // so a bare parse would mint a token and then open a link no page can follow.
+  // The scheme rule is the one `httpOrigin` shares with the CSP's media origin.
+  test("previewSiteOrigin refuses a scheme that isn't http(s)", () => {
+    expect(previewSiteOrigin("ftp://example.com")).toBeNull();
+    expect(previewSiteOrigin("javascript:alert(1)")).toBeNull();
+    expect(previewSiteOrigin("mailto:editor@example.com")).toBeNull();
   });
 
   test("a page token renders the draft, a bad token the published page", async () => {

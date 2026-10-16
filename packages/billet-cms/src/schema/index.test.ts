@@ -5,6 +5,7 @@ import {
   image,
   link,
   list,
+  MAX_RICH_TEXT_LIST_DEPTH,
   richText,
   text,
 } from "../index";
@@ -65,6 +66,28 @@ describe("validateContent", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  // The compiled schema's rich text `$defs` are recursive, so a deeply nested
+  // posted document would overflow the stack in `safeParse`. The bound is
+  // checked first, so this comes back as an issue (not a RangeError).
+  test("rejects a rich text document nested past the bound without overflowing", () => {
+    let node: unknown = { type: "paragraph", content: [] };
+    for (let level = 0; level <= MAX_RICH_TEXT_LIST_DEPTH; level += 1) {
+      node = {
+        type: "bulletList",
+        content: [{ type: "listItem", content: [node] }],
+      };
+    }
+
+    const result = validateContent(stored, {
+      ...validContent,
+      body: { type: "doc", content: [node] },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.issues[0]?.message).toContain("nest at most");
   });
 
   test("rejects an unknown top-level field by default", () => {

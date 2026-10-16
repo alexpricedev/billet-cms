@@ -36,27 +36,29 @@ export const dashboard = {
 ```
 
 `render()` and `redirect()` come from `src/server/utils/response.ts`. Don't set security headers —
-they're applied centrally. Tokens for the page's forms come from `csrfTokens(ctx)` in
-`src/server/utils/csrf-tokens.ts`, minted here and passed as props.
-
-A POST method is a `formAction` handler rather than a bare function:
+they're applied centrally. A form's CSRF token comes from `createCsrfToken(sessionId, "POST", path)`
+in `src/server/services/csrf.ts`, minted here and passed to the template as a prop; a POST handler
+checks it with `checkCsrf(req, { method: "POST", path })` from `src/server/middleware/csrf.ts`.
 
 ```tsx
-create: formAction<DashboardState>({
-  redirectTo: "/dashboard",
-  guard: "user",                                  // or "session", or orgRoleGuard("admin")
-  onExpired: () => ({ state: "csrf-expired" }),   // the flash for a stale token on a plain post
-})(async (req, ctx) => {
-  const { name } = await readFormValues(req, ["name"]);
-  if (!name) return { reject: 400, flash: { state: "validation-error" } };
-  await createWidget(name);
-  return { flash: { state: "created" } };         // add `fragment: <Row … />` only for tier 2
-}),
+export const dashboard = {
+  async index(req: BunRequest) {
+    const data = await getDashboardData();
+    const csrfToken = await createCsrfToken(sessionId, "POST", "/dashboard");
+    return render(<Dashboard data={data} csrfToken={csrfToken} />);
+  },
+  async create(req: BunRequest) {
+    const csrf = await checkCsrf(req, { method: "POST", path: "/dashboard" });
+    if (!csrf.ok) return csrf.response;
+    // ...validate, write, then redirect with a notice flag
+    return redirect("/dashboard?saved=1");
+  },
+};
 ```
 
-The wrapper does the session, the guard, the CSRF check with recovery, and the response for both a
-plain post and a fragment request. The handler returns an outcome and never builds a Response.
-`src/server/controllers/app/todos.tsx` shows every shape.
+`src/server/controllers/cms/slot.tsx` and `pages.tsx` are the CMS's worked examples of that shape.
+(`formAction` and `csrfTokens`, which upstream used, are not part of this fork — see
+`.claude/rules/server-actions.md`.)
 
 ## 4. Barrel — `src/server/controllers/app/index.ts`
 

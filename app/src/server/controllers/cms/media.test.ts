@@ -22,6 +22,7 @@ import {
   getMediaById,
   type MediaRecord,
   setMediaStorageForTest,
+  updateMediaFocalPoint,
 } from "../../services/media";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { media } from "./media";
@@ -172,6 +173,28 @@ describe("Media controller", () => {
     expect(saved?.alt).toBe("New alt");
     expect(saved?.focalX).toBeCloseTo(0.2);
     expect(saved?.focalY).toBeCloseTo(0.8);
+  });
+
+  test("leaves the focal point alone when the form omits it", async () => {
+    const image = await upload("Old alt");
+    // A stored crop away from the centre, so "unchanged" is distinguishable
+    // from the "0,0" a missing input would read as with a bare Number().
+    await updateMediaFocalPoint(image.id, { x: 0.25, y: 0.75 });
+
+    const form = new FormData();
+    form.set("alt", "New alt");
+
+    const res = await media.save(
+      await post(`/cms/media/${image.id}`, form, `/cms/media/${image.id}`, {
+        id: image.id,
+      }),
+    );
+    expect(res.status).toBe(303);
+
+    const saved = await getMediaById(image.id);
+    expect(saved?.alt).toBe("New alt");
+    expect(saved?.focalX).toBeCloseTo(0.25);
+    expect(saved?.focalY).toBeCloseTo(0.75);
   });
 
   test("won't delete an image published content still uses", async () => {

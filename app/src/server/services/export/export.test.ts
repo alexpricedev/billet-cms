@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
 import { block, image, text } from "@alexpricedev/billet-cms/fields";
+import type { SQL } from "bun";
 import {
   seedBlockType,
   seedPageType,
@@ -210,6 +211,61 @@ describe("export document", () => {
     expect(document.media[0].variants[0].fallbackUrl).toBe(
       "https://bucket.example/media/x/960.jpg",
     );
+  });
+
+  // The whole document is one snapshot: every read runs in a single read-only
+  // REPEATABLE READ transaction, so a publish landing mid-read can't show
+  // half-old, half-new content.
+  test("reads the document in one read-only, repeatable-read transaction", async () => {
+    await seed(actorId);
+
+    let begins = 0;
+    let isolation: string | undefined;
+    let readOnly: string | undefined;
+    const wrapped = new Proxy(connection, {
+      get(target, property, receiver) {
+        if (property === "begin") {
+          return (options: string, fn: (tx: SQL) => Promise<unknown>) => {
+            begins += 1;
+            return target.begin(options, async (tx) => {
+              const iso = (await tx.unsafe("SHOW transaction_isolation")) as {
+                transaction_isolation: string;
+              }[];
+              const ro = (await tx.unsafe("SHOW transaction_read_only")) as {
+                transaction_read_only: string;
+              }[];
+              isolation = iso[0].transaction_isolation;
+              readOnly = ro[0].transaction_read_only;
+              return fn(tx);
+            });
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    }) as SQL;
+
+    const document = await buildExport(wrapped);
+
+    expect(begins).toBe(1);
+    expect(isolation).toBe("repeatable read");
+    expect(readOnly).toBe("on");
+    expect(document.pages.map((page) => page.url)).toEqual(["/about"]);
+  });
+
+  // Without an ORDER BY, Postgres may return the revision rows in any order and
+  // two exports of the same content would diff. The order is the id.
+  test("orders the revisions by id, deterministically", async () => {
+    const ids = await seed(actorId);
+
+    const first = await buildExport();
+    const second = await buildExport();
+    const expected = [
+      ids.publishedPageRevision,
+      ids.publishedSlotRevision,
+    ].sort();
+
+    expect(first.revisions.map((revision) => revision.id)).toEqual(expected);
+    expect(second.revisions.map((revision) => revision.id)).toEqual(expected);
   });
 
   test("exports no user, session or token rows", async () => {

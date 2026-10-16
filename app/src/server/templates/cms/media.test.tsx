@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
 import { renderToString } from "preact-render-to-string";
-import type { MediaRecord } from "../../services/media";
-import { MediaList, variantForDisplay } from "./media";
+import { MAX_ALT_LENGTH, type MediaRecord } from "../../services/media";
+import { MediaDetail, MediaList, variantForDisplay } from "./media";
 
 // The grid, picker and previews are all a fraction of the full-size original,
 // so handing them the largest rendition wasted bandwidth on every card (review
@@ -43,6 +43,15 @@ describe("variantForDisplay", () => {
 
   test("falls back to the largest rendition when none is big enough", () => {
     expect(variantForDisplay(media([200, 300]), 192)?.width).toBe(300);
+  });
+
+  test("caps the chosen rendition when a surface asks for it", () => {
+    const record = media([480, 960, 1600, 2400, 3000]);
+
+    // The focal picker caps at 960, so it skips the 1600 the 2x rule would pick.
+    expect(variantForDisplay(record, 512, 960)?.width).toBe(960);
+    // No rendition at or below the cap: the smallest it has is still used.
+    expect(variantForDisplay(media([1200, 2400]), 512, 960)?.width).toBe(1200);
   });
 
   test("returns undefined for a row with no renditions", () => {
@@ -86,5 +95,45 @@ describe("MediaList upload form", () => {
       const field = form()?.querySelector(`#${id}`)?.closest(".cms-field");
       expect(field?.querySelector(`label[for="${id}"]`)).not.toBeNull();
     }
+  });
+});
+
+// r1-22: the alt input carries `maxlength`, but the reason it stops at 1000 is
+// only in the rendered help. Both alt inputs — the upload's own alt here and
+// the detail's — name the limit, and the input points at it for a screen
+// reader.
+const altInput = (html: string): string =>
+  /<input[^>]*id="cms-media-alt"[^>]*>/.exec(html)?.[0] ?? "";
+
+describe("MediaList alt help", () => {
+  const html = renderToString(
+    <MediaList
+      user={{ id: "u1", email: "editor@example.com", role: "editor" }}
+      csrfToken="csrf-token"
+      items={[]}
+    />,
+  );
+
+  test("describes the upload's alt input with its length limit", () => {
+    expect(altInput(html)).toContain('aria-describedby="cms-media-alt-help"');
+    expect(html).toContain('id="cms-media-alt-help"');
+    expect(html).toContain(`Up to ${MAX_ALT_LENGTH} characters.`);
+  });
+});
+
+describe("MediaDetail alt help", () => {
+  const html = renderToString(
+    <MediaDetail
+      user={{ id: "u1", email: "editor@example.com", role: "editor" }}
+      csrfToken="csrf-token"
+      media={{ ...media([480, 960]), alt: "A field" }}
+      usage={[]}
+    />,
+  );
+
+  test("describes the detail's alt input with its length limit", () => {
+    expect(altInput(html)).toContain('aria-describedby="cms-media-alt-help"');
+    expect(html).toContain('id="cms-media-alt-help"');
+    expect(html).toContain(`Up to ${MAX_ALT_LENGTH} characters.`);
   });
 });

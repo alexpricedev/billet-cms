@@ -19,25 +19,32 @@
  * always win because the handler is only reached for a path no route claimed.
  *
  * Reads are cached per process and invalidated on `cms_meta.content_version`
- * (Q3), the same cache the slot reader uses, so a publish shows within a second.
+ * (Q3), the same poll the slot and media readers use, so a publish shows within
+ * a second.
  * The routes a path can take — every published page's URL and every redirect —
  * are loaded as one table and cached under one key, so a 404 runs no per-path
  * query and adds no per-path cache entry (review round 1). A removed block, an
  * unpublished page or a missing CMS table is a skip and a log, never a 500 on a
  * public page.
  *
- * A valid preview token (`./preview`, Phase 6) is the one thing that leaves that
- * cache: `getPage(path, { preview })` reads the draft directly, and the catch-all
- * wraps the rendered page in the banner and the no-cache headers.
+ * A valid preview token (`./preview`, Phase 6) leaves that cache for the page
+ * the token names only: `getPage(path, { preview })` reads that page's draft
+ * directly and the catch-all wraps the rendered page in the banner and the
+ * no-cache headers, while a token for a slot, or for another page, still reads
+ * published from the cache.
  */
 import type { SQL } from "bun";
-import { TABLES } from "../contract";
+import { PREVIEW_QUERY_PARAM, TABLES } from "../contract";
 import type { LinkValue } from "../fields/field";
 import { sameOriginPath } from "../fields/path";
 import type { PreviewAccess } from "../preview";
 import { applyPreview, getPreviewAccess } from "../preview";
 import { validateContent } from "../schema";
-import { ContentCache } from "./cache";
+import {
+  CONTENT_VERSION_POLL_MS,
+  ContentCache,
+  readerCacheOptions,
+} from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
 import { latestRevisionId } from "./revisions";
 
@@ -79,7 +86,14 @@ export interface CmsPagesOptions {
   now?: () => number;
   /** How often `content_version` is re-read. Defaults to one second (Q3). */
   versionPollMs?: number;
-  /** Where skipped content is reported. Defaults to the console. */
+  /**
+   * Where skipped content is reported. Defaults to the console.
+   *
+   * It does not receive `content_version` poll failures: the poll is shared
+   * between every reader on the pool, so it logs through the default logger
+   * rather than any one reader's sink. A reader built with an injected `now`
+   * gets a private poll and does report through this logger.
+   */
   onSkip?: SkipLogger;
 }
 
@@ -89,10 +103,10 @@ export interface CmsPagesReader {
    *
    * Pass `{ preview }` with valid preview access to read the *draft* the token
    * covers; `null` is the published read, so a caller can forward the access a
-   * request carried without branching. The read bypasses the content-version
-   * cache entirely (a preview must never be served from, or written to, the
-   * published cache), and only the page the token names as its subject uses its
-   * newest revision — any other page still reads as published.
+   * request carried without branching. A page token bypasses the content-version
+   * cache for the page it names only — that draft is never served from, or
+   * written to, the published cache — while every other page (a slot's token, or
+   * a page token for a different page) still reads as published from the cache.
    */
   getPage(
     path: string,
@@ -104,7 +118,10 @@ export interface CmsPagesReader {
   resolveLink(link: LinkValue): Promise<string | null>;
   /** The published pages a site merges into its sitemap, in URL order. */
   listSitemapEntries(): Promise<CmsSitemapEntry[]>;
-  /** Drop the cache and force the next read to re-check `content_version`. */
+  /**
+   * A hard reset: drop every cached entry and re-read `content_version` on the
+   * next read.
+   */
   invalidate(): void;
 }
 
@@ -153,11 +170,18 @@ const canonicalPath = (path: string): string => {
   return path.replace(/\/+$/, "");
 };
 
-const readContentVersion = async (sql: SQL): Promise<number> => {
-  const rows = (await sql.unsafe(
-    `SELECT content_version FROM ${TABLES.meta} WHERE id = 1`,
-  )) as { content_version: string | number }[];
-  return rows.length > 0 ? Number(rows[0].content_version) : 0;
+/**
+ * Trim a stored text setting, treating a whitespace-only one as unset.
+ *
+ * The editor trims on write, so a blank description normally never reaches a
+ * row — but a hand edit, a pull from an older CMS or the site's own migration
+ * can leave one, and the reader's contract is "`null` means unset". Normalising
+ * here keeps a site that reads `page.seoDescription` directly (rather than
+ * through `pageSeo`) from rendering a blank description tag.
+ */
+const optionalText = (value: string | null): string | null => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 };
 
 const describe = (error: unknown): string =>
@@ -296,7 +320,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       id: page.id,
       url: page.url,
       title: page.title,
-      seoDescription: page.seo_description,
+      seoDescription: optionalText(page.seo_description),
       socialImage: page.social_image,
       pageType: page.page_type,
       blocks: rendered,
@@ -347,8 +371,35 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     return await renderPage(page, revisionId);
   };
 
+  /**
+   * The routing table's last successful load, kept across failures.
+   *
+   * A failure to read the table is transient — the CMS is down, or
+   * mid-migration — and the site must keep rendering with the routes it last
+   * saw rather than 404 every page. It survives `invalidate()`: it is a failure
+   * fallback, not a cache entry, so it is replaced by the next successful load
+   * rather than dropped with the cached entries. The content may be newer than
+   * the fallback, but it is the best available.
+   */
+  let lastGoodRoutes: RouteTable | null = null;
+  /**
+   * The last routes failure and when it happened, for the back-off.
+   *
+   * Kept whether or not there is a last good table, so a database that is still
+   * failing is queried at most once per poll interval rather than once per
+   * request — the failure must not be frozen into the cache, but it must not be
+   * re-attempted on every read either.
+   */
+  let routesError: { error: unknown; at: number } | null = null;
+  /** When "serving the last good table" was last reported, for the back-off. */
+  let routesErrorLoggedAt = Number.NEGATIVE_INFINITY;
+  const pollMs = options.versionPollMs ?? CONTENT_VERSION_POLL_MS;
+
   // One loader dispatching on the key: `ContentCache` caches one value per key
   // but has a single `load`, so the key is what tells it what to read on a miss.
+  // The routes load stays strict: a throw is a miss the cache does not store, so
+  // a transient failure can't be cached under the current version and outlive
+  // the outage. `routes()` below is what turns that throw into a fallback.
   const loadByKey = async (key: string): Promise<unknown> => {
     if (key === "routes") return await loadRoutes(sql);
     const prefix = "page:";
@@ -357,16 +408,54 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
   };
 
   const cache = new ContentCache<unknown>({
-    readVersion: () => readContentVersion(sql),
+    // One poll for the whole pool, shared with the slot and media readers, so a
+    // process asks `cms_meta` once a second rather than once per reader. A
+    // failed version check is logged by the shared poll through the default
+    // logger, not this reader's `onSkip` (see `readerCacheOptions`).
+    ...readerCacheOptions(sql, options, onSkip),
     load: loadByKey,
-    onVersionError: (error) => {
-      onSkip(`could not check the CMS content version: ${describe(error)}`);
-    },
-    ...(options.now ? { now: options.now } : {}),
-    ...(options.versionPollMs !== undefined
-      ? { intervalMs: options.versionPollMs }
-      : {}),
   });
+
+  /**
+   * Load the routing table, tolerating a failure.
+   *
+   * The cache read is strict, so a failure never lands in the cache; this is
+   * where it becomes a fallback. With a last good table, the failure is logged
+   * once per interval and that table is served, so a site keeps its links and
+   * 301s while the database is briefly unreachable. With none (the first read
+   * after boot), the failure is remembered for one poll interval so a broken
+   * database is queried at most once a second rather than once per request, and
+   * re-thrown for the caller to report. The next successful load replaces the
+   * fallback and clears the failure, so a recovered database is seen on the
+   * first read past the interval.
+   */
+  const routes = async (): Promise<RouteTable> => {
+    const now = options.now?.() ?? Date.now();
+    if (routesError !== null && now - routesError.at < pollMs) {
+      if (lastGoodRoutes !== null) return lastGoodRoutes;
+      throw routesError.error;
+    }
+
+    try {
+      const table = (await cache.get("routes")) as RouteTable;
+      lastGoodRoutes = table;
+      routesError = null;
+      return table;
+    } catch (error) {
+      const failedAt = options.now?.() ?? Date.now();
+      routesError = { error, at: failedAt };
+      if (lastGoodRoutes !== null) {
+        if (failedAt - routesErrorLoggedAt >= pollMs) {
+          onSkip(
+            `could not read the CMS routing table, serving the last good one: ${describe(error)}`,
+          );
+          routesErrorLoggedAt = failedAt;
+        }
+        return lastGoodRoutes;
+      }
+      throw error;
+    }
+  };
 
   return {
     async getPage(
@@ -376,13 +465,32 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       const canonical = canonicalPath(path);
       const preview = readOptions?.preview;
       try {
-        // Preview bypasses the cache both ways: a draft must not be written
-        // into the published cache, and a published page must not be served
-        // from it while the editor is looking at an unpublished change.
-        if (preview) return await loadPreviewPage(canonical, preview);
+        // A preview bypasses the cache for the token's own page only, the way
+        // the slot reader keeps the cache for slots a token does not cover: a
+        // page token reads *that* page's draft uncached, while a slot's token,
+        // or a page token for a different page, leaves the published page in
+        // the cache. So previewing one page does not force every other page on
+        // the site to re-read.
+        if (preview?.subjectType === "page") {
+          const table = await routes();
+          const pageId = table.byUrl.get(canonical);
+          if (pageId === preview.subjectId) {
+            return await loadPreviewPage(canonical, preview);
+          }
+          if (pageId)
+            return (await cache.get(`page:${pageId}`)) as CmsPage | null;
+          // The URL is not a published page. If the token's subject is, this
+          // path cannot be its draft: a page's URL lives on the page row, not
+          // in a revision, so a draft cannot move it. Return the published
+          // view (nothing here) instead of running the uncached URL lookup,
+          // which used to put a `cms_pages` SELECT on every 404 a page token
+          // asked for. Only an unpublished subject can be found this way.
+          if (table.byId.has(preview.subjectId)) return null;
+          return await loadPreviewPage(canonical, preview);
+        }
 
-        const routes = (await cache.get("routes")) as RouteTable;
-        const pageId = routes.byUrl.get(canonical);
+        const table = await routes();
+        const pageId = table.byUrl.get(canonical);
         // A miss is a 404, not a query: no page is loaded and no cache entry is
         // keyed by the path that wasn't there.
         if (!pageId) return null;
@@ -396,8 +504,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async getRedirect(path: string): Promise<string | null> {
       const canonical = canonicalPath(path);
       try {
-        const routes = (await cache.get("routes")) as RouteTable;
-        return routes.redirects.get(canonical) ?? null;
+        const table = await routes();
+        return table.redirects.get(canonical) ?? null;
       } catch (error) {
         onSkip(`could not read redirect "${canonical}": ${describe(error)}`);
         return null;
@@ -407,8 +515,8 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
     async resolveLink(link: LinkValue): Promise<string | null> {
       if (link.type === "url") return link.url;
       try {
-        const routes = (await cache.get("routes")) as RouteTable;
-        return routes.byId.get(link.pageId) ?? null;
+        const table = await routes();
+        return table.byId.get(link.pageId) ?? null;
       } catch (error) {
         onSkip(
           `could not resolve a link to page "${link.pageId}": ${describe(error)}`,
@@ -458,6 +566,12 @@ export interface CmsPageRenderContext {
 
 export interface CmsPageRouteOptions extends CmsPagesOptions {
   /**
+   * Use this reader instead of building one. A site that already holds the
+   * process-wide reader (or one it built with custom options) can pass it so
+   * the catch-all shares its cache and its version poll.
+   */
+  reader?: CmsPagesReader;
+  /**
    * Render a resolved page to a Response. The site owns the layout and the block
    * render functions; the plugin owns the redirect/page/404 decision around it.
    * The context carries the preview access, so the page can forward it to any
@@ -476,11 +590,20 @@ export interface CmsPageRouteOptions extends CmsPagesOptions {
  * URL, query string preserved), then a published page is rendered, then `null`
  * so the site's own `render404` runs. A non-GET/HEAD request is left to the site
  * — the CMS serves pages, not form posts.
+ *
+ * With no `reader` and no custom `now`/`versionPollMs`/`onSkip`, it uses the
+ * process-wide reader for `sql` (the same one `getPage` and
+ * `listSitemapEntries` use), so mounting the catch-all and reading a page
+ * directly run one cache and one version poll rather than two.
  */
 export const createCmsPageRoute = (
   options: CmsPageRouteOptions,
 ): ((req: Request) => Promise<Response | null>) => {
-  const reader = createCmsPages(options);
+  const reader =
+    options.reader ??
+    (options.now || options.versionPollMs !== undefined || options.onSkip
+      ? createCmsPages(options)
+      : getCmsPagesReader(options.sql));
   const onSkip = options.onSkip ?? defaultSkipLogger;
 
   return async (req: Request): Promise<Response | null> => {
@@ -496,9 +619,17 @@ export const createCmsPageRoute = (
     const redirected = await reader.getRedirect(url.pathname);
     const location = redirected === null ? null : sameOriginPath(redirected);
     if (location !== null) {
+      // A redirect that carries a preview token is part of a previewed read, so
+      // it must not be cached; the target page's own response is `no-store` too.
+      // Any other rename is rare and stable, so a browser may keep the 301 for
+      // an hour rather than asking on every visit.
+      const carriesPreview = url.searchParams.has(PREVIEW_QUERY_PARAM);
       return new Response("", {
         status: 301,
-        headers: { Location: `${location}${url.search}` },
+        headers: {
+          Location: `${location}${url.search}`,
+          "Cache-Control": carriesPreview ? "no-store" : "public, max-age=3600",
+        },
       });
     }
 

@@ -32,6 +32,18 @@ describe("cms.css layout", () => {
   });
 });
 
+describe("cms.css list controls", () => {
+  // The Add button marks its at-maximum state with `aria-disabled`, which is
+  // invisible on its own; without a matching rule it looks exactly like an
+  // enabled one (r1-1).
+  test("dims the Add button when it is aria-disabled", () => {
+    const rule = /([^{}]*\[aria-disabled="true"\][^{}]*)\{([^}]*)\}/.exec(css);
+    expect(rule?.[1]).toContain(".cms-list-add");
+    expect(rule?.[1]).toContain(".cms-list-add:disabled");
+    expect(rule?.[2]).toMatch(/opacity:\s*0?\.5/);
+  });
+});
+
 describe("cms.css history layout", () => {
   // `1fr` is `minmax(auto, 1fr)`, whose `auto` minimum is the content's
   // min-content width — a long author email widened the row past a 390px

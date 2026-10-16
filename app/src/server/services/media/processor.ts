@@ -18,13 +18,25 @@
  * The fallback format follows the source: a PNG keeps its alpha in a PNG
  * fallback, everything else falls back to JPEG. WebP is the primary rendition
  * either way.
+ *
+ * Each width below the source's own is decoded once and encoded twice (WebP and
+ * the fallback) from that frame, so a source with N widths decodes N + 1 times
+ * rather than 2N + 1. The full-width rung is streamed straight from the rotated
+ * source rather than resized to the size it already is. The widths are still
+ * processed one after another: holding every resized frame at once would put a
+ * 100-megapixel source's whole raw pixel budget in memory.
  */
 import {
   MAX_UPLOAD_PIXELS,
   MEDIA_WIDTHS,
 } from "@alexpricedev/billet-cms/contract";
 import sharp from "sharp";
-import { extensionFor, type ImageFormat } from "./sniff";
+import {
+  contentTypeFor,
+  extensionFor,
+  fallbackFor,
+  type ImageFormat,
+} from "./sniff";
 
 /** Visual quality for the lossy encodings. Chunky enough for the web, clean at 2x. */
 const WEBP_QUALITY = 82;
@@ -36,6 +48,10 @@ export interface ProcessedRendition {
   webp: Uint8Array;
   /** JPEG, or PNG when the source was a PNG. */
   fallback: Uint8Array;
+  /** The fallback's MIME type, so the writer never recomputes it from the format. */
+  fallbackContentType: string;
+  /** The fallback's file extension, without a dot. */
+  fallbackExtension: string;
 }
 
 export interface ProcessedImage {
@@ -69,14 +85,54 @@ export const renditionWidths = (sourceWidth: number): number[] => {
 /** A sharp pipeline, as the helpers below take it. */
 type SharpImage = ReturnType<typeof sharp>;
 
-/** The fallback encoding for a source: PNG keeps its alpha, everything else is JPEG. */
-const fallbackFormat = (format: ImageFormat): "png" | "jpeg" =>
-  format === "png" ? "png" : "jpeg";
+/** One resized frame's raw pixels, before it is encoded into both formats. */
+interface RawFrame {
+  data: Buffer;
+  width: number;
+  height: number;
+  channels: 1 | 2 | 3 | 4;
+}
+
+/** One encoded output: its bytes and the size it actually came out. */
+interface Encoded {
+  bytes: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
+ * Resize a pipeline once and hand back its raw pixels.
+ *
+ * The frame is decoded exactly once per width: encoding it into WebP and the
+ * fallback from the same buffer is what takes a source from `1 + 2N` decodes to
+ * `1 + N`. Widths still run one after another (see `processImage`), so peak
+ * memory stays one frame at a time rather than every width held at once.
+ */
+const resizeToRaw = async (
+  image: SharpImage,
+  width: number,
+): Promise<RawFrame> => {
+  const { data, info } = await image
+    .clone()
+    .resize({ width, withoutEnlargement: true })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return {
+    data,
+    width: info.width,
+    height: info.height,
+    channels: info.channels as 1 | 2 | 3 | 4,
+  };
+};
+
+/** A fresh pipeline over one resized frame, ready to encode. */
+const fromRaw = (frame: RawFrame): SharpImage =>
+  sharp(frame.data, {
+    raw: { width: frame.width, height: frame.height, channels: frame.channels },
+  });
 
 /** Encode a pipeline as WebP, returning the bytes and the output dimensions. */
-const encodeWebp = async (
-  image: SharpImage,
-): Promise<{ bytes: Uint8Array; width: number; height: number }> => {
+const encodeWebp = async (image: SharpImage): Promise<Encoded> => {
   const { data, info } = await image
     .clone()
     .webp({ quality: WEBP_QUALITY })
@@ -91,7 +147,7 @@ const encodeWebp = async (
 const encodeFallback = async (
   image: SharpImage,
   format: "png" | "jpeg",
-): Promise<{ bytes: Uint8Array; width: number; height: number }> => {
+): Promise<Encoded> => {
   const pipeline =
     format === "png"
       ? image.clone().png({ compressionLevel: 9 })
@@ -108,7 +164,7 @@ const encodeFallback = async (
 const encodeOriginal = async (
   image: SharpImage,
   format: ImageFormat,
-): Promise<{ bytes: Uint8Array; width: number; height: number }> => {
+): Promise<Encoded> => {
   const pipeline =
     format === "png"
       ? image.clone().png({ compressionLevel: 9 })
@@ -145,14 +201,32 @@ export const processImage = async (
 
   const renditions: ProcessedRendition[] = [];
   for (const width of renditionWidths(original.width)) {
-    const resized = source.clone().resize({ width, withoutEnlargement: true });
-    const webp = await encodeWebp(resized);
-    const fallback = await encodeFallback(resized, fallbackFormat(format));
+    const fallbackFormat = fallbackFor(format);
+    // The full-size rung skips the resize: encoding it straight from the rotated
+    // source avoids decoding the largest frame just to resize it to its own
+    // size. Every smaller rung decodes once, then encodes twice from that frame.
+    // Widths run in turn so only one resized frame is decoded at a time.
+    let webp: Encoded;
+    let fallback: Encoded;
+    if (width >= original.width) {
+      [webp, fallback] = await Promise.all([
+        encodeWebp(source),
+        encodeFallback(source, fallbackFormat.encoder),
+      ]);
+    } else {
+      const frame = await resizeToRaw(source, width);
+      [webp, fallback] = await Promise.all([
+        encodeWebp(fromRaw(frame)),
+        encodeFallback(fromRaw(frame), fallbackFormat.encoder),
+      ]);
+    }
     renditions.push({
       width: fallback.width,
       height: fallback.height,
       webp: webp.bytes,
       fallback: fallback.bytes,
+      fallbackContentType: fallbackFormat.contentType,
+      fallbackExtension: fallbackFormat.extension,
     });
   }
 
@@ -160,12 +234,7 @@ export const processImage = async (
     width: original.width,
     height: original.height,
     original: {
-      contentType:
-        format === "png"
-          ? "image/png"
-          : format === "webp"
-            ? "image/webp"
-            : "image/jpeg",
+      contentType: contentTypeFor(format),
       extension: extensionFor(format),
       bytes: original.bytes,
     },

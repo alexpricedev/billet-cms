@@ -244,6 +244,19 @@ h1 {
   justify-self: start;
 }
 
+/* The Add button at the list maximum is announced with `aria-disabled`, which
+   changes nothing on its own: without this it looks exactly like an enabled
+   one. `:disabled` is kept too so a plain `disabled` in an older fixture reads
+   the same. */
+.cms-list-add:disabled,
+.cms-list-add[aria-disabled="true"] {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+  cursor: default;
+}
+
 .cms-list-item {
   display: grid;
   gap: 0.5rem;

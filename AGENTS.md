@@ -62,8 +62,16 @@ repo. This file is only the invariants.
   sends the browser back to the CMS's `/handoff`, which spends it and starts a
   `cms_session`. A site user who is not in the view is refused with a 403 and
   gets no token; someone signed out on the site goes through the site's own login
-  (password or magic link — the site's choice) first. The CMS never inserts into,
-  updates or deletes `users`, and never reads or writes password data. There is
+  (password or magic link — the site's choice) first. **Known limitation:** a
+  handoff token names the identity it was minted for, but a browser already
+  signed in as a *different* admin is redirected from `/handoff`'s GET to `/cms`
+  with its existing session, and the token simply expires unspent. Becoming the
+  token's admin therefore needs a direct POST (which does replace the session,
+  so the browser silently becomes the second person), and there is deliberately
+  no "continue as X" confirmation step. Everyone the CMS can sign in is already
+  an admin the site put in `cms_identities`.
+  The CMS never inserts into, updates or deletes `users`, and never reads or
+  writes password data. There is
   no `cms_users` table (Phase 3 dropped it) and no CMS magic-link sign-in (review
   round 4 removed it). A session stores the site user's id and re-reads the view
   on every request, so a site that removes an account ends the session at the
@@ -86,7 +94,8 @@ repo. This file is only the invariants.
   `Cache-Control: no-store` / `X-Robots-Tag: noindex`. A slot's `previewPath`
   (declared on `slot()`, published to `cms_slots.preview_path`) is the site page
   the CMS opens for it. An unknown, expired or missing token is the published
-  view; a preview read always bypasses the `content_version` cache.
+  view; a preview bypasses the `content_version` cache for the token's own
+  subject only, so the other slots on the page stay cached.
 - **Media lives in an S3-compatible bucket, behind `cms_media`.** The CMS
   uploads an image once (JPEG, PNG or WebP, sniffed from its bytes — SVG and
   animated GIF are refused), caps it at 20 MB and 100 megapixels, applies EXIF
@@ -122,11 +131,19 @@ of this fork. The strip and the renames are the things that will conflict:
 `teams-mode.ts`, the `/team` and `/invites` surfaces); password auth
 (`passwords.ts`, password reset, `AUTH_MODE`); the user admin dashboard
 (`/admin`, `middleware/admin.ts`); the seed script; Husky hooks; `scripts/qa-session.ts`;
-the email-verification banner and flow; `templates/accept-invite.tsx`. The CMS
+the `csrfTokens` helper (`utils/csrf-tokens.ts`); the email-verification
+banner and flow; `templates/accept-invite.tsx`. The CMS
 itself then lost its own sign-in: the magic-link login (`/login`,
 `/auth/callback`, the email service and its Resend provider, the captcha and
 honeypot that guarded the form) is gone, and sign-in goes through the site —
-see the invariant above.
+see the invariant above. A later port also has to drop the starter **Forms
+demo** that shipped on top of the fork: the `/forms` route,
+`controllers/app/forms.tsx`, `templates/forms.tsx`, `client/pages/forms.ts` and
+`forms.css` are all gone. It was a public, CSRF-protected POST endpoint the CMS
+never needed, and nothing links to it. `components/form-field.tsx`,
+`utils/form-action.ts`, `utils/form-data.ts` and `form-field.css` stay even
+though nothing imports them: they are unused upstream helpers kept so a future
+port diffs cleanly, not part of the demo page.
 
 **Renamed to `cms_`.** `users` → `cms_users`, `sessions` → `cms_sessions`,
 `user_tokens` → `cms_user_tokens`, `migrations` → `cms_migrations`. Indexes

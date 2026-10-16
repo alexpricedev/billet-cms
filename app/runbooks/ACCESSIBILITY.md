@@ -25,15 +25,15 @@ These are handled in the framework layer and apply to every page automatically:
 | Native interactive elements | throughout | Real `<button>` / `<a>` / `<form>` — never `<div onclick>` |
 | Labelled form controls | `form-field.tsx`, templates | Every input has an associated `<label>` (see §3) |
 | Keyboard focus ring | `base.css` | Global `:focus-visible { outline }` — visible, keyboard-only |
-| Reduced motion | `base.css`, `home.ts` | `prefers-reduced-motion` shrinks transitions and stops the hero animation looping |
+| Reduced motion | `base.css` | `prefers-reduced-motion` shrinks transitions |
 | Announced flash messages | `flash.tsx` | `role="alert"` for errors, `role="status"` for success |
 | Data tables | `data-table.tsx`, templates | `<caption>` + `scope="col"` header cells |
-| Accessible authentication | magic-link login | No password puzzle or CAPTCHA; `autocomplete="email"`; paste allowed |
+| Accessible authentication | the site's own sign-in | The CMS has no login form: a signed-out visit is handed to the site, whose sign-in the site owns |
 | Mobile inputs | `base.css` | Inputs are `font-size: 16px` so iOS Safari doesn't zoom on focus |
 | Screen-reader-only text | `.sr-only` utility | `base.css` — visually hidden, still announced |
 
-Icon-only SVGs (e.g. the hero) carry `aria-hidden="true"` and sit next to real
-text, so there are no unnamed links or buttons.
+Icon-only SVGs carry `aria-hidden="true"` and sit next to real text, so there
+are no unnamed links or buttons.
 
 ## 2. Your responsibility (the design layer)
 
@@ -67,10 +67,9 @@ Keep the baseline intact by following these when you add pages:
 
 - **Forms** — never rely on a placeholder as a label (it vanishes on input and
   is invisible to voice control). Wrap fields in `FormField` for a visible
-  label, or add a `.sr-only` `<label htmlFor>` for compact/inline inputs (see
-  the add form in `todos.tsx`). A control that shows state rather than text —
-  the done/not-done toggle in `todo-row.tsx` — carries `aria-pressed` and an
-  `aria-label` naming the item, because a bare ✓ says nothing to a screen
+  label, or add a `.sr-only` `<label htmlFor>` for compact/inline inputs. A
+  control that shows state rather than text carries `aria-pressed` and an
+  `aria-label` naming the item, because a bare icon says nothing to a screen
   reader.
 - **Tables** — use the `DataTable` component, pass a `caption`, and give every
   header cell `scope="col"` (or `scope="row"`). Pass `captionVisible` if you
@@ -83,9 +82,8 @@ Keep the baseline intact by following these when you add pages:
 - **Images** — every `<img>` needs an `alt` attribute (empty `alt=""` for purely
   decorative images). Decorative inline SVGs get `aria-hidden="true"`.
 - **Motion** — respect `prefers-reduced-motion`. The global CSS block covers
-  CSS animation/transition; for JS-driven animation (like the Lottie hero),
-  gate autoplay on `matchMedia("(prefers-reduced-motion: reduce)")` as `home.ts`
-  does.
+  CSS animation/transition; for any JS-driven animation you add, gate autoplay
+  on `matchMedia("(prefers-reduced-motion: reduce)")`.
 - **Media** — video you add needs synchronised captions; audio-only content
   needs a transcript. Auto-captions alone aren't enough.
 - **ARIA** — reach for a native HTML element first. Only add ARIA when nothing
@@ -114,7 +112,7 @@ Before you ship a new page or a redesign:
    no trap that holds focus.
 2. **Reduce motion** — enable "Reduce motion" in your OS (macOS: System Settings
    → Accessibility → Display) and reload. Animations should be near-instant and
-   the hero should not loop.
+   nothing should loop.
 3. **Screen reader** — run VoiceOver (macOS: ⌘F5) or NVDA over a form: labels
    should be announced on focus, and a failed submit should announce the error.
 4. **Automated pass** — run [axe DevTools](https://www.deque.com/axe/devtools/)

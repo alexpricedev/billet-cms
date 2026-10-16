@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { block, blockStoredSchema, link, list, text } from "../fields";
 import {
   ALLOWED_UPLOAD_TYPES,
   CMS_SIGN_IN_PATH,
@@ -6,6 +7,7 @@ import {
   DEFAULT_FOCAL_POINT,
   hashJson,
   isCmsRelation,
+  MAX_ALT_LENGTH,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_PIXELS,
   MEDIA_WIDTHS,
@@ -14,7 +16,6 @@ import {
   PREVIEW_TOKEN_TTL_SECONDS,
   STORED_SCHEMA_FORMAT,
   STORED_SCHEMA_FORMAT_VERSION,
-  type StoredSchema,
   TABLE_PREFIX,
   TABLES,
 } from "./index";
@@ -112,6 +113,10 @@ describe("media contract", () => {
     expect(ALLOWED_UPLOAD_TYPES).not.toContain("image/gif");
   });
 
+  test("caps alt text so both the stored upload and a per-use override agree", () => {
+    expect(MAX_ALT_LENGTH).toBe(1000);
+  });
+
   test("starts a new upload at its centre", () => {
     expect(DEFAULT_FOCAL_POINT).toEqual({ x: 0.5, y: 0.5 });
   });
@@ -123,39 +128,48 @@ describe("stored schema format", () => {
     expect(STORED_SCHEMA_FORMAT_VERSION).toBeGreaterThanOrEqual(1);
   });
 
-  test("carries the JSON Schema, the field metadata tree and a schema hash", () => {
-    const document: StoredSchema = {
-      format: STORED_SCHEMA_FORMAT,
-      version: STORED_SCHEMA_FORMAT_VERSION,
-      name: "hero",
-      jsonSchema: { type: "object", properties: {} },
-      fields: [
+  // The published document the CMS reads, built the way a site's deploy builds
+  // it (`blockStoredSchema`) rather than as a hand-written literal that only
+  // proves the interface compiles. This is the contract both sides depend on:
+  // the format marker, the JSON Schema the CMS validates against, the field
+  // metadata tree it renders a form from, and the hash a re-publish compares.
+  test("a real block's published document carries the JSON Schema, the field metadata tree and a schema hash", () => {
+    const stored = blockStoredSchema(
+      block(
+        "hero",
         {
-          name: "heading",
-          kind: "text",
-          label: "Heading",
-          max: 80,
-          required: true,
+          heading: text({ label: "Heading", max: 80 }),
+          links: list(link(), { min: 1, max: 6 }),
         },
-        {
-          name: "links",
-          kind: "list",
-          required: true,
-          min: 1,
-          max: 6,
-          of: { name: "item", kind: "link", required: true },
-        },
-      ],
-      schemaHash: "abc123",
-    };
+        () => null,
+      ),
+    );
 
-    expect(document.format).toBe(STORED_SCHEMA_FORMAT);
-    expect(document.version).toBe(STORED_SCHEMA_FORMAT_VERSION);
-    expect(document.fields[0]?.name).toBe("heading");
-    // The tree: a list's item metadata is nested, so the CMS renders a
-    // repeatable control without importing site code.
-    expect(document.fields[1]?.of?.kind).toBe("link");
-    expect(document.schemaHash).toBe("abc123");
+    expect(stored.format).toBe(STORED_SCHEMA_FORMAT);
+    expect(stored.version).toBe(STORED_SCHEMA_FORMAT_VERSION);
+    expect(stored.name).toBe("hero");
+    // The JSON Schema is what the CMS rebuilds a validator from.
+    expect(stored.jsonSchema).toMatchObject({ type: "object" });
+    expect(stored.fields).toEqual([
+      {
+        name: "heading",
+        kind: "text",
+        required: true,
+        label: "Heading",
+        max: 80,
+      },
+      {
+        name: "links",
+        kind: "list",
+        required: true,
+        min: 1,
+        max: 6,
+        // The tree: a list's item metadata is nested, so the CMS renders a
+        // repeatable control without importing site code.
+        of: { name: "item", kind: "link", required: true },
+      },
+    ]);
+    expect(stored.schemaHash).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

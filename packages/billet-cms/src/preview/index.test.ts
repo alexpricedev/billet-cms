@@ -165,6 +165,21 @@ describe("applyPreview", () => {
     expect(await previewed.text()).toBe("{}");
   });
 
+  test("sends no referrer, so the token URL never reaches a subresource", async () => {
+    // The preview URL carries the raw token; a third-party subresource must not
+    // learn it through the Referer header (or through any page the draft links
+    // out to).
+    const response = new Response(
+      "<html><body><img src='/x.png'></body></html>",
+      {
+        headers: { "Content-Type": "text/html" },
+      },
+    );
+    const previewed = await applyPreview(response, access);
+
+    expect(previewed.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
+
   test("injects the banner into an HTML body", async () => {
     const response = new Response("<html><body><h1>Hi</h1></body></html>", {
       headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -213,6 +228,23 @@ describe("applyPreview", () => {
 
     expect(html.indexOf(PREVIEW_BANNER_ID)).toBeLessThan(
       html.indexOf("<h1>Hi</h1>"),
+    );
+  });
+
+  test("does not mistake a <body-something> element for the body", async () => {
+    // `/<body[^>]*>/` matched this custom element and put the banner inside it;
+    // the tightened regex requires `>` or whitespace after `<body`.
+    const response = new Response(
+      "<html><body-guard><h1>Hi</h1></body-guard><body><p>content</p></body></html>",
+      { headers: { "Content-Type": "text/html" } },
+    );
+    const html = await (await applyPreview(response, access)).text();
+
+    expect(html.indexOf(PREVIEW_BANNER_ID)).toBeGreaterThan(
+      html.indexOf("<body-guard>"),
+    );
+    expect(html.indexOf(PREVIEW_BANNER_ID)).toBeLessThan(
+      html.indexOf("<p>content</p>"),
     );
   });
 

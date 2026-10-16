@@ -1,4 +1,5 @@
 import type { FieldError } from "../../components/cms/field-control";
+import { MediaOptionsTemplate } from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
 import { getAssetUrl } from "../../services/assets";
 import type {
@@ -14,6 +15,7 @@ import type {
 } from "../../services/content";
 import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
+import { formatWhen } from "../../utils/format";
 import { PageBlocks } from "./page-blocks";
 
 export interface PageFormProps {
@@ -53,6 +55,11 @@ export interface PageFormProps {
   /** Every content issue, shown as a list above the blocks. */
   contentIssues?: FieldIssue[];
   conflict?: RevisionConflict | null;
+  /**
+   * True when the issues came from a refused publish rather than a save, so the
+   * banner names the action the editor took.
+   */
+  refusedPublish?: boolean;
   notice?: { kind: "success" | "warning"; message: string } | null;
   /**
    * The settings to show in the fields. Defaults to the page's stored settings;
@@ -60,13 +67,6 @@ export interface PageFormProps {
    */
   values?: PageSettingsInput & { pageType: string };
 }
-
-const formatWhen = (date: Date): string =>
-  date.toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  });
 
 const SettingsControl = ({
   name,
@@ -164,6 +164,7 @@ export const PageForm = ({
   blockErrors,
   contentIssues,
   conflict,
+  refusedPublish,
   notice,
   values,
 }: PageFormProps) => {
@@ -239,7 +240,11 @@ export const PageForm = ({
 
       {contentIssues && contentIssues.length > 0 && (
         <div className="flash-error" role="alert">
-          <p>This content can't be saved. Check the blocks marked below.</p>
+          <p>
+            {refusedPublish
+              ? "This content can't be published. Check the blocks marked below."
+              : "This content can't be saved. Check the blocks marked below."}
+          </p>
           <ul>
             {contentIssues.map((issue, index) => (
               <li key={`${issue.path}:${index}`}>{issue.message}</li>
@@ -256,6 +261,9 @@ export const PageForm = ({
           data-cms-form
         >
           <input type="hidden" name="_csrf" value={formCsrfToken} />
+          {/* The reuse list, once for the form; each image picker is filled
+              from it on focus rather than repeating it per field. */}
+          <MediaOptionsTemplate media={media} />
           {/* The whole document, so a save without JavaScript round-trips the
               stored content unchanged. The editor rebuilds this on submit. */}
           <input

@@ -6,7 +6,9 @@ import { absolute, SITE_DESCRIPTION, SITE_NAME } from "./seo";
 // one-line description per page. It controls nothing; it is purely a hint.
 //
 // The page list is kept in sync with the public routes by a drift test in
-// llms-txt.test.ts, so a new public page can't silently go unlisted.
+// llms-txt.test.ts, so a new public page can't silently go unlisted. The CMS
+// itself has no public pages, so PAGES is empty and the Pages section is
+// omitted from the body rather than shipped as a heading with nothing under it.
 
 interface LlmsPage {
   path: string;
@@ -14,26 +16,7 @@ interface LlmsPage {
   description: string;
 }
 
-const PAGES: LlmsPage[] = [
-  {
-    path: "/",
-    title: "Home",
-    description:
-      "Overview of the Billet stack and the production web defaults it ships out of the box.",
-  },
-  {
-    path: "/stack",
-    title: "The Stack",
-    description:
-      "The technologies and architecture Billet is built on — Bun, server-rendered JSX, PostgreSQL, and a small reactive layer.",
-  },
-  {
-    path: "/forms",
-    title: "Forms",
-    description:
-      "Server-rendered form handling with validation, CSRF protection, and progressive enhancement.",
-  },
-];
+const PAGES: LlmsPage[] = [];
 
 const RESOURCES: LlmsPage[] = [
   {
@@ -57,12 +40,9 @@ export const buildLlmsTxt = (): string =>
     "",
     `> ${SITE_DESCRIPTION}`,
     "",
-    "Billet is a server-rendered TypeScript web app (Bun with JSX templates, no client framework) that ships correct web defaults — foundations, SEO, accessibility, security, and agent readiness — so coding agents can build features on a solid baseline.",
+    "Billet CMS is the headless CMS service for a Billet site: it runs on its own host, shares the site's PostgreSQL database, and builds its forms from the block, slot and page definitions the site publishes. Sign-in goes through the site — the CMS has no login of its own.",
     "",
-    "## Pages",
-    "",
-    ...PAGES.map(linkLine),
-    "",
+    ...(PAGES.length > 0 ? ["## Pages", "", ...PAGES.map(linkLine), ""] : []),
     "## Resources",
     "",
     ...RESOURCES.map(linkLine),

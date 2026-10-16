@@ -34,6 +34,7 @@ import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { pagePublish } from "./page-publish";
 import { pages } from "./pages";
+import { MAX_CONTENT_BYTES } from "./params";
 
 const ORIGIN = process.env.APP_URL as string;
 
@@ -376,6 +377,62 @@ describe("Pages controller", () => {
     expect(page?.title).toBe("About us");
     expect(await listRedirects()).toEqual([]);
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
+  test("an over-size content save says so and keeps the base revision", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const seeded = await savePageDraft({
+      pageId,
+      content: pageContent("Kept heading"),
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+    if (!seeded.ok) throw new Error("seed save failed");
+
+    const oversized = JSON.stringify({
+      blocks: [
+        {
+          type: "hero",
+          heading: "x".repeat(MAX_CONTENT_BYTES),
+          body: document,
+        },
+      ],
+    });
+    expect(Buffer.byteLength(oversized, "utf8")).toBeGreaterThan(
+      MAX_CONTENT_BYTES,
+    );
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/about",
+          title: "About us",
+          content: oversized,
+          base_revision: seeded.revision.id,
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // Says why, and does not silently keep the stored content (review round 2).
+    expect(html).toContain("too large to save");
+    expect(html).not.toContain("could not be read");
+    // The revision they loaded is still on screen.
+    expect(html).toContain("Kept heading");
+    // Nothing was written.
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
   });
 
   test("writes a redirect when the URL changes", async () => {

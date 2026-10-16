@@ -7,6 +7,8 @@ import {
   pageTypeStoredSchema,
   richText,
   text,
+  URL_PATTERN,
+  URL_PATTERN_MESSAGE,
 } from "@alexpricedev/billet-cms/fields";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
 import { formatIssues } from "./drafts";
@@ -175,40 +177,32 @@ describe("validatePageContent", () => {
 });
 
 describe("checkPageLimits", () => {
-  test("requires a required block", () => {
+  test("requires a required block, naming it", () => {
     const issues = checkPageLimits(
       pageTypeRecord(
         pageType("landing", { allowedBlocks: [hero], requiredBlocks: [hero] }),
       ),
       [],
-      registry,
     );
     expect(issues[0]?.message).toContain("requires one");
+    expect(issues[0]?.message).toContain('"hero"');
   });
 
   test("enforces a max of one hero", () => {
-    const issues = checkPageLimits(
-      pageTypeRecord(landing),
-      [
-        { type: "hero", heading: "One" },
-        { type: "hero", heading: "Two" },
-      ],
-      registry,
-    );
+    const issues = checkPageLimits(pageTypeRecord(landing), [
+      { type: "hero", heading: "One" },
+      { type: "hero", heading: "Two" },
+    ]);
     expect(
       issues.some((issue) => issue.message.includes("no more than 1")),
     ).toBe(true);
   });
 
   test("requires the hero to be first when the limit says top", () => {
-    const issues = checkPageLimits(
-      pageTypeRecord(landing),
-      [
-        { type: "prose", body: { type: "doc", content: [] } },
-        { type: "hero", heading: "Late" },
-      ],
-      registry,
-    );
+    const issues = checkPageLimits(pageTypeRecord(landing), [
+      { type: "prose", body: { type: "doc", content: [] } },
+      { type: "hero", heading: "Late" },
+    ]);
     expect(
       issues.some((issue) => issue.message.includes("has to be first")),
     ).toBe(true);
@@ -216,11 +210,9 @@ describe("checkPageLimits", () => {
 
   test("passes a page that satisfies every limit", () => {
     expect(
-      checkPageLimits(
-        pageTypeRecord(landing),
-        [{ type: "hero", heading: "First" }],
-        registry,
-      ),
+      checkPageLimits(pageTypeRecord(landing), [
+        { type: "hero", heading: "First" },
+      ]),
     ).toEqual([]);
   });
 });
@@ -257,23 +249,105 @@ describe("findUnavailableBlocks", () => {
 });
 
 describe("formatIssues", () => {
-  test("names a page-mode link's missing page", () => {
+  const PAGE_LINK = { type: "page", pageId: "" };
+
+  test("names a page-mode link with no page chosen", () => {
     expect(
-      formatIssues([
-        { path: ["hero", "cta", "pageId"], message: "Invalid UUID" },
-      ]),
+      formatIssues([{ path: ["cta", "pageId"], message: "Invalid UUID" }], {
+        cta: { type: "page", pageId: "" },
+      }),
+    ).toEqual([{ path: "cta.pageId", message: "Choose a page." }]);
+  });
+
+  // The value never reaching the schema is the other half of "no page chosen":
+  // a page-mode link with no `pageId` key at all.
+  test("names a page-mode link whose pageId is missing", () => {
+    expect(
+      formatIssues(
+        [
+          {
+            path: ["cta", "pageId"],
+            message: "Invalid input: expected string, received undefined",
+          },
+        ],
+        { cta: { type: "page" } },
+      ),
+    ).toEqual([{ path: "cta.pageId", message: "Choose a page." }]);
+  });
+
+  // A malformed non-empty id is a different problem: the editor picked a page
+  // and the value is wrong, so it keeps the field's own message.
+  test("keeps the plain message for a malformed page id", () => {
+    expect(
+      formatIssues([{ path: ["cta", "pageId"], message: "Invalid UUID" }], {
+        cta: { type: "page", pageId: "not-a-uuid" },
+      }),
+    ).toEqual([{ path: "cta.pageId", message: "Enter a valid id." }]);
+  });
+
+  // A field that merely happens to be called `pageId` is not a page link.
+  test("does not call a non-link pageId field a page", () => {
+    expect(
+      formatIssues([{ path: ["pageId"], message: "Invalid UUID" }], {
+        pageId: "not-a-uuid",
+      }),
+    ).toEqual([{ path: "pageId", message: "Enter a valid id." }]);
+  });
+
+  test("walks a nested path to find the link", () => {
+    expect(
+      formatIssues(
+        [{ path: ["hero", "cta", "pageId"], message: "Invalid UUID" }],
+        {
+          hero: { cta: PAGE_LINK },
+        },
+      ),
     ).toEqual([{ path: "hero.cta.pageId", message: "Choose a page." }]);
   });
 
   test("keeps an ordinary field message", () => {
     expect(
-      formatIssues([
-        {
-          path: ["heading"],
-          message: "Too big: expected string to have <=80 characters",
-        },
-      ]),
+      formatIssues(
+        [
+          {
+            path: ["heading"],
+            message: "Too big: expected string to have <=80 characters",
+          },
+        ],
+        { heading: "x".repeat(81) },
+      ),
     ).toEqual([{ path: "heading", message: "Use 80 characters or fewer." }]);
+  });
+
+  test("singularises a one-character limit", () => {
+    expect(
+      formatIssues(
+        [
+          {
+            path: ["heading"],
+            message: "Too big: expected string to have <=1 characters",
+          },
+        ],
+        { heading: "ab" },
+      ),
+    ).toEqual([{ path: "heading", message: "Use 1 character or fewer." }]);
+  });
+
+  // The link allowlist is stored as a JSON Schema `pattern`, so the validator's
+  // message carries the pattern source and nothing about links. When it is that
+  // allowlist that failed, the plain copy names the link.
+  test("names a link whose allowlist pattern failed", () => {
+    expect(
+      formatIssues(
+        [
+          {
+            path: ["cta", "url"],
+            message: `Invalid string: must match pattern /${URL_PATTERN.source}/`,
+          },
+        ],
+        { cta: { type: "url", url: "javascript:alert(1)" } },
+      ),
+    ).toEqual([{ path: "cta.url", message: URL_PATTERN_MESSAGE }]);
   });
 });
 

@@ -13,8 +13,9 @@ interface AuthPageProps {
 }
 
 /**
- * Shared chrome for the signed-out auth pages: sign in and the two halves of
- * the password reset.
+ * Shared chrome for the CMS's chrome-less pages. The only one today is the
+ * `/handoff` confirm step, the half of site-routed sign-in where the browser
+ * comes back from the site with a single-use token to spend.
  *
  * Uses BaseLayout rather than Layout — no nav, no client bundle, and always
  * noindex. Nothing here should be crawled or invite a signed-out visitor to

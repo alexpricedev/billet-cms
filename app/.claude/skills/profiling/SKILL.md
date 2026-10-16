@@ -46,7 +46,7 @@ of overhead.
 ## Bundle: what's in the client JS
 
 ```bash
-bun build ./src/client/main.ts ./src/client/captcha.ts \
+bun build ./src/client/main.ts ./src/client/cms-form.ts \
   --outdir /tmp/bundle-analysis --minify \
   --metafile-md=/tmp/bundle-analysis/meta.md
 ```

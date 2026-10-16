@@ -17,7 +17,7 @@
  * reads as `null`, and the caller renders nothing rather than a broken image.
  *
  * Reads are cached per process against `cms_meta.content_version` (Q3), the
- * same cache the page and slot readers use, so a focal-point or alt change
+ * same poll the page and slot readers use, so a focal-point or alt change
  * shows within about a second and the steady state costs no queries. A missing
  * `cms_media` table — an un-migrated CMS — is a skip and a log, never a 500 on
  * a public page.
@@ -29,7 +29,7 @@ import {
   type MediaVariant,
   TABLES,
 } from "../contract";
-import { ContentCache } from "./cache";
+import { ContentCache, readerCacheOptions } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
 import { escapeHtml } from "./rich-text";
 
@@ -62,23 +62,26 @@ export interface CmsMediaOptions {
   now?: () => number;
   /** How often `content_version` is re-read. Defaults to one second (Q3). */
   versionPollMs?: number;
-  /** Where skipped reads are reported. Defaults to the console. */
+  /**
+   * Where skipped reads are reported. Defaults to the console.
+   *
+   * It does not receive `content_version` poll failures: the poll is shared
+   * between every reader on the pool, so it logs through the default logger
+   * rather than any one reader's sink. A reader built with an injected `now`
+   * gets a private poll and does report through this logger.
+   */
   onSkip?: SkipLogger;
 }
 
 export interface CmsMediaReader {
   /** The upload with this id, or `null` when there is none to render. */
   getMedia(id: string): Promise<CmsMedia | null>;
-  /** Drop the cache and force the next read to re-check `content_version`. */
+  /**
+   * A hard reset: drop every cached entry and re-read `content_version` on the
+   * next read.
+   */
   invalidate(): void;
 }
-
-const readContentVersion = async (sql: SQL): Promise<number> => {
-  const rows = (await sql.unsafe(
-    `SELECT content_version FROM ${TABLES.meta} WHERE id = 1`,
-  )) as { content_version: string | number }[];
-  return rows.length > 0 ? Number(rows[0].content_version) : 0;
-};
 
 const toMedia = (row: MediaRow): CmsMedia => ({
   id: row.id,
@@ -108,16 +111,12 @@ export const createCmsMedia = (options: CmsMediaOptions): CmsMediaReader => {
   };
 
   const cache = new ContentCache<CmsMedia | null>({
-    readVersion: () => readContentVersion(sql),
+    // One poll for the whole pool, shared with the slot and page readers, so a
+    // process asks `cms_meta` once a second rather than once per reader. A
+    // failed version check is logged by the shared poll through the default
+    // logger, not this reader's `onSkip` (see `readerCacheOptions`).
+    ...readerCacheOptions(sql, options, onSkip),
     load: loadMedia,
-    onVersionError: (error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      onSkip(`could not check the CMS content version: ${message}`);
-    },
-    ...(options.now ? { now: options.now } : {}),
-    ...(options.versionPollMs !== undefined
-      ? { intervalMs: options.versionPollMs }
-      : {}),
   });
 
   return {
@@ -202,11 +201,11 @@ export const renderCmsImage = (
     `src="${escapeHtml(largest.fallbackUrl)}"`,
     `srcset="${escapeHtml(srcset(media.variants, (variant) => variant.fallbackUrl))}"`,
     `sizes="${escapeHtml(options.sizes ?? "100vw")}"`,
-    `width="${media.width}"`,
-    `height="${media.height}"`,
+    `width="${Number(media.width)}"`,
+    `height="${Number(media.height)}"`,
     `alt="${alt}"`,
-    `loading="${options.loading ?? "lazy"}"`,
-    `decoding="${options.decoding ?? "async"}"`,
+    `loading="${escapeHtml(options.loading ?? "lazy")}"`,
+    `decoding="${escapeHtml(options.decoding ?? "async")}"`,
     `style="${escapeHtml(style)}"`,
     ...(options.className ? [`class="${escapeHtml(options.className)}"`] : []),
   ].join(" ");

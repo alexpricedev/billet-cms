@@ -29,11 +29,24 @@ import {
 
 const TIMINGS_FILE = process.env.TEST_TIMINGS_FILE ?? ".timings.json";
 
-// A whole-run hang detector, not a speed limit. Per-test timeouts are Bun's
-// (`--timeout`, 5s by default), and `--isolate` closes the handles that used to
-// wedge a run, so this only catches a run that stops making progress
-// altogether. Generous by default; CI raises it because a runner is slower.
+// A whole-run hang detector, not a speed limit. `--isolate` closes the handles
+// that used to wedge a run, so this only catches a run that stops making
+// progress altogether. Generous by default; CI raises it because a runner is
+// slower.
 const TIMEOUT_MS = Number.parseInt(process.env.TEST_TIMEOUT_MS ?? "600000", 10);
+
+// Bun's own per-test cap (`--timeout`), raised for the same reason. A test is
+// not hung because it is slow: the database cases here create a temp database
+// and run every migration in their first hook, and one worker per core is ten
+// parallel migration runs against one Postgres. Under that load the first test
+// in a file crosses Bun's default 5s and is reported as a timeout, then passes
+// on an unloaded rerun. 30s matches the browser smoke tests; a test that truly
+// wedges still fails, and the whole-run cap above backstops a run that stops
+// progressing.
+const PER_TEST_TIMEOUT_MS = Number.parseInt(
+  process.env.TEST_CASE_TIMEOUT_MS ?? "30000",
+  10,
+);
 
 const SLOWEST_TO_REPORT = 10;
 
@@ -154,6 +167,8 @@ const tests = Bun.spawn(
     // single-worker case isolated too.
     "--isolate",
     ...(WORKERS > 1 ? [`--parallel=${WORKERS}`] : []),
+    "--timeout",
+    String(PER_TEST_TIMEOUT_MS),
     "--no-coverage",
     `--timings=${TIMINGS_FILE}`,
     "--update-timings",

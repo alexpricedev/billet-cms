@@ -15,13 +15,23 @@
 /** The name of a block, a field or a page type. */
 export const NAME_PATTERN = /^[a-z][a-zA-Z0-9_-]{0,63}$/;
 
-/** A slot name: `NAME_PATTERN` with `.` allowed, e.g. `"home.hero"`. */
-export const SLOT_NAME_PATTERN = /^[a-z][a-zA-Z0-9_.-]{0,63}$/;
+/**
+ * A slot name: a `NAME_PATTERN`-style segment, then `.`-separated non-empty
+ * segments, e.g. `"home.hero"` or `"footer.legal-notice"`.
+ *
+ * A dotted name used to be a single character class that allowed a dot
+ * anywhere, so `"home..hero"`, `".hero"` and `"home."` all passed and then
+ * named a page the CMS could never match. The pattern is anchored per segment
+ * instead, and the lookahead caps the whole name at 64 characters — the same
+ * limit a single-segment name carries.
+ */
+export const SLOT_NAME_PATTERN =
+  /^(?=.{1,64}$)[a-z][a-zA-Z0-9_-]*(?:\.[a-zA-Z0-9_-]+)*$/;
 
 const nameRule = (pattern: RegExp): string =>
   pattern === SLOT_NAME_PATTERN
-    ? "names must match ^[a-z][a-zA-Z0-9_.-]{0,63}$ — a lowercase letter, then " +
-      'up to 63 letters, digits, "_", "-" or "." (e.g. "home.hero")'
+    ? "names must match ^[a-z][a-zA-Z0-9_-]*(\\.[a-zA-Z0-9_-]+)*$ within 64 " +
+      'characters — dot-separated segments with no empties (e.g. "home.hero")'
     : "names must match ^[a-z][a-zA-Z0-9_-]{0,63}$ — a lowercase letter, then " +
       'up to 63 letters, digits, "_" or "-"';
 

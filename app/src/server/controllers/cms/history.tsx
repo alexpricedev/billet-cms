@@ -37,20 +37,36 @@ export const slotHistory = {
     const slot = await getSlotById(slotId);
     if (!slot) return render404();
 
-    const revisions = await listSlotHistory(slot);
+    // `?before=<revision id>` pages back through older revisions. A malformed
+    // value is treated as "first page" rather than crashing the UUID cast.
+    const params = new URL(req.url).searchParams;
+    const beforeParam = params.get("before");
+    const before =
+      beforeParam && UUID_PATTERN.test(beforeParam) ? beforeParam : null;
+    const page = await listSlotHistory(slot, { before });
+
     const [restoreCsrfToken, navCsrfToken] = await Promise.all([
       createCsrfToken(ctx.sessionId, "POST", `/cms/slots/${slot.id}/restore`),
       createCsrfToken(ctx.sessionId, "POST", "/auth/logout"),
     ]);
 
+    // "Show older" continues from the last revision on this page, so the next
+    // page is exactly the revisions below it.
+    const oldest = page.revisions[page.revisions.length - 1];
+    const olderHref =
+      page.hasOlder && oldest
+        ? `/cms/slots/${slot.id}/history?before=${oldest.id}`
+        : null;
+
     return render(
       <SlotHistory
         user={ctx.user}
         slot={slot}
-        revisions={revisions}
+        revisions={page.revisions}
+        olderHref={olderHref}
         restoreCsrfToken={restoreCsrfToken}
         navCsrfToken={navCsrfToken}
-        notice={historyNotice(new URL(req.url).searchParams)}
+        notice={historyNotice(params)}
       />,
     );
   },

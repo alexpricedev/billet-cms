@@ -30,6 +30,7 @@ import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { staleCsrfToken } from "../../test-utils/auth-form";
 import { createBunRequest } from "../../test-utils/bun-request";
+import { MAX_CONTENT_BYTES } from "./params";
 import { slotPublish } from "./publish";
 import { slotForm } from "./slot";
 
@@ -313,6 +314,38 @@ describe("Slot form controller", () => {
       expect(html).toContain("A heading");
     });
 
+    test("says a posted document over the size cap is too large, not unreadable", async () => {
+      const seeded = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!seeded.ok) throw new Error("seed save failed");
+
+      const oversized = JSON.stringify({
+        ...validContent,
+        heading: "x".repeat(MAX_CONTENT_BYTES),
+      });
+      expect(Buffer.byteLength(oversized, "utf8")).toBeGreaterThan(
+        MAX_CONTENT_BYTES,
+      );
+
+      const res = await slotForm.create(
+        await post({
+          content: oversized,
+          base_revision: seeded.revision.id,
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("too large to save");
+      expect(html).not.toContain("could not be read");
+      // The base revision's content, not an empty form.
+      expect(html).toContain("A heading");
+    });
+
     test("keeps a removed field's value and flags it", async () => {
       // A revision written before the field was dropped. Written directly so the
       // strict validator doesn't reject the very key under test.
@@ -326,6 +359,21 @@ describe("Slot form controller", () => {
       const getHtml = await (await slotForm.index(get())).text();
       expect(getHtml).toContain("no longer defined in code");
       expect(getHtml).toContain("droppedField");
+
+      // A re-render — a save that fails validation — posts only the declared
+      // fields, so the notice has to be read back from the revision the editor
+      // loaded rather than from the posted document. Otherwise it vanishes the
+      // moment a save fails.
+      const invalid = await slotForm.create(
+        await post({
+          content: JSON.stringify({ ...validContent, heading: "x".repeat(81) }),
+          base_revision: seeded.id,
+        }),
+      );
+      expect(invalid.status).toBe(200);
+      const invalidHtml = await invalid.text();
+      expect(invalidHtml).toContain("This content can't be saved");
+      expect(invalidHtml).toContain("droppedField");
 
       // The client no longer sends removed fields; the server carries them
       // through from the revision the editor loaded.
@@ -382,6 +430,39 @@ describe("Slot form controller", () => {
       // Nothing written until the editor confirms.
       const latest = await db`
         SELECT content FROM cms_revisions ORDER BY created_at DESC LIMIT 1
+      `;
+      expect(latest[0].content.heading).toBe("Theirs");
+    });
+
+    // The first save can lose a race too: the form loaded with nothing saved
+    // yet, so it posts no base revision, but someone has saved one since.
+    test("warns when the first revision was saved while the form was open", async () => {
+      const first = await saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "Theirs" },
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!first.ok) throw new Error("first save failed");
+
+      const res = await slotForm.create(
+        await post({
+          content: JSON.stringify({ ...validContent, heading: "Mine" }),
+          base_revision: "",
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("newer version");
+      expect(html).toContain("editor@example.com");
+      // The form now points at their revision, so a second save overwrites.
+      expect(hiddenValue(html, "base_revision")).toBe(first.revision.id);
+      // The editor's work is kept.
+      expect(html).toContain("Mine");
+
+      const latest = await db`
+        SELECT content FROM cms_revisions ORDER BY created_at DESC, id DESC LIMIT 1
       `;
       expect(latest[0].content.heading).toBe("Theirs");
     });
@@ -504,6 +585,43 @@ describe("Slot form controller", () => {
       expect(rows[0].subject_id).toBe(slotId);
       // Only the hash is stored, never the raw token.
       expect(rows[0].token_hash).toBe(hashPreviewToken(raw));
+    });
+
+    test("checks the site URL before minting, so a bad one writes no token", async () => {
+      const formData = new FormData();
+      formData.append(
+        "_csrf",
+        await createCsrfToken(sessionId, "POST", `${path(slotId)}/preview`),
+      );
+
+      // A process with no site URL (validateEnv refuses to boot one, but a unit
+      // test or a mis-set variable can reach here) must not write a token it
+      // has nowhere to open.
+      const original = process.env.SITE_APP_URL;
+      process.env.SITE_APP_URL = "";
+      let res: Response;
+      try {
+        res = await slotPublish.preview(
+          createBunRequest(
+            `${ORIGIN}${path(slotId)}/preview`,
+            {
+              method: "POST",
+              headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+              body: formData,
+            },
+            { id: slotId },
+          ),
+        );
+      } finally {
+        process.env.SITE_APP_URL = original;
+      }
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `${path(slotId)}?preview=failed`,
+      );
+      const rows = await db`SELECT id FROM cms_preview_tokens`;
+      expect(rows).toHaveLength(0);
     });
 
     test("a failed mint redirects with a notice, not an HTML 500", async () => {

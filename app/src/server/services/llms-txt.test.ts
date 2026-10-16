@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildLlmsTxt } from "./llms-txt";
-import { SITE_NAME, SITEMAP_PATHS, siteUrl } from "./seo";
+import { SITE_NAME, siteUrl } from "./seo";
 
 describe("buildLlmsTxt", () => {
   test("opens with the H1 site name and a blockquote summary", () => {
@@ -10,20 +10,31 @@ describe("buildLlmsTxt", () => {
     expect(body).toMatch(/^> .+/m);
   });
 
-  test("groups links under Pages and Resources headings", () => {
+  test("groups links under a Resources heading", () => {
     const body = buildLlmsTxt();
 
-    expect(body).toContain("## Pages");
     expect(body).toContain("## Resources");
   });
 
-  test("lists every public sitemap path as an absolute markdown link", () => {
+  test("lists no page links — the CMS serves no public pages", () => {
     const body = buildLlmsTxt();
 
-    for (const path of SITEMAP_PATHS) {
-      const href = new URL(path, siteUrl()).href;
-      expect(body).toContain(`](${href}):`);
-    }
+    // Every link in the body is a Resources entry; with no public pages there
+    // are no page links to list.
+    const links = [...body.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1]);
+    expect(links).toEqual([
+      `${siteUrl()}/sitemap.xml`,
+      `${siteUrl()}/.well-known/security.txt`,
+    ]);
+  });
+
+  test("omits a Pages section when the CMS has no public pages", () => {
+    // The Forms demo was the only public page and has been removed (14 Oct).
+    const body = buildLlmsTxt();
+
+    expect(body).not.toContain("## Pages");
+    expect(body).not.toContain("/forms");
+    expect(body).toContain("## Resources");
   });
 
   test("points agents at the sitemap and security policy resources", () => {

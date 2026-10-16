@@ -39,6 +39,24 @@ describe("X-Robots-Tag", () => {
   });
 });
 
+describe("Content-Security-Policy script-src", () => {
+  // The Lottie player was the CMS's only third-party script; it loaded from
+  // unpkg, so dropping it is what lets the CDN host leave `script-src`. A
+  // re-added CDN script passes every other test and is blocked only in a real
+  // browser, so pin the absence here too (the smoke tests catch the opposite
+  // mistake: a first-party script the policy accidentally blocks).
+  test("allows only first-party scripts", () => {
+    const csp =
+      withSecurityHeaders(new Response("ok")).headers.get(
+        "Content-Security-Policy",
+      ) ?? "";
+
+    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
+    expect(csp).not.toContain("unpkg.com");
+    expect(csp).not.toContain("https://");
+  });
+});
+
 describe("Content-Security-Policy img-src", () => {
   afterEach(() => {
     delete process.env.MEDIA_PUBLIC_BASE_URL;
@@ -74,6 +92,25 @@ describe("Content-Security-Policy img-src", () => {
       ) ?? "";
 
     expect(csp).toContain("img-src 'self' data:;");
+  });
+
+  test("ignores a base URL whose scheme isn't http(s)", () => {
+    // `new URL("ftp://bucket.example").origin` is a real string and would land
+    // in `img-src`; `data:`/`javascript:` report "null". Only http(s) is an
+    // origin a page can load.
+    for (const value of [
+      "ftp://bucket.example/media",
+      "data:image/png;base64,AAAA",
+      "javascript:alert(1)",
+    ]) {
+      process.env.MEDIA_PUBLIC_BASE_URL = value;
+      const csp =
+        withSecurityHeaders(new Response("ok")).headers.get(
+          "Content-Security-Policy",
+        ) ?? "";
+
+      expect(csp).toContain("img-src 'self' data:;");
+    }
   });
 });
 

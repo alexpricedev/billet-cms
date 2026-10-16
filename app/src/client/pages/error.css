@@ -26,8 +26,8 @@
     margin-top: 2rem;
   }
 
-  /* .btn-primary is scoped to the home hero, so give the error CTA the same
-     filled-primary treatment here (it's an anchor, not a <button>). */
+  /* There is no global .btn-primary, so the error CTA gets its filled-primary
+     treatment here (it's an anchor, not a <button>). */
   .error-actions .btn-primary {
     align-items: center;
     background: var(--color-primary);

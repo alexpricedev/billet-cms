@@ -54,7 +54,10 @@ The `Tests` job is tuned in two ways a fork should keep:
   to catch a run that has stopped making progress, not to enforce a speed: a runner
   is slower than a laptop even with the database in RAM, and a run killed at the
   wire counts every test in it as lost — which reads as a broken test rather than
-  the timing accident it is. Per-test timeouts are Bun's own `--timeout`.
+  the timing accident it is. Per-test timeouts are Bun's own `--timeout`; the
+  runner raises it from Bun's 5s default to 30s (`TEST_CASE_TIMEOUT_MS`) for the
+  same reason, since a file's first test carries its temp database's migrations
+  and `--parallel` runs one worker per core.
 
 ## 1a. The browser smoke tests
 
@@ -119,7 +122,7 @@ red for reasons nobody can act on is a check people learn to ignore. Run plain
 When it does fail, run `bun audit fix` — it resolves every advisory that a
 compatible bump inside the existing ranges can fix, and reports the ones it
 can't. If the advisory survives that, it's against a transitive dependency
-whose direct parent hasn't shipped an update (say `resend` → `svix` → `uuid`);
+whose direct parent hasn't shipped an update (`parent` → `child` → `grandchild`);
 either wait for the parent or decide the exposure is acceptable and record why.
 
 Dependabot ([`.github/dependabot.yml`](../.github/dependabot.yml)) opens the
