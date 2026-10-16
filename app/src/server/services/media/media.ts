@@ -27,6 +27,7 @@ import {
 } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
 import { inList, jsonbValue } from "../../utils/sql";
+import { filterUuids } from "../../utils/uuid";
 import { bumpContentVersion } from "../content/publishing";
 import { db } from "../database";
 import { log } from "../logger";
@@ -432,7 +433,13 @@ export const listPickerMedia = async (
   const capped = rows.length > MEDIA_PICKER_LIMIT;
   const newest = rows.slice(0, MEDIA_PICKER_LIMIT);
   const listed = new Set(newest.map((option) => option.id));
-  const referenced = collectMediaIds(content).filter((id) => !listed.has(id));
+  // A draft can name anything the editor typed into the Media id field. Only a
+  // UUID can reach the `uuid` column, so a typo is dropped here rather than
+  // asked of Postgres — `WHERE id IN ('not-a-uuid')` is a 500, not an empty
+  // result (review r1-1).
+  const referenced = filterUuids(
+    collectMediaIds(content).filter((id) => !listed.has(id)),
+  );
   const extras = await getMediaOptionsByIds(referenced);
   return { media: [...newest, ...extras], capped };
 };

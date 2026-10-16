@@ -404,6 +404,29 @@ describe("createMedia", () => {
     expect(await getMediaOptionsByIds([])).toEqual([]);
   });
 
+  // A mistyped Media id reaches the picker as a plain string, and `WHERE id IN
+  // (...)` on the `uuid` column answers a non-UUID with an error, not an empty
+  // set. The referenced ids are filtered before the query, so a refused save
+  // re-renders instead of becoming a 500 (review r1-1).
+  test("listPickerMedia drops a referenced id that isn't a UUID", async () => {
+    const result = await createMedia({
+      bytes: await makeJpeg(80, 60),
+      alt: "A photo",
+      actorId: null,
+      storage: createMemoryMediaStorage(),
+    });
+    if (!result.ok) throw new Error("upload failed");
+
+    const picker = await listPickerMedia({
+      photo: { mediaId: "not-a-uuid" },
+      other: { mediaId: result.media.id },
+    });
+
+    // The bad reference is never queried for; the real one is still carried.
+    expect(picker.media.map((option) => option.id)).toEqual([result.media.id]);
+    expect(picker.capped).toBe(false);
+  });
+
   test("refuses an animated WebP", async () => {
     const result = await createMedia({
       bytes: animatedWebpBytes(),
