@@ -125,6 +125,22 @@ describe("validateContent", () => {
 
     expect(result.success).toBe(false);
   });
+
+  // A union (a link's page/url shapes) reports one issue at the union itself.
+  // Its issues are lifted to the field that failed, so a form can point at the
+  // control: an empty `pageId` names `cta.pageId`, not the whole `cta` (review
+  // round 1).
+  test("lifts a union failure to the field that failed", () => {
+    const result = validateContent(stored, {
+      ...validContent,
+      cta: { type: "page", pageId: "" },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]?.path).toEqual(["cta", "pageId"]);
+  });
 });
 
 describe("withAdditionalFields", () => {

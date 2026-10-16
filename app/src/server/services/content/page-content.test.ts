@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   block,
   blockStoredSchema,
+  link,
+  MAX_RICH_TEXT_LIST_DEPTH,
   type PageTypeDefinition,
   pageType,
   pageTypeStoredSchema,
@@ -20,7 +22,11 @@ import {
   validatePageContent,
 } from "./page-content";
 
-const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+const hero = block(
+  "hero",
+  { heading: text({ max: 80 }), cta: link({ required: false }) },
+  () => null,
+);
 const prose = block("prose", { body: richText() }, () => null);
 
 const blockType = (
@@ -106,6 +112,75 @@ describe("validatePageContent", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues[0]?.path).toBe("blocks.0.heading");
+  });
+
+  // The stored schema is compiled by Zod, whose messages name the validator
+  // rather than the problem. A page's blocks take the same rewrite a slot's do,
+  // so the editor sees "Use 80 characters or fewer.", not "Too big: expected
+  // string to have <=80 characters" (review follow-up).
+  test("rewrites a block field's validator message into plain language", () => {
+    const tooLong = validatePageContent(pageTypeRecord(landing), registry, {
+      blocks: [{ type: "hero", heading: "x".repeat(81) }],
+    });
+    expect(tooLong.ok).toBe(false);
+    if (tooLong.ok) return;
+    expect(tooLong.issues[0]).toEqual({
+      path: "blocks.0.heading",
+      message: "Use 80 characters or fewer.",
+    });
+
+    const wrongType = validatePageContent(pageTypeRecord(landing), registry, {
+      blocks: [{ type: "hero", heading: 42 }],
+    });
+    expect(wrongType.ok).toBe(false);
+    if (wrongType.ok) return;
+    expect(wrongType.issues[0]).toEqual({
+      path: "blocks.0.heading",
+      message: "Enter text.",
+    });
+  });
+
+  // A page block's link field is a union of the page and url shapes, so the
+  // validator reports the whole link. The message still has to land on the
+  // empty page picker: "Choose a page." at `blocks.N.cta.pageId` (review round
+  // 1).
+  test("names an unchosen page link inside a block", () => {
+    const result = validatePageContent(pageTypeRecord(landing), registry, {
+      blocks: [
+        { type: "hero", heading: "Hi", cta: { type: "page", pageId: "" } },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toEqual([
+      { path: "blocks.0.cta.pageId", message: "Choose a page." },
+    ]);
+  });
+
+  // The nesting bound is a whole-block issue with no field path. It must point
+  // at the block itself — not a field called "(content)" — and keep its own
+  // sentence rather than the generic "This value isn't valid." (review round
+  // 1).
+  test("points a whole-block issue at the block, keeping its message", () => {
+    let node: unknown = { type: "paragraph", content: [] };
+    for (let level = 0; level <= MAX_RICH_TEXT_LIST_DEPTH; level += 1) {
+      node = {
+        type: "bulletList",
+        content: [{ type: "listItem", content: [node] }],
+      };
+    }
+
+    const result = validatePageContent(pageTypeRecord(landing), registry, {
+      blocks: [{ type: "prose", body: { type: "doc", content: [node] } }],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toEqual([
+      {
+        path: "blocks.0",
+        message: `Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.`,
+      },
+    ]);
   });
 
   // Q4: a field a deploy dropped stays in the stored content; a save must not

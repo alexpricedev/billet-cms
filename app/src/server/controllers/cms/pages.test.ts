@@ -32,6 +32,7 @@ import {
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
+import { staleCsrfToken } from "../../test-utils/auth-form";
 import { pagePublish } from "./page-publish";
 import { pages } from "./pages";
 import { MAX_CONTENT_BYTES } from "./params";
@@ -379,6 +380,59 @@ describe("Pages controller", () => {
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
+  // The page editor shows what a slot editor shows: a block's field issues are
+  // rewritten into plain language before they reach the form, so an editor sees
+  // "Use 80 characters or fewer." and "Choose a page." rather than the
+  // validator's "Too big: expected string to have <=80 characters" and "Invalid
+  // UUID" (subtask: the page editor uses the plain-language messages).
+  test("shows a block's plain-language field messages, not the validator's", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/about",
+          title: "About us",
+          content: JSON.stringify({
+            blocks: [
+              {
+                type: "hero",
+                heading: "x".repeat(81),
+                body: document,
+                cta: { type: "page", pageId: "" },
+              },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // The length limit is a sentence, not the validator's bound.
+    expect(html).toContain("Use 80 characters or fewer.");
+    expect(html).not.toContain("Too big: expected string");
+    // The empty page picker names the field, not the id format.
+    expect(html).toContain("Choose a page.");
+    expect(html).not.toContain("Invalid UUID");
+    // The block carries field errors, so the summary points at the marked
+    // blocks (the other half of the whole-document-error behaviour).
+    expect(html).toContain("Check the blocks marked below.");
+    // Nothing was written.
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
   test("an over-size content save says so and keeps the base revision", async () => {
     const created = await createPage({
       pageType: "landing",
@@ -414,8 +468,9 @@ describe("Pages controller", () => {
         `/cms/pages/${pageId}`,
         {
           pageType: "landing",
-          url: "/about",
-          title: "About us",
+          url: "/renamed",
+          title: "Renamed",
+          seoDescription: "Kept description.",
           content: oversized,
           base_revision: seeded.revision.id,
         },
@@ -431,8 +486,168 @@ describe("Pages controller", () => {
     expect(html).not.toContain("could not be read");
     // The revision they loaded is still on screen.
     expect(html).toContain("Kept heading");
+    // The settings half of the same submit survives the refusal (review round
+    // 1): the editor sees what they typed, not the stored row.
+    expect(html).toContain('value="/renamed"');
+    expect(html).toContain('value="Renamed"');
+    expect(html).toContain("Kept description.");
+    // No block carries a field error here — the body is over the size cap, not
+    // a field — so the banner must not point at blocks that aren't marked
+    // (review round 1).
+    expect(html).not.toContain("Check the blocks marked below.");
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
+  });
+
+  // Review follow-up: a refusal must not throw away the settings half of the
+  // submit. The content half here can't be parsed, so the fallback re-renders
+  // the editor — with the settings the editor typed, not the stored ones.
+  test("keeps the editor's settings when the posted content can't be read", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/renamed",
+          title: "Renamed",
+          seoDescription: "Kept description.",
+          socialImage: "https://example.com/og.png",
+          content: "{not json",
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("could not be read");
+    expect(html).toContain('value="/renamed"');
+    expect(html).toContain('value="Renamed"');
+    expect(html).toContain("Kept description.");
+    expect(html).toContain('value="https://example.com/og.png"');
+
+    // Nothing was written: the stored settings are untouched.
+    const page = await getPageById(pageId);
+    expect(page?.url).toBe("/about");
+    expect(page?.title).toBe("About us");
+  });
+
+  // Both early refusals (unreadable content, an expired page) re-render the
+  // editor. The blocks must come from the page type the editor chose, not the
+  // page's stored type, so the form they see matches their pick (review round
+  // 1).
+  test("builds the editor from the posted page type on an early refusal", async () => {
+    await seedBlockType(db, prose);
+    await seedPageType(db, notes);
+
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    // Unreadable content: the `!submitted.ok` refusal.
+    const unreadable = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "notes",
+          url: "/about",
+          title: "About us",
+          content: "{not json",
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+    expect(unreadable.status).toBe(200);
+    const unreadableHtml = await unreadable.text();
+    // The notes page type's blocks are offered, not the stored landing type's.
+    expect(unreadableHtml).toContain('data-block-add="prose"');
+    expect(unreadableHtml).not.toContain('data-block-add="hero"');
+
+    // An expired page: the `!csrf.ok` refusal.
+    const formData = new FormData();
+    formData.append(
+      "_csrf",
+      await staleCsrfToken(sessionId, `/cms/pages/${pageId}`),
+    );
+    formData.append("pageType", "notes");
+    formData.append("url", "/about");
+    formData.append("title", "About us");
+    formData.append("content", JSON.stringify({ blocks: [] }));
+    formData.append("base_revision", "");
+    const expired = await pages.save(
+      createBunRequest(
+        `${ORIGIN}/cms/pages/${pageId}`,
+        {
+          method: "POST",
+          headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+          body: formData,
+        },
+        { id: pageId },
+      ),
+    );
+    expect(expired.status).toBe(200);
+    const expiredHtml = await expired.text();
+    expect(expiredHtml).toContain("This page expired");
+    expect(expiredHtml).toContain('data-block-add="prose"');
+    expect(expiredHtml).not.toContain('data-block-add="hero"');
+  });
+
+  test("keeps the editor's settings when the page expired while it was open", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const formData = new FormData();
+    formData.append(
+      "_csrf",
+      await staleCsrfToken(sessionId, `/cms/pages/${pageId}`),
+    );
+    formData.append("pageType", "landing");
+    formData.append("url", "/renamed");
+    formData.append("title", "Renamed");
+    formData.append("content", JSON.stringify(pageContent("New heading")));
+    formData.append("base_revision", "");
+
+    const res = await pages.save(
+      createBunRequest(
+        `${ORIGIN}/cms/pages/${pageId}`,
+        {
+          method: "POST",
+          headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+          body: formData,
+        },
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("This page expired");
+    expect(html).toContain('value="/renamed"');
+    expect(html).toContain('value="Renamed"');
+    // The content they posted is still shown, behind a fresh token.
+    expect(html).toContain("New heading");
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
   test("writes a redirect when the URL changes", async () => {

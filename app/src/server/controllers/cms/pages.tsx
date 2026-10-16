@@ -486,19 +486,41 @@ export const pages = {
     const removedBlocks = removedBlocksFrom(formData.get("removed_blocks"));
     const submitted = parseContent(formData.get("content"));
 
+    // The settings the editor typed, captured before any refusal so every
+    // re-render below keeps them. Only the stored row names them otherwise, so
+    // reading them here is the difference between "save again" and retyping the
+    // whole settings half (review follow-up).
+    const settings = settingsFrom(formData);
+    const pageTypeName =
+      settings.pageType === "" ? page.pageType : settings.pageType;
+    const typed: PageSettingsInput & { pageType: string } = {
+      pageType: pageTypeName,
+      url: settings.url,
+      title: settings.title,
+      seoDescription: settings.seoDescription,
+      socialImage: settings.socialImage,
+    };
+
+    // The page type the editor chose, resolved to one the CMS can render the
+    // editor against. Every re-render below — an expired page, unreadable
+    // content, or a refused save — builds the blocks from this, not the stored
+    // type, so the form matches the type the editor picked (review round 1).
+    const formType = (await resolveWritablePageType(pageTypeName)) ?? pageType;
+
     // The page expired while it was open. Re-render what they posted behind a
     // fresh token instead of a 403 that would lose it.
     if (!csrf.ok) {
       return renderPageForm(
         ctx,
         page,
-        pageType,
+        formType,
         submitted.ok
           ? asPageContent(submitted.value).blocks
           : await baseContent(baseRevisionId, page),
         baseRevisionId,
         {
           removed: removedBlocks,
+          settings: typed,
           errors: [
             {
               path: "(form)",
@@ -517,11 +539,12 @@ export const pages = {
       return renderPageForm(
         ctx,
         page,
-        pageType,
+        formType,
         await baseContent(baseRevisionId, page),
         baseRevisionId,
         {
           removed: removedBlocks,
+          settings: typed,
           errors: [
             {
               path: "(content)",
@@ -533,17 +556,6 @@ export const pages = {
     }
 
     const content: PageBlock[] = asPageContent(submitted.value).blocks;
-
-    const settings = settingsFrom(formData);
-    const pageTypeName =
-      settings.pageType === "" ? page.pageType : settings.pageType;
-    const typed: PageSettingsInput & { pageType: string } = {
-      pageType: pageTypeName,
-      url: settings.url,
-      title: settings.title,
-      seoDescription: settings.seoDescription,
-      socialImage: settings.socialImage,
-    };
 
     // Settings and content are validated together and written in one
     // transaction: an invalid block must not leave the URL renamed or a 301
@@ -561,8 +573,6 @@ export const pages = {
     if (!result.ok) {
       // The blocks were checked against the page type the editor chose; render
       // the editor against that type so their work stays in the right shape.
-      const formType =
-        (await resolveWritablePageType(pageTypeName)) ?? pageType;
       if (result.reason === "conflict") {
         return renderPageForm(
           ctx,
