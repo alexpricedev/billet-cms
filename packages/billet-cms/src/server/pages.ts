@@ -19,16 +19,19 @@
  * always win because the handler is only reached for a path no route claimed.
  *
  * Reads are cached per process and invalidated on `cms_meta.content_version`
- * (Q3), the same cache the slot reader uses, so a publish shows within a second.
+ * (Q3), the same poll the slot and media readers use, so a publish shows within
+ * a second.
  * The routes a path can take — every published page's URL and every redirect —
  * are loaded as one table and cached under one key, so a 404 runs no per-path
  * query and adds no per-path cache entry (review round 1). A removed block, an
  * unpublished page or a missing CMS table is a skip and a log, never a 500 on a
  * public page.
  *
- * A valid preview token (`./preview`, Phase 6) is the one thing that leaves that
- * cache: `getPage(path, { preview })` reads the draft directly, and the catch-all
- * wraps the rendered page in the banner and the no-cache headers.
+ * A valid preview token (`./preview`, Phase 6) leaves that cache for the page
+ * the token names only: `getPage(path, { preview })` reads that page's draft
+ * directly and the catch-all wraps the rendered page in the banner and the
+ * no-cache headers, while a token for a slot, or for another page, still reads
+ * published from the cache.
  */
 import type { SQL } from "bun";
 import { PREVIEW_QUERY_PARAM, TABLES } from "../contract";
@@ -37,7 +40,11 @@ import { sameOriginPath } from "../fields/path";
 import type { PreviewAccess } from "../preview";
 import { applyPreview, getPreviewAccess } from "../preview";
 import { validateContent } from "../schema";
-import { CONTENT_VERSION_POLL_MS, ContentCache } from "./cache";
+import {
+  CONTENT_VERSION_POLL_MS,
+  ContentCache,
+  readerCacheOptions,
+} from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
 import { latestRevisionId } from "./revisions";
 
@@ -79,7 +86,14 @@ export interface CmsPagesOptions {
   now?: () => number;
   /** How often `content_version` is re-read. Defaults to one second (Q3). */
   versionPollMs?: number;
-  /** Where skipped content is reported. Defaults to the console. */
+  /**
+   * Where skipped content is reported. Defaults to the console.
+   *
+   * It does not receive `content_version` poll failures: the poll is shared
+   * between every reader on the pool, so it logs through the default logger
+   * rather than any one reader's sink. A reader built with an injected `now`
+   * gets a private poll and does report through this logger.
+   */
   onSkip?: SkipLogger;
 }
 
@@ -89,10 +103,10 @@ export interface CmsPagesReader {
    *
    * Pass `{ preview }` with valid preview access to read the *draft* the token
    * covers; `null` is the published read, so a caller can forward the access a
-   * request carried without branching. The read bypasses the content-version
-   * cache entirely (a preview must never be served from, or written to, the
-   * published cache), and only the page the token names as its subject uses its
-   * newest revision — any other page still reads as published.
+   * request carried without branching. A page token bypasses the content-version
+   * cache for the page it names only — that draft is never served from, or
+   * written to, the published cache — while every other page (a slot's token, or
+   * a page token for a different page) still reads as published from the cache.
    */
   getPage(
     path: string,
@@ -156,11 +170,18 @@ const canonicalPath = (path: string): string => {
   return path.replace(/\/+$/, "");
 };
 
-const readContentVersion = async (sql: SQL): Promise<number> => {
-  const rows = (await sql.unsafe(
-    `SELECT content_version FROM ${TABLES.meta} WHERE id = 1`,
-  )) as { content_version: string | number }[];
-  return rows.length > 0 ? Number(rows[0].content_version) : 0;
+/**
+ * Trim a stored text setting, treating a whitespace-only one as unset.
+ *
+ * The editor trims on write, so a blank description normally never reaches a
+ * row — but a hand edit, a pull from an older CMS or the site's own migration
+ * can leave one, and the reader's contract is "`null` means unset". Normalising
+ * here keeps a site that reads `page.seoDescription` directly (rather than
+ * through `pageSeo`) from rendering a blank description tag.
+ */
+const optionalText = (value: string | null): string | null => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 };
 
 const describe = (error: unknown): string =>
@@ -299,7 +320,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       id: page.id,
       url: page.url,
       title: page.title,
-      seoDescription: page.seo_description,
+      seoDescription: optionalText(page.seo_description),
       socialImage: page.social_image,
       pageType: page.page_type,
       blocks: rendered,
@@ -387,15 +408,12 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
   };
 
   const cache = new ContentCache<unknown>({
-    readVersion: () => readContentVersion(sql),
+    // One poll for the whole pool, shared with the slot and media readers, so a
+    // process asks `cms_meta` once a second rather than once per reader. A
+    // failed version check is logged by the shared poll through the default
+    // logger, not this reader's `onSkip` (see `readerCacheOptions`).
+    ...readerCacheOptions(sql, options, onSkip),
     load: loadByKey,
-    onVersionError: (error) => {
-      onSkip(`could not check the CMS content version: ${describe(error)}`);
-    },
-    ...(options.now ? { now: options.now } : {}),
-    ...(options.versionPollMs !== undefined
-      ? { intervalMs: options.versionPollMs }
-      : {}),
   });
 
   /**
@@ -447,10 +465,29 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       const canonical = canonicalPath(path);
       const preview = readOptions?.preview;
       try {
-        // Preview bypasses the cache both ways: a draft must not be written
-        // into the published cache, and a published page must not be served
-        // from it while the editor is looking at an unpublished change.
-        if (preview) return await loadPreviewPage(canonical, preview);
+        // A preview bypasses the cache for the token's own page only, the way
+        // the slot reader keeps the cache for slots a token does not cover: a
+        // page token reads *that* page's draft uncached, while a slot's token,
+        // or a page token for a different page, leaves the published page in
+        // the cache. So previewing one page does not force every other page on
+        // the site to re-read.
+        if (preview?.subjectType === "page") {
+          const table = await routes();
+          const pageId = table.byUrl.get(canonical);
+          if (pageId === preview.subjectId) {
+            return await loadPreviewPage(canonical, preview);
+          }
+          if (pageId)
+            return (await cache.get(`page:${pageId}`)) as CmsPage | null;
+          // The URL is not a published page. If the token's subject is, this
+          // path cannot be its draft: a page's URL lives on the page row, not
+          // in a revision, so a draft cannot move it. Return the published
+          // view (nothing here) instead of running the uncached URL lookup,
+          // which used to put a `cms_pages` SELECT on every 404 a page token
+          // asked for. Only an unpublished subject can be found this way.
+          if (table.byId.has(preview.subjectId)) return null;
+          return await loadPreviewPage(canonical, preview);
+        }
 
         const table = await routes();
         const pageId = table.byUrl.get(canonical);

@@ -1,5 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { CONTENT_VERSION_POLL_MS, ContentCache } from "./cache";
+import { describe, expect, setSystemTime, test } from "bun:test";
+import type { SQL } from "bun";
+import {
+  CONTENT_VERSION_POLL_MS,
+  ContentCache,
+  ContentVersion,
+  contentVersionFor,
+  readerCacheOptions,
+} from "./cache";
 
 /** A cache over a counter the test controls, with an injectable clock. */
 const makeCache = () => {
@@ -456,5 +463,273 @@ describe("ContentCache", () => {
     // ...but the reset stands: the load is not cached and the next read reloads.
     expect(await cache.get("home.hero")).toBe("fresh:home.hero");
     expect(state.loads).toBe(2);
+  });
+});
+
+describe("ContentVersion", () => {
+  // The poll is the thing every reader shares, so its failure handling is the
+  // one place a transient `cms_meta` outage is decided: with a last known
+  // version it must keep serving it (and report), never take content away.
+  test("serves the last version when a read fails, reports it, and backs off", async () => {
+    const state = { now: 0, version: 1, reads: 0, fails: false };
+    const errors: unknown[] = [];
+    const version = new ContentVersion({
+      readVersion: async () => {
+        state.reads += 1;
+        if (state.fails) throw new Error("cms_meta is gone");
+        return state.version;
+      },
+      now: () => state.now,
+      intervalMs: 1000,
+      onError: (error) => errors.push(error),
+    });
+
+    expect(await version.read()).toBe(1);
+    expect(state.reads).toBe(1);
+
+    // The CMS goes away past the interval: the failed read is reported, but the
+    // last known version is still served.
+    state.fails = true;
+    state.now = 1000;
+    expect(await version.read()).toBe(1);
+    expect(errors).toHaveLength(1);
+
+    // Backed off for one interval: a read inside the window is answered from
+    // the remembered version, without touching the broken database again.
+    state.now = 1100;
+    expect(await version.read()).toBe(1);
+    expect(state.reads).toBe(2);
+
+    // Recovered: the next read past the interval hits the source and moves.
+    state.fails = false;
+    state.version = 2;
+    state.now = 2000;
+    expect(await version.read()).toBe(2);
+    expect(state.reads).toBe(3);
+  });
+
+  // With nothing read yet there is no value to fall back to: the failure must
+  // surface to the caller, and the same back-off keeps a broken database from
+  // being queried once per request.
+  test("re-throws and backs off when the first read fails", async () => {
+    const state = { now: 0, reads: 0 };
+    const version = new ContentVersion({
+      readVersion: async () => {
+        state.reads += 1;
+        throw new Error("cms_meta is gone");
+      },
+      now: () => state.now,
+      intervalMs: 1000,
+    });
+
+    await expect(version.read()).rejects.toThrow("cms_meta is gone");
+    expect(state.reads).toBe(1);
+
+    // Inside the interval the stored failure is re-thrown without re-querying.
+    state.now = 100;
+    await expect(version.read()).rejects.toThrow("cms_meta is gone");
+    expect(state.reads).toBe(1);
+
+    // Past the interval it tries again.
+    state.now = 1000;
+    await expect(version.read()).rejects.toThrow("cms_meta is gone");
+    expect(state.reads).toBe(2);
+  });
+
+  // A read that started before `invalidate()` must not store its value after:
+  // the value is from before whatever the reset was for, so the reset stands and
+  // the next read goes back to the source.
+  test("does not store a read that was in flight across invalidate", async () => {
+    const state = { reads: 0 };
+    let release!: (value: number) => void;
+    const started = Promise.withResolvers<void>();
+    const version = new ContentVersion({
+      readVersion: () => {
+        state.reads += 1;
+        if (state.reads === 1) {
+          started.resolve();
+          return new Promise<number>((resolve) => {
+            release = resolve;
+          });
+        }
+        return Promise.resolve(99);
+      },
+      now: () => 0,
+      intervalMs: 1000,
+    });
+
+    const pending = version.read();
+    await started.promise;
+    version.invalidate();
+    release(1);
+
+    // The in-flight caller still gets what it read...
+    expect(await pending).toBe(1);
+    // ...but the reset stands: the next read re-checks rather than treating the
+    // pre-reset value as fresh.
+    expect(await version.read()).toBe(99);
+    expect(state.reads).toBe(2);
+  });
+
+  // The failure branch of the same rule: a read that fails across a reset must
+  // not leave its remembered error behind to be re-thrown by the fresh poll.
+  test("does not remember a failure that was in flight across invalidate", async () => {
+    const state = { reads: 0 };
+    let reject!: (error: unknown) => void;
+    const started = Promise.withResolvers<void>();
+    const version = new ContentVersion({
+      readVersion: () => {
+        state.reads += 1;
+        if (state.reads === 1) {
+          started.resolve();
+          return new Promise<number>((_resolve, rejectPromise) => {
+            reject = rejectPromise;
+          });
+        }
+        return Promise.resolve(2);
+      },
+      now: () => 0,
+      intervalMs: 1000,
+    });
+
+    const pending = version.read();
+    await started.promise;
+    version.invalidate();
+    reject(new Error("cms_meta is gone"));
+
+    // The caller that started the failed read still sees the failure...
+    await expect(pending).rejects.toThrow("cms_meta is gone");
+    // ...but the reset poll does not re-throw it: the next read hits the source.
+    expect(await version.read()).toBe(2);
+    expect(state.reads).toBe(2);
+  });
+});
+
+describe("contentVersionFor", () => {
+  /** A pool that counts `cms_meta` reads and answers with `version`. */
+  const countingSql = (version = 1) => {
+    const state = { version, versionReads: 0 };
+    const sql = {
+      unsafe: () => {
+        state.versionReads += 1;
+        return Promise.resolve([{ content_version: state.version }]);
+      },
+    } as unknown as SQL;
+    return { state, sql };
+  };
+
+  // One `cms_meta` query per process, not one per reader: the slot, page and
+  // media readers all ask for the poll on the same pool.
+  test("two default readers on one pool share one poll", async () => {
+    const { state, sql } = countingSql();
+
+    const first = contentVersionFor(sql);
+    const second = contentVersionFor(sql);
+    expect(second).toBe(first);
+
+    expect(await first.read()).toBe(1);
+    expect(await second.read()).toBe(1);
+    expect(state.versionReads).toBe(1);
+  });
+
+  // A reader that tunes the interval must share with the readers that tuned it
+  // the same way, not fall back to one `cms_meta` poll per reader: the poll is
+  // keyed by (pool, interval). A different interval still gets its own poll.
+  test("a reader with its own interval shares a poll with that interval", async () => {
+    const { state, sql } = countingSql();
+
+    const shared = contentVersionFor(sql);
+    const tuned = contentVersionFor(sql, { intervalMs: 5000 });
+    const tunedAgain = contentVersionFor(sql, { intervalMs: 5000 });
+    expect(tuned).not.toBe(shared);
+    expect(tunedAgain).toBe(tuned);
+
+    expect(await shared.read()).toBe(1);
+    expect(await tuned.read()).toBe(1);
+    expect(await tunedAgain.read()).toBe(1);
+    // Two polls — the default and the 5s one — so two reads on the same pool.
+    expect(state.versionReads).toBe(2);
+  });
+
+  test("a reader with an injected clock gets its own poll", async () => {
+    const { sql } = countingSql();
+
+    const shared = contentVersionFor(sql);
+    const own = contentVersionFor(sql, { now: () => 0 });
+    expect(own).not.toBe(shared);
+  });
+
+  // r1-4: the shared poll belongs to the pool, not to whichever reader asked
+  // first, so a failure is logged once through the plugin's default skip logger
+  // rather than once per reader and rather than through a reader's `onSkip`.
+  test("a shared-pool poll failure is logged once through the default logger", async () => {
+    const state = { version: 1, reads: 0, fails: false };
+    const sql = {
+      unsafe: () => {
+        state.reads += 1;
+        if (state.fails) throw new Error("cms_meta is gone");
+        return Promise.resolve([{ content_version: state.version }]);
+      },
+    } as unknown as SQL;
+
+    const logged: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message: string) => {
+      logged.push(message);
+    };
+    setSystemTime(new Date(0));
+    try {
+      const first = contentVersionFor(sql);
+      const second = contentVersionFor(sql);
+      expect(second).toBe(first);
+
+      expect(await first.read()).toBe(1);
+
+      // The CMS goes away. Both readers are on the one shared poll, so the
+      // failure is reported once — by the default logger, not by a reader.
+      state.fails = true;
+      setSystemTime(new Date(1000));
+      expect(await first.read()).toBe(1);
+      expect(await second.read()).toBe(1);
+
+      const failures = logged.filter((line) =>
+        line.includes("could not check the CMS content version"),
+      );
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toContain("cms_meta is gone");
+    } finally {
+      console.warn = originalWarn;
+      setSystemTime();
+    }
+  });
+});
+
+describe("readerCacheOptions", () => {
+  const pool = () =>
+    ({
+      unsafe: () => Promise.resolve([{ content_version: 1 }]),
+    }) as unknown as SQL;
+
+  // The helper is the one place the shared poll and the reader's own clock and
+  // interval are put together, so the readers can't drift on the spread.
+  test("returns the shared poll plus the reader's clock and interval", () => {
+    const sql = pool();
+    const shared = contentVersionFor(sql);
+
+    expect(readerCacheOptions(sql, {}, () => {}).version).toBe(shared);
+    expect(readerCacheOptions(sql, {}, () => {}).intervalMs).toBeUndefined();
+    expect(readerCacheOptions(sql, {}, () => {}).now).toBeUndefined();
+
+    // A tuned interval shares a poll keyed by that interval, and reaches the
+    // cache's own window too.
+    const tuned = readerCacheOptions(sql, { versionPollMs: 250 }, () => {});
+    expect(tuned.version).toBe(contentVersionFor(sql, { intervalMs: 250 }));
+    expect(tuned.intervalMs).toBe(250);
+
+    // An injected clock gets a private poll and is passed through.
+    const clock = () => 0;
+    const privateReader = readerCacheOptions(sql, { now: clock }, () => {});
+    expect(privateReader.now).toBe(clock);
+    expect(privateReader.version).not.toBe(shared);
   });
 });

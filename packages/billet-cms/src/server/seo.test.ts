@@ -126,6 +126,23 @@ describe("renderSeoTags", () => {
     );
   });
 
+  // `pageSeo` trims, but a `PageSeo` built by hand can carry whitespace; the
+  // tag check is on the trimmed value so a blank description is still omitted.
+  test("leaves out both description tags for a whitespace-only description", () => {
+    const html = renderSeoTags(
+      {
+        title: "About us",
+        description: "   ",
+        canonicalPath: "/about",
+        socialImage: null,
+      },
+      { siteUrl: SITE },
+    );
+
+    expect(html).not.toContain("og:description");
+    expect(html).not.toContain("twitter:description");
+  });
+
   test("does not throw when the canonical origin can't resolve a path", () => {
     expect(() => renderSeoTags(pageSeo(page()), { siteUrl: "" })).not.toThrow();
   });

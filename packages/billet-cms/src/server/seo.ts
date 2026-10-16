@@ -105,6 +105,9 @@ export const renderSeoTags = (seo: PageSeo, options: SeoTagOptions): string => {
   const canonical = absolute(options.siteUrl, seo.canonicalPath);
   const title = escapeHtml(seo.title);
   const description = escapeHtml(seo.description);
+  // `pageSeo` trims, but a hand-built `PageSeo` can still carry whitespace: a
+  // blank description is a per-page omission, not a tag full of spaces.
+  const hasDescription = seo.description.trim() !== "";
 
   const tags = [
     `<link rel="canonical" href="${escapeHtml(canonical)}">`,
@@ -114,7 +117,7 @@ export const renderSeoTags = (seo: PageSeo, options: SeoTagOptions): string => {
   // An empty description is a per-page omission, not an empty tag: a site with
   // no fallback for a page that never set one leaves both description tags out
   // rather than rendering `content=""`.
-  if (seo.description !== "") {
+  if (hasDescription) {
     tags.push(`<meta property="og:description" content="${description}">`);
   }
 
@@ -131,7 +134,7 @@ export const renderSeoTags = (seo: PageSeo, options: SeoTagOptions): string => {
 
   tags.push('<meta name="twitter:card" content="summary_large_image">');
   tags.push(`<meta name="twitter:title" content="${title}">`);
-  if (seo.description !== "") {
+  if (hasDescription) {
     tags.push(`<meta name="twitter:description" content="${description}">`);
   }
 

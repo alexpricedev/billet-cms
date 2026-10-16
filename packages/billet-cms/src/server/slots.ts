@@ -18,8 +18,9 @@
  *    still renders the rest of itself (the spec's "the site keeps working").
  *
  * Reads are cached in memory and re-checked against `cms_meta.content_version`
- * at most once a second (Q3, `./cache.ts`), so a publish is visible on the site
- * within seconds and the steady state costs no queries. A valid preview token
+ * at most once a second (Q3, `./cache.ts`), one poll shared with the page and
+ * media readers, so a publish is visible on the site within seconds and the
+ * steady state costs no queries. A valid preview token
  * (`./preview`, Phase 6) bypasses that cache for its own subject only: pass the
  * access `getPreviewAccess` returned to `getSlot` and the slot the token names
  * has its draft read instead, uncached, while every other slot on the page is
@@ -36,9 +37,8 @@ import {
 } from "../fields/definition";
 import type { PreviewAccess } from "../preview";
 import { validateContent } from "../schema";
-import { ContentCache } from "./cache";
+import { ContentCache, readerCacheOptions } from "./cache";
 import { defaultSkipLogger, type SkipLogger } from "./log";
-import { latestRevisionId } from "./revisions";
 
 /** The validated content of one published slot, keyed by field/block name. */
 export type SlotContent = Record<string, unknown>;
@@ -50,7 +50,14 @@ export interface ContentReaderOptions {
   now?: () => number;
   /** How often `content_version` is re-read. Defaults to one second (Q3). */
   versionPollMs?: number;
-  /** Where skipped content is reported. Defaults to the console. */
+  /**
+   * Where skipped content is reported. Defaults to the console.
+   *
+   * It does not receive `content_version` poll failures: the poll is shared
+   * between every reader on the pool, so it logs through the default logger
+   * rather than any one reader's sink. A reader built with an injected `now`
+   * gets a private poll and does report through this logger.
+   */
   onSkip?: SkipLogger;
 }
 
@@ -117,6 +124,21 @@ interface JoinedSlotRow extends SlotRow {
 }
 
 /**
+ * The joined slot row plus the slot's newest revision, in one read.
+ *
+ * `latest_revision_id`/`latest_content` come from a `LEFT JOIN LATERAL`, so a
+ * preview gets the draft it must render without the two extra round trips
+ * (newest-revision id, then that revision's content) a cold preview used to pay.
+ * The lateral's `ORDER BY` is the same one `latestRevisionId` uses, so the
+ * preview reads and the standalone helper cannot drift on which revision is
+ * newest.
+ */
+interface PreviewSlotRow extends JoinedSlotRow {
+  latest_revision_id: string | null;
+  latest_content: Record<string, unknown> | null;
+}
+
+/**
  * The value the slot cache holds: the published content plus the row id, so a
  * preview can tell whether a token names this slot. `null` (no cache entry at
  * all) means the slot isn't declared.
@@ -125,13 +147,6 @@ interface CachedSlot {
   slotId: string;
   content: SlotContent | null;
 }
-
-const readContentVersion = async (sql: SQL): Promise<number> => {
-  const rows = (await sql.unsafe(
-    `SELECT content_version FROM ${TABLES.meta} WHERE id = 1`,
-  )) as { content_version: string | number }[];
-  return rows.length > 0 ? Number(rows[0].content_version) : 0;
-};
 
 /**
  * Build a reader that caches per process.
@@ -168,6 +183,41 @@ export const createContentReader = (
     return slots[0] ?? null;
   };
 
+  /**
+   * The slot row, its block type, its published revision and its newest
+   * revision, in one read.
+   *
+   * A preview must reflect the editor's latest save, which the published row
+   * does not carry, so the newest revision is joined in with a `LEFT JOIN
+   * LATERAL` rather than read by a second query. The lateral's ordering matches
+   * `latestRevisionId` exactly (`created_at DESC, id DESC`), so the two agree
+   * on which revision is newest, and a slot with no revision arrives as null
+   * columns rather than a second round trip.
+   */
+  const readPreviewSlotRow = async (
+    name: string,
+  ): Promise<PreviewSlotRow | null> => {
+    const slots = (await sql.unsafe(
+      `SELECT s.id, s.name, s.block_name, s.removed_at, s.published_revision_id,
+              b.name AS block_found, b.json_schema,
+              b.removed_at AS block_removed_at,
+              r.id AS revision_found, r.content,
+              latest.id AS latest_revision_id, latest.content AS latest_content
+       FROM ${TABLES.slots} s
+       LEFT JOIN ${TABLES.blockTypes} b ON b.name = s.block_name
+       LEFT JOIN ${TABLES.revisions} r ON r.id = s.published_revision_id
+       LEFT JOIN LATERAL (
+         SELECT id, content FROM ${TABLES.revisions}
+         WHERE target_type = 'slot' AND target_id = s.id
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+       ) latest ON true
+       WHERE s.name = $1`,
+      [name],
+    )) as PreviewSlotRow[];
+    return slots[0] ?? null;
+  };
+
   const loadSlot = async (name: string): Promise<CachedSlot | null> => {
     const slot = await readSlotRow(name);
     if (!slot) return null;
@@ -189,38 +239,28 @@ export const createContentReader = (
   /**
    * Read the draft when the preview token's subject is this slot.
    *
-   * The joined row already carries the block type; only the newest revision is
-   * a further read, uncached, because a preview must reflect the editor's
-   * latest save rather than a value held against `content_version`.
+   * The joined row carries the block type, the published revision and the
+   * newest revision in one query, so a preview is a single read from the
+   * database. The newest revision wins unless it is the published one, in which
+   * case the published content already in the row is reused.
    */
   const loadPreviewSlot = async (name: string): Promise<SlotContent | null> => {
-    const slot = await readSlotRow(name);
+    const slot = await readPreviewSlotRow(name);
     if (!slot) return null;
     if (slot.removed_at !== null) {
       onSkip(`slot "${name}" is no longer declared in the site's templates`);
       return null;
     }
 
-    const revisionId = await latestRevisionId(sql, "slot", slot.id);
+    const revisionId = slot.latest_revision_id;
     if (!revisionId) return null;
     // Reuse the joined content when the newest revision is also the published
     // one, rather than reading the same row twice.
     const content =
       revisionId === slot.published_revision_id
         ? slot.content
-        : await readRevisionContent(revisionId);
+        : slot.latest_content;
     return readSlotRevision(slot, content);
-  };
-
-  /** One revision's stored content, for a preview read that names it. */
-  const readRevisionContent = async (
-    revisionId: string,
-  ): Promise<Record<string, unknown> | null> => {
-    const revisions = (await sql.unsafe(
-      `SELECT content FROM ${TABLES.revisions} WHERE id = $1`,
-      [revisionId],
-    )) as { content: Record<string, unknown> }[];
-    return revisions[0]?.content ?? null;
   };
 
   /**
@@ -271,18 +311,13 @@ export const createContentReader = (
   };
 
   const cache = new ContentCache<CachedSlot | null>({
-    readVersion: () => readContentVersion(sql),
+    // One poll for the whole pool: the page and media readers share it, so a
+    // process asks `cms_meta` once a second, not once per reader. A failed
+    // version check keeps serving what is cached (see `ContentCache`); the
+    // shared poll logs it through the default logger, not this reader's
+    // `onSkip` (see `readerCacheOptions`).
+    ...readerCacheOptions(sql, options, onSkip),
     load: loadSlot,
-    // A failed version check keeps serving what is cached (see `ContentCache`);
-    // the site hears about it through its skip logger like any other drop.
-    onVersionError: (error) => {
-      const message = error instanceof Error ? error.message : String(error);
-      onSkip(`could not check the CMS content version: ${message}`);
-    },
-    ...(options.now ? { now: options.now } : {}),
-    ...(options.versionPollMs !== undefined
-      ? { intervalMs: options.versionPollMs }
-      : {}),
   });
 
   return {

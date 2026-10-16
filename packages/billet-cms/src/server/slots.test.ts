@@ -216,12 +216,13 @@ describe("getSlot with the site's own block", () => {
 describe("getSlot with preview access", () => {
   /**
    * A pool with a published revision and a newer draft, returning the joined
-   * slot row the reader now selects in one query.
+   * slot row the reader now selects in one query — including the newest
+   * revision the `LEFT JOIN LATERAL` brings back.
    */
   const previewSql = (published = "Published", draft = "Draft") => {
-    const state = { version: 1, slotReads: 0, revisionReads: 0 };
+    const state = { version: 1, slotReads: 0 };
     const sql = {
-      unsafe: (query: string, params: unknown[] = []) => {
+      unsafe: (query: string) => {
         if (query.includes("cms_meta")) {
           return Promise.resolve([{ content_version: state.version }]);
         }
@@ -239,16 +240,9 @@ describe("getSlot with preview access", () => {
               block_removed_at: null,
               revision_found: "rev-1",
               content: { heading: published },
+              latest_revision_id: "rev-2",
+              latest_content: { heading: draft },
             },
-          ]);
-        }
-        if (query.includes("cms_revisions")) {
-          if (query.includes("LIMIT 1") && query.includes("target_id")) {
-            return Promise.resolve([{ id: "rev-2" }]);
-          }
-          state.revisionReads += 1;
-          return Promise.resolve([
-            { content: { heading: params[0] === "rev-2" ? draft : published } },
           ]);
         }
         return Promise.resolve([]);
@@ -329,14 +323,10 @@ describe("getSlot with preview access", () => {
               block_removed_at: null,
               revision_found: "rev-1",
               content: { heading: `${name} published` },
+              latest_revision_id: "rev-2",
+              latest_content: { heading: "draft" },
             },
           ]);
-        }
-        if (query.includes("cms_revisions")) {
-          if (query.includes("LIMIT 1") && query.includes("target_id")) {
-            return Promise.resolve([{ id: "rev-2" }]);
-          }
-          return Promise.resolve([{ content: { heading: "draft" } }]);
         }
         return Promise.resolve([]);
       },
@@ -380,14 +370,10 @@ describe("getSlot with preview access", () => {
               block_removed_at: null,
               revision_found: null,
               content: null,
+              latest_revision_id: "rev-2",
+              latest_content: { heading: "First draft" },
             },
           ]);
-        }
-        if (query.includes("cms_revisions")) {
-          if (query.includes("LIMIT 1") && query.includes("target_id")) {
-            return Promise.resolve([{ id: "rev-2" }]);
-          }
-          return Promise.resolve([{ content: { heading: "First draft" } }]);
         }
         return Promise.resolve([]);
       },
@@ -477,6 +463,108 @@ describe("slot query counts", () => {
     for (const result of results) expect(result).toEqual({ heading: "a" });
     expect(state.versionReads).toBe(1);
     expect(state.slotReads).toBe(1);
+  });
+
+  // The preview used to read the slot for the cache check, then the slot again,
+  // then the newest revision's id, then that revision's content. The `LEFT JOIN
+  // LATERAL` folds the newest revision into the preview's own slot read, so the
+  // two extra `cms_revisions` queries are gone.
+  test("a preview of the token's own slot folds the newest revision into the slot read", async () => {
+    const state = {
+      version: 1,
+      versionReads: 0,
+      slotReads: 0,
+      revisionReads: 0,
+    };
+    const sql = {
+      unsafe: (query: string) => {
+        if (query.includes("cms_meta")) {
+          state.versionReads += 1;
+          return Promise.resolve([{ content_version: state.version }]);
+        }
+        if (query.includes("cms_slots")) {
+          state.slotReads += 1;
+          return Promise.resolve([
+            {
+              id: "slot-1",
+              name: "home.hero",
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: "rev-1",
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: "rev-1",
+              content: { heading: "Published" },
+              latest_revision_id: "rev-2",
+              latest_content: { heading: "Draft" },
+            },
+          ]);
+        }
+        if (query.includes("cms_revisions")) {
+          state.revisionReads += 1;
+          return Promise.resolve([]);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+    const reader = createContentReader({ sql, onSkip: () => {} });
+
+    const content = await reader.getSlot("home.hero", {
+      preview: { subjectType: "slot", subjectId: "slot-1" },
+    });
+
+    expect(content).toEqual({ heading: "Draft" });
+    // Two slot reads: the cached-slot lookup that matches the token's subject,
+    // then the preview's own joined read. No separate `cms_revisions` queries.
+    expect(state.slotReads).toBe(2);
+    expect(state.revisionReads).toBe(0);
+    expect(state.versionReads).toBe(1);
+  });
+
+  test("a preview whose newest revision is the published one reuses the joined content", async () => {
+    const state = { slotReads: 0, revisionReads: 0 };
+    const sql = {
+      unsafe: (query: string) => {
+        if (query.includes("cms_meta")) {
+          return Promise.resolve([{ content_version: 1 }]);
+        }
+        if (query.includes("cms_slots")) {
+          state.slotReads += 1;
+          return Promise.resolve([
+            {
+              id: "slot-1",
+              name: "home.hero",
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: "rev-1",
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: "rev-1",
+              content: { heading: "Published, and newest" },
+              latest_revision_id: "rev-1",
+              // Deliberately different: the published content must win, or a
+              // stale lateral row could shadow the published revision.
+              latest_content: { heading: "should not be used" },
+            },
+          ]);
+        }
+        if (query.includes("cms_revisions")) {
+          state.revisionReads += 1;
+          return Promise.resolve([]);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+    const reader = createContentReader({ sql, onSkip: () => {} });
+
+    const content = await reader.getSlot("home.hero", {
+      preview: { subjectType: "slot", subjectId: "slot-1" },
+    });
+
+    expect(content).toEqual({ heading: "Published, and newest" });
+    expect(state.revisionReads).toBe(0);
   });
 });
 
