@@ -29,7 +29,7 @@ describe("buildLlmsTxt", () => {
   });
 
   test("omits a Pages section when the CMS has no public pages", () => {
-    // The Forms demo was the only public page and has been removed (14 Oct).
+    // The Forms demo was the only public page and has been removed.
     const body = buildLlmsTxt();
 
     expect(body).not.toContain("## Pages");

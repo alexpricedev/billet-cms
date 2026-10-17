@@ -305,6 +305,74 @@ describe("history and restore", () => {
     expect(paged).toEqual(new Set(ids));
   });
 
+  // The other paging test seeds one distinct created_at per revision, so the id
+  // half of the `(created_at, id)` cursor is never exercised. Here the boundary
+  // falls inside a group saved in the same instant: only the id tie-break
+  // separates the two pages, and a cursor on created_at alone would skip the
+  // rest of the group or repeat the row it points at.
+  test("pages across revisions saved in the same instant", async () => {
+    const distinctCount = HISTORY_PAGE_SIZE - 6;
+    const tiedCount = 11;
+    const total = distinctCount + tiedCount;
+    const distinctBase = Date.UTC(2026, 0, 1, 0, 0, 0);
+    // Older than every distinct revision, so the tied group sorts last and the
+    // page boundary — the 50th row counted newest first — lands inside it.
+    const tiedAt = new Date(Date.UTC(2025, 11, 31, 0, 0, 0));
+
+    const insert = async (id: string, createdAt: Date): Promise<void> => {
+      await db`
+        INSERT INTO cms_revisions
+          (id, target_type, target_id, content, created_by, created_at)
+        VALUES (
+          ${id},
+          'slot',
+          ${slotId},
+          ${jsonbValue({ heading: "tie" })},
+          ${editorId},
+          ${createdAt}
+        )
+      `;
+    };
+
+    const ids: string[] = [];
+    for (let i = 0; i < distinctCount; i += 1) {
+      const id = randomUUID();
+      ids.push(id);
+      await insert(id, new Date(distinctBase + i * 1000));
+    }
+    for (let i = 0; i < tiedCount; i += 1) {
+      const id = randomUUID();
+      ids.push(id);
+      await insert(id, tiedAt);
+    }
+
+    const slot = await getSlotById(slotId);
+    if (!slot) throw new Error("slot missing");
+
+    const first = await listSlotHistory(slot);
+    expect(first.revisions).toHaveLength(HISTORY_PAGE_SIZE);
+    expect(first.hasOlder).toBe(true);
+
+    const cursor = first.revisions[first.revisions.length - 1]?.id as string;
+    const second = await listSlotHistory(slot, { before: cursor });
+    expect(second.hasOlder).toBe(false);
+
+    // Both the last row of the first page and the first of the second share the
+    // tied timestamp: the boundary really is inside the same-instant group.
+    expect(first.revisions[HISTORY_PAGE_SIZE - 1]?.createdAt.getTime()).toBe(
+      tiedAt.getTime(),
+    );
+    expect(second.revisions[0]?.createdAt.getTime()).toBe(tiedAt.getTime());
+
+    const paged = [
+      ...first.revisions.map((revision) => revision.id),
+      ...second.revisions.map((revision) => revision.id),
+    ];
+    expect(paged).toHaveLength(total);
+    expect(new Set(paged).size).toBe(total);
+    expect(new Set(paged)).toEqual(new Set(ids));
+  });
+
   test("restores an old revision by copying it into a new draft", async () => {
     const first = await draft("First", editorId);
     await draft("Second", editorId);

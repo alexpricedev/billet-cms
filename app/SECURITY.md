@@ -85,7 +85,7 @@ import { CsrfField } from "../components/csrf-field";
 // Include token in X-CSRF-Token header
 const csrfToken = document.querySelector('[name="_csrf"]')?.value;
 
-fetch('/api/stats', {
+fetch('/api/your-resource', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',

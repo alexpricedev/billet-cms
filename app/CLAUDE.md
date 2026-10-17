@@ -206,11 +206,11 @@ on any `cms_` table. Sign-in reads the site's accounts through `cms_identities`,
 `id`, `email` and `role` only, and hands the browser to the site for the login step — so a
 password never crosses into the CMS. `hashPassword`/`verifyPassword` remain in `utils/crypto.ts`
 for the site's own use; they are deliberately *not* peppered with `CRYPTO_PEPPER`, unlike everything
-else in that file — see the comment there and `SECURITY.md`.
+else in that file — see the comment there.
 
-`readFormValues` (`src/server/utils/form-data.ts`) trims values and drops empties, which is right
-for the CMS's own forms. If a credential ever did have to be read here, it would need a verbatim
-reader instead.
+`readFormValues` (`src/server/utils/form-data.ts`) is an unused upstream helper, kept so a future
+port diffs cleanly; nothing in the CMS imports it. It trims values and drops empties, which would
+not suit a credential: reading one verbatim would need a reader of its own instead.
 
 ### Security headers and CSP are centralised
 

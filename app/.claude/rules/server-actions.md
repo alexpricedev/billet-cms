@@ -12,9 +12,9 @@ paths:
 > `app/CLAUDE.md` list what the strip removed from upstream (todos, teams,
 > password auth, the user admin dashboard, the seed script, `scripts/qa-session.ts`)
 > and which tables were renamed to `cms_`. Examples below still name upstream
-> surfaces — read `users`, `sessions` and `user_tokens` as `cms_users`,
-> `cms_sessions` and `cms_user_tokens`, and treat the todo page, `/admin` and
-> `/team` as gone.
+> surfaces — read `users` as the site's `cms_identities` view, `sessions` and
+> `user_tokens` as `cms_sessions` and `cms_user_tokens`, and treat the todo
+> page, `/admin` and `/team` as gone.
 
 Loaded when you open a controller, template, component or server utility. The always-on rule —
 three tiers, plain form by default — is in CLAUDE.md; this is the server half of the machinery.
@@ -36,14 +36,14 @@ see `isRecoverableCsrfFailure` for why the distinction is load-bearing.
 
 `server.submit` sends `redirect: "manual"`, so a controller that redirects reads as a failure rather
 than a login page handed back as a row; upstream `formAction` answered a fragment request that a
-guard refused with a 401 (sent to `/login`) or 403 instead of the redirect. On any failure the
+guard refused with a 401 (sent to `/sign-in`) or 403 instead of the redirect. On any failure the
 component falls back to `form.submit()`, and the server's flash says what happened. Never return a
 full page to a fragment request, and never return a fragment to a plain post.
 
 > **None of the fragment machinery above is used by this fork.** The CMS has no
-> enhanced forms: its only client script is `src/client/cms-form.ts`, and every
-> mutation is a full-page POST that redirects. The section is kept for a future
-> port; the CMS-side token pattern is the next section.
+> enhanced forms: its only page-specific client script is `src/client/cms-form.ts`,
+> and every mutation is a full-page POST that redirects. The section is kept for a
+> future port; the CMS-side token pattern is the next section.
 
 ## POST controllers check CSRF directly; the `formAction` wrapper is upstream-only
 
@@ -56,8 +56,8 @@ full page to a fragment request, and never return a fragment to a plain post.
 > code so a future port diffs cleanly — nothing in the CMS imports them.
 
 `formAction` (`src/server/utils/form-action.ts`) owned everything around the
-decision upstream: the guard (`"session"`, `"user"`, or a function such as
-`orgRoleGuard`), the CSRF check with stale-token recovery on both paths, and the
+decision upstream: the guard (`"session"`, `"user"`, or a function), the CSRF
+check with stale-token recovery on both paths, and the
 response — redirect-and-flash for a plain post, fragment or bare status for a
 fragment request. A handler returns an outcome, not a Response: `{ flash,
 fragment, status }` for success, `{ reject, flash }` for a refusal, or a

@@ -21,11 +21,10 @@
 
 import { workerDatabaseUrl } from "./worker-database";
 
-// Assigned, not defaulted. A developer running the dev server in password mode,
-// with teams enabled has those in `.env`, and Bun has
-// already loaded it by the time this runs — deferring to it would reintroduce
-// the leak. Tests that exercise a non-default set the variable per case at
-// runtime, which happens long after preload.
+// Assigned, not defaulted. A developer's own `.env` may hold a different value
+// for any of these, and Bun has already loaded it by the time this runs —
+// deferring to it would reintroduce the leak. Tests that exercise a non-default
+// set the variable per case at runtime, which happens long after preload.
 const TEST_ENV: Record<string, string> = {
   // Tests hardcode `cms_session=` when they build a cookie header.
   SESSION_COOKIE_NAME: "cms_session",

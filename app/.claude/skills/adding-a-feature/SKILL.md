@@ -9,9 +9,9 @@ description: How a new page, API endpoint, or admin route is wired through this 
 > `app/CLAUDE.md` list what the strip removed from upstream (todos, teams,
 > password auth, the user admin dashboard, the seed script, `scripts/qa-session.ts`)
 > and which tables were renamed to `cms_`. References below still name upstream
-> surfaces — read `users`, `sessions` and `user_tokens` as `cms_users`,
-> `cms_sessions` and `cms_user_tokens`, and treat `todos`, `/admin` and
-> `/team` as gone.
+> surfaces — read `users` as the site's `cms_identities` view, `sessions` and
+> `user_tokens` as `cms_sessions` and `cms_user_tokens`, and treat `todos`,
+> `/admin` and `/team` as gone.
 
 The layering is strict, and it's what makes the codebase testable:
 

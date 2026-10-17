@@ -55,6 +55,8 @@ commented list.
 | `SESSION_COOKIE_NAME` | *Optional.* Defaults to `cms_session`. |
 | `SECURITY_CONTACT` | *Optional.* Contact for `/.well-known/security.txt`. |
 | `TRUST_PROXY` | *Optional.* `true` behind one reverse proxy that rewrites `x-forwarded-for`. |
+| `MAINTENANCE_MODE` | *Optional.* `true` serves a 503 "under maintenance" page (with `Retry-After`) for every request except `/health`. An app-level fallback; prefer flipping maintenance at your edge/CDN. |
+| `MAINTENANCE_RETRY_AFTER` | *Optional.* Overrides the maintenance `Retry-After` value in seconds (default `3600`). |
 | `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `MEDIA_PUBLIC_BASE_URL` | *Optional.* Configure the media bucket; uploads are refused until they are set. `S3_REGION` / `S3_ENDPOINT` when the provider needs them. |
 
 ## Layout

@@ -106,7 +106,20 @@ describe("generated artefacts follow the resolved origin", () => {
     // and in particular the removed /forms demo is not.
     expect(xml).not.toContain("<loc>");
     expect(xml).not.toContain("/forms");
-    expect(xml).not.toContain("app.example.com");
+  });
+
+  // The guard against the "no locs" assertion above passing vacuously: the
+  // canonical origin (SITE_URL) is the one a sitemap entry is built from, not
+  // APP_URL. Asserted through absolute(), which is what renders a <loc> and what
+  // a site's own list of pages would resolve against — the CMS keeps no list.
+  test("a public-page path resolves against the canonical origin", () => {
+    process.env.APP_URL = "https://app.example.com";
+    process.env.SITE_URL = "https://example.com";
+
+    const url = absolute("/a-public-page");
+
+    expect(url).toBe("https://example.com/a-public-page");
+    expect(url).not.toContain("app.example.com");
   });
 
   test("robots.txt points at the sitemap under it", () => {
