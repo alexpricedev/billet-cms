@@ -16,7 +16,7 @@ const renderError = (
   });
 
 // 404 — the requested resource does not exist. Correct status (never a soft 200),
-// with site navigation and a homepage link as the way forward.
+// with site navigation and a link back into the CMS as the way forward.
 export const render404 = (): Response =>
   renderError(
     <ErrorPage
