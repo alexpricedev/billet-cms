@@ -30,8 +30,8 @@ const NETWORK_AND_MARKUP_ALLOWED = new Set([`${CLIENT}/reactive/request.ts`]);
 // on the client that belongs on the server.
 const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 
-// Minified bytes for the block editor, `cms-form.ts`. It is 9,751 bytes
-// (9.52 KiB) at the time of writing. This is the one recorded exception to "the
+// Minified bytes for the block editor, `cms-form.ts`. It is 9,803 bytes
+// (9.57 KiB) at the time of writing. This is the one recorded exception to "the
 // client is presentation only" (AGENTS.md): a contenteditable rich-text field,
 // repeatable rows and the media focal picker need client JS, and the script is
 // kept to walking the server-rendered DOM back into the hidden `content` field.

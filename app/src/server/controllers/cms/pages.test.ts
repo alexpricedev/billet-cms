@@ -325,7 +325,9 @@ describe("Pages controller", () => {
     const html = await res.text();
     expect(html).toContain('data-field-name="photo"');
     expect(html).toContain('aria-invalid="true"');
-    expect(html).toContain("Invalid UUID");
+    // The editor sees the plain-language message, not the validator's raw
+    // "Invalid UUID" (see `plainMessage` in `services/content/drafts.ts`).
+    expect(html).toContain("Enter a valid id.");
     // The editor's typed value comes back, rather than being silently dropped.
     expect(html).toContain("not-a-uuid");
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
