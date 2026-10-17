@@ -65,7 +65,10 @@ describe("handleFallback", () => {
     expect(res.headers.get("Content-Type")).toContain("text/html");
     const body = await res.text();
     expect(body).toContain("Page not found");
-    // No implementation detail leaks and the page offers a way forward.
-    expect(body).toContain('href="/"');
+    // No implementation detail leaks and the page offers a way forward. Assert
+    // the CMS action specifically: the header logo is also href="/", so that
+    // would pass even if the way-forward link were dropped entirely.
+    expect(body).toContain('href="/cms"');
+    expect(body).toContain("Go to the CMS");
   });
 });

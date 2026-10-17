@@ -248,9 +248,11 @@ describe("createMedia", () => {
     // really proves the cleanup ran rather than that nothing was written.
     expect(landed.length).toBeGreaterThanOrEqual(2);
     expect(memory.objects.size).toBe(0);
-    // Every key the upload planned was attempted and then deleted, not just the
-    // four puts that reported success.
-    expect(attempted.length).toBe(5);
+    // Every key the upload planned was attempted and then deleted, not only the
+    // ones whose put reported success. The count comes from the rendition ladder
+    // for an 800px source — one original plus a WebP and a fallback per width —
+    // rather than a hard-coded number tied to the current ladder.
+    expect(attempted.length).toBe(1 + renditionWidths(800).length * 2);
     expect([...deleted].sort()).toEqual([...attempted].sort());
     expect(await listMedia()).toHaveLength(0);
   });
