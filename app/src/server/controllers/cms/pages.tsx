@@ -28,12 +28,7 @@ import {
   savePage,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
-import {
-  listMedia,
-  MEDIA_PICKER_LIMIT,
-  type MediaOption,
-  toMediaOption,
-} from "../../services/media";
+import { listPickerMedia } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import { PageDeleteConfirm } from "../../templates/cms/page-delete";
 import {
@@ -183,14 +178,13 @@ export const renderPageForm = async (
   const sessionId = ctx.sessionId as string;
   const user = ctx.user as NonNullable<SessionContext["user"]>;
 
-  const [blockTypes, pageTypes, pages, mediaItems, latest] = await Promise.all([
+  const [blockTypes, pageTypes, pages, picker, latest] = await Promise.all([
     listBlockTypes(),
     listPageTypes(),
     listPageOptions(),
-    listMedia({ limit: MEDIA_PICKER_LIMIT }),
+    listPickerMedia(content),
     getLatestRevision("page", page.id),
   ]);
-  const media: MediaOption[] = mediaItems.map(toMediaOption);
 
   const navCsrfToken = await createCsrfToken(sessionId, "POST", "/auth/logout");
 
@@ -246,7 +240,8 @@ export const renderPageForm = async (
       latestRevisionId={latest?.id ?? null}
       publishedRevisionId={page.publishedRevisionId}
       pages={pages}
-      media={media}
+      media={picker.media}
+      pickerCapped={picker.capped}
       settingsErrors={settingsErrors}
       blockErrors={byBlock}
       contentIssues={list}

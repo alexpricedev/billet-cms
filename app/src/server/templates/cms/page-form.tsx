@@ -46,8 +46,10 @@ export interface PageFormProps {
   /** The revision the site is currently rendering, when there is one. */
   publishedRevisionId: string | null;
   pages: PageOption[];
-  /** The uploads an `image` field's picker offers. */
+  /** The uploads an `image` field's picker offers, rendered once for the form. */
   media: MediaOption[];
+  /** Whether the reuse list was capped, so the picker's help line is true. */
+  pickerCapped: boolean;
   /** Validation messages for the settings fields, keyed by field name. */
   settingsErrors?: Map<string, FieldError[]>;
   /** Validation messages for a block's fields, keyed by the block's index. */
@@ -160,6 +162,7 @@ export const PageForm = ({
   publishedRevisionId,
   pages,
   media,
+  pickerCapped,
   settingsErrors,
   blockErrors,
   contentIssues,
@@ -387,7 +390,8 @@ export const PageForm = ({
                 unavailable={unavailable}
                 errorsByBlock={blockErrors}
                 pages={pages}
-                media={media}
+                hasMedia={media.length > 0}
+                pickerCapped={pickerCapped}
               />
             ) : (
               <p className="cms-blocks-empty">

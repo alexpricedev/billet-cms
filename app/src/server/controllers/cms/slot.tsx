@@ -14,12 +14,7 @@ import {
   saveSlotDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
-import {
-  listMedia,
-  MEDIA_PICKER_LIMIT,
-  type MediaOption,
-  toMediaOption,
-} from "../../services/media";
+import { listPickerMedia } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import { SlotForm, SlotUnavailable } from "../../templates/cms/slot-form";
 import { render404 } from "../../utils/errors";
@@ -149,15 +144,14 @@ export const renderSlotForm = async (
     publishCsrfToken,
     previewCsrfToken,
     navCsrfToken,
-    mediaItems,
+    picker,
   ] = await Promise.all([
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/preview`),
     createCsrfToken(sessionId, "POST", "/auth/logout"),
-    listMedia({ limit: MEDIA_PICKER_LIMIT }),
+    listPickerMedia(declaredContent),
   ]);
-  const media: MediaOption[] = mediaItems.map(toMediaOption);
 
   return render(
     <SlotForm
@@ -173,7 +167,8 @@ export const renderSlotForm = async (
       latestRevisionId={latest?.id ?? null}
       publishedRevisionId={slot.publishedRevisionId}
       removedFieldNames={removed.names}
-      media={media}
+      media={picker.media}
+      pickerCapped={picker.capped}
       errors={extras.errors}
       conflict={extras.conflict ?? null}
       refusedPublish={extras.refusedPublish ?? false}

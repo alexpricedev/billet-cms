@@ -5,7 +5,8 @@ import {
 } from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import { renderToString } from "preact-render-to-string";
-import { MEDIA_PICKER_LIMIT, type MediaOption } from "../../services/media";
+import type { MediaOption } from "../../services/media";
+import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
 import { FieldControl, MediaOptionsTemplate } from "./field-control";
 
 const emptyDocument: RichTextDocument = { type: "doc", content: [] };
@@ -161,13 +162,13 @@ describe("FieldControl image picker", () => {
           field={image}
           value={{ mediaId: media[0].id }}
           idBase="cms-field-photo"
-          media={media}
+          hasMedia
         />
         <FieldControl
           field={image}
           value={{ mediaId: media[1].id }}
           idBase="cms-field-other"
-          media={media}
+          hasMedia
         />
       </div>,
     );
@@ -186,15 +187,16 @@ describe("FieldControl image picker", () => {
           field={image}
           value={{ mediaId: unlisted, alt: "Stored alt" }}
           idBase="cms-field-photo"
-          media={media}
+          hasMedia
         />
       </div>,
     );
 
-    // The picker's own option carries the stored alt, is selected, and is the
-    // only place that id appears — the template lists other uploads.
+    // The picker's own option carries the stored alt, is selected (and marked
+    // so the client keeps that label), and is the only place that id appears —
+    // the template lists other uploads.
     expect(html).toContain(
-      `<option value="${unlisted}" selected>Stored alt</option>`,
+      `<option value="${unlisted}" selected data-media-keep-label>Stored alt</option>`,
     );
     expect(count(html, `<option value="${unlisted}"`)).toBe(1);
     // Two uploads is below the cap, so the "older ones" help line is not shown.
@@ -209,7 +211,7 @@ describe("FieldControl image picker", () => {
         field={image}
         value={{ mediaId: unlisted }}
         idBase="cms-field-photo"
-        media={media}
+        hasMedia
       />,
     );
 
@@ -219,6 +221,33 @@ describe("FieldControl image picker", () => {
     expect(html).not.toContain(
       `<option value="${unlisted}" selected>${unlisted}</option>`,
     );
+  });
+
+  // The per-use alt is what the site renders for this use; the marker tells the
+  // client's relabel to leave the option's label alone when the picker is
+  // focused (see cms-form.ts).
+  test("marks the current image's option when it carries a per-use alt", () => {
+    const withOverride = renderToString(
+      <FieldControl
+        field={image}
+        value={{ mediaId: unlisted, alt: "Stored alt" }}
+        idBase="cms-field-photo"
+        hasMedia
+      />,
+    );
+    expect(withOverride).toContain(
+      `<option value="${unlisted}" selected data-media-keep-label`,
+    );
+
+    const without = renderToString(
+      <FieldControl
+        field={image}
+        value={{ mediaId: unlisted }}
+        idBase="cms-field-photo"
+        hasMedia
+      />,
+    );
+    expect(without).not.toContain("data-media-keep-label");
   });
 
   test("caps the per-use alt override input at the shared limit", () => {
@@ -242,8 +271,11 @@ describe("FieldControl image picker", () => {
     );
   });
 
+  // The help line is keyed on the controller's `capped`, not on the option
+  // count: a library of exactly the limit lists everything, so there is nothing
+  // older to paste an id for and the line would be wrong.
   test("shows the reuse help, tied to the picker, only when the list is capped", () => {
-    const capped: MediaOption[] = Array.from(
+    const options: MediaOption[] = Array.from(
       { length: MEDIA_PICKER_LIMIT },
       (_, index) => ({
         id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
@@ -252,21 +284,33 @@ describe("FieldControl image picker", () => {
         height: 400,
       }),
     );
-    const html = renderToString(
-      <div>
-        <MediaOptionsTemplate media={capped} />
-        <FieldControl
-          field={image}
-          value={{ mediaId: capped[0].id, alt: "First" }}
-          idBase="cms-field-photo"
-          media={capped}
-        />
-      </div>,
-    );
+    const render = (pickerCapped: boolean): string =>
+      renderToString(
+        <div>
+          <MediaOptionsTemplate media={options} />
+          <FieldControl
+            field={image}
+            value={{ mediaId: options[0].id, alt: "First" }}
+            idBase="cms-field-photo"
+            hasMedia
+            pickerCapped={pickerCapped}
+          />
+        </div>,
+      );
 
-    expect(html).toContain("Showing the newest 50 uploads");
-    expect(html).toContain('id="cms-field-photo-pick-help"');
-    expect(html).toContain('aria-describedby="cms-field-photo-pick-help"');
+    const capped = render(true);
+    expect(capped).toContain("Showing the newest 50 uploads");
+    expect(capped).toContain('id="cms-field-photo-pick-help"');
+    expect(capped).toContain('aria-describedby="cms-field-photo-pick-help"');
+
+    // The same list, an uncapped library: no help line, and the picker points
+    // at nothing it does not have.
+    const uncapped = render(false);
+    expect(uncapped).not.toContain("Showing the newest");
+    expect(uncapped).not.toContain('id="cms-field-photo-pick-help"');
+    expect(uncapped).not.toContain(
+      'aria-describedby="cms-field-photo-pick-help"',
+    );
   });
 });
 

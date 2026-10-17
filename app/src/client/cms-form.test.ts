@@ -1076,6 +1076,39 @@ describe("media picker", () => {
     expect(picker.value).toBe(MEDIA_ID);
   });
 
+  // A current image with a per-use alt keeps the editor's label: that alt is
+  // what the site renders for this use, so the library's own alt must not
+  // quietly replace it when the picker is focused.
+  test("keeps a per-use alt on the current image's option", () => {
+    mount(`
+      <form data-cms-form>
+        <template data-media-options>
+          <option value="${MEDIA_ID}">A photo (800×400)</option>
+        </template>
+        <div data-field data-field-kind="image" data-field-name="photo">
+          <select data-image-picker>
+            <option value="">Choose an image…</option>
+            <option value="${MEDIA_ID}" selected data-media-keep-label>Stored alt</option>
+          </select>
+          <input type="text" data-image-id value="${MEDIA_ID}">
+          <input type="text" data-image-alt value="Stored alt">
+        </div>
+      </form>
+    `);
+
+    const picker = document.querySelector<HTMLSelectElement>(
+      "[data-image-picker]",
+    );
+    if (!picker) throw new Error("no picker");
+    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
+
+    expect(picker.options.length).toBe(2);
+    expect(
+      picker.querySelector(`option[value="${MEDIA_ID}"]`)?.textContent,
+    ).toBe("Stored alt");
+    expect(picker.value).toBe(MEDIA_ID);
+  });
+
   test("fills a picker in a list row added after the page loaded", () => {
     mount(`
       <form data-cms-form>
