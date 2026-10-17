@@ -5,8 +5,8 @@ interface ErrorPageProps {
   status: number;
   heading: string;
   message: string;
-  // 503 maintenance drops the nav (its links would only 503 too) and the home
-  // button (the site is intentionally offline).
+  // 503 maintenance drops the nav (its links would only 503 too) and the CMS
+  // link (the site is intentionally offline).
   showHome?: boolean;
   nav?: boolean;
 }
@@ -28,8 +28,8 @@ export const ErrorPage = ({
       <p className="lead">{message}</p>
       {showHome && (
         <p className="error-actions">
-          <a className="btn-primary" href="/">
-            Back to homepage
+          <a className="btn-primary" href="/cms">
+            Go to the CMS
           </a>
         </p>
       )}

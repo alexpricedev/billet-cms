@@ -52,7 +52,7 @@ export const AuthPage = ({
         </div>
 
         <div className="login-footer">
-          {footer ?? <a href="/">Back to home</a>}
+          {footer ?? <a href="/cms">Back to Billet CMS</a>}
         </div>
       </div>
     </main>

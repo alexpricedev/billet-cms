@@ -96,6 +96,11 @@ describe("Handoff Controller", () => {
       expect(html).toContain("Sign in to Billet CMS");
       expect(html).toContain("Continue to Billet CMS");
       expect(html).toContain(`name="token" value="${token}"`);
+      // The footer link now comes from AuthPage's default rather than a prop
+      // this template passes, so assert it still renders a way back into the
+      // CMS.
+      expect(html).toContain('href="/cms"');
+      expect(html).toContain("Back to Billet CMS");
 
       const rows = await db`SELECT used_at FROM cms_handoff_tokens`;
       expect(rows[0].used_at).toBeNull();
