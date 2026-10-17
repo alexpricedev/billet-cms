@@ -429,18 +429,23 @@ export interface PickerMedia {
 export const listPickerMedia = async (
   content: unknown,
 ): Promise<PickerMedia> => {
-  const rows = await listMediaOptions({ limit: MEDIA_PICKER_LIMIT + 1 });
-  const capped = rows.length > MEDIA_PICKER_LIMIT;
-  const newest = rows.slice(0, MEDIA_PICKER_LIMIT);
-  const listed = new Set(newest.map((option) => option.id));
   // A draft can name anything the editor typed into the Media id field. Only a
   // UUID can reach the `uuid` column, so a typo is dropped here rather than
   // asked of Postgres — `WHERE id IN ('not-a-uuid')` is a 500, not an empty
   // result (review r1-1).
-  const referenced = filterUuids(
-    collectMediaIds(content).filter((id) => !listed.has(id)),
-  );
-  const extras = await getMediaOptionsByIds(referenced);
+  const referenced = filterUuids(collectMediaIds(content));
+  // The two reads don't depend on each other, so they run together rather than
+  // one after the other. A referenced id that the newest list already carries
+  // is dropped below rather than filtered out before the query, which is what
+  // lets the reads stay parallel (review round 2).
+  const [rows, referencedOptions] = await Promise.all([
+    listMediaOptions({ limit: MEDIA_PICKER_LIMIT + 1 }),
+    getMediaOptionsByIds(referenced),
+  ]);
+  const capped = rows.length > MEDIA_PICKER_LIMIT;
+  const newest = rows.slice(0, MEDIA_PICKER_LIMIT);
+  const listed = new Set(newest.map((option) => option.id));
+  const extras = referencedOptions.filter((option) => !listed.has(option.id));
   return { media: [...newest, ...extras], capped };
 };
 
