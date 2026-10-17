@@ -5,7 +5,8 @@ import {
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
-import { MEDIA_PICKER_LIMIT, type MediaOption } from "../../services/media";
+import type { MediaOption } from "../../services/media";
+import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
 import { RichTextView } from "./rich-text";
 
 /**
@@ -74,12 +75,17 @@ export interface FieldControlProps {
   /** The CMS pages a `link` field may point at, for the internal-link picker. */
   pages?: PageOption[];
   /**
-   * The uploads an `image` field may reuse. The options themselves are rendered
-   * once per form by `MediaOptionsTemplate`; this only says whether a picker is
-   * worth showing, so a 400-upload library does not repeat 400 options in every
-   * image field.
+   * Whether the form offers a reuse picker at all. The options themselves are
+   * rendered once per form by `MediaOptionsTemplate`; this only says whether a
+   * picker is worth showing, so an empty library renders none.
    */
-  media?: MediaOption[];
+  hasMedia?: boolean;
+  /**
+   * Whether that reuse list was actually capped (the library held more than
+   * `MEDIA_PICKER_LIMIT`). The help line pointing at the id field is only true
+   * then; at exactly the cap nothing is older to go looking for.
+   */
+  pickerCapped?: boolean;
 }
 
 /**
@@ -274,14 +280,16 @@ const ListItemControl = ({
   value,
   listLabel,
   pages,
-  media,
+  hasMedia,
+  pickerCapped,
 }: {
   field: FieldMetadata;
   value: unknown;
   /** The list's own label, so every Add/Remove names the list it belongs to. */
   listLabel: string;
   pages?: PageOption[];
-  media?: MediaOption[];
+  hasMedia?: boolean;
+  pickerCapped?: boolean;
 }): JSX.Element => (
   <div className="cms-list-item" data-list-item>
     <FieldControl
@@ -289,7 +297,8 @@ const ListItemControl = ({
       value={value}
       labelOverride={listLabel}
       pages={pages}
-      media={media}
+      hasMedia={hasMedia}
+      pickerCapped={pickerCapped}
     />
     <button
       type="button"
@@ -309,7 +318,8 @@ export const FieldControl = ({
   errors,
   labelOverride,
   pages,
-  media,
+  hasMedia,
+  pickerCapped,
 }: FieldControlProps): JSX.Element => {
   const required = field.required;
   const invalid = errors && errors.length > 0;
@@ -419,7 +429,7 @@ export const FieldControl = ({
             </legend>
           )}
           <FieldHelp help={field.help} id={helpId} />
-          {media && media.length > 0 && (
+          {hasMedia && (
             <>
               <SubControlLabel htmlFor={idFor("pick")}>
                 Reuse an upload
@@ -428,11 +438,7 @@ export const FieldControl = ({
                 id={idFor("pick")}
                 data-image-picker
                 aria-label={controlId ? undefined : "Reuse an upload"}
-                aria-describedby={
-                  media.length >= MEDIA_PICKER_LIMIT
-                    ? idFor("pick-help")
-                    : undefined
-                }
+                aria-describedby={pickerCapped ? idFor("pick-help") : undefined}
               >
                 <option value="" selected={!image.mediaId}>
                   Choose an image…
@@ -440,19 +446,24 @@ export const FieldControl = ({
                 {/* Only the current image, so a picker in a long page is cheap;
                     the client fills the rest from the form's one options
                     template when the picker is first focused, relabelling this
-                    option when the current image is one of them. The label falls
-                    back to "Current image" when the stored alt override is
-                    empty, so a raw id is never shown as a label. */}
+                    option when the current image is one of them unless it
+                    carries a per-use alt the editor typed. The label falls back
+                    to "Current image" when the stored alt override is empty, so
+                    a raw id is never shown as a label. */}
                 {image.mediaId && (
-                  <option value={asString(image.mediaId)} selected>
+                  <option
+                    value={asString(image.mediaId)}
+                    selected
+                    data-media-keep-label={asString(image.alt) ? "" : undefined}
+                  >
                     {asString(image.alt) || "Current image"}
                   </option>
                 )}
               </select>
-              {/* Only when the reuse list was actually capped: a library with
-                  fewer than the cap lists everything, so there is nothing older
-                  to go looking for. */}
-              {media.length >= MEDIA_PICKER_LIMIT && (
+              {/* Only when the reuse list was actually capped: a library of the
+                  cap or fewer lists everything, so there is nothing older to go
+                  looking for. */}
+              {pickerCapped && (
                 <span className="cms-field-help" id={idFor("pick-help")}>
                   Showing the newest {MEDIA_PICKER_LIMIT} uploads. For an older
                   one, paste its id under Media id.
@@ -650,7 +661,8 @@ export const FieldControl = ({
                 value={item}
                 listLabel={listLabel}
                 pages={pages}
-                media={media}
+                hasMedia={hasMedia}
+                pickerCapped={pickerCapped}
               />
             ))}
           </div>
@@ -662,7 +674,8 @@ export const FieldControl = ({
               value={undefined}
               listLabel={listLabel}
               pages={pages}
-              media={media}
+              hasMedia={hasMedia}
+              pickerCapped={pickerCapped}
             />
           </template>
           <button

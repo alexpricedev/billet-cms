@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import {
   block,
+  image,
   link,
   list,
   richText,
@@ -10,6 +11,7 @@ import {
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
+import { makeJpeg } from "../../test-utils/images";
 
 const connection = testDatabase();
 
@@ -27,6 +29,12 @@ import {
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
+import {
+  createMedia,
+  createMemoryMediaStorage,
+  listMediaOptions,
+} from "../../services/media";
+import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { staleCsrfToken } from "../../test-utils/auth-form";
 import { createBunRequest } from "../../test-utils/bun-request";
@@ -46,6 +54,10 @@ const hero = block(
   },
   () => null,
 );
+
+// A slot whose block carries an image, so a save can name a media id the picker
+// then has to carry.
+const photoHero = block("photoHero", { photo: image() }, () => null);
 
 const document: RichTextDocument = {
   type: "doc",
@@ -75,6 +87,25 @@ const saveFormCsrf = (html: string): string | undefined =>
 /** Whether the Preview draft button rendered disabled. */
 const previewDisabled = (html: string): boolean =>
   /<button[^>]*class="cms-preview-button"[^>]*disabled/.test(html);
+
+/** The contents of the form's one options template, or "" when it has none. */
+const mediaOptionsTemplate = (html: string): string =>
+  html.match(/<template data-media-options[^>]*>([\s\S]*?)<\/template>/)?.[1] ??
+  "";
+
+/** Seed `count` uploads, oldest first. */
+const seedUploads = async (count: number): Promise<void> => {
+  const storage = createMemoryMediaStorage();
+  for (let index = 0; index < count; index += 1) {
+    const result = await createMedia({
+      bytes: await makeJpeg(60, 40),
+      alt: `Upload ${index}`,
+      actorId: null,
+      storage,
+    });
+    if (!result.ok) throw new Error("upload seed failed");
+  }
+};
 
 describe("Slot form controller", () => {
   let slotId: string;
@@ -171,6 +202,48 @@ describe("Slot form controller", () => {
       // And the toolbar buttons say what they do.
       expect(html).toContain('aria-label="Bold"');
       expect(html).toContain('aria-controls="cms-field-body"');
+    });
+
+    test("carries a referenced image older than the picker cap and shows the help line", async () => {
+      await seedBlockType(db, photoHero);
+      const photoSlotId = await seedSlot(db, {
+        name: "home.photo",
+        blockName: "photoHero",
+        page: "home",
+      });
+
+      await seedUploads(MEDIA_PICKER_LIMIT + 1);
+      const options = await listMediaOptions({ limit: MEDIA_PICKER_LIMIT + 1 });
+      // The picker reads one row past the cap, so the last row is the one the
+      // newest list leaves out.
+      const oldest = options[MEDIA_PICKER_LIMIT];
+
+      const saved = await saveSlotDraft({
+        slotId: photoSlotId,
+        content: { photo: { mediaId: oldest.id } },
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+
+      const res = await slotForm.index(
+        createBunRequest(
+          `${ORIGIN}${path(photoSlotId)}`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id: photoSlotId },
+        ),
+      );
+
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      // The library was bigger than the cap, so the "older ones" line is true...
+      expect(html).toContain(
+        `Showing the newest ${MEDIA_PICKER_LIMIT} uploads`,
+      );
+      // ...and the referenced image outside the cap still carries its label.
+      expect(mediaOptionsTemplate(html)).toContain(
+        `${oldest.alt} (${oldest.width}×${oldest.height})`,
+      );
     });
 
     test("renders a 404 for a slot that does not exist", async () => {

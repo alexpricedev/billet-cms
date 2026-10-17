@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   block,
+  image,
   link,
   type PageTypeDefinition,
   pageType,
@@ -12,6 +13,7 @@ import { createBunRequest } from "../../test-utils/bun-request";
 import { seedBlockType, seedPageType } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
+import { makeJpeg } from "../../test-utils/images";
 
 const connection = testDatabase();
 
@@ -31,6 +33,12 @@ import {
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
+import {
+  createMedia,
+  createMemoryMediaStorage,
+  listMediaOptions,
+} from "../../services/media";
+import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { staleCsrfToken } from "../../test-utils/auth-form";
 import { pagePublish } from "./page-publish";
@@ -60,6 +68,13 @@ const landing: PageTypeDefinition = pageType("landing", {
 // page — the flag review round 2 makes savable and publishable.
 const notes: PageTypeDefinition = pageType("notes", { allowedBlocks: [prose] });
 
+// A page type with an image field, so a save can name a media id the picker
+// then has to carry.
+const photos = block("photos", { photo: image() }, () => null);
+const gallery: PageTypeDefinition = pageType("gallery", {
+  allowedBlocks: [photos],
+});
+
 const document = {
   type: "doc" as const,
   content: [{ type: "paragraph", content: [{ type: "text", text: "Body" }] }],
@@ -72,6 +87,25 @@ const pageContent = (heading: string) => ({
 /** Whether the Preview draft button rendered disabled. */
 const previewDisabled = (html: string): boolean =>
   /<button[^>]*class="cms-preview-button"[^>]*disabled/.test(html);
+
+/** The contents of the form's one options template, or "" when it has none. */
+const mediaOptionsTemplate = (html: string): string =>
+  html.match(/<template data-media-options[^>]*>([\s\S]*?)<\/template>/)?.[1] ??
+  "";
+
+/** Seed `count` uploads, oldest first. */
+const seedUploads = async (count: number): Promise<void> => {
+  const storage = createMemoryMediaStorage();
+  for (let index = 0; index < count; index += 1) {
+    const result = await createMedia({
+      bytes: await makeJpeg(60, 40),
+      alt: `Upload ${index}`,
+      actorId: null,
+      storage,
+    });
+    if (!result.ok) throw new Error("upload seed failed");
+  }
+};
 
 describe("Pages controller", () => {
   let editorId: string;
@@ -211,6 +245,90 @@ describe("Pages controller", () => {
     expect(html).toContain('data-block-add="hero"');
     // The link picker's page list is threaded through to the controls.
     expect(html).toContain("data-cms-content");
+  });
+
+  test("carries a referenced image older than the picker cap and shows the help line", async () => {
+    await seedBlockType(db, photos);
+    await seedPageType(db, gallery);
+    const created = await createPage({
+      pageType: "gallery",
+      url: "/gallery",
+      title: "Gallery",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    await seedUploads(MEDIA_PICKER_LIMIT + 1);
+    const options = await listMediaOptions({ limit: MEDIA_PICKER_LIMIT + 1 });
+    // The picker reads one row past the cap, so the last row is the one the
+    // newest list leaves out.
+    const oldest = options[MEDIA_PICKER_LIMIT];
+
+    const saved = await savePageDraft({
+      pageId,
+      content: { blocks: [{ type: "photos", photo: { mediaId: oldest.id } }] },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+    if (!saved.ok) throw new Error("save failed");
+
+    const res = await pages.form(
+      createBunRequest(
+        `${ORIGIN}/cms/pages/${pageId}`,
+        { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // The library was bigger than the cap, so the "older ones" line is true...
+    expect(html).toContain(`Showing the newest ${MEDIA_PICKER_LIMIT} uploads`);
+    // ...and the referenced image outside the cap still carries its label.
+    expect(mediaOptionsTemplate(html)).toContain(
+      `${oldest.alt} (${oldest.width}×${oldest.height})`,
+    );
+  });
+
+  test("re-renders a mistyped Media id as a field error, not a 500", async () => {
+    await seedBlockType(db, photos);
+    await seedPageType(db, gallery);
+    const created = await createPage({
+      pageType: "gallery",
+      url: "/gallery",
+      title: "Gallery",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "gallery",
+          url: "/gallery",
+          title: "Gallery",
+          content: JSON.stringify({
+            blocks: [{ type: "photos", photo: { mediaId: "not-a-uuid" } }],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    // The save is refused and the editor is shown why: the mistyped id is
+    // filtered before the picker's `uuid` query, so the re-render is a 200, not
+    // the reported id reaching Postgres and becoming a 500.
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('data-field-name="photo"');
+    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain("Invalid UUID");
+    // The editor's typed value comes back, rather than being silently dropped.
+    expect(html).toContain("not-a-uuid");
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
   test("disables Preview draft once the draft is already live", async () => {

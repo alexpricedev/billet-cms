@@ -1,10 +1,10 @@
 /**
- * The slot id comes straight from the URL. Postgres answers a non-UUID with
- * `invalid input syntax for type uuid`, which would surface as a 500 for what
- * is really a missing page, so every slot route checks it first.
+ * The UUID check every CMS route shares. The pattern itself lives in
+ * `utils/uuid`, a module with no imports, so the media service can filter the
+ * ids a draft references without loading this controller module; it is
+ * re-exported here so the routes keep reading it from one place.
  */
-export const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export { UUID_PATTERN } from "../../utils/uuid";
 
 /** A trimmed non-empty form value, or null. */
 export const nonEmpty = (value: FormDataEntryValue | null): string | null =>
