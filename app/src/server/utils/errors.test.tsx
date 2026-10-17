@@ -10,7 +10,9 @@ describe("error responses", () => {
     expect(res.headers.get("Content-Type")).toContain("text/html");
     expect(body).toContain("<!DOCTYPE html>");
     expect(body).toContain("Page not found");
-    expect(body).toContain('href="/"');
+    // The CMS has no home page of its own; /cms is the way forward.
+    expect(body).toContain('href="/cms"');
+    expect(body).toContain("Go to the CMS");
     // noindex so search engines never treat the error body as real content.
     expect(body).toContain("noindex");
   });
@@ -24,14 +26,14 @@ describe("error responses", () => {
     expect(body).toContain("Something went wrong");
   });
 
-  test("render503 returns a 503 with Retry-After and no home/nav affordances", async () => {
+  test("render503 returns a 503 with Retry-After and no CMS/nav affordances", async () => {
     const res = render503(1800);
     const body = await res.text();
 
     expect(res.status).toBe(503);
     expect(res.headers.get("Retry-After")).toBe("1800");
     expect(body).toContain("be right back");
-    // The site is intentionally offline, so no "back to homepage" button.
-    expect(body).not.toContain("Back to homepage");
+    // The site is intentionally offline, so no CMS affordance.
+    expect(body).not.toContain("Go to the CMS");
   });
 });

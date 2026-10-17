@@ -28,7 +28,6 @@ export const Handoff = ({ token, csrfToken }: HandoffProps) => {
       canonicalPath={HANDOFF_PATH}
       heading="Sign in to Billet CMS"
       subtitle="You'll be signed in to Billet CMS"
-      footer={<a href="/">Back to home</a>}
     >
       {!csrfToken ? (
         <Flash type="error">
