@@ -70,6 +70,21 @@ export interface PageFormProps {
   values?: PageSettingsInput & { pageType: string };
 }
 
+/**
+ * A whole-block issue's summary line, worded so the editor knows which block.
+ *
+ * An issue at `blocks.N` rather than `blocks.N.field` has no control to mark —
+ * the rich text nesting bound is the one the editor can reach — so without a
+ * block name on the summary line, a page with several blocks gives no clue
+ * which one the message is about (review round 2).
+ */
+const blockSummaryMessage = (issue: FieldIssue): string => {
+  const match = /^blocks\.(\d+)$/.exec(issue.path);
+  return match
+    ? `Block ${Number(match[1]) + 1}: ${issue.message}`
+    : issue.message;
+};
+
 const SettingsControl = ({
   name,
   label,
@@ -255,7 +270,9 @@ export const PageForm = ({
           </p>
           <ul>
             {contentIssues.map((issue, index) => (
-              <li key={`${issue.path}:${index}`}>{issue.message}</li>
+              <li key={`${issue.path}:${index}`}>
+                {blockSummaryMessage(issue)}
+              </li>
             ))}
           </ul>
         </div>

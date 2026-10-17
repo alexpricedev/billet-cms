@@ -4,6 +4,7 @@ import {
   block,
   image,
   link,
+  MAX_RICH_TEXT_LIST_DEPTH,
   type PageTypeDefinition,
   pageType,
   richText,
@@ -325,7 +326,9 @@ describe("Pages controller", () => {
     const html = await res.text();
     expect(html).toContain('data-field-name="photo"');
     expect(html).toContain('aria-invalid="true"');
-    expect(html).toContain("Invalid UUID");
+    // The UUID failure reaches the editor in plain language, not as Zod's raw
+    // "Invalid UUID" (the page editor rewrites block messages, review #19).
+    expect(html).toContain("Enter a valid id.");
     // The editor's typed value comes back, rather than being silently dropped.
     expect(html).toContain("not-a-uuid");
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
@@ -548,6 +551,112 @@ describe("Pages controller", () => {
     // blocks (the other half of the whole-document-error behaviour).
     expect(html).toContain("Check the blocks marked below.");
     // Nothing was written.
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
+  // The banner names the marked blocks only when a block really carries a field
+  // error: a page-limit issue (`blocks`) has no block to mark, so telling the
+  // editor to check marked blocks would send them looking for a highlight that
+  // isn't there (review round 2).
+  test("points the summary at marked blocks only when one carries a field error", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const save = async (content: unknown): Promise<string> => {
+      const res = await pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url: "/about",
+            title: "About us",
+            content: JSON.stringify(content),
+            base_revision: "",
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+      expect(res.status).toBe(200);
+      return res.text();
+    };
+
+    // A block with a bad field: the block is marked, so the banner says so.
+    const withFieldError = await save({
+      blocks: [{ type: "hero", heading: "x".repeat(81), body: document }],
+    });
+    expect(withFieldError).toContain("This content can't be saved.");
+    expect(withFieldError).toContain("Check the blocks marked below.");
+
+    // No hero at all: the page-limit issue has no block to mark, so the banner
+    // drops the sentence.
+    const limitOnly = await save({ blocks: [] });
+    expect(limitOnly).toContain("This content can't be saved.");
+    expect(limitOnly).not.toContain("Check the blocks marked below.");
+
+    // Nothing was written.
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
+  // A whole-block issue (`blocks.N`, with no field path) has no control to mark,
+  // so the summary names the block by position — otherwise a page with several
+  // blocks gives no clue which one the rich text message is about (review round
+  // 2).
+  test("names the block a whole-block issue belongs to", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    // A document nested one level past the list bound: the validator reports a
+    // single issue at the block (`blocks.0`), with no field path.
+    let node: unknown = { type: "paragraph", content: [] };
+    for (let level = 0; level <= MAX_RICH_TEXT_LIST_DEPTH; level += 1) {
+      node = {
+        type: "bulletList",
+        content: [{ type: "listItem", content: [node] }],
+      };
+    }
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/about",
+          title: "About us",
+          content: JSON.stringify({
+            blocks: [
+              {
+                type: "hero",
+                heading: "Hi",
+                body: { type: "doc", content: [node] },
+              },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(
+      `Block 1: Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.`,
+    );
+    // The issue is whole-block, so no block is marked and the banner must not
+    // point at marked blocks that aren't there.
+    expect(html).not.toContain("Check the blocks marked below.");
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
