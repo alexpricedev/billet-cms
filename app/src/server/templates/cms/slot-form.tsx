@@ -37,9 +37,9 @@ export interface SlotFormProps {
   /** Fields present in the saved content but no longer published (Q4). */
   removedFieldNames: string[];
   /** The uploads an `image` field's picker offers, rendered once for the form. */
-  media?: MediaOption[];
+  media: MediaOption[];
   /** Whether that reuse list was capped, so the picker's help line is true. */
-  pickerCapped?: boolean;
+  pickerCapped: boolean;
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
   /**
@@ -230,7 +230,7 @@ export const SlotForm = ({
           fields={blockType.fields}
           content={content}
           errorsByField={errorsByField}
-          hasMedia={Boolean(media && media.length > 0)}
+          hasMedia={media.length > 0}
           pickerCapped={pickerCapped}
         />
 

@@ -58,6 +58,7 @@ import {
   updateMediaAlt,
   updateMediaFocalPoint,
 } from "./media";
+import { renditionWidths } from "./processor";
 import { createMemoryMediaStorage } from "./storage";
 
 const photoBlock = block(
@@ -296,8 +297,11 @@ describe("createMedia", () => {
       await db`DROP FUNCTION IF EXISTS cms_media_refuse_insert()`;
     }
 
-    // Every object was stored, and every one was deleted again.
-    expect(landed.length).toBe(5);
+    // Every object was stored, and every one was deleted again. The count comes
+    // from the rendition ladder rather than a hard-coded number: one original
+    // plus a WebP and a fallback per width an 800px source can fill.
+    const expectedObjects = 1 + renditionWidths(800).length * 2;
+    expect(landed.length).toBe(expectedObjects);
     expect(memory.objects.size).toBe(0);
     expect([...deleted].sort()).toEqual([...landed].sort());
     expect(await listMedia()).toHaveLength(0);

@@ -150,6 +150,11 @@ h1 {
   color: var(--color-text);
 }
 
+/* A long upload label is ellipsised rather than widening the image picker. */
+.cms-field select[data-image-picker] {
+  text-overflow: ellipsis;
+}
+
 .cms-field input[aria-invalid="true"],
 .cms-field select[aria-invalid="true"],
 .cms-rich-text[aria-invalid="true"] {
