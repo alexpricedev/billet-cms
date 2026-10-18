@@ -214,13 +214,30 @@ const versionErrorLogger = (error: unknown): void =>
  */
 const sharedVersions = new WeakMap<SQL, Map<number, ContentVersion>>();
 
+/**
+ * Options for `contentVersionFor`.
+ *
+ * `onError` exists only on a private poll, the one built with an injected `now`
+ * (tests): its clock would fight the shared one's, so it keeps its own failure
+ * sink. The shared poll belongs to the pool and reports through the default
+ * logger, so it has no `onError` to drop — passing one without a `now` is a
+ * type error rather than a silent no-op.
+ */
+type ContentVersionSourceOptions =
+  | {
+      now?: undefined;
+      intervalMs?: number;
+      onError?: never;
+    }
+  | {
+      now: () => number;
+      intervalMs?: number;
+      onError?: (error: unknown) => void;
+    };
+
 export const contentVersionFor = (
   sql: SQL,
-  options: {
-    now?: () => number;
-    intervalMs?: number;
-    onError?: (error: unknown) => void;
-  } = {},
+  options: ContentVersionSourceOptions = {},
 ): ContentVersion => {
   if (options.now !== undefined) {
     return new ContentVersion({
@@ -273,21 +290,36 @@ export const readerCacheOptions = (
   sql: SQL,
   options: { now?: () => number; versionPollMs?: number },
   onSkip: SkipLogger,
-): ReaderCacheOptions => ({
-  version: contentVersionFor(sql, {
-    ...(options.now ? { now: options.now } : {}),
+): ReaderCacheOptions => {
+  // A private poll (an injected clock) reports a version failure through this
+  // reader's `onSkip`; a shared poll has no `onError` to hand over and reports
+  // through the default logger. Build the closure only for the private case, so
+  // the option is never a silently dropped no-op on a shared poll.
+  const clock = options.now;
+  const version = clock
+    ? contentVersionFor(sql, {
+        now: clock,
+        ...(options.versionPollMs !== undefined
+          ? { intervalMs: options.versionPollMs }
+          : {}),
+        onError: (error) => {
+          onSkip(`could not check the CMS content version: ${describe(error)}`);
+        },
+      })
+    : contentVersionFor(sql, {
+        ...(options.versionPollMs !== undefined
+          ? { intervalMs: options.versionPollMs }
+          : {}),
+      });
+
+  return {
+    version,
+    ...(clock ? { now: clock } : {}),
     ...(options.versionPollMs !== undefined
       ? { intervalMs: options.versionPollMs }
       : {}),
-    onError: (error) => {
-      onSkip(`could not check the CMS content version: ${describe(error)}`);
-    },
-  }),
-  ...(options.now ? { now: options.now } : {}),
-  ...(options.versionPollMs !== undefined
-    ? { intervalMs: options.versionPollMs }
-    : {}),
-});
+  };
+};
 
 export interface ContentCacheOptions<V> {
   /** Read `cms_meta.content_version`. Omit when a shared `version` is given. */

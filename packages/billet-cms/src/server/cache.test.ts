@@ -7,6 +7,8 @@ import {
   contentVersionFor,
   readerCacheOptions,
 } from "./cache";
+import { createCmsPages } from "./pages";
+import { createContentReader } from "./slots";
 
 /** A cache over a counter the test controls, with an injectable clock. */
 const makeCache = () => {
@@ -662,15 +664,66 @@ describe("contentVersionFor", () => {
   // r1-4: the shared poll belongs to the pool, not to whichever reader asked
   // first, so a failure is logged once through the plugin's default skip logger
   // rather than once per reader and rather than through a reader's `onSkip`.
+  // Two real readers on one pool, each with its own sink, is the shape the
+  // contract is about — a bare `contentVersionFor` call with the throttle on
+  // would log once no matter what the readers do.
   test("a shared-pool poll failure is logged once through the default logger", async () => {
-    const state = { version: 1, reads: 0, fails: false };
+    const state = { version: 1, fails: false };
+    const page = {
+      id: "page-1",
+      page_type: "landing",
+      url: "/about",
+      title: "About us",
+      seo_description: "Who we are.",
+      social_image: null,
+      published_revision_id: "page-rev-1",
+      updated_at: new Date("2026-10-10T09:00:00.000Z"),
+    };
     const sql = {
-      unsafe: () => {
-        state.reads += 1;
-        if (state.fails) throw new Error("cms_meta is gone");
-        return Promise.resolve([{ content_version: state.version }]);
+      unsafe: (query: string) => {
+        if (query.includes("cms_meta")) {
+          if (state.fails) throw new Error("cms_meta is gone");
+          return Promise.resolve([{ content_version: state.version }]);
+        }
+        if (query.includes("cms_slots")) {
+          return Promise.resolve([
+            {
+              id: "slot-1",
+              name: "home.hero",
+              block_name: "hero",
+              removed_at: null,
+              published_revision_id: "slot-rev-1",
+              block_found: "hero",
+              json_schema: { type: "object" },
+              block_removed_at: null,
+              revision_found: "slot-rev-1",
+              content: { heading: "Hero" },
+            },
+          ]);
+        }
+        if (query.includes("cms_pages")) {
+          return Promise.resolve([page]);
+        }
+        if (query.includes("cms_revisions")) {
+          return Promise.resolve([{ content: { blocks: [] } }]);
+        }
+        if (query.includes("cms_block_types")) {
+          return Promise.resolve([]);
+        }
+        return Promise.resolve([]);
       },
     } as unknown as SQL;
+
+    const slotSkips: string[] = [];
+    const pageSkips: string[] = [];
+    const slots = createContentReader({
+      sql,
+      onSkip: (message) => slotSkips.push(message),
+    });
+    const pages = createCmsPages({
+      sql,
+      onSkip: (message) => pageSkips.push(message),
+    });
 
     const logged: string[] = [];
     const originalWarn = console.warn;
@@ -679,19 +732,21 @@ describe("contentVersionFor", () => {
     };
     setSystemTime(new Date(0));
     try {
-      const first = contentVersionFor(sql);
-      const second = contentVersionFor(sql);
-      expect(second).toBe(first);
+      // Warm both readers on the one shared poll. Both reads succeed, so
+      // neither reader's own sink hears anything.
+      expect((await slots.getSlot("home.hero"))?.heading).toBe("Hero");
+      expect((await pages.getPage("/about"))?.title).toBe("About us");
 
-      expect(await first.read()).toBe(1);
-
-      // The CMS goes away. Both readers are on the one shared poll, so the
-      // failure is reported once — by the default logger, not by a reader.
+      // The CMS goes away. Both readers fail through the same shared poll, so
+      // the failure is reported once — by the default logger, not by either
+      // reader's `onSkip`.
       state.fails = true;
       setSystemTime(new Date(1000));
-      expect(await first.read()).toBe(1);
-      expect(await second.read()).toBe(1);
+      expect((await slots.getSlot("home.hero"))?.heading).toBe("Hero");
+      expect((await pages.getPage("/about"))?.title).toBe("About us");
 
+      expect(slotSkips).toEqual([]);
+      expect(pageSkips).toEqual([]);
       const failures = logged.filter((line) =>
         line.includes("could not check the CMS content version"),
       );
