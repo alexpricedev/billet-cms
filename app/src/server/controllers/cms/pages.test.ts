@@ -699,6 +699,7 @@ describe("Pages controller", () => {
           url: "/renamed",
           title: "Renamed",
           seoDescription: "Kept description.",
+          socialImage: "https://example.com/og.png",
           content: oversized,
           base_revision: seeded.revision.id,
         },
@@ -719,6 +720,7 @@ describe("Pages controller", () => {
     expect(html).toContain('value="/renamed"');
     expect(html).toContain('value="Renamed"');
     expect(html).toContain("Kept description.");
+    expect(html).toContain('value="https://example.com/og.png"');
     // No block carries a field error here — the body is over the size cap, not
     // a field — so the banner must not point at blocks that aren't marked
     // (review round 1).
@@ -853,6 +855,7 @@ describe("Pages controller", () => {
     formData.append("pageType", "landing");
     formData.append("url", "/renamed");
     formData.append("title", "Renamed");
+    formData.append("socialImage", "https://example.com/og.png");
     formData.append("content", JSON.stringify(pageContent("New heading")));
     formData.append("base_revision", "");
 
@@ -873,6 +876,7 @@ describe("Pages controller", () => {
     expect(html).toContain("This page expired");
     expect(html).toContain('value="/renamed"');
     expect(html).toContain('value="Renamed"');
+    expect(html).toContain('value="https://example.com/og.png"');
     // The content they posted is still shown, behind a fresh token.
     expect(html).toContain("New heading");
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
