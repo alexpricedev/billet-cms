@@ -240,9 +240,13 @@ export const createContentReader = (
    * Read the draft when the preview token's subject is this slot.
    *
    * The joined row carries the block type, the published revision and the
-   * newest revision in one query, so a preview is a single read from the
-   * database. The newest revision wins unless it is the published one, in which
-   * case the published content already in the row is reused.
+   * newest revision in one query, so a preview adds one read on top of the
+   * cached lookup that found the slot: `getSlot` first calls `cache.get(name)`
+   * to learn the slot id, which is one `loadSlot` query when the cache is cold,
+   * and then this joined read runs. A cold preview therefore costs two slot
+   * queries, a warm one a single joined read, and neither runs a separate
+   * `cms_revisions` query. The newest revision wins unless it is the published
+   * one, in which case the published content already in the row is reused.
    */
   const loadPreviewSlot = async (name: string): Promise<SlotContent | null> => {
     const slot = await readPreviewSlotRow(name);
