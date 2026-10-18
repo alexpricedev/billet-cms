@@ -326,8 +326,9 @@ describe("Pages controller", () => {
     const html = await res.text();
     expect(html).toContain('data-field-name="photo"');
     expect(html).toContain('aria-invalid="true"');
-    // The UUID failure reaches the editor in plain language, not as Zod's raw
-    // "Invalid UUID" (the page editor rewrites block messages, review #19).
+    // The editor sees the plain-language message, not the validator's raw
+    // "Invalid UUID": block messages reach the form through `plainMessage` in
+    // `services/content/drafts.ts`.
     expect(html).toContain("Enter a valid id.");
     // The editor's typed value comes back, rather than being silently dropped.
     expect(html).toContain("not-a-uuid");

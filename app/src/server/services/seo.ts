@@ -10,8 +10,8 @@ import { appOrigin } from "../utils/app-url";
 
 // The origin every absolute URL is built from: canonicals, Open Graph tags, the
 // sitemap, robots.txt's Sitemap: line, and JSON-LD. Defaults to APP_URL's origin,
-// which is what keeps the canonical domain from drifting away from the domain
-// emailed links and CSRF origin validation use — a mismatch reads as cloaking to
+// which is what keeps the canonical domain from drifting away from the origin
+// the CSRF check compares the request against — a mismatch reads as cloaking to
 // Google. SITE_URL overrides it for the one case where the two legitimately
 // differ (marketing site on the apex, app on a subdomain).
 //
@@ -53,7 +53,7 @@ export const absolute = (path: string): string => new URL(path, siteUrl()).href;
 // The CMS serves no public pages of its own: the root is a redirect to the
 // guarded `/cms` surface, and /account, /cms, the API and the sign-in handoff
 // are private or noindex. So the sitemap is an empty <urlset>; the /sitemap.xml
-// route stays so a site that adds a public page has the shape to fill in.
+// route stays so a site that adds a public page can extend it.
 export const buildSitemapXml = (): string =>
   [
     '<?xml version="1.0" encoding="UTF-8"?>',

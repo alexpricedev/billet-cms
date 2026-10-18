@@ -6,9 +6,10 @@ DOM globals come from happy-dom, preloaded for every test file via `bunfig.toml`
 ## Page scripts
 
 Build a fixture matching the server-rendered HTML, call `init()`, assert on the DOM.
-(The CMS's only client entry today is the block editor, `src/client/cms-form.ts`,
-tested directly; the pattern below is for a future page script added through the
-page registry.)
+(The CMS's only page-specific client script today is the block editor,
+`src/client/cms-form.ts`, tested directly; `src/client/main.ts` is still the entry
+for the page registry and the nav-menu component. The pattern below is for a
+future page script added through the page registry.)
 
 ```ts
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

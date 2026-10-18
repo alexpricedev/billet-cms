@@ -15,6 +15,43 @@ const unusedSql = (() => {
   throw new Error("the database must not be touched on this path");
 }) as unknown as SQL;
 
+/**
+ * A generic fingerprint of everything the CMS owns: the `cms_%` relations in
+ * `pg_class` (tables, views, indexes, sequences and materialised views) plus
+ * the `cms_%` columns in `information_schema.columns`.
+ *
+ * Deliberately not tied to any one migration — the point is to move when *any*
+ * migration's `down()` undoes its `up()`. `pg_class` is where an index shows up,
+ * which is what makes the current last migration (014, an index-only one) prove
+ * that `rollbackLastMigration` really runs `down()` rather than only deleting
+ * the `cms_migrations` row.
+ */
+const schemaFingerprint = async (sql: SQL): Promise<string[]> => {
+  const relations = (await sql`
+    SELECT relname, relkind
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname LIKE 'cms\\_%'
+    ORDER BY relname
+  `) as { relname: string; relkind: string }[];
+
+  const columns = (await sql`
+    SELECT table_name, column_name, data_type
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name LIKE 'cms\\_%'
+    ORDER BY table_name, column_name
+  `) as { table_name: string; column_name: string; data_type: string }[];
+
+  return [
+    ...relations.map((row) => `relation:${row.relname}:${row.relkind}`),
+    ...columns.map(
+      (row) => `column:${row.table_name}.${row.column_name}:${row.data_type}`,
+    ),
+  ];
+};
+
 describe("runMigration", () => {
   test("refuses a filename that is not a migration on disk", async () => {
     // `runRollback` builds the name from a `cms_migrations` row, so a path like
@@ -55,6 +92,10 @@ describe("migrate status", () => {
 });
 
 describe("rollbackLastMigration", () => {
+  // Asserted against whatever migration file is last on disk, not a hardcoded
+  // id: adding the next migration must not break this test. What a specific
+  // migration's `down()` restores (014's index, say) belongs in that
+  // migration's own test — migration-014-handoff-index.test.ts.
   test("rolls the last migration back in one transaction and can re-apply it", async () => {
     const temp = await createTempDatabase("migrate-rollback");
 
@@ -63,10 +104,6 @@ describe("rollbackLastMigration", () => {
       await createSiteTables(sql);
       await runMigrations(sql);
 
-      const hasIndex = async (name: string): Promise<boolean> => {
-        const rows = await sql`SELECT to_regclass(${name}) AS relation`;
-        return (rows[0] as { relation: string | null }).relation !== null;
-      };
       const appliedIds = async (): Promise<string[]> =>
         (
           (await sql`SELECT id FROM cms_migrations ORDER BY id`) as {
@@ -74,26 +111,27 @@ describe("rollbackLastMigration", () => {
           }[]
         ).map((row) => row.id);
 
+      const fingerprintBefore = await schemaFingerprint(sql);
+
       const before = await appliedIds();
       const last = before[before.length - 1];
-      expect(last).toBe("014_drop_handoff_user_index");
-      expect(await hasIndex("cms_handoff_tokens_user_id_idx")).toBe(false);
+      expect(last).toBeDefined();
 
       await rollbackLastMigration(sql);
 
       const after = await appliedIds();
       expect(after).toEqual(before.slice(0, -1));
-      // 014's down() recreates the index it dropped.
-      expect(await hasIndex("cms_handoff_tokens_user_id_idx")).toBe(true);
 
-      // And the rollback is a normal pending migration again.
-      expect(await getPendingMigrations(sql)).toEqual([
-        "014_drop_handoff_user_index.ts",
-      ]);
+      // The schema actually moved: the row deletion above would pass even if
+      // `down()` never ran.
+      expect(await schemaFingerprint(sql)).not.toEqual(fingerprintBefore);
+
+      // And the rolled-back migration is a normal pending one again.
+      expect(await getPendingMigrations(sql)).toEqual([`${last}.ts`]);
 
       await runMigrations(sql);
       expect(await appliedIds()).toEqual(before);
-      expect(await hasIndex("cms_handoff_tokens_user_id_idx")).toBe(false);
+      expect(await schemaFingerprint(sql)).toEqual(fingerprintBefore);
     } finally {
       await temp.drop();
     }
