@@ -714,6 +714,75 @@ describe("preview reads", () => {
     ).toBe(true);
   });
 
+  // A1 pins the trade-off the 404 guard makes: a published token page whose URL
+  // moved inside the poll window is not in the routing table at its new path
+  // yet, and the guard refuses the uncached URL lookup because the token's page
+  // is already known by id. It therefore returns null for up to one interval,
+  // then recovers when the routing table reloads. A draft cannot move a page's
+  // own URL, so this window is the guard's only cost.
+  test("a page token 404s until the routing table picks up a moved URL", async () => {
+    const page = { ...PAGE_ROW, url: "/about" };
+    const state = { version: 1 };
+    const revisions: Record<string, { content: { blocks: unknown[] } }> = {
+      "rev-1": {
+        content: { blocks: [{ type: "hero", heading: "Published" }] },
+      },
+      "rev-2": { content: { blocks: [{ type: "hero", heading: "Draft" }] } },
+    };
+    let now = 0;
+    const sql = {
+      unsafe: (query: string, params: unknown[] = []) => {
+        if (query.includes("cms_meta")) {
+          return Promise.resolve([{ content_version: state.version }]);
+        }
+        if (query.includes("cms_redirects")) return Promise.resolve([]);
+        if (query.includes("cms_pages")) {
+          if (query.includes("WHERE url = $1")) {
+            return Promise.resolve(page.url === params[0] ? [page] : []);
+          }
+          if (query.includes("WHERE id = $1")) {
+            return Promise.resolve(page.id === params[0] ? [page] : []);
+          }
+          return Promise.resolve([{ id: page.id, url: page.url }]);
+        }
+        if (query.includes("cms_revisions")) {
+          if (query.includes("LIMIT 1") && query.includes("target_id")) {
+            return Promise.resolve([{ id: "rev-2" }]);
+          }
+          return Promise.resolve([revisions[params[0] as string] ?? null]);
+        }
+        if (query.includes("cms_block_types")) {
+          return Promise.resolve(BLOCK_TYPES);
+        }
+        return Promise.resolve([]);
+      },
+    } as unknown as SQL;
+
+    const pages = createCmsPages({ sql, onSkip: () => {}, now: () => now });
+    const preview = { subjectType: "page" as const, subjectId: "page-1" };
+
+    // Warm the routing table with the page at its old URL and preview the draft.
+    expect((await pages.getPage("/about", { preview }))?.blocks).toEqual([
+      { type: "hero", heading: "Draft" },
+    ]);
+
+    // The page is republished under a new URL. Inside the poll window the
+    // routing table still knows only the old path, and the guard refuses the
+    // URL lookup because the token's page is in the table by id: the new path
+    // resolves to nothing.
+    page.url = "/about-us";
+    state.version += 1;
+    now += 500;
+    expect(await pages.getPage("/about-us", { preview })).toBeNull();
+
+    // Past the interval the routing table reloads with the new URL and the
+    // preview resolves again.
+    now += 1000;
+    expect((await pages.getPage("/about-us", { preview }))?.blocks).toEqual([
+      { type: "hero", heading: "Draft" },
+    ]);
+  });
+
   test("serves a HEAD request that carries a token", async () => {
     const sql = previewSql({ tokens: pageToken("page-1") });
     const route = createCmsPageRoute({
