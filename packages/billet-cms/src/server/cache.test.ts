@@ -737,9 +737,12 @@ describe("contentVersionFor", () => {
       expect((await slots.getSlot("home.hero"))?.heading).toBe("Hero");
       expect((await pages.getPage("/about"))?.title).toBe("About us");
 
-      // The CMS goes away. Both readers fail through the same shared poll, so
-      // the failure is reported once — by the default logger, not by either
-      // reader's `onSkip`.
+      // The CMS goes away. Only the slot reader's read at t=1000 falls outside
+      // the poll interval, so it is the one that hits the failing `cms_meta`;
+      // the shared poll logs that once through the default logger. The page
+      // reader is still inside the interval on the same poll and is answered
+      // from the remembered version. Separate polls would each re-read and log,
+      // and routing the failure to `onSkip` would show up in the spies.
       state.fails = true;
       setSystemTime(new Date(1000));
       expect((await slots.getSlot("home.hero"))?.heading).toBe("Hero");
