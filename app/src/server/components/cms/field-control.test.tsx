@@ -28,6 +28,8 @@ const count = (html: string, needle: string): number =>
 describe("FieldControl rich text", () => {
   const html = renderToString(
     <FieldControl
+      hasMedia={false}
+      pickerCapped={false}
       field={richText}
       value={emptyDocument}
       idBase="cms-field-body"
@@ -57,7 +59,13 @@ describe("FieldControl list", () => {
   };
 
   const html = renderToString(
-    <FieldControl field={list} value={["one"]} idBase="cms-field-tags" />,
+    <FieldControl
+      hasMedia={false}
+      pickerCapped={false}
+      field={list}
+      value={["one"]}
+      idBase="cms-field-tags"
+    />,
   );
 
   // The template row is cloned, so a number baked into it would say "Item 1"
@@ -81,6 +89,8 @@ describe("FieldControl list", () => {
   test("disables Add when the stored list is already at its maximum", () => {
     const full = renderToString(
       <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
         field={list}
         value={["one", "two", "three"]}
         idBase="cms-field-tags"
@@ -109,6 +119,8 @@ describe("FieldControl list", () => {
     };
     const html = renderToString(
       <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
         field={unbounded}
         value={["one"]}
         idBase="cms-field-tags"
@@ -129,7 +141,13 @@ describe("FieldControl list", () => {
       of: { name: "item", kind: "text", required: true },
     };
     const single = renderToString(
-      <FieldControl field={one} value={[]} idBase="cms-field-tag" />,
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={one}
+        value={[]}
+        idBase="cms-field-tag"
+      />,
     );
 
     expect(single).toContain("Up to 1 item.");
@@ -159,12 +177,14 @@ describe("FieldControl image picker", () => {
       <div>
         <MediaOptionsTemplate media={media} />
         <FieldControl
+          pickerCapped={false}
           field={image}
           value={{ mediaId: media[0].id }}
           idBase="cms-field-photo"
           hasMedia
         />
         <FieldControl
+          pickerCapped={false}
           field={image}
           value={{ mediaId: media[1].id }}
           idBase="cms-field-other"
@@ -184,6 +204,7 @@ describe("FieldControl image picker", () => {
       <div>
         <MediaOptionsTemplate media={media} />
         <FieldControl
+          pickerCapped={false}
           field={image}
           value={{ mediaId: unlisted, alt: "Stored alt" }}
           idBase="cms-field-photo"
@@ -208,6 +229,7 @@ describe("FieldControl image picker", () => {
   test("labels a current image with no stored alt as 'Current image'", () => {
     const html = renderToString(
       <FieldControl
+        pickerCapped={false}
         field={image}
         value={{ mediaId: unlisted }}
         idBase="cms-field-photo"
@@ -229,6 +251,7 @@ describe("FieldControl image picker", () => {
   test("marks the current image's option when it carries a per-use alt", () => {
     const withOverride = renderToString(
       <FieldControl
+        pickerCapped={false}
         field={image}
         value={{ mediaId: unlisted, alt: "Stored alt" }}
         idBase="cms-field-photo"
@@ -241,6 +264,7 @@ describe("FieldControl image picker", () => {
 
     const without = renderToString(
       <FieldControl
+        pickerCapped={false}
         field={image}
         value={{ mediaId: unlisted }}
         idBase="cms-field-photo"
@@ -253,6 +277,8 @@ describe("FieldControl image picker", () => {
   test("caps the per-use alt override input at the shared limit", () => {
     const html = renderToString(
       <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
         field={image}
         value={{ mediaId: unlisted, alt: "Stored alt" }}
         idBase="cms-field-photo"
@@ -319,6 +345,8 @@ describe("FieldControl link", () => {
     const link: FieldMetadata = { name: "cta", kind: "link", required: true };
     const html = renderToString(
       <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
         field={link}
         value={{ type: "url", url: "not a url" }}
         idBase="cms-field-cta"
@@ -338,6 +366,8 @@ describe("FieldControl link", () => {
     const link: FieldMetadata = { name: "cta", kind: "link", required: true };
     const html = renderToString(
       <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
         field={link}
         value={{ type: "url", url: "https://example.com" }}
         idBase="cms-field-cta"

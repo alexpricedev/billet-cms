@@ -21,9 +21,9 @@ export interface PageBlocksProps {
   /** The CMS pages a `link` field's picker offers. */
   pages?: PageOption[];
   /** Whether a form's `image` fields get a media picker at all. */
-  hasMedia?: boolean;
+  hasMedia: boolean;
   /** Whether that picker's reuse list was capped. */
-  pickerCapped?: boolean;
+  pickerCapped: boolean;
 }
 
 /** The block types a page of this type may add, in the allowed order. */
@@ -123,8 +123,8 @@ const EditableBlock = ({
   index: number;
   errors?: Map<string, FieldError[]>;
   pages?: PageOption[];
-  hasMedia?: boolean;
-  pickerCapped?: boolean;
+  hasMedia: boolean;
+  pickerCapped: boolean;
 }) => (
   <fieldset
     className="cms-block"

@@ -79,13 +79,13 @@ export interface FieldControlProps {
    * rendered once per form by `MediaOptionsTemplate`; this only says whether a
    * picker is worth showing, so an empty library renders none.
    */
-  hasMedia?: boolean;
+  hasMedia: boolean;
   /**
    * Whether that reuse list was actually capped (the library held more than
    * `MEDIA_PICKER_LIMIT`). The help line pointing at the id field is only true
    * then; at exactly the cap nothing is older to go looking for.
    */
-  pickerCapped?: boolean;
+  pickerCapped: boolean;
 }
 
 /**
@@ -99,7 +99,7 @@ export interface FieldControlProps {
 export const MediaOptionsTemplate = ({
   media,
 }: {
-  media?: MediaOption[];
+  media: MediaOption[];
 }): JSX.Element | null =>
   media && media.length > 0 ? (
     <template data-media-options>
@@ -288,8 +288,8 @@ const ListItemControl = ({
   /** The list's own label, so every Add/Remove names the list it belongs to. */
   listLabel: string;
   pages?: PageOption[];
-  hasMedia?: boolean;
-  pickerCapped?: boolean;
+  hasMedia: boolean;
+  pickerCapped: boolean;
 }): JSX.Element => (
   <div className="cms-list-item" data-list-item>
     <FieldControl

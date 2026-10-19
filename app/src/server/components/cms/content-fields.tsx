@@ -13,9 +13,9 @@ export interface ContentFieldsProps {
   /** The CMS pages a `link` field's picker offers. */
   pages?: PageOption[];
   /** Whether the form offers a media picker for its `image` fields. */
-  hasMedia?: boolean;
+  hasMedia: boolean;
   /** Whether that picker's reuse list was capped. */
-  pickerCapped?: boolean;
+  pickerCapped: boolean;
   /**
    * Id prefix for the controls. A page renders one block per `ContentFields`,
    * and two blocks can declare the same field name, so the block's own prefix

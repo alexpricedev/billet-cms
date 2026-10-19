@@ -605,9 +605,10 @@ describe("Pages controller", () => {
   });
 
   // A whole-block issue (`blocks.N`, with no field path) has no control to mark,
-  // so the summary names the block by position — otherwise a page with several
-  // blocks gives no clue which one the rich text message is about (review round
-  // 2).
+  // so the summary names the block by position and type — otherwise a page
+  // with several blocks gives no clue which one the rich text message is about
+  // (review round 2). The bad block is second, so a summary that always named
+  // block 1 fails.
   test("names the block a whole-block issue belongs to", async () => {
     const created = await createPage({
       pageType: "landing",
@@ -618,7 +619,7 @@ describe("Pages controller", () => {
     const pageId = created.page.id;
 
     // A document nested one level past the list bound: the validator reports a
-    // single issue at the block (`blocks.0`), with no field path.
+    // single issue at the block (`blocks.1`), with no field path.
     let node: unknown = { type: "paragraph", content: [] };
     for (let level = 0; level <= MAX_RICH_TEXT_LIST_DEPTH; level += 1) {
       node = {
@@ -639,6 +640,11 @@ describe("Pages controller", () => {
               {
                 type: "hero",
                 heading: "Hi",
+                body: { type: "doc", content: [] },
+              },
+              {
+                type: "hero",
+                heading: "Again",
                 body: { type: "doc", content: [node] },
               },
             ],
@@ -653,8 +659,9 @@ describe("Pages controller", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain(
-      `Block 1: Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.`,
+      `Block 2 (hero): Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.`,
     );
+    expect(html).not.toContain("Block 1");
     // The issue is whole-block, so no block is marked and the banner must not
     // point at marked blocks that aren't there.
     expect(html).not.toContain("Check the blocks marked below.");
