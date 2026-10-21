@@ -8,6 +8,7 @@ import {
   richText,
   text,
 } from "@alexpricedev/billet-cms/fields";
+import { createMemoryStorage } from "@alexpricedev/billet-storage";
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
@@ -29,11 +30,7 @@ import {
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
-import {
-  createMedia,
-  createMemoryMediaStorage,
-  listMediaOptions,
-} from "../../services/media";
+import { createMedia, listMediaOptions } from "../../services/media";
 import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { staleCsrfToken } from "../../test-utils/auth-form";
@@ -95,7 +92,7 @@ const mediaOptionsTemplate = (html: string): string =>
 
 /** Seed `count` uploads, oldest first. */
 const seedUploads = async (count: number): Promise<void> => {
-  const storage = createMemoryMediaStorage();
+  const storage = createMemoryStorage();
   for (let index = 0; index < count; index += 1) {
     const result = await createMedia({
       bytes: await makeJpeg(60, 40),

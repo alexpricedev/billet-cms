@@ -17,7 +17,10 @@
  * `getSlot` and `getPage` read the newest draft, and `applyPreview` adds the
  * banner and the no-cache headers.
  */
-import { join, resolve, sep } from "node:path";
+import {
+  createDiskStorage,
+  createStorageHandler,
+} from "@alexpricedev/billet-storage";
 import type { SQL } from "bun";
 import { CMS_SIGN_IN_PATH } from "../packages/billet-cms/src/contract/index.ts";
 import type { RichTextDocument } from "../packages/billet-cms/src/fields/index.ts";
@@ -69,13 +72,6 @@ export interface E2eSiteOptions {
  * stores a session is its own business.
  */
 export const SITE_SESSION_COOKIE = "site_session";
-
-const CONTENT_TYPES: Record<string, string> = {
-  webp: "image/webp",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-};
 
 const notFound = (): Response =>
   new Response("Not found", {
@@ -277,27 +273,15 @@ export const createSite = (sql: SQL, options: E2eSiteOptions = {}): E2eSite => {
     },
   });
 
-  const serveMedia = async (pathname: string): Promise<Response> => {
-    if (!options.mediaDir) return notFound();
-    const root = resolve(options.mediaDir);
-    let key: string;
-    try {
-      key = decodeURIComponent(pathname.slice("/media/".length));
-    } catch {
-      return notFound();
-    }
-    const target = resolve(join(root, key));
-    if (!target.startsWith(`${root}${sep}`)) return notFound();
-    const file = Bun.file(target);
-    if (!(await file.exists())) return notFound();
-    const type = CONTENT_TYPES[target.split(".").pop()?.toLowerCase() ?? ""];
-    return new Response(file, {
-      headers: {
-        "Content-Type": type ?? "application/octet-stream",
-        "Cache-Control": "public, max-age=31536000, immutable",
-      },
-    });
-  };
+  // The package's handler: traversal refused, the type from its allowlist.
+  // Media keys carry a UUID per upload and are never rewritten, so immutable
+  // is safe here, as it is on the real bucket.
+  const serveMedia = options.mediaDir
+    ? createStorageHandler(createDiskStorage({ dir: options.mediaDir }), {
+        prefix: "/media/",
+        cacheControl: "public, max-age=31536000, immutable",
+      })
+    : null;
 
   const handler = async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
@@ -321,7 +305,9 @@ export const createSite = (sql: SQL, options: E2eSiteOptions = {}): E2eSite => {
 
     if (req.method !== "GET" && req.method !== "HEAD") return notFound();
 
-    if (url.pathname.startsWith("/media/")) return serveMedia(url.pathname);
+    if (url.pathname.startsWith("/media/")) {
+      return (await serveMedia?.(req)) ?? notFound();
+    }
 
     if (url.pathname === "/") {
       const preview = await getPreviewAccess(sql, req);

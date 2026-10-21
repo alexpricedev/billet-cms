@@ -109,6 +109,10 @@ repo. This file is only the invariants.
   publishing a draft that names a deleted image is refused with "This image was
   deleted. Choose another." on the block (a save of that draft still succeeds, so
   the editor can pick another).
+  The drivers (S3, the sandbox's local disk, the tests' memory store) come
+  from `@alexpricedev/billet-storage`; `app/src/server/services/media/storage.ts`
+  keeps only the CMS's own choice between them, which refuses uploads rather
+  than falling back to disk when no bucket is set.
   The site renders one through `<CmsImage>` (`renderCmsImage`, reading the row
   with `getMedia`). The bucket is configured with `S3_BUCKET`,
   `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `MEDIA_PUBLIC_BASE_URL` (plus

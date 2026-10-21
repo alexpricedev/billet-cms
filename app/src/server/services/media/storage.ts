@@ -2,131 +2,35 @@
  * Where an upload's bytes live: an S3-compatible bucket, behind one small
  * interface (Q5).
  *
- * The code is S3-generic; a Railway bucket is just the first deployment. Bun's
- * own S3 client speaks the protocol, so there is no SDK to add and the
- * credentials are read from the environment the same way an SDK would read
- * them. `MEDIA_PUBLIC_BASE_URL` is what turns an object key into the URL a
- * page renders; it is separate from the API endpoint because a bucket's public
- * host (a custom domain, a Railway public URL) is rarely the same as where the
- * CMS writes.
+ * The drivers come from `@alexpricedev/billet-storage`: its S3 driver (Bun's
+ * own client, so no SDK), its disk driver for the sandbox, and its memory
+ * driver for tests. What stays here is the CMS's own choice of driver, which
+ * is stricter than the package's `storageFromEnv`: with no bucket configured
+ * the CMS refuses uploads with a message rather than writing to disk, and the
+ * variables keep their `MEDIA_` names. `MEDIA_PUBLIC_BASE_URL` is what turns an
+ * object key into the URL a page renders; it is separate from the API endpoint
+ * because a bucket's public host (a custom domain, a Railway public URL) is
+ * rarely the same as where the CMS writes.
  *
- * Tests never touch a bucket: `createMemoryMediaStorage` holds the bytes in a
- * map and hands back a URL under a fake host, so the whole pipeline is
- * exercised without network or credentials.
+ * Tests never touch a bucket: the package's `createMemoryStorage` holds the
+ * bytes in a map and hands back a URL under a fake host, so the whole pipeline
+ * is exercised without network or credentials.
  */
-import { mkdir, rm } from "node:fs/promises";
-import { dirname, resolve, sep } from "node:path";
+import {
+  createDiskStorage,
+  createS3Storage,
+  type PublicStorage,
+  type S3StorageConfig,
+  s3ConfigFromEnv,
+} from "@alexpricedev/billet-storage";
 import { httpUrl } from "../../utils/http-origin";
 import { log } from "../logger";
 
-export interface MediaStorage {
-  /** Store `body` under `key`. Overwrites. */
-  put(key: string, body: Uint8Array, contentType: string): Promise<void>;
-  /** Remove `key`. Missing keys are not an error. */
-  delete(key: string): Promise<void>;
-  /** The public URL a page renders for `key`. */
-  publicUrl(key: string): string;
-}
-
-const joinUrl = (base: string, key: string): string =>
-  `${base.replace(/\/+$/, "")}/${key.replace(/^\/+/, "")}`;
-
-export interface S3StorageConfig {
-  bucket: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  region?: string;
-  endpoint?: string;
-  sessionToken?: string;
-  /** The origin public objects are served from, e.g. a Railway bucket URL. */
-  publicBaseUrl: string;
-}
-
-/** A bucket, via Bun's S3 client. */
-export const createS3MediaStorage = (config: S3StorageConfig): MediaStorage => {
-  const client = new Bun.S3Client({
-    bucket: config.bucket,
-    accessKeyId: config.accessKeyId,
-    secretAccessKey: config.secretAccessKey,
-    ...(config.region ? { region: config.region } : {}),
-    ...(config.endpoint ? { endpoint: config.endpoint } : {}),
-    ...(config.sessionToken ? { sessionToken: config.sessionToken } : {}),
-  });
-
-  return {
-    async put(key, body, contentType) {
-      // Bun 1.4's `S3Options` has no cache-control field, so the long-lived
-      // header on a media object is a bucket or CDN rule rather than a
-      // per-object one: set `Cache-Control: public, max-age=31536000, immutable`
-      // on `media/*` (documented in `packages/billet-cms/README.md`). Object
-      // keys carry a UUID per upload and are never rewritten, so immutable is
-      // safe. When Bun lets a put set the header, set it here instead.
-      await client.write(key, body, { type: contentType });
-    },
-    async delete(key) {
-      await client.unlink(key);
-    },
-    publicUrl(key) {
-      return joinUrl(config.publicBaseUrl, key);
-    },
-  };
-};
-
-export interface MemoryMediaStorage extends MediaStorage {
-  readonly objects: Map<string, { body: Uint8Array; contentType: string }>;
-}
-
-/** The in-process storage tests use. Never configured in production. */
-export const createMemoryMediaStorage = (
-  publicBaseUrl = "https://media.test",
-): MemoryMediaStorage => {
-  const objects = new Map<string, { body: Uint8Array; contentType: string }>();
-  return {
-    objects,
-    async put(key, body, contentType) {
-      objects.set(key, { body: body.slice(), contentType });
-    },
-    async delete(key) {
-      objects.delete(key);
-    },
-    publicUrl(key) {
-      return joinUrl(publicBaseUrl, key);
-    },
-  };
-};
-
 /**
- * A directory on local disk, for the sandbox and tests only: a bay or a laptop
- * has no bucket, and the CMS's own pipeline should still run end to end. Whoever
- * sets `MEDIA_PUBLIC_BASE_URL` serves the directory (the fixture site does, at
- * `/media/*`). Keys that would leave the directory are refused.
+ * Every store the CMS uses has a public URL: the site renders each rendition
+ * straight from it.
  */
-export const createLocalMediaStorage = (
-  dir: string,
-  publicBaseUrl: string,
-): MediaStorage => {
-  const root = resolve(dir);
-  const pathFor = (key: string): string => {
-    const target = resolve(root, key.replace(/^\/+/, ""));
-    if (target !== root && !target.startsWith(`${root}${sep}`)) {
-      throw new Error(`Media key escapes the storage directory: ${key}`);
-    }
-    return target;
-  };
-  return {
-    async put(key, body) {
-      const target = pathFor(key);
-      await mkdir(dirname(target), { recursive: true });
-      await Bun.write(target, body);
-    },
-    async delete(key) {
-      await rm(pathFor(key), { force: true });
-    },
-    publicUrl(key) {
-      return joinUrl(publicBaseUrl, key);
-    },
-  };
-};
+export type MediaStorage = PublicStorage;
 
 const nonEmpty = (value: string | undefined): string | null => {
   const trimmed = value?.trim();
@@ -163,32 +67,25 @@ const warnInvalidPublicBaseUrl = (value: string): void => {
  */
 export const mediaStorageConfigFromEnv = (
   env: Record<string, string | undefined> = process.env,
-): S3StorageConfig | null => {
-  const bucket = nonEmpty(env.S3_BUCKET);
-  const accessKeyId = nonEmpty(env.S3_ACCESS_KEY_ID);
-  const secretAccessKey = nonEmpty(env.S3_SECRET_ACCESS_KEY);
+): (S3StorageConfig & { publicBaseUrl: string }) | null => {
   const configuredBaseUrl = nonEmpty(env.MEDIA_PUBLIC_BASE_URL);
   const publicBaseUrl =
     configuredBaseUrl && httpUrl(configuredBaseUrl) ? configuredBaseUrl : null;
   if (configuredBaseUrl && !publicBaseUrl)
     warnInvalidPublicBaseUrl(configuredBaseUrl);
 
-  if (!bucket || !accessKeyId || !secretAccessKey || !publicBaseUrl)
+  // Some but not all of the bucket variables is, to the package, a mistake to
+  // throw on; to the CMS it is the same "uploads aren't set up" as none, so the
+  // editor gets the message rather than the CMS failing to render a page.
+  let s3: S3StorageConfig | null;
+  try {
+    s3 = s3ConfigFromEnv(env);
+  } catch {
     return null;
+  }
+  if (!s3 || !publicBaseUrl) return null;
 
-  return {
-    bucket,
-    accessKeyId,
-    secretAccessKey,
-    publicBaseUrl,
-    ...(nonEmpty(env.S3_REGION) ? { region: env.S3_REGION as string } : {}),
-    ...(nonEmpty(env.S3_ENDPOINT)
-      ? { endpoint: env.S3_ENDPOINT as string }
-      : {}),
-    ...(nonEmpty(env.S3_SESSION_TOKEN)
-      ? { sessionToken: env.S3_SESSION_TOKEN as string }
-      : {}),
-  };
+  return { ...s3, publicBaseUrl };
 };
 
 let configured: MediaStorage | null | undefined;
@@ -216,10 +113,14 @@ export const getMediaStorage = (
       );
     }
     if (localDir && !production && baseUrl && httpUrl(baseUrl)) {
-      configured = createLocalMediaStorage(localDir, baseUrl);
+      configured = createDiskStorage({
+        dir: localDir,
+        publicBaseUrl: baseUrl,
+        env,
+      });
     } else {
       const config = mediaStorageConfigFromEnv(env);
-      configured = config ? createS3MediaStorage(config) : null;
+      configured = config ? createS3Storage(config) : null;
     }
   }
   return configured;
