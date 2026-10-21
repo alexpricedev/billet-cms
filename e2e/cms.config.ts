@@ -10,7 +10,10 @@
 import {
   block,
   image,
+  link,
+  list,
   pageType,
+  richText,
   slot,
   text,
 } from "../packages/billet-cms/src/fields/index.ts";
@@ -31,15 +34,67 @@ export const homeHero = slot("home.hero", hero, {
   previewPath: "/",
 });
 
+export const textBlock = block(
+  "text",
+  { body: richText({ label: "Body" }) },
+  (content) => ({ body: content.body }),
+);
+
+export const gallery = block(
+  "gallery",
+  {
+    images: list(image({ label: "Image", minWidth: 400 }), {
+      label: "Images",
+      min: 1,
+      max: 6,
+    }),
+  },
+  (content) => ({ images: content.images }),
+);
+
+export const quote = block(
+  "quote",
+  {
+    text: text({ max: 400, label: "Quote" }),
+    attribution: text({ max: 120, label: "Attribution" }),
+    link: link({ label: "Link", required: false }),
+  },
+  (content) => ({
+    text: content.text,
+    attribution: content.attribution,
+    link: content.link,
+  }),
+);
+
+export const cta = block(
+  "cta",
+  {
+    heading: text({ max: 120, label: "Heading" }),
+    link: link({ label: "Button link" }),
+  },
+  (content) => ({ heading: content.heading, link: content.link }),
+);
+
+export const footerCta = slot("footer.cta", cta, {
+  label: "Footer call to action",
+  previewPath: "/",
+});
+
 export const landing = pageType("landing", {
   label: "Landing",
-  allowedBlocks: [hero],
+  allowedBlocks: [hero, textBlock, gallery, quote, cta],
   requiredBlocks: [],
-  limits: { hero: { max: 1 } },
+  limits: { hero: { max: 1, position: "top" } },
+});
+
+export const article = pageType("article", {
+  label: "Article",
+  allowedBlocks: [textBlock, quote, gallery],
+  requiredBlocks: [textBlock],
 });
 
 export const siteDefinitions = {
-  blocks: [hero],
-  slots: [homeHero],
-  pageTypes: [landing],
+  blocks: [hero, textBlock, gallery, quote, cta],
+  slots: [homeHero, footerCta],
+  pageTypes: [landing, article],
 };

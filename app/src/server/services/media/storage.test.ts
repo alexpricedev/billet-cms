@@ -1,5 +1,20 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mediaStorageConfigFromEnv, resetMediaStorageForTest } from "./storage";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  createLocalMediaStorage,
+  getMediaStorage,
+  mediaStorageConfigFromEnv,
+  resetMediaStorageForTest,
+} from "./storage";
 
 const base: Record<string, string | undefined> = {
   S3_BUCKET: "bucket",
@@ -103,5 +118,62 @@ describe("rejected MEDIA_PUBLIC_BASE_URL", () => {
       mediaStorageConfigFromEnv({ ...base, MEDIA_PUBLIC_BASE_URL: "" }),
     ).toBeNull();
     expect(warnings).toEqual([]);
+  });
+});
+
+describe("local media storage", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cms-media-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  beforeEach(() => resetMediaStorageForTest());
+  afterEach(() => resetMediaStorageForTest());
+
+  test("puts, serves a public URL for, and deletes an object", async () => {
+    const storage = createLocalMediaStorage(dir, "http://localhost:3001/media");
+    await storage.put(
+      "media/a/1.webp",
+      new Uint8Array([1, 2, 3]),
+      "image/webp",
+    );
+
+    expect(existsSync(join(dir, "media/a/1.webp"))).toBe(true);
+    expect(storage.publicUrl("media/a/1.webp")).toBe(
+      "http://localhost:3001/media/media/a/1.webp",
+    );
+
+    await storage.delete("media/a/1.webp");
+    expect(existsSync(join(dir, "media/a/1.webp"))).toBe(false);
+    // Missing keys are not an error.
+    await storage.delete("media/a/1.webp");
+  });
+
+  test("refuses a key that leaves the directory", async () => {
+    const storage = createLocalMediaStorage(dir, "http://localhost:3001/media");
+    await expect(
+      storage.put("../escape.txt", new Uint8Array([1]), "text/plain"),
+    ).rejects.toThrow("escapes");
+    await expect(storage.delete("a/../../escape.txt")).rejects.toThrow(
+      "escapes",
+    );
+  });
+
+  test("getMediaStorage uses it outside production, ahead of S3", () => {
+    const env = {
+      ...base,
+      MEDIA_LOCAL_DIR: dir,
+      MEDIA_PUBLIC_BASE_URL: "http://localhost:3001/media",
+      NODE_ENV: "development",
+    };
+    expect(getMediaStorage(env)?.publicUrl("k")).toBe(
+      "http://localhost:3001/media/k",
+    );
+  });
+
+  test("ignores MEDIA_LOCAL_DIR in production", () => {
+    const env = {
+      MEDIA_LOCAL_DIR: dir,
+      MEDIA_PUBLIC_BASE_URL: "http://localhost:3001/media",
+      NODE_ENV: "production",
+    };
+    expect(getMediaStorage(env)).toBeNull();
   });
 });

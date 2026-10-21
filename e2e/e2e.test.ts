@@ -222,9 +222,9 @@ beforeAll(async () => {
 
   // Deploy: publish the site's declarations the way `cms:publish` does.
   const summary = await publish(sql, siteDefinitions);
-  expect(summary.blocks).toBe(1);
-  expect(summary.slots).toBe(1);
-  expect(summary.pageTypes).toBe(1);
+  expect(summary.blocks).toBe(5);
+  expect(summary.slots).toBe(2);
+  expect(summary.pageTypes).toBe(2);
 
   const slots = (await sql`
     SELECT id FROM cms_slots WHERE name = 'home.hero'
