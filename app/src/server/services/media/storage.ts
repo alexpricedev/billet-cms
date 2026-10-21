@@ -14,6 +14,8 @@
  * map and hands back a URL under a fake host, so the whole pipeline is
  * exercised without network or credentials.
  */
+import { mkdir, rm } from "node:fs/promises";
+import { dirname, resolve, sep } from "node:path";
 import { httpUrl } from "../../utils/http-origin";
 import { log } from "../logger";
 
@@ -86,6 +88,39 @@ export const createMemoryMediaStorage = (
     },
     async delete(key) {
       objects.delete(key);
+    },
+    publicUrl(key) {
+      return joinUrl(publicBaseUrl, key);
+    },
+  };
+};
+
+/**
+ * A directory on local disk, for the sandbox and tests only: a bay or a laptop
+ * has no bucket, and the CMS's own pipeline should still run end to end. Whoever
+ * sets `MEDIA_PUBLIC_BASE_URL` serves the directory (the fixture site does, at
+ * `/media/*`). Keys that would leave the directory are refused.
+ */
+export const createLocalMediaStorage = (
+  dir: string,
+  publicBaseUrl: string,
+): MediaStorage => {
+  const root = resolve(dir);
+  const pathFor = (key: string): string => {
+    const target = resolve(root, key.replace(/^\/+/, ""));
+    if (target !== root && !target.startsWith(`${root}${sep}`)) {
+      throw new Error(`Media key escapes the storage directory: ${key}`);
+    }
+    return target;
+  };
+  return {
+    async put(key, body) {
+      const target = pathFor(key);
+      await mkdir(dirname(target), { recursive: true });
+      await Bun.write(target, body);
+    },
+    async delete(key) {
+      await rm(pathFor(key), { force: true });
     },
     publicUrl(key) {
       return joinUrl(publicBaseUrl, key);
@@ -171,8 +206,21 @@ export const getMediaStorage = (
 ): MediaStorage | null => {
   if (override !== undefined) return override;
   if (configured === undefined) {
-    const config = mediaStorageConfigFromEnv(env);
-    configured = config ? createS3MediaStorage(config) : null;
+    const localDir = nonEmpty(env.MEDIA_LOCAL_DIR);
+    const baseUrl = nonEmpty(env.MEDIA_PUBLIC_BASE_URL);
+    const production = env.NODE_ENV === "production";
+    if (localDir && production) {
+      log.warn(
+        "media",
+        "MEDIA_LOCAL_DIR is for development and tests only; ignoring it in production.",
+      );
+    }
+    if (localDir && !production && baseUrl && httpUrl(baseUrl)) {
+      configured = createLocalMediaStorage(localDir, baseUrl);
+    } else {
+      const config = mediaStorageConfigFromEnv(env);
+      configured = config ? createS3MediaStorage(config) : null;
+    }
   }
   return configured;
 };
