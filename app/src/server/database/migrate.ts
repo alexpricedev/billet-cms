@@ -17,7 +17,9 @@ export type Migration = {
 // and neither collides with another app's lock. It is taken transaction-scoped,
 // so a crashed boot releases it with the transaction.
 
-const MIGRATIONS_DIR = join(process.cwd(), "src/server/database/migrations");
+// Beside this file, not under the working directory, so the fixture loader can
+// run the migrations from the repository root.
+const MIGRATIONS_DIR = join(import.meta.dir, "migrations");
 
 /**
  * Ensure the tracking table exists.

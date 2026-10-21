@@ -1,3 +1,5 @@
+/* biome-ignore-all lint/suspicious/noConsole: the guard reports its refusal to the terminal */
+
 /**
  * The guards every sandbox entry point runs first.
  *

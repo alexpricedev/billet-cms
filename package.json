@@ -7,9 +7,9 @@
     "packages/*"
   ],
   "scripts": {
-    "lint": "bun run --cwd app lint && bun run --cwd packages/billet-cms lint && bun run lint:e2e",
-    "typecheck": "bun run --cwd app typecheck && bun run --cwd packages/billet-cms typecheck && bun run typecheck:e2e",
-    "check": "bun run --cwd app check && bun run --cwd packages/billet-cms check && bun run lint:e2e && bun run typecheck:e2e",
+    "lint": "bun run --cwd app lint && bun run --cwd packages/billet-cms lint && bun run lint:e2e && bun run lint:fixtures",
+    "typecheck": "bun run --cwd app typecheck && bun run --cwd packages/billet-cms typecheck && bun run typecheck:e2e && bun run typecheck:fixtures",
+    "check": "bun run --cwd app check && bun run --cwd packages/billet-cms check && bun run lint:e2e && bun run typecheck:e2e && bun run lint:fixtures && bun run typecheck:fixtures",
     "lint:e2e": "cd e2e && bun --bun biome check .",
     "typecheck:e2e": "cd e2e && bun --bun tsc --noEmit",
     "test": "bun run --cwd app --env-file=../.env.test test && bun run --cwd packages/billet-cms test && bun run e2e",
@@ -17,11 +17,16 @@
     "migrate:up": "bun run --cwd app migrate:up",
     "migrate:status": "bun run --cwd app migrate:status",
     "cms:pull": "bun packages/billet-cms/src/cli/pull/cli.ts",
-    "e2e": "NODE_ENV=test bun --env-file=.env.test e2e/run.ts"
+    "e2e": "NODE_ENV=test bun --env-file=.env.test e2e/run.ts",
+    "fixtures": "bun scripts/fixtures.ts",
+    "sandbox": "bun scripts/sandbox.ts",
+    "lint:fixtures": "cd fixtures && bun --bun biome check . ../scripts",
+    "typecheck:fixtures": "cd fixtures && bun --bun tsc --noEmit"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/bun": "1.4.3",
+    "sharp": "0.35.5",
     "typescript": "^7.0.2"
   }
 }
