@@ -6,7 +6,8 @@ A headless CMS for [Billet](https://github.com/alexpricedev/Billet) sites. Three
 |---|---|
 | `app/` | The CMS service — its own web app on `cms.<domain>`, connected to the site's Postgres. A fork of Billet v5.1.0. |
 | `packages/billet-cms` | `@alexpricedev/billet-cms`, the block plugin sites install. Holds the field vocabulary, the site-side read helpers and the contract both sides share. |
-| `e2e/` | A minimal Bun test site and the end-to-end suite that proves the whole thing works. |
+| `e2e/` | A small Bun site (also the sandbox's Northwind Studio) and the end-to-end suite that proves the whole thing works. |
+| `fixtures/`, `scripts/` | The fixture data, loader and sandbox commands. See `runbooks/SANDBOX.md`. |
 
 The CMS is never on the public site's request path. A site declares its blocks,
 slots and page types in code and publishes them into `cms_` tables on deploy;
@@ -135,3 +136,13 @@ bun pm pack --dry-run --cwd packages/billet-cms
 subprocess, edits a slot's content and an image, previews the draft, publishes
 it, and checks the site serves it — and keeps serving it after the CMS process
 is stopped.
+
+## The sandbox
+
+`bun run sandbox` starts a fixture site (Northwind Studio, grown from `e2e/`)
+and the CMS together on one local database, loaded with the same people and
+content every time, so a person or an agent can sign in as a persona and run
+the stories in `ux/stories/`. `bun run fixtures` only reloads the data, and
+`bun run scripts/persona-session.ts <persona> --side site|cms` prints a session
+cookie. Both commands refuse under `NODE_ENV=production` and for any database
+host that isn't local. See [`runbooks/SANDBOX.md`](runbooks/SANDBOX.md).

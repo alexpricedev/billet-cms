@@ -252,7 +252,7 @@ describe("fixtures and personas", () => {
     expect(about.status).toBe(200);
     expect(await about.text()).toContain("About Northwind");
 
-    const moved = await fetch(`${siteUrl}/studio`, { redirect: "manual" });
+    const moved = await fetch(`${siteUrl}/our-work`, { redirect: "manual" });
     expect(moved.status).toBe(301);
     expect((await fetch(`${siteUrl}/draft-ideas`)).status).toBe(404);
 

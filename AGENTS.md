@@ -115,6 +115,18 @@ repo. This file is only the invariants.
   `S3_REGION` / `S3_ENDPOINT` when the provider needs them); uploads are simply
   refused, with a message, until they are set. A site's CSP `img-src` must
   allow the bucket host.
+- **The sandbox and fixtures are dev-only.** The loader is the one thing besides the
+  e2e suite that writes the site's `users`. `bun run sandbox`, `bun run fixtures` and
+  `scripts/persona-session.ts` load Northwind Studio's people and content onto a
+  local database, which means truncating the fixture site's `users` as well as the
+  CMS's `cms_` content tables. Each refuses under `NODE_ENV=production` and
+  unless the `DATABASE_URL` host is `localhost`, `127.0.0.1` or `::1`
+  (`FIXTURES_ALLOW_REMOTE=1` overrides the host check), and runs that check
+  *before* importing anything that opens a database pool
+  (`scripts/sandbox-guard.ts`). Never run the loader against a real site's
+  database. `MEDIA_LOCAL_DIR` is the same kind of seam: a local-disk media store
+  for dev and tests, ignored in production. `runbooks/SANDBOX.md` has the commands,
+  the personas and the fixture-to-story map.
 
 ## Porting Billet upgrades
 

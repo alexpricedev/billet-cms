@@ -63,7 +63,6 @@ const RESET_TABLES = [
   "cms_revisions",
   "cms_user_tokens",
   "cms_sessions",
-
   "cms_block_types",
   "cms_page_types",
   "cms_slots",

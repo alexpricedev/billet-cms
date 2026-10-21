@@ -263,12 +263,12 @@ export const PAGES: readonly FixturePage[] = [
   },
 ];
 
-/** `/studio` was this page's first URL; it now redirects to `/about`. */
+/** `/our-work` was this page's first URL; it now redirects to `/work`. Not `/studio`: story 08 moves `/about` there. */
 export const REDIRECTS = [
   {
     id: "40000000-0000-4000-8000-000000000001",
-    fromPath: "/studio",
-    toPageId: PAGE_IDS.about,
+    fromPath: "/our-work",
+    toPageId: PAGE_IDS.work,
     createdAt: "2026-01-11T11:30:00.000Z",
   },
 ] as const;
