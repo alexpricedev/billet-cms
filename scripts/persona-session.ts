@@ -79,7 +79,7 @@ try {
     await sql`
       INSERT INTO cms_sessions (id_hash, user_id, session_type, expires_at)
       VALUES (${hash}, ${userId}, 'authenticated', ${expiresAt.toISOString()})
-      ON CONFLICT (id_hash) DO UPDATE SET expires_at = EXCLUDED.expires_at
+      ON CONFLICT (id_hash) DO NOTHING
     `;
     console.log(`${config.cmsCookieName}=${raw}`);
     console.error(`CMS origin ${config.cmsUrl}; cookie is HttpOnly, path /.`);

@@ -8,8 +8,9 @@
  * file only afterwards, since `app`'s database module opens a pool when loaded);
  * the tests call it directly against the test database.
  *
- * Per-run state — sessions, handoff and preview tokens, the audit log — is
- * cleared, not seeded. `cms_meta.content_version` is pinned, so a running site
+ * Per-run state — handoff and preview tokens, the audit log — is
+ * cleared, not seeded. Each editor gets a CMS session with a fixed cookie. The
+ * pinned `cms_meta.content_version` means a running site
  * does not notice a reload on its own: restart it (`bun run sandbox` does).
  */
 import { createHmac } from "node:crypto";
@@ -62,6 +63,7 @@ const RESET_TABLES = [
   "cms_revisions",
   "cms_user_tokens",
   "cms_sessions",
+
   "cms_block_types",
   "cms_page_types",
   "cms_slots",
@@ -81,6 +83,9 @@ export const FIXTURE_TABLES = [
   "cms_export_tokens",
   "cms_meta",
 ] as const;
+
+/** Far enough out that a sandbox cookie never lapses mid-session. */
+const SESSION_EXPIRES_AT = "2099-01-01T00:00:00.000Z";
 
 const hmac = (pepper: string, value: string): string =>
   createHmac("sha256", pepper).update(value).digest("hex");
@@ -236,6 +241,18 @@ export const loadFixtures = async (options: LoadOptions): Promise<void> => {
     `;
   }
 
+  // A CMS session for every editor, with a fixed cookie value, so
+  // `persona-session --side cms` works straight after a load.
+  for (const person of PERSONAS.filter((candidate) => candidate.cmsSession)) {
+    await sql`
+      INSERT INTO cms_sessions
+        (id_hash, user_id, session_type, expires_at, created_at)
+      VALUES (
+        ${hmac(pepper, person.cmsSession)}, ${person.id}, 'authenticated',
+        ${SESSION_EXPIRES_AT}, ${DEFINITIONS_AT}
+      )
+    `;
+  }
   await sql`
     UPDATE cms_meta
     SET content_version = ${CONTENT_VERSION}, updated_at = ${DEFINITIONS_AT}
@@ -245,15 +262,23 @@ export const loadFixtures = async (options: LoadOptions): Promise<void> => {
 
 /**
  * Every fixture table as ordered JSON, for comparing two loads. Rows are ordered
- * by primary key, with columns as the database returns them: none is volatile.
+ * by first column (the key), and nothing volatile is selected: a session's
+ * `last_activity_at` moves with every request, so only its stable columns are.
  */
 export const dumpFixtureTables = async (
   sql: SQL,
 ): Promise<Record<string, unknown[]>> => {
+  const queries: Record<string, string> = {
+    ...Object.fromEntries(
+      FIXTURE_TABLES.map((table) => [table, `SELECT * FROM ${table}`]),
+    ),
+    cms_sessions:
+      "SELECT id_hash, user_id, session_type, expires_at FROM cms_sessions",
+  };
   const dump: Record<string, unknown[]> = {};
-  for (const table of FIXTURE_TABLES) {
+  for (const [table, query] of Object.entries(queries)) {
     dump[table] = JSON.parse(
-      JSON.stringify(await sql.unsafe(`SELECT * FROM ${table} ORDER BY id`)),
+      JSON.stringify(await sql.unsafe(`${query} ORDER BY 1`)),
     );
   }
   return dump;
