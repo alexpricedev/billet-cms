@@ -8,6 +8,7 @@ import {
   createCmsMedia,
   renderCmsImage,
 } from "@alexpricedev/billet-cms/server";
+import { createMemoryStorage } from "@alexpricedev/billet-storage";
 import sharp from "sharp";
 import {
   seedBlockType,
@@ -59,7 +60,6 @@ import {
   updateMediaFocalPoint,
 } from "./media";
 import { renditionWidths } from "./processor";
-import { createMemoryMediaStorage } from "./storage";
 
 const photoBlock = block(
   "hero",
@@ -88,7 +88,7 @@ describe("createMedia", () => {
   });
 
   test("stores the row, every rendition, and the centre focal point", async () => {
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const result = await createMedia({
       bytes: await makeJpeg(3000, 1500),
       alt: "A red field",
@@ -114,13 +114,13 @@ describe("createMedia", () => {
     for (const variant of media.variants) {
       expect(storage.objects.has(variant.webpKey)).toBe(true);
       expect(storage.objects.has(variant.fallbackKey)).toBe(true);
-      expect(variant.webpUrl.startsWith("https://media.test/")).toBe(true);
+      expect(variant.webpUrl.startsWith("https://storage.test/")).toBe(true);
     }
     expect(await listMedia()).toHaveLength(1);
   });
 
   test("stores the bytes with GPS EXIF stripped", async () => {
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const result = await createMedia({
       bytes: withExif(await makeJpeg(1200, 800)),
       alt: "Taken on holiday",
@@ -140,7 +140,7 @@ describe("createMedia", () => {
   // The Done-when path: a JPEG that carries GPS EXIF, XMP and an ICC profile is
   // stored without them, at every width.
   test("strips EXIF (GPS included), XMP and ICC from the original and every rendition", async () => {
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const fixture = await withFullMetadata(await makeJpeg(1200, 800));
 
     const before = await sharp(fixture).metadata();
@@ -180,7 +180,7 @@ describe("createMedia", () => {
       bytes: await makeJpeg(1200, 800),
       alt: "A field",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     expect(result.ok).toBe(true);
 
@@ -193,7 +193,7 @@ describe("createMedia", () => {
 
   test("turns a storage or insert failure into a form issue, not a throw", async () => {
     const failing = {
-      ...createMemoryMediaStorage(),
+      ...createMemoryStorage(),
       put: async () => {
         throw new Error("bucket is down");
       },
@@ -216,7 +216,7 @@ describe("createMedia", () => {
   // object the upload could have written — including the one whose put rejected,
   // which may have landed before it failed.
   test("deletes every planned object when one put fails mid-batch", async () => {
-    const memory = createMemoryMediaStorage();
+    const memory = createMemoryStorage();
     const attempted: string[] = [];
     const landed: string[] = [];
     const deleted: string[] = [];
@@ -261,7 +261,7 @@ describe("createMedia", () => {
   // by the plan rather than the puts' outcomes, so the whole set still goes and
   // the editor gets a retryable form issue.
   test("deletes every stored object when the row insert fails after the puts", async () => {
-    const memory = createMemoryMediaStorage();
+    const memory = createMemoryStorage();
     const landed: string[] = [];
     const deleted: string[] = [];
     const storage = {
@@ -310,7 +310,7 @@ describe("createMedia", () => {
   });
 
   test("listMedia returns the whole library newest first, and a limit takes the newest", async () => {
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     for (const alt of ["First", "Second", "Third"]) {
       const result = await createMedia({
         bytes: await makeJpeg(800, 400),
@@ -343,7 +343,7 @@ describe("createMedia", () => {
       bytes: await makeJpeg(800, 400),
       alt: "A field",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!result.ok) throw new Error("upload failed");
 
@@ -362,7 +362,7 @@ describe("createMedia", () => {
   // whether the library was really bigger, and adds any image the content
   // references so its label survives outside the cap.
   test("listPickerMedia caps the list and carries referenced rows", async () => {
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     for (let index = 0; index < MEDIA_PICKER_LIMIT; index += 1) {
       const result = await createMedia({
         bytes: await makeJpeg(40, 40),
@@ -419,7 +419,7 @@ describe("createMedia", () => {
       bytes: await makeJpeg(80, 60),
       alt: "A photo",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!result.ok) throw new Error("upload failed");
 
@@ -438,7 +438,7 @@ describe("createMedia", () => {
       bytes: animatedWebpBytes(),
       alt: "A loop",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -451,7 +451,7 @@ describe("createMedia", () => {
       bytes: apngBytes(),
       alt: "A loop",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -460,7 +460,7 @@ describe("createMedia", () => {
   });
 
   test("requires alt text and writes nothing without it", async () => {
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const result = await createMedia({
       bytes: await makeJpeg(800, 400),
       alt: "   ",
@@ -481,7 +481,7 @@ describe("createMedia", () => {
       bytes: svgBytes(),
       alt: "A logo",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -489,7 +489,7 @@ describe("createMedia", () => {
   });
 
   test("refuses alt text over the cap, before storing anything", async () => {
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const result = await createMedia({
       bytes: await makeJpeg(800, 400),
       alt: "x".repeat(MAX_ALT_LENGTH + 1),
@@ -510,7 +510,7 @@ describe("createMedia", () => {
       bytes: gifBytes(),
       alt: "A loop",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -522,7 +522,7 @@ describe("createMedia", () => {
       bytes: new TextEncoder().encode("not an image"),
       alt: "Nope",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -534,7 +534,7 @@ describe("createMedia", () => {
       bytes: new Uint8Array(MAX_UPLOAD_BYTES + 1),
       alt: "Huge",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -546,7 +546,7 @@ describe("createMedia", () => {
       bytes: fakePngHeader(20000, 20000),
       alt: "Bomb",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -576,7 +576,7 @@ describe("editing media", () => {
       bytes: await makeJpeg(800, 400),
       alt: "Original alt",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!result.ok) throw new Error("upload failed");
     return result.media.id;
@@ -654,7 +654,7 @@ describe("image guidance", () => {
       bytes: await makeJpeg(800, 400),
       alt: "Too small",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!small.ok) throw new Error("upload failed");
 
@@ -672,7 +672,7 @@ describe("image guidance", () => {
       bytes: await makeJpeg(2000, 1000),
       alt: "Big enough",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!big.ok) throw new Error("upload failed");
 
@@ -702,7 +702,7 @@ describe("image guidance", () => {
       bytes: await makeJpeg(800, 400),
       alt: "Too small",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!small.ok) throw new Error("upload failed");
 
@@ -734,7 +734,7 @@ describe("image guidance", () => {
       bytes: await makeJpeg(1600, 900),
       alt: "Wide",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!wide.ok) throw new Error("upload failed");
 
@@ -752,7 +752,7 @@ describe("image guidance", () => {
       bytes: await makeJpeg(1000, 1000),
       alt: "Square",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!square.ok) throw new Error("upload failed");
 
@@ -779,7 +779,7 @@ describe("media usage and delete protection", () => {
       page: "home",
     });
 
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const used = await createMedia({
       bytes: await makeJpeg(800, 400),
       alt: "In use",
@@ -833,7 +833,7 @@ describe("media usage and delete protection", () => {
       page: "home",
     });
 
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const used = await createMedia({
       bytes: await makeJpeg(800, 400),
       alt: "In use",
@@ -889,7 +889,7 @@ describe("media usage and delete protection", () => {
       page: "home",
     });
 
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const uploaded = await createMedia({
       bytes: await makeJpeg(800, 400),
       alt: "Gone soon",
@@ -961,7 +961,7 @@ describe("media usage and delete protection", () => {
     });
     if (!created.ok) throw new Error("page create failed");
 
-    const storage = createMemoryMediaStorage();
+    const storage = createMemoryStorage();
     const uploaded = await createMedia({
       bytes: await makeJpeg(800, 400),
       alt: "Gone soon",
@@ -1022,7 +1022,7 @@ describe("the plugin reads what the CMS stored", () => {
       bytes: await makeJpeg(3000, 1500),
       alt: "A red field",
       actorId: null,
-      storage: createMemoryMediaStorage(),
+      storage: createMemoryStorage(),
     });
     if (!created.ok) throw new Error("upload failed");
     const id = created.media.id;

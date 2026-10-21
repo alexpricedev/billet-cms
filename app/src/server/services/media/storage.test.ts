@@ -9,8 +9,8 @@ import {
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createDiskStorage } from "@alexpricedev/billet-storage";
 import {
-  createLocalMediaStorage,
   getMediaStorage,
   mediaStorageConfigFromEnv,
   resetMediaStorageForTest,
@@ -64,6 +64,22 @@ describe("mediaStorageConfigFromEnv", () => {
     ).toBeNull();
     expect(
       mediaStorageConfigFromEnv({ ...base, S3_SECRET_ACCESS_KEY: undefined }),
+    ).toBeNull();
+  });
+
+  test("reads MEDIA_PUBLIC_BASE_URL, never the package's own variable", () => {
+    expect(
+      mediaStorageConfigFromEnv({
+        ...base,
+        STORAGE_PUBLIC_BASE_URL: "https://elsewhere.example",
+      })?.publicBaseUrl,
+    ).toBe("https://media.example");
+    expect(
+      mediaStorageConfigFromEnv({
+        ...base,
+        MEDIA_PUBLIC_BASE_URL: undefined,
+        STORAGE_PUBLIC_BASE_URL: "https://elsewhere.example",
+      }),
     ).toBeNull();
   });
 });
@@ -121,14 +137,17 @@ describe("rejected MEDIA_PUBLIC_BASE_URL", () => {
   });
 });
 
-describe("local media storage", () => {
+describe("local media storage (the package's disk driver)", () => {
   const dir = mkdtempSync(join(tmpdir(), "cms-media-"));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   beforeEach(() => resetMediaStorageForTest());
   afterEach(() => resetMediaStorageForTest());
 
   test("puts, serves a public URL for, and deletes an object", async () => {
-    const storage = createLocalMediaStorage(dir, "http://localhost:3001/media");
+    const storage = createDiskStorage({
+      dir,
+      publicBaseUrl: "http://localhost:3001/media",
+    });
     await storage.put(
       "media/a/1.webp",
       new Uint8Array([1, 2, 3]),
@@ -147,12 +166,15 @@ describe("local media storage", () => {
   });
 
   test("refuses a key that leaves the directory", async () => {
-    const storage = createLocalMediaStorage(dir, "http://localhost:3001/media");
+    const storage = createDiskStorage({
+      dir,
+      publicBaseUrl: "http://localhost:3001/media",
+    });
     await expect(
       storage.put("../escape.txt", new Uint8Array([1]), "text/plain"),
-    ).rejects.toThrow("escapes");
+    ).rejects.toThrow("Invalid storage key");
     await expect(storage.delete("a/../../escape.txt")).rejects.toThrow(
-      "escapes",
+      "Invalid storage key",
     );
   });
 

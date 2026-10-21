@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { block, image, text } from "@alexpricedev/billet-cms/fields";
+import { createMemoryStorage } from "@alexpricedev/billet-storage";
 import { createBunRequest } from "../../test-utils/bun-request";
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
@@ -247,16 +248,5 @@ describe("Media controller", () => {
 });
 
 /** The in-memory storage the controller's upload writes through. */
-const createStorage = () => {
-  const objects = new Map<string, Uint8Array>();
-  return {
-    objects,
-    put: async (key: string, body: Uint8Array) => {
-      objects.set(key, body);
-    },
-    delete: async (key: string) => {
-      objects.delete(key);
-    },
-    publicUrl: (key: string) => `https://media.test/${key}`,
-  };
-};
+const createStorage = () =>
+  createMemoryStorage({ publicBaseUrl: "https://media.test" });

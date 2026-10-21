@@ -16,11 +16,11 @@
 import { createHmac } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { createDiskStorage } from "@alexpricedev/billet-storage";
 import type { SQL } from "bun";
 import { ensureIdentitiesView } from "../app/src/server/database/identity-view.ts";
 import { runMigrations } from "../app/src/server/database/migrate.ts";
 import { processImage } from "../app/src/server/services/media/processor.ts";
-import { createLocalMediaStorage } from "../app/src/server/services/media/storage.ts";
 import { siteDefinitions } from "../e2e/cms.config.ts";
 import { publish } from "../packages/billet-cms/src/cli/publish/index.ts";
 import {
@@ -147,7 +147,10 @@ export const loadFixtures = async (options: LoadOptions): Promise<void> => {
 
   // Media: the real processor, so renditions and keys match an upload's.
   await rm(join(mediaDir, "media"), { recursive: true, force: true });
-  const storage = createLocalMediaStorage(mediaDir, `${siteUrl}/media`);
+  const storage = createDiskStorage({
+    dir: mediaDir,
+    publicBaseUrl: `${siteUrl}/media`,
+  });
   for (const image of IMAGES) {
     const processed = await processImage(await renderImage(image), "jpeg");
     const objectKey = `media/${image.id}/original.${processed.original.extension}`;
