@@ -3,6 +3,7 @@ import { getSessionContext, requireAuth } from "../../middleware/auth";
 import {
   groupSlotsByPage,
   listPageTypes,
+  listSlotStates,
   listSlots,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
@@ -17,8 +18,9 @@ export const dashboard = {
     const ctx = await getSessionContext(req);
     if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
-    const [slots, pageTypes] = await Promise.all([
+    const [slots, slotStates, pageTypes] = await Promise.all([
       listSlots(),
+      listSlotStates(),
       listPageTypes(),
     ]);
 
@@ -33,6 +35,7 @@ export const dashboard = {
         user={ctx.user}
         navCsrfToken={navCsrfToken}
         groups={groupSlotsByPage(slots)}
+        slotStates={slotStates}
         pageTypes={pageTypes}
       />,
     );
