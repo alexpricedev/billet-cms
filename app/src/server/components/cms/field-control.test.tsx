@@ -7,7 +7,11 @@ import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import { renderToString } from "preact-render-to-string";
 import type { MediaOption } from "../../services/media";
 import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
-import { FieldControl, MediaOptionsTemplate } from "./field-control";
+import {
+  FieldControl,
+  type FieldError,
+  MediaOptionsTemplate,
+} from "./field-control";
 
 const emptyDocument: RichTextDocument = { type: "doc", content: [] };
 
@@ -375,5 +379,51 @@ describe("FieldControl link", () => {
     );
 
     expect(html).not.toContain('aria-invalid="true"');
+  });
+});
+
+describe("FieldControl described-by ids", () => {
+  const render = (field: FieldMetadata, errors?: FieldError[]): string =>
+    renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={field}
+        value={field.kind === "image" ? {} : ""}
+        errors={errors}
+        idBase="cms-field-x"
+      />,
+    );
+  const mediaIdInput = (html: string): string =>
+    html.match(/<input[^>]*data-image-id[^>]*>/)?.[0] ?? "";
+
+  test("image inputs carry no placeholder", () => {
+    const html = render({ name: "x", kind: "image", required: false });
+    expect(html).not.toContain("placeholder=");
+  });
+
+  test("Media id names no ids without help or errors", () => {
+    const input = mediaIdInput(
+      render({ name: "x", kind: "image", required: false }),
+    );
+    expect(input).not.toContain("aria-describedby");
+  });
+
+  test("Media id names help only with help, error only with errors", () => {
+    const help = mediaIdInput(
+      render({ name: "x", kind: "image", required: false, help: "Pick" }),
+    );
+    expect(help).toContain('aria-describedby="cms-field-x-help"');
+    const err = mediaIdInput(
+      render({ name: "x", kind: "image", required: false }, [
+        { path: "", message: "Bad" },
+      ]),
+    );
+    expect(err).toContain('aria-describedby="cms-field-x-error"');
+  });
+
+  test("a text field names no ids without help or errors", () => {
+    const html = render({ name: "x", kind: "text", required: false });
+    expect(html).not.toContain("aria-describedby");
   });
 });
