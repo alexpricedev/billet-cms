@@ -1,19 +1,44 @@
 import { Layout } from "../../components/layouts";
-import type { PageTypeRecord, SlotPageGroup } from "../../services/content";
+import type {
+  PageTypeRecord,
+  SlotPageGroup,
+  SlotState,
+} from "../../services/content";
 import type { User } from "../../services/users";
 
 export interface DashboardProps {
   user: User;
   navCsrfToken?: string;
   groups: SlotPageGroup[];
+  slotStates?: Map<string, SlotState>;
   pageTypes: PageTypeRecord[];
 }
+
+const formatDate = (date: Date) =>
+  date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+const SlotStateBadge = ({ state }: { state: SlotState }) =>
+  state.kind === "draft" ? (
+    <span className="cms-slot-state cms-slot-state-draft">
+      Draft since {formatDate(state.since)}
+    </span>
+  ) : state.kind === "never" ? (
+    <span className="cms-slot-state cms-slot-state-never">Never published</span>
+  ) : (
+    <span className="cms-slot-state cms-slot-state-live">Live</span>
+  );
 
 /** The CMS home: the pages a site declares, their slots, and its page types. */
 export const Dashboard = ({
   user,
   navCsrfToken,
   groups,
+  slotStates,
   pageTypes,
 }: DashboardProps) => (
   <Layout
@@ -64,6 +89,11 @@ export const Dashboard = ({
                       says it twice. */}
                   {slot.label ? <code>{slot.name}</code> : null}
                   <span className="cms-slot-block">{slot.blockName}</span>
+                  {slotStates?.get(slot.id) && (
+                    <SlotStateBadge
+                      state={slotStates.get(slot.id) as SlotState}
+                    />
+                  )}
                   {slot.removedAt && (
                     <span className="cms-removed">No longer declared</span>
                   )}

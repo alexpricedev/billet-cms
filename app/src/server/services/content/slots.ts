@@ -54,6 +54,55 @@ export const listSlots = async (): Promise<SlotRecord[]> => {
   return rows.map(toSlot);
 };
 
+export type SlotState =
+  | { kind: "live" }
+  | { kind: "draft"; since: Date }
+  | { kind: "never" };
+
+interface SlotStateRow {
+  id: string;
+  published_revision_id: string | null;
+  latest_id: string | null;
+  latest_created_at: Date | null;
+}
+
+/**
+ * Whether each slot's newest edit is live, in one query for the whole list.
+ *
+ * The newest revision is the draft (same ordering as `getLatestRevision`); a
+ * slot with no published revision is "never", whatever drafts it has.
+ */
+export const listSlotStates = async (): Promise<Map<string, SlotState>> => {
+  const rows = (await db`
+    SELECT s.id, s.published_revision_id,
+           latest.id AS latest_id, latest.created_at AS latest_created_at
+    FROM cms_slots s
+    LEFT JOIN LATERAL (
+      SELECT id, created_at
+      FROM cms_revisions
+      WHERE target_type = 'slot' AND target_id = s.id
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    ) latest ON true
+  `) as SlotStateRow[];
+
+  const states = new Map<string, SlotState>();
+  for (const row of rows) {
+    if (row.published_revision_id === null) {
+      states.set(row.id, { kind: "never" });
+    } else if (
+      row.latest_id !== null &&
+      row.latest_id !== row.published_revision_id &&
+      row.latest_created_at
+    ) {
+      states.set(row.id, { kind: "draft", since: row.latest_created_at });
+    } else {
+      states.set(row.id, { kind: "live" });
+    }
+  }
+  return states;
+};
+
 export const getSlotById = async (id: string): Promise<SlotRecord | null> => {
   const rows = (await db`
     SELECT id, name, block_name, page, preview_path, label, help, removed_at,

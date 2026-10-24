@@ -89,4 +89,51 @@ describe("Dashboard controller", () => {
 
     expect(html.match(/about\.intro/g) ?? []).toHaveLength(1);
   });
+
+  const seedRevision = async (
+    slotId: string,
+    createdAt: string,
+  ): Promise<string> => {
+    const rows = (await db`
+      INSERT INTO cms_revisions (id, target_type, target_id, content, created_at)
+      VALUES (gen_random_uuid(), 'slot', ${slotId}, '{}'::jsonb, ${createdAt})
+      RETURNING id
+    `) as { id: string }[];
+    return rows[0].id;
+  };
+
+  test("says whether each slot is live, a draft or never published", async () => {
+    await seedBlockType(db, hero);
+    const liveId = await seedSlot(db, {
+      name: "a.live",
+      blockName: "hero",
+      page: "a",
+    });
+    const draftId = await seedSlot(db, {
+      name: "a.draft",
+      blockName: "hero",
+      page: "a",
+    });
+    const neverId = await seedSlot(db, {
+      name: "a.never",
+      blockName: "hero",
+      page: "a",
+    });
+
+    const liveRev = await seedRevision(liveId, "2026-01-10T09:00:00Z");
+    const published = await seedRevision(draftId, "2026-01-10T09:00:00Z");
+    await seedRevision(draftId, "2026-01-12T09:00:00Z");
+    await seedRevision(neverId, "2026-01-11T09:00:00Z");
+    await db`UPDATE cms_slots SET published_revision_id = ${liveRev} WHERE id = ${liveId}`;
+    await db`UPDATE cms_slots SET published_revision_id = ${published} WHERE id = ${draftId}`;
+
+    const identity = await seedIdentity(db, "editor@example.com");
+    const session = await createAuthenticatedSession(identity.id);
+
+    const html = await (await dashboard.index(get(session))).text();
+
+    expect(html).toContain("cms-slot-state-live");
+    expect(html).toContain("Draft since 12 Jan 2026");
+    expect(html).toContain("Never published");
+  });
 });
