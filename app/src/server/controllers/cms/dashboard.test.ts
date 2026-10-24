@@ -72,6 +72,21 @@ describe("Dashboard controller", () => {
     expect(html).toContain("home.hero");
   });
 
+  test("introduces the list in the editor's words", async () => {
+    const identity = await seedIdentity(db, "editor@example.com");
+    const session = await createAuthenticatedSession(identity.id);
+
+    const html = await (await dashboard.index(get(session))).text();
+    const intro = html.match(/<p class="cms-intro">([\s\S]*?)<\/p>/)?.[1];
+
+    expect(intro).toContain("parts of the site you can edit");
+    expect(intro).toContain("drafts");
+    expect(intro).not.toMatch(/slot|template|deploy/i);
+    for (const label of ["Pages", "Media", "Export"]) {
+      expect(html).toContain(`>${label}</a>`);
+    }
+  });
+
   // An unlabelled slot shows its name as the link; repeating it in the muted
   // <code> beside it says the same thing twice.
   test("shows an unlabelled slot's name once, not twice", async () => {

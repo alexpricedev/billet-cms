@@ -52,8 +52,8 @@ export const Dashboard = ({
   >
     <h1>Content</h1>
     <p className="cms-intro">
-      Slots are declared in the site's templates and published on deploy. Edit
-      one here; changes are saved as drafts.
+      These are the parts of the site you can edit. Your changes stay drafts
+      until you publish them.
     </p>
 
     <p className="cms-new-page">
