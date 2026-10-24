@@ -32,6 +32,28 @@ describe("Layout", () => {
     expect(html).toContain("/assets/main.js");
   });
 
+  test("ships its JSON-LD as a data block", () => {
+    // `application/ld+json` is never executed and CSP does not check it, which
+    // is why `script-src` needs no 'unsafe-inline'. It renders only when
+    // indexing is on and the page is indexable (every CMS page is private, so
+    // the browser smoke tests never see it).
+    const previous = process.env.ALLOW_INDEXING;
+    process.env.ALLOW_INDEXING = "true";
+    const indexable = renderToString(
+      <Layout title="Home" name="home">
+        <p>body</p>
+      </Layout>,
+    );
+    if (previous === undefined) delete process.env.ALLOW_INDEXING;
+    else process.env.ALLOW_INDEXING = previous;
+
+    const match = indexable.match(
+      /<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/,
+    );
+    expect(match).not.toBeNull();
+    expect(() => JSON.parse(match?.[1] ?? "")).not.toThrow();
+  });
+
   test("opens no cross-origin connection", () => {
     expect(html).not.toContain("preconnect");
     expect(html).not.toContain("dns-prefetch");
