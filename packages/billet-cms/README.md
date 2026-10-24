@@ -206,6 +206,10 @@ bun add @alexpricedev/billet-cms
      }),
    ```
 
+   A signed-in user who isn't an editor gets a small 403 page that says who to
+   ask and links back to the site. Pass `renderRefusal: ({ req, homeUrl }) =>
+   Response` to render your own (the status is forced to 403).
+
    And render an **Edit content** link for a signed-in admin with
    `createEditContentLink(sql, { userId })`; it returns `null` when `CMS_URL` is
    unset, so the link simply hides.

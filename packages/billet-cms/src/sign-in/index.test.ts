@@ -92,7 +92,37 @@ describe("handleCmsSignIn", () => {
     );
 
     expect(res.status).toBe(403);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const body = await res.text();
+    expect(body).toContain("You do not have access to the CMS");
+    expect(body).toContain("Ask a site administrator");
+    expect(body).toContain('href="/"');
     expect(inserts).toHaveLength(0);
+  });
+
+  const refusedWith = (renderRefusal: () => Response) =>
+    handleCmsSignIn(request("https://site.example.com/cms/sign-in"), {
+      sql: fakeSql({ identity: false }).sql,
+      cmsUrl: CMS_URL,
+      getUserId: () => "22222222-2222-4222-8222-222222222222",
+      renderRefusal,
+    });
+
+  test("uses a site's own refusal page but keeps the 403", async () => {
+    const res = await refusedWith(
+      () => new Response("custom", { status: 200 }),
+    );
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe("custom");
+  });
+
+  test("falls back to the default page when the refusal hook throws", async () => {
+    const res = await refusedWith(() => {
+      throw new Error("boom");
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("Back to the site");
   });
 
   test("treats a failing user lookup as signed out rather than crashing", async () => {
