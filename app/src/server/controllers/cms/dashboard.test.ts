@@ -1,6 +1,10 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { block, text } from "@alexpricedev/billet-cms/fields";
-import { seedBlockType, seedSlot } from "../../test-utils/content";
+import { block, pageType, text } from "@alexpricedev/billet-cms/fields";
+import {
+  seedBlockType,
+  seedPageType,
+  seedSlot,
+} from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
 
@@ -66,10 +70,10 @@ describe("Dashboard controller", () => {
     const html = await (await dashboard.index(get(session))).text();
 
     expect(html).toContain("Content");
-    expect(html).toContain("home");
-    expect(html).toContain("about");
+    expect(html).toContain("<h2>Home</h2>");
+    expect(html).toContain("<h2>About</h2>");
     expect(html).toContain("Home hero");
-    expect(html).toContain("home.hero");
+    expect(html).not.toContain("home.hero");
   });
 
   test("introduces the list in the editor's words", async () => {
@@ -87,9 +91,28 @@ describe("Dashboard controller", () => {
     }
   });
 
-  // An unlabelled slot shows its name as the link; repeating it in the muted
-  // <code> beside it says the same thing twice.
-  test("shows an unlabelled slot's name once, not twice", async () => {
+  test("explains the page types and points at Pages", async () => {
+    await seedBlockType(db, hero);
+    await seedPageType(
+      db,
+      pageType("landing", { allowedBlocks: [hero], requiredBlocks: [hero] }),
+    );
+
+    const identity = await seedIdentity(db, "editor@example.com");
+    const session = await createAuthenticatedSession(identity.id);
+
+    const html = await (await dashboard.index(get(session))).text();
+    const section = html.slice(html.indexOf("<h2>Page types</h2>"));
+
+    expect(section).toContain("starts as one of these");
+    expect(section).toContain('href="/cms/pages"');
+    expect(section).toContain("Landing");
+    expect(section).not.toContain("<code>");
+  });
+
+  // The developer's key stays out of the list; an unlabelled slot reads as
+  // its key in words.
+  test("shows an unlabelled slot in words, not as its key", async () => {
     await seedBlockType(db, hero);
     await seedSlot(db, {
       name: "about.intro",
@@ -102,7 +125,8 @@ describe("Dashboard controller", () => {
 
     const html = await (await dashboard.index(get(session))).text();
 
-    expect(html.match(/about\.intro/g) ?? []).toHaveLength(1);
+    expect(html).not.toContain("about.intro");
+    expect(html.match(/About intro/g) ?? []).toHaveLength(1);
   });
 
   const seedRevision = async (
