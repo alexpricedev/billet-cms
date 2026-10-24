@@ -19,3 +19,15 @@ export const siteSignInUrl = (): string | null => {
     return null;
   }
 };
+
+/** The site's origin, for a link back to it, or null when unset or not a URL. */
+export const siteOrigin = (): string | null => {
+  const configured = process.env.SITE_APP_URL?.trim();
+  if (!configured) return null;
+
+  try {
+    return new URL(configured).origin;
+  } catch {
+    return null;
+  }
+};

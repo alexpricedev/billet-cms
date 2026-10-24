@@ -97,13 +97,14 @@ const openHandoff = async (token: string) => {
     { method: "GET" },
   );
   const res = await handoff.index(req);
-  const html = res.status === 200 ? await res.text() : "";
+  const html = res.status === 200 || res.status === 410 ? await res.text() : "";
   return {
     req,
     res,
     html,
     csrfToken: html.match(/name="_csrf" value="([^"]+)"/)?.[1],
-    sessionId: cookieValue(req, "cms_session"),
+    // A dead link renders the 410 page, which starts no session.
+    sessionId: res.status === 200 ? cookieValue(req, "cms_session") : "",
   };
 };
 
@@ -299,14 +300,10 @@ for (const mode of MODES) {
       expect(sessions).toHaveLength(1);
       expect(sessions[0].user_id).toBe(admin.id);
 
-      // The token is spent, so a second click signs nobody in.
+      // The token is spent, so a second click lands on the "used" page.
       const again = await openHandoff(token);
-      const second = await submitHandoff({
-        token,
-        csrfToken: again.csrfToken,
-        sessionId: again.sessionId,
-      });
-      expect(second.res.headers.get("location")).toBe("/sign-in");
+      expect(again.res.status).toBe(410);
+      expect(again.html).toContain("already been used or has expired");
     });
 
     test("signed out on the site: to the site's login, then back into the CMS", async () => {
@@ -357,11 +354,11 @@ for (const mode of MODES) {
         WHERE user_id = ${admin.id}
       `;
 
-      const { res } = await spendHandoff(pluginResponse);
-
-      // The expired token signs nobody in: back to sign-in, no session started.
-      expect(res.status).toBe(303);
-      expect(res.headers.get("location")).toBe("/sign-in");
+      const opened = await openHandoff(
+        tokenFrom(pluginResponse.headers.get("location") as string),
+      );
+      expect(opened.res.status).toBe(410);
+      expect(opened.html).toContain("already been used or has expired");
       expect(
         await connection`
           SELECT user_id FROM cms_sessions WHERE user_id IS NOT NULL
@@ -415,7 +412,8 @@ for (const mode of MODES) {
       });
 
       // The CMS re-reads the identity when it spends the token, so it refuses.
-      expect(res.headers.get("location")).toBe("/sign-in");
+      expect(res.status).toBe(410);
+      expect(await res.text()).toContain("can no longer sign in");
       expect(
         await connection`
           SELECT user_id FROM cms_sessions WHERE user_id IS NOT NULL

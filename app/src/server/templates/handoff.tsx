@@ -27,7 +27,8 @@ export const Handoff = ({ token, csrfToken }: HandoffProps) => {
       description="Continue to Billet CMS to edit the site's content."
       canonicalPath={HANDOFF_PATH}
       heading="Sign in to Billet CMS"
-      subtitle="You'll be signed in to Billet CMS"
+      subtitle="Confirm to open the editor"
+      footer={null}
     >
       {!csrfToken ? (
         <Flash type="error">
@@ -48,3 +49,38 @@ export const Handoff = ({ token, csrfToken }: HandoffProps) => {
     </AuthPage>
   );
 };
+
+interface HandoffGoneProps {
+  siteUrl: string | null;
+}
+
+const BackToSite = ({ siteUrl }: HandoffGoneProps) =>
+  siteUrl ? <a href={siteUrl}>Back to the site</a> : null;
+
+/**
+ * A handoff link that was already used, has timed out or never existed. The
+ * three read the same to the visitor: the way forward is a fresh Edit content
+ * link from the site.
+ */
+export const HandoffExpired = ({ siteUrl }: HandoffGoneProps) => (
+  <AuthPage
+    title="Link expired - Billet CMS"
+    description="This Edit content link can't be used again."
+    canonicalPath={HANDOFF_PATH}
+    heading="This link has already been used or has expired"
+    subtitle="Go back to the site and tap Edit content again to get a new one."
+    footer={<BackToSite siteUrl={siteUrl} />}
+  />
+);
+
+/** The link was fine but the site no longer lists the person as an editor. */
+export const HandoffNoAccount = ({ siteUrl }: HandoffGoneProps) => (
+  <AuthPage
+    title="Can't sign in - Billet CMS"
+    description="This account can no longer sign in to the CMS."
+    canonicalPath={HANDOFF_PATH}
+    heading="This account can no longer sign in"
+    subtitle="Ask a site admin for access to the editor."
+    footer={<BackToSite siteUrl={siteUrl} />}
+  />
+);
