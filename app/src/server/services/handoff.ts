@@ -14,7 +14,7 @@ import { db } from "./database";
  */
 export type HandoffResult =
   | { success: true; user: User; sessionId: string }
-  | { success: false; error: string };
+  | { success: false; error: string; reason: "invalid" | "no-account" };
 
 /**
  * Claim a handoff token, returning the identity id it was minted for or null
@@ -35,6 +35,27 @@ export const consumeHandoffToken = async (
   return results.length > 0 ? (results[0].user_id as string) : null;
 };
 
+export type HandoffState = "valid" | "spent" | "expired" | "unknown";
+
+/**
+ * Read a handoff token's state without spending it, so the confirm page can
+ * say a link is dead before the person taps Continue. Read-only: a GET that
+ * wrote would let a link scanner burn the token.
+ */
+export const peekHandoffToken = async (
+  rawToken: string,
+): Promise<HandoffState> => {
+  const rows = await db`
+    SELECT used_at IS NOT NULL AS spent, expires_at <= CURRENT_TIMESTAMP AS expired
+    FROM cms_handoff_tokens
+    WHERE token_hash = ${hashHandoffToken(rawToken)}
+  `;
+
+  if (rows.length === 0) return "unknown";
+  if (rows[0].spent) return "spent";
+  return rows[0].expired ? "expired" : "valid";
+};
+
 /**
  * Spend a handoff token and start the session it was minted for.
  *
@@ -49,13 +70,21 @@ export const redeemHandoffToken = async (
   const userId = await consumeHandoffToken(rawToken);
 
   if (!userId) {
-    return { success: false, error: "Invalid or expired link" };
+    return {
+      success: false,
+      error: "Invalid or expired link",
+      reason: "invalid",
+    };
   }
 
   const user = await findUserById(userId);
 
   if (!user) {
-    return { success: false, error: "This account can no longer sign in" };
+    return {
+      success: false,
+      error: "This account can no longer sign in",
+      reason: "no-account",
+    };
   }
 
   const sessionId = await regenerateSession(userId, previousSessionId);

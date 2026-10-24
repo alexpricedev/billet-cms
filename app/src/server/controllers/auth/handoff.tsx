@@ -1,15 +1,29 @@
 import type { BunRequest } from "bun";
+import type { JSX } from "preact";
 import { getSessionContext } from "../../middleware/auth";
 import { csrfProtection } from "../../middleware/csrf";
 import { rateLimit } from "../../middleware/rate-limit";
 import { createCsrfToken } from "../../services/csrf";
-import { redeemHandoffToken } from "../../services/handoff";
+import { peekHandoffToken, redeemHandoffToken } from "../../services/handoff";
 import {
   getSessionIdFromRequest,
   setSessionCookie,
 } from "../../services/sessions";
-import { HANDOFF_PATH, Handoff } from "../../templates/handoff";
+import { siteOrigin } from "../../services/sign-in";
+import {
+  HANDOFF_PATH,
+  Handoff,
+  HandoffExpired,
+  HandoffNoAccount,
+} from "../../templates/handoff";
 import { redirect, render } from "../../utils/response";
+
+// 410, not a redirect: the link is gone for good, and the page says how to get
+// another rather than dropping the person on the site's login form.
+const gone = (page: JSX.Element): Response => {
+  const res = render(page, { "Cache-Control": "no-store" });
+  return new Response(res.body, { status: 410, headers: res.headers });
+};
 
 /**
  * Where the site's Edit content link and CMS sign-in both land, in two halves:
@@ -31,6 +45,10 @@ export const handoff = {
     // session. The token simply expires unspent.
     if (ctx.isAuthenticated) {
       return redirect("/cms");
+    }
+
+    if ((await peekHandoffToken(token)) !== "valid") {
+      return gone(<HandoffExpired siteUrl={siteOrigin()} />);
     }
 
     // The form's CSRF token is cut from the session's secret, so that session
@@ -75,9 +93,15 @@ export const handoff = {
       );
 
       if (!result.success) {
-        // An expired or already-spent token: start a fresh sign-in rather than
-        // a dead end. The site mints a new one and comes back to /handoff.
-        return redirect("/sign-in");
+        // Spent, expired or lost to a second click: say so, with the way to a
+        // new link. Someone the site has since removed gets no retry advice.
+        return gone(
+          result.reason === "no-account" ? (
+            <HandoffNoAccount siteUrl={siteOrigin()} />
+          ) : (
+            <HandoffExpired siteUrl={siteOrigin()} />
+          ),
+        );
       }
 
       setSessionCookie(req, result.sessionId);

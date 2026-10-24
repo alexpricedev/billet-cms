@@ -368,7 +368,7 @@ describe("browser smoke", () => {
     // spends the token. Wait on the subtitle: the site's own page carries an
     // "Edit content" link, so a shared word alone could match before the hop.
     const confirm = await until(bodyText, (text) =>
-      text.includes("You'll be signed in to Billet CMS"),
+      text.includes("Confirm to open the editor"),
     );
     expect(confirm).toContain("Continue to Billet CMS");
 
@@ -504,7 +504,7 @@ describe("browser smoke", () => {
     expect(handoffUrl).toContain(`${CMS_BASE}/handoff?token=`);
 
     const confirm = await until(bodyText, (text) =>
-      text.includes("You'll be signed in to Billet CMS"),
+      text.includes("Confirm to open the editor"),
     );
     expect(confirm).toContain("Continue to Billet CMS");
 

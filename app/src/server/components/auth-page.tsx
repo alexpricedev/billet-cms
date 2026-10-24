@@ -8,7 +8,7 @@ interface AuthPageProps {
   canonicalPath: string;
   heading: string;
   subtitle: string;
-  children: ComponentChildren;
+  children?: ComponentChildren;
   footer?: ComponentChildren;
 }
 
@@ -51,9 +51,7 @@ export const AuthPage = ({
           {children}
         </div>
 
-        <div className="login-footer">
-          {footer ?? <a href="/cms">Back to Billet CMS</a>}
-        </div>
+        {footer ? <div className="login-footer">{footer}</div> : null}
       </div>
     </main>
   </BaseLayout>

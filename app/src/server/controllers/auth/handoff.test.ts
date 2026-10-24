@@ -44,7 +44,7 @@ const open = async (token?: string) => {
     { method: "GET" },
   );
   const res = await handoff.index(req);
-  const html = res.status === 200 ? await res.text() : "";
+  const html = res.status === 200 || res.status === 410 ? await res.text() : "";
   return {
     req,
     res,
@@ -96,14 +96,43 @@ describe("Handoff Controller", () => {
       expect(html).toContain("Sign in to Billet CMS");
       expect(html).toContain("Continue to Billet CMS");
       expect(html).toContain(`name="token" value="${token}"`);
-      // The footer link now comes from AuthPage's default rather than a prop
-      // this template passes, so assert it still renders a way back into the
-      // CMS.
-      expect(html).toContain('href="/cms"');
-      expect(html).toContain("Back to Billet CMS");
+      expect(html).toContain("Confirm to open the editor");
+      expect(html).not.toContain("Back to Billet CMS");
 
       const rows = await db`SELECT used_at FROM cms_handoff_tokens`;
       expect(rows[0].used_at).toBeNull();
+    });
+
+    test("says a spent link was used, without a form", async () => {
+      const token = await mintTokenFor("admin@example.com");
+      await db`UPDATE cms_handoff_tokens SET used_at = CURRENT_TIMESTAMP`;
+
+      const { res, html } = await open(token);
+
+      expect(res.status).toBe(410);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(html).toContain("already been used or has expired");
+      expect(html).toContain("tap Edit content again");
+      expect(html).not.toContain("<form");
+    });
+
+    test("says an expired link has expired", async () => {
+      const token = await mintTokenFor("admin@example.com");
+      await db`UPDATE cms_handoff_tokens SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second'`;
+
+      const { res, html } = await open(token);
+
+      expect(res.status).toBe(410);
+      expect(html).toContain("already been used or has expired");
+      const rows = await db`SELECT used_at FROM cms_handoff_tokens`;
+      expect(rows[0].used_at).toBeNull();
+    });
+
+    test("treats an unknown token like an expired one", async () => {
+      const { res, html } = await open("not-a-real-token");
+
+      expect(res.status).toBe(410);
+      expect(html).toContain("already been used or has expired");
     });
 
     test("redirects to sign-in when no token is given", async () => {
@@ -163,16 +192,10 @@ describe("Handoff Controller", () => {
         sessionId: cookieValue(firstOpen.req, "cms_session"),
       });
 
-      // A second click opens the page again, with its own fresh guest session.
+      // A second click lands on the "used" page rather than a form.
       const secondOpen = await open(token);
-      const second = await submit({
-        token,
-        csrfToken: secondOpen.csrfToken,
-        sessionId: cookieValue(secondOpen.req, "cms_session"),
-      });
-
-      expect(second.res.status).toBe(303);
-      expect(second.res.headers.get("location")).toBe("/sign-in");
+      expect(secondOpen.res.status).toBe(410);
+      expect(secondOpen.html).toContain("already been used or has expired");
     });
 
     // Two clicks arriving together must produce one session, not two: the
@@ -198,15 +221,9 @@ describe("Handoff Controller", () => {
         }),
       ]);
 
-      const locations = [first.res, second.res].map((res) =>
-        res.headers.get("location"),
-      );
-      expect(locations.filter((location) => location === "/cms")).toHaveLength(
-        1,
-      );
-      expect(
-        locations.filter((location) => location === "/sign-in"),
-      ).toHaveLength(1);
+      const statuses = [first.res, second.res].map((res) => res.status);
+      expect(statuses.filter((status) => status === 303)).toHaveLength(1);
+      expect(statuses.filter((status) => status === 410)).toHaveLength(1);
 
       const sessions = await db`
         SELECT user_id FROM cms_sessions WHERE session_type = 'authenticated'
