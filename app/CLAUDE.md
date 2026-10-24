@@ -217,7 +217,7 @@ not suit a credential: reading one verbatim would need a reader of its own inste
 Every response gets its headers from `secureRoutes` / `handleGuarded` in
 `src/server/utils/security-headers.ts`. Controllers set only content-specific headers.
 
-The CSP script allowlist is `'self' 'unsafe-inline'` — first-party code only. There is no
+The CSP script allowlist is `'self'` — first-party code only, no inline scripts (the JSON-LD block is a data block CSP doesn't check). There is no
 third-party `<script>` any more (the Lottie player and its unpkg allowlist were removed), so
 adding an external source is a deliberate decision rather than a follow-up: land the CSP entry, an
 SRI `integrity` hash and a `preconnect` in `layouts.tsx` together — otherwise it is silently

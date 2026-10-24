@@ -5,7 +5,7 @@ Billet ships a defensive HTTP baseline: a single set of security headers on
 and a `/.well-known/security.txt`. Cookies and CSRF are covered separately in
 the root [`SECURITY.md`](../SECURITY.md). The CMS loads no third-party script:
 every `<script>` it renders is first-party, so `script-src` allows `'self'` and
-nothing else but the inline JSON-LD allowance below.
+nothing else.
 
 This runbook covers what's applied automatically, the one required config step,
 how to extend each piece, the deploy- and DNS-layer steps a host can't do for
@@ -80,7 +80,7 @@ The policy is enforcing and host-allowlist based. Current directives:
 ```
 default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none';
 img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline';
-script-src 'self' 'unsafe-inline';
+script-src 'self';
 connect-src 'self'; upgrade-insecure-requests
 ```
 
@@ -110,14 +110,12 @@ API from a new origin, add that origin to the matching directive in
 Forget one and the browser blocks the resource with a `Refused to load…` console
 error. Test in a real browser after any change (see §6).
 
-**The `'unsafe-inline'` tradeoff.** `script-src` includes `'unsafe-inline'`
-because the page ships inline JSON-LD in
-[`layouts.tsx`](../src/server/components/layouts.tsx). That weakens CSP's XSS
-protection. The hardening path (a follow-up, not done here) is nonce +
-`'strict-dynamic'`: generate a per-request nonce, stamp it on every inline and
-first-party `<script>`, add `'nonce-…' 'strict-dynamic'` to `script-src`, and
-drop `'unsafe-inline'`. Every script is first-party now, so there is no CDN
-script left to allow first.
+**No `'unsafe-inline'` in `script-src`.** The one inline `<script>` is the
+JSON-LD block in [`layouts.tsx`](../src/server/components/layouts.tsx). Its type
+is `application/ld+json`, a data block the browser never executes and CSP does
+not check, so it needs no allowance. Any new inline *executable* script or
+`on*` handler is blocked: put the code in an external module file instead.
+(`style-src` still carries `'unsafe-inline'`.)
 
 **No `'unsafe-eval'`, by design.** The client's reactive layer
 (`src/client/reactive/`) binds state to markup through `data-*` attributes that

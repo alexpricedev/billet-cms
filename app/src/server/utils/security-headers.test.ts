@@ -51,9 +51,24 @@ describe("Content-Security-Policy script-src", () => {
         "Content-Security-Policy",
       ) ?? "";
 
-    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
+    expect(csp.split("; ")).toContain("script-src 'self'");
     expect(csp).not.toContain("unpkg.com");
     expect(csp).not.toContain("https://");
+  });
+
+  // The JSON-LD block is a data block CSP does not check, so nothing needs
+  // inline script execution. `style-src` keeps its own 'unsafe-inline'.
+  test("does not allow inline scripts", () => {
+    const csp =
+      withSecurityHeaders(new Response("ok")).headers.get(
+        "Content-Security-Policy",
+      ) ?? "";
+    const scriptSrc = csp
+      .split("; ")
+      .find((directive) => directive.startsWith("script-src "));
+
+    expect(scriptSrc).toBeDefined();
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 });
 

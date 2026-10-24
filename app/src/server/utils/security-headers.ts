@@ -22,14 +22,13 @@ const isProduction = process.env.NODE_ENV === "production";
 const mediaImgOrigin = (): string | null =>
   httpOrigin(process.env.MEDIA_PUBLIC_BASE_URL);
 
-// Content Security Policy. Enforcing, but deliberately host-allowlist based
-// rather than nonce + 'strict-dynamic': the page ships inline JSON-LD, and that
-// inline block is what forces 'unsafe-inline' in `script-src`. The real wins
-// this still buys: frame-ancestors (clickjacking), object-src/base-uri lockdown,
-// a tight source allowlist, and upgrade-insecure-requests. Every script is
-// first-party now that the Lottie player and its unpkg allowlist are gone, so
-// the remaining hardening to nonce + 'strict-dynamic' (which lets us drop
-// 'unsafe-inline') is the documented follow-up.
+// Content Security Policy. Enforcing and host-allowlist based: `script-src` is
+// `'self'` alone. The page's one inline script is the JSON-LD block, a
+// `type="application/ld+json"` data block the browser never executes and CSP
+// does not check, so it needs no `'unsafe-inline'`. Every executable script is
+// an external first-party module, and a new inline one is blocked. The policy
+// also buys frame-ancestors (clickjacking), object-src/base-uri lockdown, a
+// tight source allowlist, and upgrade-insecure-requests.
 export const contentSecurityPolicy = (): string => {
   const mediaOrigin = mediaImgOrigin();
   return [
@@ -44,7 +43,7 @@ export const contentSecurityPolicy = (): string => {
       : "img-src 'self' data:",
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
     "connect-src 'self'",
     // Production only, like HSTS below: WebKit applies the upgrade to
     // http://localhost subresources too (Chrome exempts localhost), so in dev it
