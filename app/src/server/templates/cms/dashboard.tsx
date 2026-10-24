@@ -33,6 +33,12 @@ const SlotStateBadge = ({ state }: { state: SlotState }) =>
     <span className="cms-slot-state cms-slot-state-live">Live</span>
   );
 
+/** A developer's key in an editor's words: `footer.cta` reads "Footer cta". */
+const humanise = (key: string) => {
+  const words = key.replace(/[._-]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 /** The CMS home: the pages a site declares, their slots, and its page types. */
 export const Dashboard = ({
   user,
@@ -76,18 +82,14 @@ export const Dashboard = ({
     ) : (
       groups.map((group) => (
         <section className="cms-page" key={group.page}>
-          <h2>{group.page}</h2>
+          <h2>{humanise(group.page)}</h2>
           <ul className="cms-slot-list">
             {group.slots.map((slot) => (
               <li key={slot.id}>
                 <a className="cms-slot-link" href={`/cms/slots/${slot.id}`}>
-                  {slot.label ?? slot.name}
+                  {slot.label ?? humanise(slot.name)}
                 </a>
                 <span className="cms-slot-meta">
-                  {/* Only when it adds something: an unlabelled slot already
-                      shows its name as the link, so repeating it as <code>
-                      says it twice. */}
-                  {slot.label ? <code>{slot.name}</code> : null}
                   <span className="cms-slot-block">{slot.blockName}</span>
                   {slotStates?.get(slot.id) && (
                     <SlotStateBadge
@@ -108,10 +110,14 @@ export const Dashboard = ({
     {pageTypes.length > 0 && (
       <section className="cms-page">
         <h2>Page types</h2>
+        <p className="cms-intro">
+          Each page you add in <a href="/cms/pages">Pages</a> starts as one of
+          these.
+        </p>
         <ul className="cms-page-type-list">
           {pageTypes.map((pageType) => (
             <li key={pageType.id}>
-              {pageType.label ?? pageType.name} <code>{pageType.name}</code>
+              {pageType.label ?? humanise(pageType.name)}
               {pageType.removedAt && (
                 <span className="cms-removed"> (no longer declared)</span>
               )}
