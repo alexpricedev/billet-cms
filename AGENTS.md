@@ -21,6 +21,8 @@ repo. This file is only the invariants.
   root, so `.github/` here is what runs.
 - Never connect to a database other than the one named in `.env` /
   `.env.test`.
+- Reviewers: read `REVIEW.md` first — what failure looks like here, the nit cap,
+  paths to skip.
 
 ## Invariants
 
