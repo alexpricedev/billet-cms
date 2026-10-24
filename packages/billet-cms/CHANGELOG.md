@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+The refusal a signed-in non-editor gets from `handleCmsSignIn` is now a small
+HTML page (same sentence, who to ask, a Back to the site link), still a 403
+with no token written. A new optional `renderRefusal` option lets the site
+render its own; its status is forced to 403.
+
+**Nothing for a site to change.** The 403 body changes from plain text to HTML.
+
 ## 0.1.1
 
 The first release published by CI, through npm trusted publishing, so it

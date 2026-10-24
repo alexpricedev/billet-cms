@@ -45,7 +45,73 @@ export interface CmsSignInOptions {
    * visitor returns to. Defaults to `CMS_SIGN_IN_PATH`.
    */
   path?: string;
+  /**
+   * Render the page a signed-in non-editor sees instead of the default one.
+   * The status is always forced to 403; a hook that throws falls back to the
+   * default page.
+   */
+  renderRefusal?: (ctx: {
+    req: Request;
+    homeUrl: string;
+  }) => Response | Promise<Response>;
 }
+
+const REFUSAL_MESSAGE = "You do not have access to the CMS";
+
+/** The default refusal: the same words, who to ask, and a way back to the site. */
+export const renderCmsRefusal = (homeUrl = "/"): Response => {
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${REFUSAL_MESSAGE}</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;box-sizing:border-box;font:16px/1.5 system-ui,sans-serif;color:#1a1a1a;background:#fafafa}
+main{max-width:28rem}
+h1{font-size:1.5rem;line-height:1.25;margin:0 0 .75rem}
+p{margin:0 0 1.5rem}
+a{display:inline-block;padding:.625rem 1rem;border-radius:.375rem;background:#1a1a1a;color:#fff;text-decoration:none}
+a:focus-visible{outline:2px solid #1a1a1a;outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<h1>${REFUSAL_MESSAGE}</h1>
+<p>You are signed in to the site, but your account is not set up to edit content. Ask a site administrator to give you access.</p>
+<a href="${homeUrl}">Back to the site</a>
+</main>
+</body>
+</html>
+`;
+  return new Response(html, {
+    status: 403,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Robots-Tag": "noindex",
+    },
+  });
+};
+
+const refuse = async (
+  req: Request,
+  options: CmsSignInOptions,
+): Promise<Response> => {
+  if (options.renderRefusal) {
+    try {
+      const custom = await options.renderRefusal({ req, homeUrl: "/" });
+      return new Response(custom.body, {
+        status: 403,
+        headers: custom.headers,
+      });
+    } catch {
+      // Fall through to the default page.
+    }
+  }
+  return renderCmsRefusal();
+};
 
 const redirect = (location: string): Response =>
   new Response("", { status: 303, headers: { Location: location } });
@@ -98,7 +164,7 @@ export const handleCmsSignIn = async (
   // A site user who isn't in the view: a signed-in non-admin, or an account the
   // site's own view keeps out. Refused with a 403, and no token is written.
   if (!identity) {
-    return new Response("You do not have access to the CMS", { status: 403 });
+    return refuse(req, options);
   }
 
   const link = await createEditContentLink(options.sql, {
