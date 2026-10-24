@@ -329,7 +329,11 @@ export const FieldControl = ({
     controlId ? `${controlId}-${suffix}` : undefined;
   const helpId = idFor("help");
   const errorId = idFor("error");
-  const described = describedBy(helpId, errorId);
+  // Only ids that render: FieldHelp needs `field.help`, FieldErrors needs errors.
+  const described = describedBy(
+    field.help ? helpId : undefined,
+    invalid ? errorId : undefined,
+  );
 
   switch (field.kind) {
     case "text":
@@ -476,7 +480,6 @@ export const FieldControl = ({
             type="text"
             id={idFor("id")}
             data-image-id
-            placeholder="Media id"
             aria-label={controlId ? undefined : "Media id"}
             value={asString(image.mediaId)}
             aria-invalid={invalid ? "true" : undefined}
@@ -487,7 +490,6 @@ export const FieldControl = ({
             type="text"
             id={idFor("alt")}
             data-image-alt
-            placeholder="Alt text"
             aria-label={controlId ? undefined : "Alt text"}
             value={asString(image.alt)}
             maxLength={MAX_ALT_LENGTH}

@@ -210,7 +210,7 @@ select {
   transition: border-color 150ms ease;
 
   &::placeholder {
-    color: var(--color-text-quaternary);
+    color: var(--color-text-tertiary);
   }
 
   &:focus-visible {
