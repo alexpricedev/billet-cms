@@ -81,6 +81,8 @@ export interface CreateRevisionInput {
   targetId: string;
   content: Record<string, unknown>;
   createdBy: string | null;
+  /** The revision a restore copied, when this row is a restore. */
+  restoredFrom?: string | null;
 }
 
 export const createRevision = async (
@@ -88,13 +90,14 @@ export const createRevision = async (
   sql: SQL = db,
 ): Promise<RevisionRecord> => {
   const rows = (await sql`
-    INSERT INTO cms_revisions (id, target_type, target_id, content, created_by)
+    INSERT INTO cms_revisions (id, target_type, target_id, content, created_by, restored_from)
     VALUES (
       ${randomUUID()},
       ${input.targetType},
       ${input.targetId},
       ${jsonbValue(input.content)},
-      ${input.createdBy}
+      ${input.createdBy},
+      ${input.restoredFrom ?? null}
     )
     RETURNING id, target_type, target_id, content, created_by, created_at
   `) as RevisionRow[];

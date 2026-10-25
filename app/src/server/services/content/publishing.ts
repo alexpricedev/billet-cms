@@ -219,6 +219,8 @@ export interface SlotRevisionSummary {
   isPublished: boolean;
   /** The newest revision, which the editor's form would load as the draft. */
   isLatest: boolean;
+  /** When the revision this one restored was saved; null if not a restore. */
+  restoredFromAt: Date | null;
 }
 
 /** How many revisions one history page shows. */
@@ -244,9 +246,11 @@ export const listSlotHistory = async (
 ): Promise<SlotHistoryPage> => {
   const before = options.before ?? null;
   const rows = (await db`
-    SELECT r.id, r.created_at, i.email AS author_email
+    SELECT r.id, r.created_at, i.email AS author_email,
+      src.created_at AS restored_from_at
     FROM cms_revisions r
     LEFT JOIN cms_identities i ON i.id = r.created_by
+    LEFT JOIN cms_revisions src ON src.id = r.restored_from
     WHERE r.target_type = 'slot' AND r.target_id = ${slot.id}
       AND (
         ${before}::uuid IS NULL
@@ -259,7 +263,12 @@ export const listSlotHistory = async (
       )
     ORDER BY r.created_at DESC, r.id DESC
     LIMIT ${HISTORY_PAGE_SIZE + 1}
-  `) as { id: string; created_at: Date; author_email: string | null }[];
+  `) as {
+    id: string;
+    created_at: Date;
+    author_email: string | null;
+    restored_from_at: Date | null;
+  }[];
 
   // One extra row is fetched only to answer "is there an older page?"; it is not
   // shown. The page itself is the newest `HISTORY_PAGE_SIZE`.
@@ -274,6 +283,7 @@ export const listSlotHistory = async (
       isPublished: row.id === slot.publishedRevisionId,
       // Only the first page holds the newest revision.
       isLatest: before === null && index === 0,
+      restoredFromAt: row.restored_from_at,
     })),
     hasOlder,
   };
@@ -315,6 +325,7 @@ export const restoreSlotRevision = async (
     targetId: slot.id,
     content: source.content,
     createdBy: input.actorId,
+    restoredFrom: source.id,
   });
 
   return { ok: true, revision };

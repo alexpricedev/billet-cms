@@ -13,3 +13,15 @@ export const formatWhen = (date: Date): string =>
     timeStyle: "short",
     timeZone: "UTC",
   });
+
+/** A date alone, in the same en-GB UTC style: "11 Jan 2026". */
+export const formatDay = (date: Date): string =>
+  date.toLocaleDateString("en-GB", { dateStyle: "medium", timeZone: "UTC" });
+
+/** A date without the year, for button labels: "11 Jan". */
+export const formatDayShort = (date: Date): string =>
+  date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });

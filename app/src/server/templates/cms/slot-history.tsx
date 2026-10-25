@@ -1,7 +1,7 @@
 import { Layout } from "../../components/layouts";
 import type { SlotRecord, SlotRevisionSummary } from "../../services/content";
 import type { User } from "../../services/users";
-import { formatWhen } from "../../utils/format";
+import { formatDay, formatDayShort, formatWhen } from "../../utils/format";
 
 export interface SlotHistoryProps {
   user: User;
@@ -80,6 +80,11 @@ export const SlotHistory = ({
                   Published
                 </span>
               )}
+              {revision.restoredFromAt && (
+                <span className="cms-history-badge cms-history-restored">
+                  Restored from {formatDay(revision.restoredFromAt)}
+                </span>
+              )}
               {revision.isLatest && (
                 <span className="cms-history-badge cms-history-draft">
                   Current draft
@@ -94,8 +99,12 @@ export const SlotHistory = ({
               >
                 <input type="hidden" name="_csrf" value={restoreCsrfToken} />
                 <input type="hidden" name="revision" value={revision.id} />
-                <button type="submit" className="cms-restore-button">
-                  Restore as draft
+                <button
+                  type="submit"
+                  className="cms-restore-button"
+                  aria-label={`Restore the ${formatDayShort(revision.createdAt)} version by ${revision.authorEmail ?? "an unknown author"} as draft`}
+                >
+                  Restore the {formatDayShort(revision.createdAt)} version
                 </button>
               </form>
             )}

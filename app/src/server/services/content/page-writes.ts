@@ -602,18 +602,27 @@ export interface PageRevisionSummary {
   authorEmail: string | null;
   isPublished: boolean;
   isLatest: boolean;
+  /** When the revision this one restored was saved; null if not a restore. */
+  restoredFromAt: Date | null;
 }
 
 export const listPageHistory = async (
   page: PageRecord,
 ): Promise<PageRevisionSummary[]> => {
   const rows = (await db`
-    SELECT r.id, r.created_at, i.email AS author_email
+    SELECT r.id, r.created_at, i.email AS author_email,
+      src.created_at AS restored_from_at
     FROM cms_revisions r
     LEFT JOIN cms_identities i ON i.id = r.created_by
+    LEFT JOIN cms_revisions src ON src.id = r.restored_from
     WHERE r.target_type = 'page' AND r.target_id = ${page.id}
     ORDER BY r.created_at DESC, r.id DESC
-  `) as { id: string; created_at: Date; author_email: string | null }[];
+  `) as {
+    id: string;
+    created_at: Date;
+    author_email: string | null;
+    restored_from_at: Date | null;
+  }[];
 
   return rows.map((row, index) => ({
     id: row.id,
@@ -621,6 +630,7 @@ export const listPageHistory = async (
     authorEmail: row.author_email,
     isPublished: row.id === page.publishedRevisionId,
     isLatest: index === 0,
+    restoredFromAt: row.restored_from_at,
   }));
 };
 
@@ -652,6 +662,7 @@ export const restorePageRevision = async (
     targetId: page.id,
     content: source.content,
     createdBy: input.actorId,
+    restoredFrom: source.id,
   });
 
   return { ok: true, revision };
