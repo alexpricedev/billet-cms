@@ -283,6 +283,25 @@ describe("Slot form controller", () => {
 
     // The publish form posts the revision it rendered, so it must name the
     // real newest revision rather than whatever base the last POST carried.
+    test("asks before publishing, and Save draft is not gated", async () => {
+      const first = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!first.ok) throw new Error("save failed");
+
+      const html = await (await slotForm.index(get())).text();
+      expect(html).toContain(
+        'data-confirm="The site picks it up within seconds."',
+      );
+      expect(html).toMatch(/data-confirm-title="Publish '[^"]+'\?"/);
+      expect(html).toContain('data-confirm-label="Publish"');
+      expect(html).toContain('data-confirm-danger="false"');
+      expect(html.match(/data-confirm=/g)).toHaveLength(1);
+    });
+
     test("points the publish form at the newest revision", async () => {
       const first = await saveSlotDraft({
         slotId,

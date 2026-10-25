@@ -16,6 +16,7 @@ import {
   getRevisionById,
   listBlockTypes,
   listPageOptions,
+  listPageRedirects,
   listPages,
   listPageTypes,
   listRedirects,
@@ -178,13 +179,15 @@ export const renderPageForm = async (
   const sessionId = ctx.sessionId as string;
   const user = ctx.user as NonNullable<SessionContext["user"]>;
 
-  const [blockTypes, pageTypes, pages, picker, latest] = await Promise.all([
-    listBlockTypes(),
-    listPageTypes(),
-    listPageOptions(),
-    listPickerMedia(content),
-    getLatestRevision("page", page.id),
-  ]);
+  const [blockTypes, pageTypes, pages, picker, latest, oldUrls] =
+    await Promise.all([
+      listBlockTypes(),
+      listPageTypes(),
+      listPageOptions(),
+      listPickerMedia(content),
+      getLatestRevision("page", page.id),
+      page.publishedRevisionId ? listPageRedirects(page.id) : [],
+    ]);
 
   const navCsrfToken = await createCsrfToken(sessionId, "POST", "/auth/logout");
 
@@ -239,6 +242,7 @@ export const renderPageForm = async (
       removed={extras.removed ?? []}
       latestRevisionId={latest?.id ?? null}
       publishedRevisionId={page.publishedRevisionId}
+      oldUrls={oldUrls}
       pages={pages}
       media={picker.media}
       pickerCapped={picker.capped}

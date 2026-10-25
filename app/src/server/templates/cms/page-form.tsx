@@ -45,6 +45,8 @@ export interface PageFormProps {
   latestRevisionId: string | null;
   /** The revision the site is currently rendering, when there is one. */
   publishedRevisionId: string | null;
+  /** Old paths that redirect to this page, so Publish can say so. */
+  oldUrls?: string[];
   pages: PageOption[];
   /** The uploads an `image` field's picker offers, rendered once for the form. */
   media: MediaOption[];
@@ -181,6 +183,7 @@ export const PageForm = ({
   removed,
   latestRevisionId,
   publishedRevisionId,
+  oldUrls,
   pages,
   media,
   pickerCapped,
@@ -209,6 +212,13 @@ export const PageForm = ({
       : publishedRevisionId
         ? "Unpublished changes."
         : "Not published yet.";
+
+  const redirected = oldUrls ?? [];
+  const publishMessage = `The site picks it up within seconds.${
+    redirected.length > 0
+      ? ` The old address ${redirected.join(", ")} will redirect to ${page.url}.`
+      : ""
+  }`;
 
   const uneditable = pageType === null;
   // Whether a block below carries a field error. A limit issue (`blocks`) or an
@@ -433,7 +443,14 @@ export const PageForm = ({
         <p className="cms-publish-status" role="status">
           {publishStatus}
         </p>
-        <form method="POST" action={`/cms/pages/${page.id}/publish`}>
+        <form
+          method="POST"
+          action={`/cms/pages/${page.id}/publish`}
+          data-confirm={publishMessage}
+          data-confirm-title={`Publish '${page.title}'?`}
+          data-confirm-label="Publish"
+          data-confirm-danger="false"
+        >
           <input type="hidden" name="_csrf" value={publishCsrfToken} />
           <input type="hidden" name="revision" value={latestRevisionId ?? ""} />
           <button
