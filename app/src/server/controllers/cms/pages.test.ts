@@ -911,7 +911,9 @@ describe("Pages controller", () => {
       ),
     );
     expect(save.status).toBe(303);
-    expect(save.headers.get("location")).toBe(`/cms/pages/${pageId}?saved=1`);
+    expect(save.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?saved=1&moved=%2Fabout`,
+    );
     expect(await getPageByUrl("/about-us")).not.toBeNull();
     expect(await getPageByUrl("/about")).toBeNull();
     const redirects = await listRedirects();
@@ -954,7 +956,7 @@ describe("Pages controller", () => {
     ).text();
     expect(draftHtml).toContain("data-confirm-title=\"Publish 'About us'?\"");
     expect(draftHtml).toContain('data-confirm-danger="false"');
-    expect(draftHtml).not.toContain("will redirect");
+    expect(draftHtml).not.toContain("The old address");
     // Save draft is not gated.
     expect(draftHtml.match(/data-confirm=/g)).toHaveLength(1);
 
@@ -981,6 +983,98 @@ describe("Pages controller", () => {
     expect(renamed).toContain(
       "The old address /about will redirect to /about-us.",
     );
+  });
+
+  test("says a URL change redirects, before and after the save", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const view = async (query = "") =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}${query}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+
+    // Unchanged URL: the line is there for the script, but hidden.
+    const plain = await view();
+    expect(plain).toMatch(/<p[^>]*data-url-move[^>]*hidden/);
+    expect(plain).toContain('aria-describedby="url-help url-move"');
+
+    // A failed save with a new URL re-renders the line visible and the
+    // breadcrumb names the unsaved URL.
+    const failed = await (
+      await pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url: "/studio",
+            title: "",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: "",
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      )
+    ).text();
+    expect(failed).toMatch(/<p[^>]*data-url-move(?![^>]*hidden)/);
+    expect(failed).toContain("Saving moves this page");
+    expect(failed).toContain("(unsaved: /studio)");
+
+    const save = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/studio",
+          title: "About us",
+          content: JSON.stringify(pageContent("Hello")),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+    expect(save.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?saved=1&moved=%2Fabout`,
+    );
+    expect(await view("?saved=1&moved=%2Fabout")).toContain(
+      "Draft saved. /about now redirects here.",
+    );
+    // A path that isn't one of this page's redirects, or isn't a path, is the
+    // plain notice.
+    for (const moved of [
+      "%2Fnowhere",
+      "%2F%2Fevil.example",
+      "https%3A%2F%2Fevil.example",
+    ]) {
+      const html = await view(`?saved=1&moved=${moved}`);
+      expect(html).toContain("Draft saved.");
+      expect(html).not.toContain("now redirects here");
+    }
+
+    // The banner after publishing says the same.
+    const latest = await getLatestRevision("page", pageId);
+    const published = await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: latest?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    expect(published.status).toBe(303);
+    expect(await view("?published=1")).toContain("/about now redirects here.");
   });
 
   test("refuses a stale save, then overwrites once the editor confirms", async () => {

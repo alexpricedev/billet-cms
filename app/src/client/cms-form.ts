@@ -780,9 +780,20 @@ const wireFocalPoint = (form: HTMLFormElement): void => {
   });
 };
 
+/** Shows the "this page moves" line while the URL input differs from the stored one. */
+const wireUrlMove = (form: HTMLFormElement): void => {
+  const input = form.querySelector<HTMLInputElement>("[data-url-live]");
+  const line = form.querySelector<HTMLElement>("[data-url-move]");
+  if (!input || !line) return;
+  input.addEventListener("input", () => {
+    line.hidden = input.value.trim() === input.dataset.urlLive;
+  });
+};
+
 const wireForm = (form: HTMLFormElement): void => {
   wireControls(form);
   wireFocalPoint(form);
+  wireUrlMove(form);
 
   form.addEventListener("submit", () => {
     const hidden = form.querySelector<HTMLInputElement>("[data-cms-content]");
