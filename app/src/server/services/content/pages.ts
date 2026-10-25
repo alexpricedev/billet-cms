@@ -496,6 +496,16 @@ export const listRedirects = async (): Promise<RedirectRecord[]> => {
   }));
 };
 
+/** The old paths that currently redirect to a page. */
+export const listPageRedirects = async (pageId: string): Promise<string[]> => {
+  const rows = (await db`
+    SELECT from_path FROM cms_redirects
+    WHERE to_page_id = ${pageId}
+    ORDER BY from_path
+  `) as { from_path: string }[];
+  return rows.map((row) => row.from_path);
+};
+
 /** A page as the link picker needs it: enough to tell two options apart. */
 export interface PageOption {
   id: string;

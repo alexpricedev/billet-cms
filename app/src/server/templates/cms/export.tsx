@@ -103,6 +103,9 @@ export const ExportPage = ({
                   method="POST"
                   action={`/cms/export/${token.id}/revoke`}
                   className="cms-inline-form"
+                  data-confirm="Anything using this token stops working immediately."
+                  data-confirm-title={`Revoke '${token.label}'?`}
+                  data-confirm-label="Revoke"
                 >
                   <input
                     type="hidden"

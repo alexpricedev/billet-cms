@@ -99,7 +99,8 @@ const maintenance = (connectionString: string): SQL =>
   new SQL(withDatabase(connectionString, "postgres"), { max: 1 });
 
 const createDatabase = async (admin: SQL, name: string): Promise<void> => {
-  const existing = await admin`SELECT 1 FROM pg_database WHERE datname = ${name}`;
+  const existing =
+    await admin`SELECT 1 FROM pg_database WHERE datname = ${name}`;
   if (existing.length > 0) {
     console.log(`  ${name} — already exists`);
     return;
@@ -230,7 +231,9 @@ async function destroy(): Promise<void> {
 
   const owned = targets.filter(({ name, expected }) => {
     if (slug && name.endsWith(expected)) return true;
-    console.log(`workspace: refusing to drop "${name}" — not owned by ${workspace}`);
+    console.log(
+      `workspace: refusing to drop "${name}" — not owned by ${workspace}`,
+    );
     return false;
   });
 

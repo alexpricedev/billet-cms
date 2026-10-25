@@ -54,7 +54,10 @@ if (input.tool_name === "Bash") {
 
   // Tolerate global options ahead of the subcommand: `git -c foo=1 stash pop`,
   // `git --git-dir=... stash list`.
-  if (!perWorktree && /\bgit\s+(?:-\S+\s+|\S+=\S+\s+)*stash\b/.test(normalised)) {
+  if (
+    !perWorktree &&
+    /\bgit\s+(?:-\S+\s+|\S+=\S+\s+)*stash\b/.test(normalised)
+  ) {
     deny(GUIDANCE);
   }
 }

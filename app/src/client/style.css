@@ -8,6 +8,9 @@
 
 @import "./base.css";
 
+/* Confirm dialog, themed from the CMS tokens in pages/cms.css */
+@import "@alexpricedev/billet-dialog/styles.css";
+
 /* Component styles */
 @import "./components/layout.css";
 @import "./components/nav.css";

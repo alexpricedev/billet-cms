@@ -17,6 +17,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@alexpricedev/billet-cms": "workspace:*",
+        "@alexpricedev/billet-dialog": "^0.1.0",
         "@alexpricedev/billet-storage": "^0.1.0",
         "preact": "^11.0.1",
         "preact-render-to-string": "^6.8.1",
@@ -52,6 +53,8 @@
   },
   "packages": {
     "@alexpricedev/billet-cms": ["@alexpricedev/billet-cms@workspace:packages/billet-cms"],
+
+    "@alexpricedev/billet-dialog": ["@alexpricedev/billet-dialog@0.1.0", "", {}, "sha512-gqImJ1CeGfLREgpIm6EzMJGlSXiNvGsI52g3L55ql9BuzkqGRI77/aF7dXpMXiT02Oz0UXeM10Uksdp7T6Rlow=="],
 
     "@alexpricedev/billet-storage": ["@alexpricedev/billet-storage@0.1.0", "", {}, "sha512-gqV+JpV+TLwQeLapFtyt6hjgJkZZZybjGDSBnC9M7gUsVjweIXmNcwVQk/idqgXB6xI/ClQ6aBZLQY/AOF9jFg=="],
 

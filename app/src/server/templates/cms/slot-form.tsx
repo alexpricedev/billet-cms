@@ -243,7 +243,14 @@ export const SlotForm = ({
         <p className="cms-publish-status" role="status">
           {publishStatus}
         </p>
-        <form method="POST" action={`/cms/slots/${slot.id}/publish`}>
+        <form
+          method="POST"
+          action={`/cms/slots/${slot.id}/publish`}
+          data-confirm="The site picks it up within seconds."
+          data-confirm-title={`Publish '${slot.label ?? slot.name}'?`}
+          data-confirm-label="Publish"
+          data-confirm-danger="false"
+        >
           <input type="hidden" name="_csrf" value={publishCsrfToken} />
           {/* The revision this form rendered. Publishing it — rather than the
               newest at submit time — is what makes a stale click a warning

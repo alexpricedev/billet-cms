@@ -847,3 +847,20 @@ h1 {
   margin-bottom: 1rem;
   border-radius: 0.5rem;
 }
+
+/* The confirm dialog (@alexpricedev/billet-dialog) takes the CMS's tokens. */
+[data-bd-root] {
+  --bd-surface: var(--color-surface);
+  --bd-border: var(--color-border);
+  --bd-fg: var(--color-text);
+  --bd-muted: var(--color-text-secondary);
+  --bd-accent: var(--color-primary);
+  --bd-accent-hover: var(--color-primary-hover);
+  --bd-accent-fg: var(--color-bg);
+  --bd-danger: var(--color-danger);
+  --bd-danger-fg: var(--color-bg);
+  --bd-font: var(--font-main);
+  --bd-radius: var(--radius);
+  --bd-radius-sm: var(--radius);
+  --bd-shadow: var(--shadow);
+}
