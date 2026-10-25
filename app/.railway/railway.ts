@@ -7,13 +7,7 @@
 //   railway config apply         # apply it
 //
 // Needs Railway CLI >= 5.42.1; the SDK refuses to evaluate under anything older.
-import {
-  defineRailway,
-  postgres,
-  preserve,
-  project,
-  service,
-} from "railway/iac";
+import { defineRailway, postgres, preserve, project, service } from "railway/iac";
 
 // Scopes deletion to the resources this file owns. Without it, a project holding
 // several unrelated apps and one shared Postgres would read every service it
@@ -36,10 +30,7 @@ export default defineRailway(() => {
   const app = service(partial, {
     // `builder` and the restart policy have no intent-layer shorthand, so they go
     // in the raw `build` / `deploy` buckets. Everything else uses the shorthand.
-    build: {
-      builder: "RAILPACK",
-      buildCommand: "bun install && bun run build",
-    },
+    build: { builder: "RAILPACK", buildCommand: "bun install && bun run build" },
     start: "bun run start",
     healthcheck: "/health",
     healthcheckTimeout: 30,
