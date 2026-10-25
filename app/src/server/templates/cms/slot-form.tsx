@@ -16,6 +16,10 @@ import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
 import { humanise } from "../../utils/humanise";
 
+/** A slot in an editor's words: its label, else its key humanised. */
+const slotTitle = (slot: { label: string | null; name: string }) =>
+  slot.label ?? humanise(slot.name);
+
 export interface SlotFormProps {
   user: User;
   /** The CSRF token bound to this form's save POST. */
@@ -104,7 +108,7 @@ export const SlotForm = ({
 
   return (
     <Layout
-      title={`${slot.label ?? humanise(slot.name)} - Billet CMS`}
+      title={`${slotTitle(slot)} - Billet CMS`}
       name="cms"
       description="Edit a slot's content."
       canonicalPath={`/cms/slots/${slot.id}`}
@@ -114,9 +118,9 @@ export const SlotForm = ({
     >
       <p className="cms-breadcrumb">
         <a href="/cms">Content</a> / <span>{humanise(slot.page)}</span> /{" "}
-        <span>{slot.label ?? humanise(slot.name)}</span>
+        <span>{slotTitle(slot)}</span>
       </p>
-      <h1>{slot.label ?? humanise(slot.name)}</h1>
+      <h1>{slotTitle(slot)}</h1>
       <p className="cms-slot-meta">
         <code>{slot.name}</code> · block <code>{blockType.name}</code>
       </p>
@@ -249,7 +253,7 @@ export const SlotForm = ({
           method="POST"
           action={`/cms/slots/${slot.id}/publish`}
           data-confirm="The site picks it up within seconds."
-          data-confirm-title={`Publish '${slot.label ?? humanise(slot.name)}'?`}
+          data-confirm-title={`Publish '${slotTitle(slot)}'?`}
           data-confirm-label="Publish"
           data-confirm-danger="false"
         >
@@ -310,7 +314,7 @@ export const SlotUnavailable = ({
   navCsrfToken,
 }: SlotUnavailableProps) => (
   <Layout
-    title={`${slot.label ?? humanise(slot.name)} - Billet CMS`}
+    title={`${slotTitle(slot)} - Billet CMS`}
     name="cms"
     user={user}
     csrfToken={navCsrfToken}
@@ -318,9 +322,9 @@ export const SlotUnavailable = ({
   >
     <p className="cms-breadcrumb">
       <a href="/cms">Content</a> / <span>{humanise(slot.page)}</span> /{" "}
-      <span>{slot.label ?? humanise(slot.name)}</span>
+      <span>{slotTitle(slot)}</span>
     </p>
-    <h1>{slot.label ?? humanise(slot.name)}</h1>
+    <h1>{slotTitle(slot)}</h1>
     <div className="flash-warning" role="alert">
       The block type <code>{slot.blockName}</code> for this slot is no longer
       published. Its saved content is kept but cannot be edited until it is
