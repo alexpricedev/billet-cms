@@ -90,7 +90,6 @@ export const Dashboard = ({
                   {slot.label ?? humanise(slot.name)}
                 </a>
                 <span className="cms-slot-meta">
-                  <span className="cms-slot-block">{slot.blockName}</span>
                   {slotStates?.get(slot.id) && (
                     <SlotStateBadge
                       state={slotStates.get(slot.id) as SlotState}
