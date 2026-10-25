@@ -89,16 +89,18 @@ export const Dashboard = ({
                 <a className="cms-slot-link" href={`/cms/slots/${slot.id}`}>
                   {slot.label ?? humanise(slot.name)}
                 </a>
-                <span className="cms-slot-meta">
-                  {slotStates?.get(slot.id) && (
-                    <SlotStateBadge
-                      state={slotStates.get(slot.id) as SlotState}
-                    />
-                  )}
-                  {slot.removedAt && (
-                    <span className="cms-removed">No longer declared</span>
-                  )}
-                </span>
+                {(slotStates?.get(slot.id) || slot.removedAt) && (
+                  <span className="cms-slot-meta">
+                    {slotStates?.get(slot.id) && (
+                      <SlotStateBadge
+                        state={slotStates.get(slot.id) as SlotState}
+                      />
+                    )}
+                    {slot.removedAt && (
+                      <span className="cms-removed">No longer declared</span>
+                    )}
+                  </span>
+                )}
               </li>
             ))}
           </ul>

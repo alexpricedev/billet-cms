@@ -66,12 +66,8 @@ h1 {
 }
 
 .cms-removed {
-  color: var(--color-text-tertiary);
-  font-size: 0.85rem;
-}
-
-.cms-removed {
   color: var(--color-warning);
+  font-size: 0.85rem;
 }
 
 .cms-slot-state {
