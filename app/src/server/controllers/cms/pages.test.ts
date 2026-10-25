@@ -31,6 +31,7 @@ import {
   getPageById,
   getPageByUrl,
   listRedirects,
+  type PageBlock,
   publishPage,
   savePageDraft,
 } from "../../services/content";
@@ -56,6 +57,7 @@ const hero = block(
   () => null,
 );
 const prose = block("prose", { body: richText() }, () => null);
+const quote = block("quote", { body: richText() }, () => null);
 
 const landing: PageTypeDefinition = pageType("landing", {
   allowedBlocks: [hero],
@@ -244,6 +246,113 @@ describe("Pages controller", () => {
     expect(html).toContain('data-block-add="hero"');
     // The link picker's page list is threaded through to the controls.
     expect(html).toContain("data-cms-content");
+  });
+
+  describe("Add buttons and the page type's limits", () => {
+    const article: PageTypeDefinition = pageType("article", {
+      allowedBlocks: [prose, quote, photos],
+    });
+    const capped: PageTypeDefinition = pageType("capped", {
+      allowedBlocks: [prose],
+      limits: { prose: { max: 2 } },
+    });
+
+    const formHtml = async (id: string): Promise<string> => {
+      const res = await pages.form(
+        createBunRequest(
+          `${ORIGIN}/cms/pages/${id}`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id },
+        ),
+      );
+      expect(res.status).toBe(200);
+      return res.text();
+    };
+
+    /** The opening tag of the Add button for a block type. */
+    const addButton = (html: string, name: string): string =>
+      html.match(
+        new RegExp(`<button[^>]*data-block-add="${name}"[^>]*>`),
+      )?.[0] ?? "";
+
+    const withBlocks = async (
+      type: string,
+      blocks: PageBlock[],
+    ): Promise<string> => {
+      const created = await createPage({
+        pageType: type,
+        url: `/${type}`,
+        title: type,
+      });
+      if (!created.ok) throw new Error("create failed");
+      const saved = await savePageDraft({
+        pageId: created.page.id,
+        content: { blocks },
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+      return formHtml(created.page.id);
+    };
+
+    test("a Landing page without a hero offers Add hero", async () => {
+      const created = await createPage({
+        pageType: "landing",
+        url: "/l",
+        title: "L",
+      });
+      if (!created.ok) throw new Error("create failed");
+      const html = await formHtml(created.page.id);
+      expect(addButton(html, "hero")).not.toContain("aria-disabled");
+      expect(html).toContain('data-block-max="1"');
+    });
+
+    test("a Landing page with a hero greys Add hero and says why", async () => {
+      const html = await withBlocks("landing", pageContent("Hi").blocks);
+      expect(addButton(html, "hero")).toContain('aria-disabled="true"');
+      expect(addButton(html, "hero")).toContain(
+        'aria-describedby="block-add-limit-hero"',
+      );
+      expect(html).toMatch(
+        /<span[^>]*id="block-add-limit-hero"(?![^>]*hidden)[^>]*>Only one hero per page/,
+      );
+    });
+
+    test("an Article page offers only its blocks, all enabled", async () => {
+      await seedBlockType(db, prose);
+      await seedBlockType(db, quote);
+      await seedBlockType(db, photos);
+      await seedPageType(db, article);
+      const html = await withBlocks("article", [
+        { type: "prose", body: document },
+      ]);
+      expect(html).not.toContain('data-block-add="hero"');
+      expect(html).not.toContain('data-block-add="cta"');
+      for (const name of ["prose", "quote", "photos"]) {
+        expect(addButton(html, name)).toContain(`data-block-add="${name}"`);
+        expect(addButton(html, name)).not.toContain("aria-disabled");
+      }
+    });
+
+    test("a max above one says how many", async () => {
+      await seedBlockType(db, prose);
+      await seedPageType(db, capped);
+      const one = await withBlocks("capped", [
+        { type: "prose", body: document },
+      ]);
+      expect(addButton(one, "prose")).not.toContain("aria-disabled");
+      expect(one).toContain("Only 2 prose blocks per page");
+    });
+
+    test("a max of two greys the button at two blocks", async () => {
+      await seedBlockType(db, prose);
+      await seedPageType(db, capped);
+      const two = await withBlocks("capped", [
+        { type: "prose", body: document },
+        { type: "prose", body: document },
+      ]);
+      expect(addButton(two, "prose")).toContain('aria-disabled="true"');
+    });
   });
 
   test("carries a referenced image older than the picker cap and shows the help line", async () => {

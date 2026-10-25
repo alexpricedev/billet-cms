@@ -456,6 +456,40 @@ const syncListsIn = (root: Element | null): void => {
 };
 
 /**
+ * Grey out the Add button of every block type at its page-type maximum.
+ *
+ * The server counts every stored block, so the count here is every
+ * `[data-cms-block]` of the type except one marked removed. The hint is
+ * rendered by the server and only toggled with `hidden`.
+ */
+const syncBlockAdds = (container: Element | null): void => {
+  const list = container?.querySelector(":scope > [data-cms-blocks]");
+  if (!container || !list) return;
+  const blocks = Array.from(
+    list.querySelectorAll(":scope > [data-cms-block]"),
+  ).filter((block) => !block.hasAttribute("data-block-removed"));
+  for (const button of Array.from(
+    container.querySelectorAll("[data-block-add][data-block-max]"),
+  )) {
+    const max = Number(button.getAttribute("data-block-max"));
+    if (!Number.isFinite(max)) continue;
+    const type = button.getAttribute("data-block-add");
+    const count = blocks.filter(
+      (block) => block.getAttribute("data-block-type") === type,
+    ).length;
+    const full = count >= max;
+    if (full) button.setAttribute("aria-disabled", "true");
+    else button.removeAttribute("aria-disabled");
+    const hintId = button.getAttribute("aria-describedby");
+    const hint = hintId ? document.getElementById(hintId) : null;
+    if (hint) {
+      if (full) hint.removeAttribute("hidden");
+      else hint.setAttribute("hidden", "");
+    }
+  }
+};
+
+/**
  * Record a flagged block's removal in the form's `removed_blocks` field.
  *
  * A flagged block has no field controls, so the client can't rebuild it into
@@ -623,6 +657,9 @@ const wireControls = (form: HTMLFormElement): void => {
       const list = container?.querySelector(":scope > [data-cms-blocks]");
       const type = addBlock.getAttribute("data-block-add");
       if (!container || !list || !type) return;
+      // aria-disabled changes nothing on its own, so a click at the maximum
+      // is refused here.
+      if (addBlock.getAttribute("aria-disabled") === "true") return;
 
       // Matched by attribute rather than a selector: the block name could
       // contain a character a CSS selector would read as syntax, and iterating
@@ -640,6 +677,7 @@ const wireControls = (form: HTMLFormElement): void => {
       // nested list already holding the template's one row, at max one, arrives
       // with an enabled Add.
       syncListsIn(added);
+      syncBlockAdds(container);
       // `:scope >` so a nested control (a list row) is not what gets focused.
       firstControl(added)?.focus();
       return;
@@ -650,6 +688,7 @@ const wireControls = (form: HTMLFormElement): void => {
       event.preventDefault();
       const block = removeBlock.closest("[data-cms-block]");
       if (!block) return;
+      const pageContent = block.closest("[data-cms-page-content]");
       // A flagged block is uneditable, so its removal is recorded as a marker
       // rather than by serializing it; everything else is simply detached.
       if (block.hasAttribute("data-block-unavailable")) {
@@ -657,6 +696,7 @@ const wireControls = (form: HTMLFormElement): void => {
       } else {
         block.remove();
       }
+      syncBlockAdds(pageContent);
       return;
     }
 
@@ -848,6 +888,7 @@ export const init = (): void => {
     document.querySelectorAll<HTMLFormElement>("[data-cms-form]"),
   )) {
     wireForm(form);
+    syncBlockAdds(form.querySelector("[data-cms-page-content]"));
   }
 };
 
