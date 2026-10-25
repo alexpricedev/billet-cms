@@ -94,6 +94,11 @@ describe("Export tokens controller", () => {
     // Each Revoke button names the token it revokes, and the help text is both
     // styled and wired to the input it describes.
     expect(listHtml).toContain('aria-label="Revoke ');
+    // Revoke asks first, naming the token.
+    expect(listHtml).toContain(
+      "data-confirm-title=\"Revoke 'Alex's laptop'?\"",
+    );
+    expect(listHtml).toContain('data-confirm-label="Revoke"');
     expect(listHtml).toContain('aria-describedby="export-label-help"');
     expect(listHtml).toContain('class="cms-field-help"');
 

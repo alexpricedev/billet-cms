@@ -27,6 +27,7 @@ mock.module("../../services/database", () => ({
 
 import {
   createPage,
+  getLatestRevision,
   getPageById,
   getPageByUrl,
   listRedirects,
@@ -915,6 +916,71 @@ describe("Pages controller", () => {
     expect(await getPageByUrl("/about")).toBeNull();
     const redirects = await listRedirects();
     expect(redirects.map((redirect) => redirect.fromPath)).toContain("/about");
+  });
+
+  test("Publish asks first, and says when an old address redirects", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const saveAs = async (url: string, base: string) =>
+      pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url,
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: base,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+
+    await saveAs("/about", "");
+    const draftHtml = await (
+      await pages.form(
+        createBunRequest(
+          `${ORIGIN}/cms/pages/${pageId}`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id: pageId },
+        ),
+      )
+    ).text();
+    expect(draftHtml).toContain("data-confirm-title=\"Publish 'About us'?\"");
+    expect(draftHtml).toContain('data-confirm-danger="false"');
+    expect(draftHtml).not.toContain("will redirect");
+    // Save draft is not gated.
+    expect(draftHtml.match(/data-confirm=/g)).toHaveLength(1);
+
+    const latest = await getLatestRevision("page", pageId);
+    await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: latest?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    await saveAs("/about-us", latest?.id ?? "");
+
+    const renamed = await (
+      await pages.form(
+        createBunRequest(
+          `${ORIGIN}/cms/pages/${pageId}`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id: pageId },
+        ),
+      )
+    ).text();
+    expect(renamed).toContain(
+      "The old address /about will redirect to /about-us.",
+    );
   });
 
   test("refuses a stale save, then overwrites once the editor confirms", async () => {

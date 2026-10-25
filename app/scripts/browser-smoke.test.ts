@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import { block, list, richText, text } from "@alexpricedev/billet-cms/fields";
 import { createEditContentLink } from "@alexpricedev/billet-cms/handoff";
-import { handleCmsSignIn } from "@alexpricedev/billet-cms/sign-in";
 import {
   type ContentReader,
   createContentReader,
   renderRichText,
 } from "@alexpricedev/billet-cms/server";
+import { handleCmsSignIn } from "@alexpricedev/billet-cms/sign-in";
 import type { Subprocess } from "bun";
 import { SQL } from "bun";
 import { seedBlockType, seedSlot } from "../src/server/test-utils/content";
@@ -456,8 +456,35 @@ describe("browser smoke", () => {
     // "Hero heading from the smoke test".
     await goto(`${CMS_BASE}/cms/slots/${slotId}`);
 
+    // Publish asks first: the click opens the dialog, Cancel leaves the slot
+    // unpublished, and only Confirm posts.
+    const dialogOpen = () =>
+      view.evaluate<boolean>(
+        `document.querySelector("[data-bd-root]")?.classList.contains("is-open") ?? false`,
+      );
     await view.scrollTo(".cms-publish-button", { block: "center" });
     await view.click(".cms-publish-button").catch(() => {});
+    await until(dialogOpen, (open) => open === true);
+    const title = await view.evaluate<string>(
+      `document.querySelector(".bd-title")?.textContent ?? ""`,
+    );
+    expect(title).toStartWith("Publish '");
+    if (process.env.SHOT_DIR) {
+      const shot = await view.screenshot();
+      await Bun.write(`${process.env.SHOT_DIR}/publish-dialog.png`, shot);
+    }
+
+    await view.click(".bd-cancel").catch(() => {});
+    await until(dialogOpen, (open) => open === false);
+    await Bun.sleep(300);
+    expect(await bodyText()).not.toContain("Published.");
+    expect(
+      (await view.evaluate<string>("location.href")).includes("published=1"),
+    ).toBe(false);
+
+    await view.click(".cms-publish-button").catch(() => {});
+    await until(dialogOpen, (open) => open === true);
+    await view.click(".bd-confirm").catch(() => {});
 
     const published = await until(bodyText, (text) =>
       text.includes("Published."),
