@@ -5,6 +5,7 @@ import type {
   SlotState,
 } from "../../services/content";
 import type { User } from "../../services/users";
+import { humanise } from "../../utils/humanise";
 
 export interface DashboardProps {
   user: User;
@@ -32,12 +33,6 @@ const SlotStateBadge = ({ state }: { state: SlotState }) =>
   ) : (
     <span className="cms-slot-state cms-slot-state-live">Live</span>
   );
-
-/** A developer's key in an editor's words: `footer.cta` reads "Footer cta". */
-const humanise = (key: string) => {
-  const words = key.replace(/[._-]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-};
 
 /** The CMS home: the pages a site declares, their slots, and its page types. */
 export const Dashboard = ({

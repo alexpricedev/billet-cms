@@ -172,6 +172,36 @@ describe("Slot form controller", () => {
       expect(res.headers.get("location")).toBe("/sign-in");
     });
 
+    test("shows the page group and slot label in the breadcrumb, key on a muted line", async () => {
+      const footerId = await seedSlot(db, {
+        name: "footer.cta",
+        blockName: "hero",
+        page: "footer",
+        label: "Footer call to action",
+      });
+      const html = await (
+        await slotForm.index(
+          createBunRequest(
+            `${ORIGIN}${path(footerId)}`,
+            {
+              method: "GET",
+              headers: { cookie: `cms_session=${sessionId}` },
+            },
+            { id: footerId },
+          ),
+        )
+      ).text();
+      const crumb = html.match(/class="cms-breadcrumb"[^>]*>(.*?)<\/p>/s)?.[1];
+      expect(crumb?.replace(/<[^>]+>/g, "").replace(/\s+/g, " ")).toBe(
+        "Content / Footer / Footer call to action",
+      );
+      expect(html).not.toContain("<span>footer</span>");
+      expect(html).not.toContain("Slot <code>");
+      expect(html).toContain(
+        '<p class="cms-slot-meta"><code>footer.cta</code> · block <code>hero</code></p>',
+      );
+    });
+
     test("builds the form from the published field metadata", async () => {
       const html = await (await slotForm.index(get())).text();
 
