@@ -1,3 +1,4 @@
+import type { JSX } from "preact";
 import type { FieldError } from "../../components/cms/field-control";
 import { MediaOptionsTemplate } from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
