@@ -48,9 +48,7 @@ const blockMax = (
   const limit = pageType.limits[name];
   if (typeof limit !== "object" || limit === null) return undefined;
   const { max } = limit as { max?: unknown };
-  return typeof max === "number" && Number.isFinite(max) && max >= 0
-    ? max
-    : undefined;
+  return typeof max === "number" && Number.isFinite(max) ? max : undefined;
 };
 
 const limitHint = (name: string, max: number): string =>
@@ -278,7 +276,7 @@ export const PageBlocks = ({
               max !== undefined &&
               blocks.filter((block) => block.type === blockType.name).length >=
                 max;
-            const hintId = `block-add-limit-${blockType.name}`;
+            const hintId = `block-add-limit-${blockType.name.replace(/\s+/g, "-")}`;
             return (
               <Fragment key={blockType.name}>
                 <button

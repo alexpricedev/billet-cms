@@ -465,16 +465,13 @@ const syncListsIn = (root: Element | null): void => {
 const syncBlockAdds = (container: Element | null): void => {
   const list = container?.querySelector(":scope > [data-cms-blocks]");
   if (!container || !list) return;
-  const blocks = Array.from(list.querySelectorAll("[data-cms-block]")).filter(
-    (block) => !block.hasAttribute("data-block-removed"),
-  );
+  const blocks = Array.from(
+    list.querySelectorAll(":scope > [data-cms-block]"),
+  ).filter((block) => !block.hasAttribute("data-block-removed"));
   for (const button of Array.from(
     container.querySelectorAll("[data-block-add][data-block-max]"),
   )) {
-    const max = Number.parseInt(
-      button.getAttribute("data-block-max") ?? "",
-      10,
-    );
+    const max = Number(button.getAttribute("data-block-max"));
     if (!Number.isFinite(max)) continue;
     const type = button.getAttribute("data-block-add");
     const count = blocks.filter(
@@ -484,11 +481,7 @@ const syncBlockAdds = (container: Element | null): void => {
     if (full) button.setAttribute("aria-disabled", "true");
     else button.removeAttribute("aria-disabled");
     const hintId = button.getAttribute("aria-describedby");
-    const hint = hintId
-      ? Array.from(container.querySelectorAll("[id]")).find(
-          (candidate) => candidate.id === hintId,
-        )
-      : undefined;
+    const hint = hintId ? document.getElementById(hintId) : null;
     if (hint) {
       if (full) hint.removeAttribute("hidden");
       else hint.setAttribute("hidden", "");
