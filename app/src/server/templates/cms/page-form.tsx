@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import type { FieldError } from "../../components/cms/field-control";
 import { MediaOptionsTemplate } from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
@@ -115,7 +114,7 @@ const SettingsControl = ({
   /** The stored value, so the client can tell when the input differs. */
   live?: string;
   /** A line under the field the editor's input can toggle; `id` is described. */
-  extra?: { id: string; node: ReactNode };
+  extra?: { id: string; node: JSX.Element };
 }) => {
   const invalid = errors !== undefined && errors.length > 0;
   const helpId = `${name}-help`;
