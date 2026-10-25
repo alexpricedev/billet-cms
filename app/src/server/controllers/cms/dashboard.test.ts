@@ -74,6 +74,8 @@ describe("Dashboard controller", () => {
     expect(html).toContain("<h2>About</h2>");
     expect(html).toContain("Home hero");
     expect(html).not.toContain("home.hero");
+    expect(html).not.toContain("cms-slot-block");
+    expect(html).not.toContain(">hero<");
   });
 
   test("introduces the list in the editor's words", async () => {

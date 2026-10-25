@@ -31,16 +31,18 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.cms-slot-list,
-.cms-page-type-list {
+.cms-slot-list {
   list-style: none;
   padding: 0;
   display: grid;
   gap: 0.5rem;
 }
 
-.cms-slot-list li,
-.cms-page-type-list li {
+.cms-page-type-list {
+  padding-left: 1.25rem;
+}
+
+.cms-slot-list li {
   /* The label sits over its muted slot/block metadata. */
   display: grid;
   gap: 0.2rem;
@@ -63,14 +65,9 @@ h1 {
   font-size: 0.85rem;
 }
 
-.cms-slot-block,
-.cms-removed {
-  color: var(--color-text-tertiary);
-  font-size: 0.85rem;
-}
-
 .cms-removed {
   color: var(--color-warning);
+  font-size: 0.85rem;
 }
 
 .cms-slot-state {
