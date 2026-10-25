@@ -1186,6 +1186,123 @@ describe("Pages controller", () => {
     expect(await view("?published=1")).not.toContain("now redirects here");
   });
 
+  test("says how many empty blocks the save removed", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const view = async (query = "") =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}${query}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+    const saveWith = async (dropped: string) => {
+      const latest = await getLatestRevision("page", pageId);
+      return pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url: "/about",
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: latest?.id ?? "",
+            dropped_blocks: dropped,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+    };
+
+    // None removed: the redirect and the banner are what they always were.
+    expect((await saveWith("")).headers.get("location")).toBe(
+      `/cms/pages/${pageId}?saved=1`,
+    );
+    const plain = await view("?saved=1");
+    expect(plain).toContain("Draft saved.");
+    expect(plain).not.toContain("empty");
+
+    // One removed names its type.
+    const one = await saveWith("hero");
+    expect(one.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?saved=1&dropped=hero`,
+    );
+    expect(await view("?saved=1&dropped=hero")).toContain(
+      "Draft saved. 1 empty hero block was removed.",
+    );
+
+    // Several of one type name it; several of mixed types count blocks.
+    expect(await view("?saved=1&dropped=text%2Ctext")).toContain(
+      "Draft saved. 2 empty text blocks were removed.",
+    );
+    expect(await view("?saved=1&dropped=hero%2Ctext%2Ctext")).toContain(
+      "Draft saved. 3 empty blocks were removed.",
+    );
+    expect((await saveWith("hero,text")).headers.get("location")).toBe(
+      `/cms/pages/${pageId}?saved=1&dropped=hero%2Ctext`,
+    );
+
+    // Junk entries are ignored, and a value with none valid is the plain banner.
+    const junk = await view("?saved=1&dropped=%3Cb%3E%2Chero%20x%2C");
+    expect(junk).toContain("Draft saved.");
+    expect(junk).not.toContain("empty");
+    expect((await saveWith("<b>")).headers.get("location")).toBe(
+      `/cms/pages/${pageId}?saved=1`,
+    );
+    // The sentence only follows a save.
+    expect(await view("?published=1&dropped=hero")).not.toContain("empty");
+  });
+
+  test("the removed-blocks sentence follows the redirect sentence", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const view = async (query = "") =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}${query}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+    const save = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/studio",
+          title: "About us",
+          content: JSON.stringify(pageContent("Hello")),
+          base_revision: "",
+          dropped_blocks: "hero,hero",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+    expect(save.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?saved=1&moved=%2Fabout&dropped=hero%2Chero`,
+    );
+    expect(await view("?saved=1&moved=%2Fabout&dropped=hero%2Chero")).toContain(
+      "Draft saved. /about now redirects here. 2 empty hero blocks were removed.",
+    );
+  });
+
   test("refuses a stale save, then overwrites once the editor confirms", async () => {
     const created = await createPage({
       pageType: "landing",
