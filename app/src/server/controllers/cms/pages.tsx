@@ -67,11 +67,44 @@ export const savedNotice = async (
   pageId: string,
 ): Promise<Notice | null> => {
   const notice = pageNotice(params);
+  if (params.get("saved") !== "1" || !notice) return notice;
   const moved = params.get("moved");
-  if (params.get("saved") !== "1" || !notice || !moved) return notice;
-  if (!/^\/[^/]/.test(moved)) return notice;
-  if (!(await listPageRedirects(pageId)).includes(moved)) return notice;
-  return { ...notice, message: `Draft saved. ${moved} now redirects here.` };
+  let message = notice.message;
+  if (
+    moved &&
+    /^\/[^/]/.test(moved) &&
+    (await listPageRedirects(pageId)).includes(moved)
+  ) {
+    message += ` ${moved} now redirects here.`;
+  }
+  const dropped = droppedSentence(droppedBlocksFrom(params.get("dropped")));
+  if (dropped) message += ` ${dropped}`;
+  return { ...notice, message };
+};
+
+const BLOCK_TYPE = /^[A-Za-z0-9_-]{1,64}$/;
+const MAX_DROPPED = 50;
+
+/**
+ * The types of empty blocks the client left out of a save, from a comma list.
+ * It arrives in a form field and again in the redirect's query string, so both
+ * ends read it strictly: bad entries are ignored and the count is capped.
+ */
+const droppedBlocksFrom = (value: FormDataEntryValue | null): string[] => {
+  if (typeof value !== "string") return [];
+  return value
+    .split(",")
+    .filter((type) => BLOCK_TYPE.test(type))
+    .slice(0, MAX_DROPPED);
+};
+
+/** "2 empty blocks were removed.", naming the type when they all share one. */
+const droppedSentence = (types: string[]): string | null => {
+  if (types.length === 0) return null;
+  const same = types.every((type) => type === types[0]);
+  const noun = same ? `${types[0]} block` : "block";
+  if (types.length === 1) return `1 empty ${noun} was removed.`;
+  return `${types.length} empty ${noun}s were removed.`;
 };
 
 export const pageNotice = (params: URLSearchParams): Notice | null => {
@@ -610,7 +643,12 @@ export const pages = {
       page.url !== result.page.url
         ? `&moved=${encodeURIComponent(page.url)}`
         : "";
-    return redirect(`/cms/pages/${page.id}?saved=1${moved}`);
+    const dropped = droppedBlocksFrom(formData.get("dropped_blocks"));
+    const droppedParam =
+      dropped.length > 0
+        ? `&dropped=${encodeURIComponent(dropped.join(","))}`
+        : "";
+    return redirect(`/cms/pages/${page.id}?saved=1${moved}${droppedParam}`);
   },
 
   /** The confirm step before a page is deleted. */

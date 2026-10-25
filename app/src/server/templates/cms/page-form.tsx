@@ -352,6 +352,14 @@ export const PageForm = ({
             value={(removed ?? []).join(",")}
             data-cms-removed
           />
+          {/* The types of empty blocks the client left out of the content, so
+              the saved notice can say so. Always empty on render. */}
+          <input
+            type="hidden"
+            name="dropped_blocks"
+            value=""
+            data-cms-dropped
+          />
 
           <section className="cms-page-settings" aria-label="Page settings">
             <h2>Settings</h2>

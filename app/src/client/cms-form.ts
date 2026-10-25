@@ -355,11 +355,20 @@ export const buildContent = (form: HTMLFormElement): Record<string, unknown> =>
  */
 export const buildPageContent = (
   form: HTMLFormElement,
-): Record<string, unknown> => {
+): Record<string, unknown> => ({ blocks: readPageBlocks(form).blocks });
+
+/** The types of the blocks `buildPageContent` left out for being empty. */
+export const droppedBlockTypes = (form: HTMLFormElement): string[] =>
+  readPageBlocks(form).dropped;
+
+const readPageBlocks = (
+  form: HTMLFormElement,
+): { blocks: Record<string, unknown>[]; dropped: string[] } => {
   const container = form.querySelector("[data-cms-page-content]");
   const list = container?.querySelector(":scope > [data-cms-blocks]");
   const blocks: Record<string, unknown>[] = [];
-  if (!list) return { blocks };
+  const dropped: string[] = [];
+  if (!list) return { blocks, dropped };
 
   for (const block of Array.from(
     list.querySelectorAll(":scope > [data-cms-block]"),
@@ -368,11 +377,14 @@ export const buildPageContent = (
     const type = block.getAttribute("data-block-type");
     if (!type) continue;
     const fields = readFieldsIn(block, false);
-    if (!Object.values(fields).some((value) => !isEmptyValue(value))) continue;
+    if (!Object.values(fields).some((value) => !isEmptyValue(value))) {
+      dropped.push(type);
+      continue;
+    }
     blocks.push({ type, ...fields });
   }
 
-  return { blocks };
+  return { blocks, dropped };
 };
 
 const runRichTextCommand = (command: string, editor: HTMLElement): void => {
@@ -875,11 +887,16 @@ const wireForm = (form: HTMLFormElement): void => {
     const hidden = form.querySelector<HTMLInputElement>("[data-cms-content]");
     if (!hidden) return;
     // A page form's content is `{ blocks: [...] }`; a slot form's is its fields.
-    hidden.value = JSON.stringify(
-      form.querySelector("[data-cms-page-content]")
-        ? buildPageContent(form)
-        : buildContent(form),
-    );
+    if (form.querySelector("[data-cms-page-content]")) {
+      const { blocks, dropped } = readPageBlocks(form);
+      hidden.value = JSON.stringify({ blocks });
+      // Tell the server which empty blocks were left out, so it can say so.
+      const droppedField =
+        form.querySelector<HTMLInputElement>("[data-cms-dropped]");
+      if (droppedField) droppedField.value = dropped.join(",");
+    } else {
+      hidden.value = JSON.stringify(buildContent(form));
+    }
   });
 };
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   buildContent,
   buildPageContent,
+  droppedBlockTypes,
   init,
   serializeRichText,
 } from "./cms-form";
@@ -850,6 +851,7 @@ const PAGE_MARKUP = `
   <form data-cms-form>
     <input type="hidden" name="content" data-cms-content value="{}">
     <input type="hidden" name="removed_blocks" data-cms-removed value="">
+    <input type="hidden" name="dropped_blocks" data-cms-dropped value="">
     <div data-cms-page-content>
       <div data-cms-blocks>
         <fieldset data-cms-block data-block-type="hero">
@@ -893,6 +895,37 @@ describe("page block editor", () => {
     expect(buildPageContent(form())).toEqual({
       blocks: [{ type: "hero", heading: "Hello" }],
     });
+  });
+
+  const addEmpty = (type: string) => {
+    const add = document.querySelector(`[data-block-add="${type}"]`);
+    if (!add) throw new Error("no add button");
+    click(add);
+  };
+  const droppedField = () =>
+    document.querySelector<HTMLInputElement>("[data-cms-dropped]");
+
+  test("reports no dropped blocks when every block has content", () => {
+    expect(droppedBlockTypes(form())).toEqual([]);
+    form().dispatchEvent(new Event("submit"));
+    expect(droppedField()?.value).toBe("");
+  });
+
+  test("reports one block left empty, and still skips it", () => {
+    addEmpty("prose");
+    expect(droppedBlockTypes(form())).toEqual(["prose"]);
+    form().dispatchEvent(new Event("submit"));
+    expect(droppedField()?.value).toBe("prose");
+    expect(buildPageContent(form())).toEqual({
+      blocks: [{ type: "hero", heading: "Hello" }],
+    });
+  });
+
+  test("reports several empty blocks, in order", () => {
+    addEmpty("prose");
+    addEmpty("prose");
+    form().dispatchEvent(new Event("submit"));
+    expect(droppedField()?.value).toBe("prose,prose");
   });
 
   test("adds a block from the type's template", () => {
