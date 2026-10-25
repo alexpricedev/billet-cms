@@ -785,9 +785,14 @@ const wireUrlMove = (form: HTMLFormElement): void => {
   const input = form.querySelector<HTMLInputElement>("[data-url-live]");
   const line = form.querySelector<HTMLElement>("[data-url-move]");
   if (!input || !line) return;
-  input.addEventListener("input", () => {
-    line.hidden = input.value.trim() === input.dataset.urlLive;
-  });
+  // The server's own spelling of a path (leading slash, no doubled or trailing
+  // slashes), so `/about/` doesn't claim a move the save won't make.
+  const update = (): void => {
+    const typed = `/${input.value.trim()}`.replace(/\/{2,}/g, "/");
+    line.hidden = (typed.replace(/\/$/, "") || "/") === input.dataset.urlLive;
+  };
+  input.addEventListener("input", update);
+  update();
 };
 
 const wireForm = (form: HTMLFormElement): void => {

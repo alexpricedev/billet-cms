@@ -14,6 +14,7 @@ import type {
   RevisionConflict,
   UnavailableBlock,
 } from "../../services/content";
+import { normalisePageUrl } from "../../services/content/pages";
 import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
@@ -235,7 +236,8 @@ export const PageForm = ({
 
   // The URL takes effect on save, not on publish: the stored row is the live
   // address, and the redirect from it is written with the save.
-  const moving = settings.url.trim() !== page.url;
+  const typedUrl = normalisePageUrl(settings.url);
+  const moving = typedUrl.ok ? typedUrl.url !== page.url : false;
   const publishedNotice =
     notice?.kind === "success" && notice.message.startsWith("Published.");
   const bannerMessage =
