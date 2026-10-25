@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   buildContent,
   buildPageContent,
-  droppedBlockTypes,
   init,
   serializeRichText,
 } from "./cms-form";
@@ -906,14 +905,12 @@ describe("page block editor", () => {
     document.querySelector<HTMLInputElement>("[data-cms-dropped]");
 
   test("reports no dropped blocks when every block has content", () => {
-    expect(droppedBlockTypes(form())).toEqual([]);
     form().dispatchEvent(new Event("submit"));
     expect(droppedField()?.value).toBe("");
   });
 
   test("reports one block left empty, and still skips it", () => {
     addEmpty("prose");
-    expect(droppedBlockTypes(form())).toEqual(["prose"]);
     form().dispatchEvent(new Event("submit"));
     expect(droppedField()?.value).toBe("prose");
     expect(buildPageContent(form())).toEqual({

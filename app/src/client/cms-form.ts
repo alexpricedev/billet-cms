@@ -357,10 +357,6 @@ export const buildPageContent = (
   form: HTMLFormElement,
 ): Record<string, unknown> => ({ blocks: readPageBlocks(form).blocks });
 
-/** The types of the blocks `buildPageContent` left out for being empty. */
-export const droppedBlockTypes = (form: HTMLFormElement): string[] =>
-  readPageBlocks(form).dropped;
-
 const readPageBlocks = (
   form: HTMLFormElement,
 ): { blocks: Record<string, unknown>[]; dropped: string[] } => {
