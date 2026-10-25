@@ -66,7 +66,7 @@ describe.each(renders)("%s history", (_name, html) => {
   test("dates the Restore button and names the author", () => {
     expect(html).toContain("Restore the 11 Jan version");
     expect(html).toContain(
-      'aria-label="Restore the 11 Jan version by sam@example.com as draft"',
+      'aria-label="Restore the 11 Jan version, saved 11 Jan 2026, 09:00 UTC by sam@example.com as draft"',
     );
   });
 });

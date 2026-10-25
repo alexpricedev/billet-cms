@@ -102,7 +102,7 @@ export const SlotHistory = ({
                 <button
                   type="submit"
                   className="cms-restore-button"
-                  aria-label={`Restore the ${formatDayShort(revision.createdAt)} version by ${revision.authorEmail ?? "an unknown author"} as draft`}
+                  aria-label={`Restore the ${formatDayShort(revision.createdAt)} version, saved ${formatWhen(revision.createdAt)} UTC by ${revision.authorEmail ?? "an unknown author"} as draft`}
                 >
                   Restore the {formatDayShort(revision.createdAt)} version
                 </button>

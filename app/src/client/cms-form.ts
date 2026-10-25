@@ -802,34 +802,34 @@ const wireUrlMove = (form: HTMLFormElement): void => {
  * cut; past the limit the server's own "Use N characters or fewer." line is
  * shown (the server renders it hidden) and the input is marked invalid.
  */
-const wireCharCount = (field: HTMLElement): void => {
-  const input = field.querySelector<HTMLInputElement>("[data-text-input]");
-  const count = field.querySelector<HTMLElement>("[data-char-count]");
-  if (!input || !count) return;
-  const max = Number(count.dataset.charMax);
-  const over = field.querySelector<HTMLElement>("[data-char-over]");
-  const update = (): void => {
+const wireCharCount = (form: HTMLFormElement): void => {
+  // Delegated, so a text field in a list row or block added later is counted too.
+  form.addEventListener("input", (event) => {
+    const input = event.target;
+    if (
+      !(input instanceof HTMLInputElement) ||
+      !input.hasAttribute("data-text-input")
+    )
+      return;
+    const field = input.closest<HTMLElement>("[data-field]");
+    const count = field?.querySelector<HTMLElement>("[data-char-count]");
+    if (!field || !count) return;
+    const max = Number(count.dataset.charMax);
     const length = input.value.length;
     count.textContent = `${length} / ${max}`;
     count.classList.toggle("cms-char-count-over", length > max);
-    if (over) {
-      over.hidden = length <= max;
-      if (length > max) input.setAttribute("aria-invalid", "true");
-      else input.removeAttribute("aria-invalid");
-    }
-  };
-  input.addEventListener("input", update);
+    const over = field.querySelector<HTMLElement>("[data-char-over]");
+    if (over) over.hidden = length <= max;
+    if (length > max) input.setAttribute("aria-invalid", "true");
+    else input.removeAttribute("aria-invalid");
+  });
 };
 
 const wireForm = (form: HTMLFormElement): void => {
   wireControls(form);
   wireFocalPoint(form);
   wireUrlMove(form);
-  for (const field of Array.from(
-    form.querySelectorAll<HTMLElement>('[data-field-kind="text"]'),
-  )) {
-    wireCharCount(field);
-  }
+  wireCharCount(form);
 
   form.addEventListener("submit", () => {
     const hidden = form.querySelector<HTMLInputElement>("[data-cms-content]");

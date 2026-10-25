@@ -145,7 +145,9 @@ export const PREVIEW_BANNER_ID = "cms-preview-banner";
  */
 export const renderPreviewBanner = (
   access?: PreviewAccess | null,
-  cmsUrl: string | undefined = process.env.CMS_URL,
+  cmsUrl: string | undefined = typeof process === "undefined"
+    ? undefined
+    : process.env.CMS_URL,
 ): string => {
   const href = access ? editorUrl(access, cmsUrl) : null;
   const back = href
@@ -175,7 +177,8 @@ const editorUrl = (access: PreviewAccess, cmsUrl?: string): string | null => {
     if (origin.protocol !== "http:" && origin.protocol !== "https:")
       return null;
     const kind = access.subjectType === "page" ? "pages" : "slots";
-    return `${origin.origin}/cms/${kind}/${encodeURIComponent(access.subjectId)}`;
+    const base = origin.origin + origin.pathname.replace(/\/+$/, "");
+    return `${base}/cms/${kind}/${encodeURIComponent(access.subjectId)}`;
   } catch {
     return null;
   }

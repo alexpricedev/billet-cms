@@ -213,6 +213,15 @@ describe("applyPreview", () => {
     expect(banner).toContain("Back to the editor");
   });
 
+  test("keeps a path prefix on CMS_URL", () => {
+    const banner = renderPreviewBanner(
+      { subjectType: "slot", subjectId: "s-1" },
+      "https://example.com/studio/",
+    );
+
+    expect(banner).toContain('href="https://example.com/studio/cms/slots/s-1"');
+  });
+
   test("links back to the page's editor for a page preview", () => {
     const banner = renderPreviewBanner(
       { subjectType: "page", subjectId: "p-1" },
