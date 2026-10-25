@@ -172,7 +172,8 @@ const editorUrl = (access: PreviewAccess, cmsUrl?: string): string | null => {
   if (!raw) return null;
   try {
     const origin = new URL(raw);
-    if (origin.protocol !== "http:" && origin.protocol !== "https:") return null;
+    if (origin.protocol !== "http:" && origin.protocol !== "https:")
+      return null;
     const kind = access.subjectType === "page" ? "pages" : "slots";
     return `${origin.origin}/cms/${kind}/${encodeURIComponent(access.subjectId)}`;
   } catch {

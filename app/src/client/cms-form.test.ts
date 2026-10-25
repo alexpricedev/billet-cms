@@ -1244,6 +1244,45 @@ describe("focal point picker", () => {
   });
 });
 
+describe("character count", () => {
+  beforeEach(() => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <div data-field data-field-kind="text">
+          <input type="text" data-text-input value="abc">
+          <p data-char-count data-char-max="5">3 / 5</p>
+          <p data-char-over hidden>Use 5 characters or fewer.</p>
+        </div>
+      </form>
+    `);
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("counts live and shows the error past the limit", () => {
+    const input = document.querySelector(
+      "[data-text-input]",
+    ) as HTMLInputElement;
+    const count = document.querySelector("[data-char-count]") as HTMLElement;
+    const over = document.querySelector("[data-char-over]") as HTMLElement;
+
+    input.value = "abcdefg";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(count.textContent).toBe("7 / 5");
+    expect(over.hidden).toBe(false);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+
+    input.value = "abcde";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(count.textContent).toBe("5 / 5");
+    expect(over.hidden).toBe(true);
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+  });
+});
+
 describe("url move line", () => {
   beforeEach(() => {
     mount(`

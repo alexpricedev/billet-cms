@@ -795,10 +795,41 @@ const wireUrlMove = (form: HTMLFormElement): void => {
   update();
 };
 
+/**
+ * A live "n / max" count under a length-limited text input.
+ *
+ * The input has no `maxlength`, so a long paste is kept rather than silently
+ * cut; past the limit the server's own "Use N characters or fewer." line is
+ * shown (the server renders it hidden) and the input is marked invalid.
+ */
+const wireCharCount = (field: HTMLElement): void => {
+  const input = field.querySelector<HTMLInputElement>("[data-text-input]");
+  const count = field.querySelector<HTMLElement>("[data-char-count]");
+  if (!input || !count) return;
+  const max = Number(count.dataset.charMax);
+  const over = field.querySelector<HTMLElement>("[data-char-over]");
+  const update = (): void => {
+    const length = input.value.length;
+    count.textContent = `${length} / ${max}`;
+    count.classList.toggle("cms-char-count-over", length > max);
+    if (over) {
+      over.hidden = length <= max;
+      if (length > max) input.setAttribute("aria-invalid", "true");
+      else input.removeAttribute("aria-invalid");
+    }
+  };
+  input.addEventListener("input", update);
+};
+
 const wireForm = (form: HTMLFormElement): void => {
   wireControls(form);
   wireFocalPoint(form);
   wireUrlMove(form);
+  for (const field of Array.from(
+    form.querySelectorAll<HTMLElement>('[data-field-kind="text"]'),
+  )) {
+    wireCharCount(field);
+  }
 
   form.addEventListener("submit", () => {
     const hidden = form.querySelector<HTMLInputElement>("[data-cms-content]");

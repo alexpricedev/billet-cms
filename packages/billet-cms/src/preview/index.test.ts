@@ -226,7 +226,9 @@ describe("applyPreview", () => {
     const slot = { subjectType: "slot", subjectId: "s-1" } as const;
 
     expect(renderPreviewBanner(slot, undefined)).not.toContain("<a ");
-    expect(renderPreviewBanner(slot, "javascript:alert(1)")).not.toContain("<a ");
+    expect(renderPreviewBanner(slot, "javascript:alert(1)")).not.toContain(
+      "<a ",
+    );
     expect(renderPreviewBanner(slot, "not a url")).not.toContain("<a ");
     expect(renderPreviewBanner(null, "https://cms.example.com")).not.toContain(
       "<a ",
@@ -296,7 +298,9 @@ describe("applyPreview", () => {
 
     // Appended, not prepended: an insertion ahead of the document would land
     // before `<!doctype html>` and force quirks mode.
-    expect(html).toBe(`<p>Fragment</p>${renderPreviewBanner(access, undefined)}`);
+    expect(html).toBe(
+      `<p>Fragment</p>${renderPreviewBanner(access, undefined)}`,
+    );
   });
 
   test("is not fooled by a </body> spelled inside a script", async () => {
