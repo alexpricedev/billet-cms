@@ -864,3 +864,15 @@ h1 {
   --bd-radius-sm: var(--radius);
   --bd-shadow: var(--shadow);
 }
+
+/* A move is live on save: noticed before Save, like the preview banner. */
+.cms-field-help.cms-url-move {
+  color: var(--color-warning);
+  border-left: 3px solid var(--color-warning);
+  padding-left: 0.5rem;
+  font-weight: 600;
+}
+
+.cms-url-move[hidden] {
+  display: none;
+}

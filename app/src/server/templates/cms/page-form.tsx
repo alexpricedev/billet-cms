@@ -1,3 +1,4 @@
+import type { JSX } from "preact";
 import type { FieldError } from "../../components/cms/field-control";
 import { MediaOptionsTemplate } from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
@@ -13,6 +14,7 @@ import type {
   RevisionConflict,
   UnavailableBlock,
 } from "../../services/content";
+import { normalisePageUrl } from "../../services/content/pages";
 import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
@@ -101,6 +103,8 @@ const SettingsControl = ({
   errors,
   required,
   textarea,
+  live,
+  extra,
 }: {
   name: string;
   label: string;
@@ -109,11 +113,19 @@ const SettingsControl = ({
   errors?: FieldError[];
   required?: boolean;
   textarea?: boolean;
+  /** The stored value, so the client can tell when the input differs. */
+  live?: string;
+  /** A line under the field the editor's input can toggle; `id` is described. */
+  extra?: { id: string; node: JSX.Element };
 }) => {
   const invalid = errors !== undefined && errors.length > 0;
   const helpId = `${name}-help`;
   const errorId = `${name}-error`;
-  const described = [help ? helpId : null, invalid ? errorId : null]
+  const described = [
+    help ? helpId : null,
+    invalid ? errorId : null,
+    extra?.id ?? null,
+  ]
     .filter(Boolean)
     .join(" ");
 
@@ -139,6 +151,7 @@ const SettingsControl = ({
           id={name}
           name={name}
           value={value}
+          data-url-live={live}
           aria-invalid={invalid ? "true" : undefined}
           aria-describedby={described || undefined}
         />
@@ -155,6 +168,7 @@ const SettingsControl = ({
           {help}
         </span>
       )}
+      {extra?.node}
     </div>
   );
 };
@@ -220,6 +234,11 @@ export const PageForm = ({
       : ""
   }`;
 
+  // The URL takes effect on save, not on publish: the stored row is the live
+  // address, and the redirect from it is written with the save.
+  const typedUrl = normalisePageUrl(settings.url);
+  const moving = typedUrl.ok ? typedUrl.url !== page.url : false;
+
   const uneditable = pageType === null;
   // Whether a block below carries a field error. A limit issue (`blocks`) or an
   // unreadable body (`(content)`) has no block to point at, so the banner must
@@ -239,6 +258,12 @@ export const PageForm = ({
       <p className="cms-breadcrumb">
         <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
         <span>{page.url}</span>
+        {moving && (
+          <>
+            {" "}
+            <span>(unsaved: {settings.url})</span>
+          </>
+        )}
       </p>
       <h1>{page.title}</h1>
 
@@ -382,6 +407,22 @@ export const PageForm = ({
               value={settings.url}
               errors={settingsErrors?.get("url")}
               required
+              live={page.url}
+              extra={{
+                id: "url-move",
+                node: (
+                  <p
+                    className="cms-field-help cms-url-move"
+                    id="url-move"
+                    data-url-move
+                    hidden={!moving}
+                  >
+                    <span aria-hidden="true">⚠ </span>Saving moves this page:{" "}
+                    <code>{page.url}</code> will redirect to the new URL as soon
+                    as you save, even before you publish.
+                  </p>
+                ),
+              }}
             />
             <SettingsControl
               name="title"

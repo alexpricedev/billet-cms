@@ -1243,3 +1243,30 @@ describe("focal point picker", () => {
     ).toBe("51% 50%");
   });
 });
+
+describe("url move line", () => {
+  beforeEach(() => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <input id="url" data-url-live="/about" value="/about">
+        <p data-url-move hidden>Saving moves this page</p>
+      </form>
+    `);
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("shows while the URL differs from the stored one", () => {
+    const input = document.getElementById("url") as HTMLInputElement;
+    const line = document.querySelector("[data-url-move]") as HTMLElement;
+    input.value = "/studio";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(line.hidden).toBe(false);
+    input.value = " /about ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(line.hidden).toBe(true);
+  });
+});

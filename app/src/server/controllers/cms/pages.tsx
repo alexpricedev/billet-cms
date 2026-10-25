@@ -57,6 +57,23 @@ export interface Notice {
   message: string;
 }
 
+/**
+ * The notice for a page GET: `pageNotice`, with the redirect a URL change left
+ * behind when `moved` names a path that really redirects to this page. The
+ * param is untrusted, so anything else is the plain notice.
+ */
+export const savedNotice = async (
+  params: URLSearchParams,
+  pageId: string,
+): Promise<Notice | null> => {
+  const notice = pageNotice(params);
+  const moved = params.get("moved");
+  if (params.get("saved") !== "1" || !notice || !moved) return notice;
+  if (!/^\/[^/]/.test(moved)) return notice;
+  if (!(await listPageRedirects(pageId)).includes(moved)) return notice;
+  return { ...notice, message: `Draft saved. ${moved} now redirects here.` };
+};
+
 export const pageNotice = (params: URLSearchParams): Notice | null => {
   if (params.get("saved") === "1") {
     return { kind: "success", message: "Draft saved." };
@@ -451,7 +468,7 @@ export const pages = {
       pageType?.removedAt ? null : pageType,
       content,
       latest?.id ?? null,
-      { notice: pageNotice(new URL(req.url).searchParams) },
+      { notice: await savedNotice(new URL(req.url).searchParams, page.id) },
     );
   },
 
@@ -589,7 +606,11 @@ export const pages = {
       });
     }
 
-    return redirect(`/cms/pages/${page.id}?saved=1`);
+    const moved =
+      page.url !== result.page.url
+        ? `&moved=${encodeURIComponent(page.url)}`
+        : "";
+    return redirect(`/cms/pages/${page.id}?saved=1${moved}`);
   },
 
   /** The confirm step before a page is deleted. */
