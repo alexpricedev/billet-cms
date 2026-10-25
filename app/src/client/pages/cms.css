@@ -160,6 +160,10 @@ h1 {
   margin: 0;
 }
 
+.cms-field-errors[data-char-over] {
+  padding-left: 0;
+}
+
 .cms-char-count-over {
   color: var(--color-danger);
 }
