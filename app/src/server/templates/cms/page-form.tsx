@@ -238,12 +238,6 @@ export const PageForm = ({
   // address, and the redirect from it is written with the save.
   const typedUrl = normalisePageUrl(settings.url);
   const moving = typedUrl.ok ? typedUrl.url !== page.url : false;
-  const publishedNotice =
-    notice?.kind === "success" && notice.message.startsWith("Published.");
-  const bannerMessage =
-    notice && publishedNotice && redirected.length > 0
-      ? `${notice.message} ${redirected.join(", ")} now redirects here.`
-      : notice?.message;
 
   const uneditable = pageType === null;
   // Whether a block below carries a field error. A limit issue (`blocks`) or an
@@ -280,7 +274,7 @@ export const PageForm = ({
           }
           role="status"
         >
-          {bannerMessage}
+          {notice.message}
         </div>
       )}
 
@@ -423,9 +417,9 @@ export const PageForm = ({
                     data-url-move
                     hidden={!moving}
                   >
-                    Saving moves this page: <code>{page.url}</code> will
-                    redirect to the new URL as soon as you save, even before you
-                    publish.
+                    <span aria-hidden="true">⚠ </span>Saving moves this page:{" "}
+                    <code>{page.url}</code> will redirect to the new URL as soon
+                    as you save, even before you publish.
                   </p>
                 ),
               }}

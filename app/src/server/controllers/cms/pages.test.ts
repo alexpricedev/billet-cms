@@ -1063,7 +1063,7 @@ describe("Pages controller", () => {
       expect(html).not.toContain("now redirects here");
     }
 
-    // The banner after publishing says the same.
+    // The banner after publishing is unchanged: the move was announced on save.
     const latest = await getLatestRevision("page", pageId);
     const published = await pagePublish.publish(
       await post(
@@ -1074,7 +1074,7 @@ describe("Pages controller", () => {
       ),
     );
     expect(published.status).toBe(303);
-    expect(await view("?published=1")).toContain("/about now redirects here.");
+    expect(await view("?published=1")).not.toContain("now redirects here");
   });
 
   test("refuses a stale save, then overwrites once the editor confirms", async () => {
