@@ -657,6 +657,24 @@ h1 {
   border-color: var(--color-danger);
 }
 
+.cms-block-add-button[aria-disabled="true"] {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cms-block-add-hint {
+  flex-basis: 100%;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+.cms-block-add-hint[hidden] {
+  display: none;
+}
+
 .cms-block-add {
   display: flex;
   flex-wrap: wrap;

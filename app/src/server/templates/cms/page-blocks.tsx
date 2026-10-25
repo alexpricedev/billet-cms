@@ -1,3 +1,4 @@
+import { Fragment } from "preact";
 import { ContentFields } from "../../components/cms/content-fields";
 import type { FieldError } from "../../components/cms/field-control";
 import type {
@@ -38,6 +39,24 @@ const allowedBlockTypes = (
       Boolean(block && !block.removedAt),
     );
 };
+
+/** A block type's `max` on this page type, when it is a usable number. */
+const blockMax = (
+  pageType: PageTypeRecord,
+  name: string,
+): number | undefined => {
+  const limit = pageType.limits[name];
+  if (typeof limit !== "object" || limit === null) return undefined;
+  const { max } = limit as { max?: unknown };
+  return typeof max === "number" && Number.isFinite(max) && max >= 0
+    ? max
+    : undefined;
+};
+
+const limitHint = (name: string, max: number): string =>
+  max === 1
+    ? `Only one ${name} per page`
+    : `Only ${max} ${name} blocks per page`;
 
 /**
  * Why a block can't be edited, and what clears the flag.
@@ -251,16 +270,39 @@ export const PageBlocks = ({
             The page type doesn't allow any blocks.
           </p>
         ) : (
-          allowed.map((blockType) => (
-            <button
-              type="button"
-              className="cms-block-add-button"
-              data-block-add={blockType.name}
-              key={blockType.name}
-            >
-              Add {blockType.name}
-            </button>
-          ))
+          allowed.map((blockType) => {
+            const max = blockMax(pageType, blockType.name);
+            // The server counts every stored block of the type, flagged ones
+            // included, so the initial state does too.
+            const full =
+              max !== undefined &&
+              blocks.filter((block) => block.type === blockType.name).length >=
+                max;
+            const hintId = `block-add-limit-${blockType.name}`;
+            return (
+              <Fragment key={blockType.name}>
+                <button
+                  type="button"
+                  className="cms-block-add-button"
+                  data-block-add={blockType.name}
+                  data-block-max={max}
+                  aria-disabled={full ? "true" : undefined}
+                  aria-describedby={max === undefined ? undefined : hintId}
+                >
+                  Add {blockType.name}
+                </button>
+                {max !== undefined && (
+                  <span
+                    className="cms-block-add-hint"
+                    id={hintId}
+                    hidden={!full}
+                  >
+                    {limitHint(blockType.name, max)}
+                  </span>
+                )}
+              </Fragment>
+            );
+          })
         )}
       </div>
     </div>

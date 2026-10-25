@@ -916,6 +916,63 @@ describe("page block editor", () => {
     });
   });
 
+  describe("Add at the page type's maximum", () => {
+    const LIMITED = PAGE_MARKUP.replace(
+      '<button type="button" data-block-add="prose">Add prose</button>',
+      `<button type="button" data-block-add="prose" data-block-max="2" aria-describedby="limit-prose">Add prose</button>
+        <span id="limit-prose" hidden>Only 2 prose blocks per page</span>`,
+    );
+    const add = () => document.querySelector("[data-block-add]") as Element;
+    const hint = () => document.getElementById("limit-prose") as HTMLElement;
+    const proseCount = () =>
+      document.querySelectorAll('[data-cms-block][data-block-type="prose"]')
+        .length;
+
+    beforeEach(() => {
+      document.body.innerHTML = "";
+      mount(LIMITED);
+    });
+
+    test("greys out after adding to the max, and a click then adds nothing", () => {
+      expect(add().hasAttribute("aria-disabled")).toBe(false);
+      click(add());
+      expect(add().hasAttribute("aria-disabled")).toBe(false);
+      click(add());
+      expect(add().getAttribute("aria-disabled")).toBe("true");
+      expect(hint().hasAttribute("hidden")).toBe(false);
+      click(add());
+      expect(proseCount()).toBe(2);
+    });
+
+    test("comes back when a block is removed", () => {
+      click(add());
+      click(add());
+      const remove = document.createElement("button");
+      remove.setAttribute("data-block-remove", "");
+      document
+        .querySelector('[data-cms-block][data-block-type="prose"]')
+        ?.append(remove);
+      click(remove);
+      expect(add().hasAttribute("aria-disabled")).toBe(false);
+      expect(hint().hasAttribute("hidden")).toBe(true);
+      expect(proseCount()).toBe(1);
+    });
+
+    test("a flagged block marked removed stops counting", () => {
+      document.body.innerHTML = "";
+      mount(
+        LIMITED.replace(
+          'data-block-type="gone"',
+          'data-block-type="prose"',
+        ).replace('data-block-max="2"', 'data-block-max="1"'),
+      );
+      expect(add().getAttribute("aria-disabled")).toBe("true");
+      const flagged = document.querySelector("[data-block-unavailable]");
+      click(flagged?.querySelector("[data-block-remove]") as Element);
+      expect(add().hasAttribute("aria-disabled")).toBe(false);
+    });
+  });
+
   test("removes a block", () => {
     const remove = document.createElement("button");
     remove.setAttribute("data-block-remove", "");
