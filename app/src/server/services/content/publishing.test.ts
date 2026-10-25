@@ -401,6 +401,14 @@ describe("history and restore", () => {
     // Restore is a draft: the published pointer is untouched.
     const slot = await getSlotById(slotId);
     expect(slot?.publishedRevisionId).not.toBe(result.revision.id);
+
+    // History says where the copy came from; ordinary saves say nothing.
+    const history = await listSlotHistory(slot as NonNullable<typeof slot>);
+    const restored = history.revisions.find((r) => r.id === result.revision.id);
+    expect(restored?.restoredFromAt).toEqual(first.createdAt);
+    expect(
+      history.revisions.filter((r) => r.restoredFromAt !== null),
+    ).toHaveLength(1);
   });
 
   test("refuses to restore a revision that isn't this slot's", async () => {

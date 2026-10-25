@@ -334,6 +334,7 @@ export const FieldControl = ({
     field.help ? helpId : undefined,
     invalid ? errorId : undefined,
   );
+  const countId = idFor("count");
 
   switch (field.kind) {
     case "text":
@@ -356,12 +357,33 @@ export const FieldControl = ({
             id={controlId}
             data-text-input
             value={asString(value)}
-            maxLength={field.max}
             aria-label={labelOverride}
             aria-required={required ? "true" : undefined}
             aria-invalid={invalid ? "true" : undefined}
-            aria-describedby={described}
+            aria-describedby={
+              field.max === undefined
+                ? described
+                : describedBy(described, countId)
+            }
           />
+          {field.max !== undefined && (
+            <>
+              <p
+                className="cms-field-help cms-char-count"
+                id={countId}
+                aria-live="polite"
+                data-char-count
+                data-char-max={field.max}
+              >
+                {asString(value).length} / {field.max}
+              </p>
+              {!invalid && (
+                <p className="cms-field-errors" data-char-over hidden>
+                  Use {field.max} characters or fewer.
+                </p>
+              )}
+            </>
+          )}
           <FieldErrors errors={errors} id={errorId} />
           <FieldHelp help={field.help} id={helpId} />
         </div>

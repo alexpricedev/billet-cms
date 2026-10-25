@@ -156,6 +156,18 @@ h1 {
   font-size: 0.85rem;
 }
 
+.cms-char-count {
+  margin: 0;
+}
+
+.cms-field-errors[data-char-over] {
+  padding-left: 0;
+}
+
+.cms-char-count-over {
+  color: var(--color-danger);
+}
+
 .cms-field-errors {
   color: var(--color-danger);
   font-size: 0.85rem;
@@ -443,6 +455,10 @@ h1 {
 .cms-history-published {
   color: var(--color-success, #4ade80);
   border-color: var(--color-success, #4ade80);
+}
+
+.cms-history-restored {
+  color: var(--color-text-secondary);
 }
 
 .cms-history-restore {

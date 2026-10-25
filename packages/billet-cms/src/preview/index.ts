@@ -143,13 +143,53 @@ export const PREVIEW_BANNER_ID = "cms-preview-banner";
  * landmark, not a transient announcement, so it should not be read out by a
  * screen reader on every page load.
  */
-export const renderPreviewBanner = (): string =>
-  `<div id="${PREVIEW_BANNER_ID}" role="region" aria-label="Preview" ` +
-  'style="position:sticky;top:0;z-index:2147483647;' +
-  "background:#b45309;color:#fff;font:600 14px/1.4 system-ui,sans-serif;" +
-  'padding:8px 16px;text-align:center">' +
-  "Preview — showing unpublished draft content. This is not the live site." +
-  "</div>";
+export const renderPreviewBanner = (
+  access?: PreviewAccess | null,
+  cmsUrl: string | undefined = typeof process === "undefined"
+    ? undefined
+    : process.env.CMS_URL,
+): string => {
+  const href = access ? editorUrl(access, cmsUrl) : null;
+  const back = href
+    ? ` <a href="${escapeAttribute(href)}" style="color:#fff;text-decoration:underline">Back to the editor</a>`
+    : "";
+  return (
+    `<div id="${PREVIEW_BANNER_ID}" role="region" aria-label="Preview" ` +
+    'style="position:sticky;top:0;z-index:2147483647;' +
+    "background:#b45309;color:#fff;font:600 14px/1.4 system-ui,sans-serif;" +
+    'padding:8px 16px;text-align:center">' +
+    "Preview — showing unpublished draft content. This is not the live site." +
+    back +
+    "</div>"
+  );
+};
+
+/**
+ * The CMS editor for a preview's subject, or `null` when no usable `CMS_URL`
+ * is set. Only an http(s) origin is accepted, and the ids are encoded into the
+ * path, so the link can't be turned into a `javascript:` URL or a path escape.
+ */
+const editorUrl = (access: PreviewAccess, cmsUrl?: string): string | null => {
+  const raw = (cmsUrl ?? "").trim();
+  if (!raw) return null;
+  try {
+    const origin = new URL(raw);
+    if (origin.protocol !== "http:" && origin.protocol !== "https:")
+      return null;
+    const kind = access.subjectType === "page" ? "pages" : "slots";
+    const base = origin.origin + origin.pathname.replace(/\/+$/, "");
+    return `${base}/cms/${kind}/${encodeURIComponent(access.subjectId)}`;
+  } catch {
+    return null;
+  }
+};
+
+const escapeAttribute = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 
 /**
  * The opening `<body>` tag, whatever case the site wrote it in.
@@ -217,7 +257,7 @@ export const applyPreview = async (
   }
 
   const html = await response.text();
-  const body = injectPreviewBanner(html, renderPreviewBanner());
+  const body = injectPreviewBanner(html, renderPreviewBanner(access));
   // The body was re-serialised, so the producer's framing headers no longer
   // describe it: the length, the ETag, and any encoding have all gone stale.
   headers.delete("Content-Length");

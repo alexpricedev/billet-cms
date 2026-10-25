@@ -203,6 +203,57 @@ describe("applyPreview", () => {
     expect(banner).toContain("position:sticky;top:0");
   });
 
+  test("links back to the slot's editor when CMS_URL is known", () => {
+    const banner = renderPreviewBanner(
+      { subjectType: "slot", subjectId: "s-1" },
+      "https://cms.example.com/",
+    );
+
+    expect(banner).toContain('href="https://cms.example.com/cms/slots/s-1"');
+    expect(banner).toContain("Back to the editor");
+  });
+
+  test("keeps a path prefix on CMS_URL", () => {
+    const banner = renderPreviewBanner(
+      { subjectType: "slot", subjectId: "s-1" },
+      "https://example.com/studio/",
+    );
+
+    expect(banner).toContain('href="https://example.com/studio/cms/slots/s-1"');
+  });
+
+  test("links back to the page's editor for a page preview", () => {
+    const banner = renderPreviewBanner(
+      { subjectType: "page", subjectId: "p-1" },
+      "https://cms.example.com",
+    );
+
+    expect(banner).toContain('href="https://cms.example.com/cms/pages/p-1"');
+  });
+
+  test("has no link without a usable CMS_URL or without access", () => {
+    const slot = { subjectType: "slot", subjectId: "s-1" } as const;
+
+    expect(renderPreviewBanner(slot, undefined)).not.toContain("<a ");
+    expect(renderPreviewBanner(slot, "javascript:alert(1)")).not.toContain(
+      "<a ",
+    );
+    expect(renderPreviewBanner(slot, "not a url")).not.toContain("<a ");
+    expect(renderPreviewBanner(null, "https://cms.example.com")).not.toContain(
+      "<a ",
+    );
+  });
+
+  test("encodes the subject id so it cannot break out of the attribute", () => {
+    const banner = renderPreviewBanner(
+      { subjectType: "slot", subjectId: '"><script>x</script>' },
+      "https://cms.example.com",
+    );
+
+    expect(banner).not.toContain("<script>");
+    expect(banner).toContain("%22%3E%3Cscript%3E");
+  });
+
   test("injects the banner as the first child of the body", async () => {
     const response = new Response(
       "<html><head><title>x</title></head><body><header>H</header></body></html>",
@@ -256,7 +307,9 @@ describe("applyPreview", () => {
 
     // Appended, not prepended: an insertion ahead of the document would land
     // before `<!doctype html>` and force quirks mode.
-    expect(html).toBe(`<p>Fragment</p>${renderPreviewBanner()}`);
+    expect(html).toBe(
+      `<p>Fragment</p>${renderPreviewBanner(access, undefined)}`,
+    );
   });
 
   test("is not fooled by a </body> spelled inside a script", async () => {
