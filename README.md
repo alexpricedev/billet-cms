@@ -24,6 +24,7 @@ A Bun workspace. Everything runs through the root scripts:
 
 ```bash
 bun install
+bun run dev       # the CMS on PORT from .env, client bundles watched
 bun run check     # lint + typecheck across the workspaces
 bun run build     # the CMS client bundles
 bun run test      # app suite, plugin suite, then the end-to-end suite
@@ -34,6 +35,13 @@ bun run e2e       # just the end-to-end suite
 either at another project's database — the CMS shares a database by design, and
 its migrations and truncations must stay inside the `cms_` (and test `users`)
 tables.
+
+Each Conductor workspace is provisioned for itself: `.conductor/settings.toml`
+runs `scripts/workspace.ts provision` on setup and `destroy` on archive, which
+gives the workspace its own port and its own `<base>-<workspace>` dev database
+and `<base>_test-<workspace>` test database, then writes them into the root env
+files. That is what makes `run_mode = "concurrent"` safe. Both commands no-op in
+cloud workspaces.
 
 `AGENTS.md` holds the invariants (the `cms_` prefix, `cms_identities`,
 migrations at boot, the contract version, the one client-JS exception). `app/`

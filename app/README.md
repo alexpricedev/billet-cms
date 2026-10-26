@@ -90,8 +90,7 @@ src/
 scripts/
 ├── wip                     # Per-worktree WIP snapshots (safe `git stash` replacement)
 ├── benchmark.ts            # Times the suite, checks and build
-├── browser-smoke.test.ts   # Real-browser smoke test — its own CI job
-└── workspace.ts            # Per-workspace port + dev/test databases
+└── browser-smoke.test.ts   # Real-browser smoke test — its own CI job
 
 .claude/                    # Agent rules, hooks and skills for this directory
 runbooks/                   # Operational standards — SECURITY, PRIVACY, ACCESSIBILITY, SEO, CI, RELEASE

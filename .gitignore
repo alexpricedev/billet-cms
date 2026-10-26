@@ -16,3 +16,4 @@ docs
 .worktrees
 .gstack
 .sandbox
+.conductor/settings.local.toml

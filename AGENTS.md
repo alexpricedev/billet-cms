@@ -13,7 +13,15 @@ repo. This file is only the invariants.
 ## Working agreements
 
 - Run everything through the root scripts: `bun run check`, `bun run test`,
-  `bun run build`. They delegate into the workspaces.
+  `bun run build`. They delegate into the workspaces. `bun run dev` starts the
+  CMS with the root `.env` passed down with `--env-file`: nothing inside `app/`
+  loads it on its own.
+- A Conductor workspace gets its own port and its own two databases.
+  `.conductor/settings.toml` runs `scripts/workspace.ts provision` on setup and
+  `destroy` on archive; it rewrites the root `.env` (`PORT`, `APP_URL`,
+  `DATABASE_URL`, `SESSION_COOKIE_NAME`) and `.env.test`'s `DATABASE_URL` with
+  names carrying the workspace's slug. Never hardcode a port or a database name
+  — read them from the env.
 - `app/CLAUDE.md` is Billet's own guidance and still applies inside `app/`
   unless this file says otherwise.
 - `app/.github/` came in with the verbatim Billet v5.1.0 copy and is inert:
@@ -162,6 +170,14 @@ never needed, and nothing links to it. `components/form-field.tsx`,
 `utils/form-action.ts`, `utils/form-data.ts` and `form-field.css` stay even
 though nothing imports them: they are unused upstream helpers kept so a future
 port diffs cleanly, not part of the demo page.
+
+**Moved to the repository root.** `scripts/workspace.ts` and
+`.conductor/settings.toml` arrived inside `app/` with the upstream copy and are
+gone from there: Conductor reads `.conductor/` from the repository root only,
+and the env files this repository provisions are the root `.env` and
+`.env.test`, not an `app/.env` that does not exist. When porting a later
+upstream release, apply its changes to both files at the root rather than
+restoring the `app/` copies.
 
 **Renamed to `cms_`.** `users` → `cms_users`, `sessions` → `cms_sessions`,
 `user_tokens` → `cms_user_tokens`, `migrations` → `cms_migrations`. Indexes

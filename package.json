@@ -13,6 +13,7 @@
     "lint:e2e": "cd e2e && bun --bun biome check .",
     "typecheck:e2e": "cd e2e && bun --bun tsc --noEmit",
     "test": "bun run --cwd app --env-file=../.env.test test && bun run --cwd packages/billet-cms test && bun run e2e && bun run test:fixtures",
+    "dev": "bun run --cwd app --env-file=../.env dev",
     "build": "bun run --cwd app build",
     "migrate:up": "bun run --cwd app migrate:up",
     "migrate:status": "bun run --cwd app migrate:status",
