@@ -126,6 +126,11 @@ focal-point or alt change shows within about a second.
 
 ## Installing in a site
 
+The full walkthrough — the site's files, the code for each step, the
+environment and the deploy order — is
+[`runbooks/INSTALLING-IN-A-SITE.md`](https://github.com/alexpricedev/billet-cms/blob/main/runbooks/INSTALLING-IN-A-SITE.md).
+This section is the reference for the pieces it mounts.
+
 ```bash
 bun add @alexpricedev/billet-cms
 ```

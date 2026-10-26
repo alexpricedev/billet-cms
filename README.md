@@ -8,6 +8,7 @@ A headless CMS for [Billet](https://github.com/alexpricedev/Billet) sites. Three
 | `packages/billet-cms` | `@alexpricedev/billet-cms`, the block plugin sites install. Holds the field vocabulary, the site-side read helpers and the contract both sides share. |
 | `e2e/` | A small Bun site (also the sandbox's Northwind Studio) and the end-to-end suite that proves the whole thing works. |
 | `fixtures/`, `scripts/` | The fixture data, loader and sandbox commands. See `runbooks/SANDBOX.md`. |
+| `runbooks/` | Installing the CMS in a site (`INSTALLING-IN-A-SITE.md`) and the sandbox (`SANDBOX.md`). |
 
 The CMS is never on the public site's request path. A site declares its blocks,
 slots and page types in code and publishes them into `cms_` tables on deploy;
@@ -67,17 +68,15 @@ command is `bun install && bun run build` and the start command `bun run start`.
 
 ## Installing the plugin in a site
 
-```bash
-bun add @alexpricedev/billet-cms
-```
+A site adds `@alexpricedev/billet-cms`, declares its blocks, slots and page types
+in `cms.config.ts`, and publishes them on deploy. It then mounts the plugin's
+page catch-all and its `/cms/sign-in` route, merges CMS pages into its own
+sitemap, and allows the media bucket in its CSP.
 
-Declare the site's blocks, slots and page types in `cms.config.ts`, publish on
-deploy with `bunx billet-cms-publish`, read content with
-`@alexpricedev/billet-cms/server`, mount the fallback catch-all and the
-`/cms/sign-in` route, and set `CMS_URL` so the Edit content link appears. The
-full guide — the fallback hook, the sitemap hook, the CSP rule, the deploy order
-and the environment — is in
-[`packages/billet-cms/README.md`](packages/billet-cms/README.md#installing-in-a-site).
+The walkthrough — the code for each step, the environment, and the deploy order
+— is [`runbooks/INSTALLING-IN-A-SITE.md`](runbooks/INSTALLING-IN-A-SITE.md).
+[`packages/billet-cms/README.md`](packages/billet-cms/README.md) is the API
+reference for the package itself.
 
 ## Pulling content into local or preview
 
