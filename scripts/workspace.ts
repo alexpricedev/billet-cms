@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 
+/* biome-ignore-all lint/suspicious/noConsole: CLI script */
+
 /**
  * Per-workspace database and port provisioning.
  *
  * Conductor gives every workspace its own git worktree, but the setup script
  * copies one `.env` into all of them — so every agent shares a dev database, a
- * test database, a port, and a session cookie name. The test database is the
+ * test database, a port and a session cookie name. The test database is the
  * dangerous one: `cleanupTestData` truncates every table, so two suites running
  * at once fail in ways neither agent can reproduce.
  *
@@ -13,6 +15,12 @@
  * after the workspace, creating the databases if they don't exist. `destroy`
  * drops them again. Both are wired into `.conductor/settings.toml`, and both
  * are safe to re-run — Conductor can re-run setup on an existing workspace.
+ *
+ * This repository's env files are the *root* ones. `app/` is one workspace of
+ * the Bun workspace and the root `dev` script hands it the root `.env` with
+ * `--env-file`, so a workspace's values live in one place. (Billet upstream
+ * keeps this script and `.conductor/settings.toml` inside the app directory;
+ * both moved here when the CMS became a monorepo. See `AGENTS.md`.)
  *
  * Cloud workspaces get neither: `CONDUCTOR_PORT` is unset there and the sandbox
  * has one checkout, so there is nothing to collide with.
@@ -99,7 +107,8 @@ const maintenance = (connectionString: string): SQL =>
   new SQL(withDatabase(connectionString, "postgres"), { max: 1 });
 
 const createDatabase = async (admin: SQL, name: string): Promise<void> => {
-  const existing = await admin`SELECT 1 FROM pg_database WHERE datname = ${name}`;
+  const existing =
+    await admin`SELECT 1 FROM pg_database WHERE datname = ${name}`;
   if (existing.length > 0) {
     console.log(`  ${name} — already exists`);
     return;
@@ -156,9 +165,18 @@ async function provision(): Promise<void> {
     );
   }
 
+  // Each name is the root checkout's own with the workspace appended, so the
+  // pair keeps this repository's `<base>` / `<base>_test` shape — and the
+  // workspace test database is not derived from the dev one, which would name
+  // it `billet_cms-<workspace>-test` and lose the `_test` convention.
   const base = databaseName(rootDevUrl);
   const devDb = `${base}-${slug}`;
-  const testDb = `${base}-${slug}-test`;
+  const testDb = `${databaseName(rootTestUrl)}-${slug}`;
+  if (devDb === testDb) {
+    throw new Error(
+      `dev and test databases would both be "${devDb}" — .env and .env.test name the same database`,
+    );
+  }
 
   let dev = await readEnv(DEV_ENV);
   dev = setEnvValue(dev, "DATABASE_URL", withDatabase(rootDevUrl, devDb));
@@ -173,12 +191,13 @@ async function provision(): Promise<void> {
   );
   await Bun.write(DEV_ENV, dev);
 
-  // DATABASE_URL is the only key .env.test carries, and the only one a
-  // workspace changes: the rest of the suite's environment is pinned by
-  // src/server/test-utils/test-env.ts. A workspace port must never reach the
-  // tests — they hardcode `http://localhost:3000` in request URLs and
-  // csrf.test.ts builds its Origin from APP_URL — and the pin is what
-  // guarantees that whatever ends up in this file.
+  // DATABASE_URL is the only key a workspace changes. `.env.test` may carry a
+  // few more, but every one of them is pinned by
+  // `app/src/server/test-utils/test-env.ts`, which runs as a preload before any
+  // test module reads them. A workspace port must never reach the tests — they
+  // hardcode `http://localhost:3000` in request URLs and csrf.test.ts builds its
+  // Origin from APP_URL — and the pin is what guarantees that whatever ends up
+  // in this file.
   let test = await readEnv(TEST_ENV);
   test = setEnvValue(test, "DATABASE_URL", withDatabase(rootTestUrl, testDb));
   await Bun.write(TEST_ENV, test);
@@ -193,7 +212,9 @@ async function provision(): Promise<void> {
   }
 
   console.log(`  port ${port} — dev server, APP_URL http://localhost:${port}`);
-  console.log("  migrations are applied on first boot by main.ts");
+  console.log(
+    "  migrations are applied on first boot by app/src/server/main.ts",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -220,17 +241,19 @@ async function destroy(): Promise<void> {
 
   // The guard, and the reason this is safe to wire into an archive hook: a name
   // is only dropped if it carries this workspace's slug. A workspace that was
-  // never provisioned still points at the shared `billet` / `billet-test`, and
-  // those fail the check rather than being dropped out from under every other
-  // agent on the machine.
+  // never provisioned still points at the shared `billet_cms` /
+  // `billet_cms_test`, and those fail the check rather than being dropped out
+  // from under every other agent on the machine.
   const targets = [
     { name: databaseName(devUrl), expected: `-${slug}` },
-    { name: databaseName(testUrl), expected: `-${slug}-test` },
+    { name: databaseName(testUrl), expected: `-${slug}` },
   ];
 
   const owned = targets.filter(({ name, expected }) => {
     if (slug && name.endsWith(expected)) return true;
-    console.log(`workspace: refusing to drop "${name}" — not owned by ${workspace}`);
+    console.log(
+      `workspace: refusing to drop "${name}" — not owned by ${workspace}`,
+    );
     return false;
   });
 
@@ -240,11 +263,12 @@ async function destroy(): Promise<void> {
   const admin = maintenance(devUrl);
   try {
     // The parallel test runner gives each worker its own database — the base
-    // name plus `-w2`, `-w3`, … (see src/server/test-utils/worker-database.ts).
-    // How many exist depends on the core count of whatever machine last ran the
-    // suite, so ask Postgres rather than guessing. These are only ever children
-    // of a name that already passed the ownership guard above, so they inherit
-    // it: nothing is dropped here that wasn't already this workspace's to drop.
+    // name plus `-w2`, `-w3`, … (see
+    // app/src/server/test-utils/worker-database.ts). How many exist depends on
+    // the core count of whatever machine last ran the suite, so ask Postgres
+    // rather than guessing. These are only ever children of a name that already
+    // passed the ownership guard above, so they inherit it: nothing is dropped
+    // here that wasn't already this workspace's to drop.
     const names: string[] = [];
     for (const { name } of owned) {
       names.push(name);

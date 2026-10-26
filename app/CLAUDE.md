@@ -19,8 +19,9 @@ spec for everything else. This file is for the things you can't learn by reading
 ## Working agreements
 
 - The dev server is already running in another tab, on this workspace's own port — don't start
-  one, and don't add a second. `bun run dev` here will fail on the port or fight the watcher.
-  Read `PORT` from `.env` rather than assuming 3000; only the root checkout is on 3000.
+  one, and don't add a second. `bun run dev` from the repository root will fail on the port or
+  fight the watcher. Read `PORT` from the root `.env` rather than assuming one: every Conductor
+  workspace gets a port of its own.
 - Run test and lint suites through the `package.json` scripts (`bun run test`, `bun run check`).
   Invoking `bun test` directly skips migrations, so it runs against whatever schema is already
   there — see the `verifying-changes` skill. The test environment itself is safe either way; it
@@ -48,9 +49,10 @@ anything naming `refs/worktree/` pass through — that is how `scripts/wip` work
 
 ### Each workspace owns its port and its two databases
 
-`scripts/workspace.ts provision` (run by Conductor setup) rewrites this workspace's `.env` —
-`PORT`/`APP_URL` from `CONDUCTOR_PORT`, a `DATABASE_URL` named `<base>-<workspace>`, a
-workspace-specific `SESSION_COOKIE_NAME` — and gives `.env.test` its own `DATABASE_URL`, because
+`../scripts/workspace.ts provision` (run by Conductor setup, from the repository root) rewrites this
+workspace's root `.env` — `PORT`/`APP_URL` from `CONDUCTOR_PORT`, a `DATABASE_URL` named
+`<base>-<workspace>`, a workspace-specific `SESSION_COOKIE_NAME` — and gives the root `.env.test`
+its own `DATABASE_URL`, because
 `cleanupTestData` truncates every table and two agents sharing one test database fail each other's
 suites in ways neither can reproduce. A workspace port must never reach the tests: they hardcode
 `http://localhost:3000` and build the expected CSRF Origin from `APP_URL`. `provision` is
