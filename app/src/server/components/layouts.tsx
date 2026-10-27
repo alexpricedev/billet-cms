@@ -13,9 +13,11 @@ import type { User } from "../services/users";
 import { Logo } from "./logo";
 import { Nav } from "./nav";
 
-// The site is dark-only (see `colorScheme: "dark"` on <html>), so theme-color
-// matches --color-bg from style.css rather than shipping light/dark variants.
-const THEME_COLOR = "#0a0a0b";
+// The CMS follows the operating system theme (see the `prefers-color-scheme`
+// block in base.css), so the browser chrome gets a matching colour and the
+// in-page controls use the same scheme.
+const THEME_COLOR_LIGHT = "#fafafa";
+const THEME_COLOR_DARK = "#090909";
 
 const canonicalUrl = (path?: string): string =>
   path ? absolute(path) : siteUrl();
@@ -55,8 +57,17 @@ function HeadMeta({
       {blocksIndexing(noindex) && (
         <meta name="robots" content="noindex, nofollow" />
       )}
-      <meta name="color-scheme" content="dark" />
-      <meta name="theme-color" content={THEME_COLOR} />
+      <meta name="color-scheme" content="light dark" />
+      <meta
+        name="theme-color"
+        content={THEME_COLOR_LIGHT}
+        media="(prefers-color-scheme: light)"
+      />
+      <meta
+        name="theme-color"
+        content={THEME_COLOR_DARK}
+        media="(prefers-color-scheme: dark)"
+      />
       <link rel="canonical" href={canonicalUrl(canonicalPath)} />
       <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
       <link
@@ -104,7 +115,7 @@ export function Layout({
   noindex,
 }: LayoutProps) {
   return (
-    <html lang="en" style={{ colorScheme: "dark" }}>
+    <html lang="en" style={{ colorScheme: "light dark" }}>
       <head>
         <HeadMeta
           title={title}
@@ -128,15 +139,23 @@ export function Layout({
           />
         )}
       </head>
-      <body data-page={name} data-component="layout">
-        <header>
-          <a href="/" className="logo">
-            <Logo />
-            <span>Billet CMS</span>
-          </a>
-          <Nav page={name} user={user} csrfToken={csrfToken} />
-        </header>
-        <main>{children}</main>
+      <body
+        data-page={name}
+        data-component="layout"
+        data-shell={user ? "app" : "plain"}
+      >
+        <a className="skip-link" href="#main-content">
+          Skip to content
+        </a>
+        <Nav
+          page={name}
+          user={user}
+          csrfToken={csrfToken}
+          canonicalPath={canonicalPath}
+        />
+        <main id="main-content" className="app-main">
+          <div className="app-content">{children}</div>
+        </main>
         <SiteFooter />
         <script type="module" src={getAssetUrl("/assets/main.js")} />
       </body>
@@ -171,19 +190,27 @@ interface ErrorLayoutProps {
 // crawlers never treat an error body as real content.
 export function ErrorLayout({ title, children, nav = true }: ErrorLayoutProps) {
   return (
-    <html lang="en" style={{ colorScheme: "dark" }}>
+    <html lang="en" style={{ colorScheme: "light dark" }}>
       <head>
         <HeadMeta title={title} description={SITE_DESCRIPTION} noindex />
       </head>
-      <body data-page="error" data-component="layout">
-        <header>
-          <a href="/" className="logo">
-            <Logo />
-            <span>{SITE_NAME}</span>
-          </a>
-          {nav && <Nav page="" user={null} />}
-        </header>
-        <main>{children}</main>
+      <body data-page="error" data-component="layout" data-shell="plain">
+        <a className="skip-link" href="#main-content">
+          Skip to content
+        </a>
+        {nav ? (
+          <Nav page="" user={null} />
+        ) : (
+          <header className="error-bar">
+            <a href="/" className="logo">
+              <Logo />
+              <span>{SITE_NAME}</span>
+            </a>
+          </header>
+        )}
+        <main id="main-content" className="app-main">
+          <div className="app-content">{children}</div>
+        </main>
         <SiteFooter />
       </body>
     </html>
@@ -206,7 +233,7 @@ export function BaseLayout({
   noindex,
 }: BaseLayoutProps) {
   return (
-    <html lang="en" style={{ colorScheme: "dark" }}>
+    <html lang="en" style={{ colorScheme: "light dark" }}>
       <head>
         <HeadMeta
           title={title}

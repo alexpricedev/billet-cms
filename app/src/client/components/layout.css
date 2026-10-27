@@ -1,76 +1,89 @@
+/* The application shell: a navigation rail beside a scrolling content column.
+   The rail is the same <nav> on every page; only its variant changes.
+
+   Layout contract (see components/layouts.tsx):
+   - body[data-shell="app"]  grid: rail column + content column
+   - body[data-shell="plain"] block: a quiet top bar, content, footer
+   - < 900px the rail collapses into that same top bar with a menu panel. */
+
 [data-component="layout"] {
-  & > header {
-    align-items: center;
-    background: var(--color-bg);
-    border-bottom: 1px solid var(--color-border);
-    display: flex;
-    justify-content: space-between;
-    padding: 0.75rem 2rem;
+  min-height: 100vh;
+  /* biome-ignore lint/suspicious/noDuplicateProperties: dvh fallback */
+  min-height: 100dvh;
+}
 
-    /* Containing block for the mobile nav panel, which hangs off the header's
-       bottom edge at full viewport width — see nav.css. */
-    position: relative;
+body[data-shell="app"][data-component="layout"] {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+}
 
-    @media (width <= 640px) {
-      padding: 0.75rem 1rem;
-    }
+body[data-shell="app"] > [data-component="nav"] {
+  grid-column: 1;
+  grid-row: 1 / -1;
+}
 
-    .logo {
-      align-items: center;
-      display: flex;
-      gap: 0.5rem;
-      text-decoration: none;
+body[data-shell="app"] > .app-main {
+  grid-column: 2;
+  grid-row: 1;
+}
 
-      svg {
-        width: 22px;
-        height: 22px;
-      }
+body[data-shell="app"] > footer {
+  grid-column: 2;
+  grid-row: 2;
+}
 
-      span {
-        color: var(--color-text);
-        font-size: 1.125rem;
+.app-main {
+  min-width: 0;
+  padding: var(--space-8) var(--space-10) var(--space-16);
+}
 
-        font-weight: 600;
-        letter-spacing: -0.01em;
-      }
+.app-content {
+  margin-inline: auto;
+  max-width: var(--content-max);
+}
 
-      &:hover,
-      &:focus {
-        text-decoration: none;
-      }
-    }
+[data-component="layout"] > footer {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: var(--space-2) var(--space-4);
+  justify-content: flex-start;
+  padding: var(--space-4) var(--space-10);
+}
+
+[data-component="layout"] > footer a {
+  color: var(--text-muted);
+
+  &:hover,
+  &:focus {
+    color: var(--text-secondary);
+  }
+}
+
+@media (width <= 900px) {
+  body[data-shell="app"][data-component="layout"] {
+    display: block;
   }
 
-  & > main {
-    margin: 0 auto;
-    max-width: 960px;
-    padding: 2rem;
-
-    @media (width <= 768px) {
-      padding: 1.5rem;
-    }
-
-    @media (width <= 640px) {
-      padding: 1rem;
-    }
+  .app-main {
+    padding: var(--space-6) var(--space-5) var(--space-12);
   }
 
-  & > footer {
-    border-top: 1px solid var(--color-border);
-    color: var(--color-text-quaternary);
-    display: flex;
-    font-size: 13px;
-    gap: 1.5rem;
-    justify-content: center;
-    padding: 1.5rem 2rem;
+  [data-component="layout"] > footer {
+    padding: var(--space-4) var(--space-5);
+  }
+}
+
+@media (width <= 640px) {
+  .app-main {
+    padding: var(--space-5) var(--space-4) var(--space-10);
   }
 
-  & > footer a {
-    color: var(--color-text-quaternary);
-  }
-
-  & > footer a:hover,
-  & > footer a:focus {
-    color: var(--color-text-secondary);
+  [data-component="layout"] > footer {
+    padding: var(--space-4);
   }
 }

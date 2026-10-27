@@ -1,4 +1,5 @@
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import type { PageRecord, PageUsage } from "../../services/content";
 import type { User } from "../../services/users";
 
@@ -37,16 +38,23 @@ export const PageDeleteConfirm = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <p className="cms-breadcrumb">
-      <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
-      <a href={`/cms/pages/${page.id}`}>{page.title}</a> / <span>Delete</span>
-    </p>
-    <h1>Delete page</h1>
-    <p className="cms-intro">
-      Deleting <strong>{page.title}</strong> removes the page served at{" "}
-      <code>{page.url}</code>. Its revisions stay in history, but nothing
-      answers at that URL until another page or redirect claims it.
-    </p>
+    <PageHeader
+      breadcrumb={
+        <>
+          <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
+          <a href={`/cms/pages/${page.id}`}>{page.title}</a> /{" "}
+          <span>Delete</span>
+        </>
+      }
+      title="Delete page"
+      description={
+        <>
+          Deleting <strong>{page.title}</strong> removes the page served at{" "}
+          <code>{page.url}</code>. Its revisions stay in history, but nothing
+          answers at that URL until another page or redirect claims it.
+        </>
+      }
+    />
 
     <section className="cms-page" aria-label="What points here">
       <h2>What points here</h2>

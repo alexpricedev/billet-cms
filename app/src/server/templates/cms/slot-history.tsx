@@ -1,4 +1,5 @@
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import type { SlotRecord, SlotRevisionSummary } from "../../services/content";
 import type { User } from "../../services/users";
 import { formatDay, formatDayShort, formatWhen } from "../../utils/format";
@@ -42,15 +43,21 @@ export const SlotHistory = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <p className="cms-breadcrumb">
-      <a href="/cms">Content</a> /{" "}
-      <a href={`/cms/slots/${slot.id}`}>{slot.label ?? slot.name}</a> /{" "}
-      <span>History</span>
-    </p>
-    <h1>History</h1>
-    <p className="cms-slot-meta">
-      Slot <code>{slot.name}</code>
-    </p>
+    <PageHeader
+      breadcrumb={
+        <>
+          <a href="/cms">Content</a> /{" "}
+          <a href={`/cms/slots/${slot.id}`}>{slot.label ?? slot.name}</a> /{" "}
+          <span>History</span>
+        </>
+      }
+      title="History"
+      after={
+        <p className="cms-slot-meta">
+          Slot <code>{slot.name}</code>
+        </p>
+      }
+    />
 
     {notice && (
       <div className="flash-warning" role="status">

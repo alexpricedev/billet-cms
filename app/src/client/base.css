@@ -1,37 +1,161 @@
-/* Base layer: tokens, the element defaults every page inherits, and the few
-   shared utility classes. Imported first by style.css so page and component
-   rules override it at equal specificity — see the manifest's comment. */
+/* Base layer: design tokens, element defaults every page inherits, and the
+   shared button/field primitives. Imported first by style.css so page and
+   component rules override it at equal specificity — see the manifest.
+   Design decisions are documented in DESIGN.md at the repository root. */
 
 :root {
-  --color-bg: #0a0a0b;
-  --color-surface: #141415;
-  --color-surface-hover: #1c1c1e;
-  --color-border: #222224;
-  --color-text: #ededef;
-  --color-text-secondary: #b4b5b9;
-  --color-text-tertiary: #8a8b8e;
-  --color-text-quaternary: #78797c;
-  --color-primary: #7c85f0;
-  --color-primary-hover: #9098f3;
-  --color-success: #34d399;
-  --color-danger: #f87171;
-  --color-warning: #fbbf24;
-  --font-main:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
-  --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
-  --radius: 0.5rem;
-  --shadow: none;
+  color-scheme: light dark;
+
+  /* Surfaces */
+  --canvas: #fafafa;
+  --surface: #ffffff;
+  --surface-subtle: #f5f5f5;
+  --surface-hover: #f2f2f2;
+  --surface-selected: #f0f0f0;
+  --overlay: rgba(23, 23, 23, 0.4);
+
+  /* Text */
+  --text: #171717;
+  --text-secondary: #525252;
+  --text-muted: #737373;
+  --text-disabled: #a3a3a3;
+
+  /* Borders */
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+
+  /* Accent */
+  --accent: #0070f3;
+  --accent-hover: #005cc5;
+  --accent-soft: #eef6ff;
+  --accent-contrast: #ffffff;
+  --focus-ring: var(--accent);
+  --selection-bg: var(--surface-selected);
+  --input-bg: var(--surface);
+  --input-placeholder: var(--text-muted);
+
+  /* Status */
+  --success: #067647;
+  --success-soft: #ecfdf3;
+  --success-border: #abefc6;
+  --warning: #b54708;
+  --warning-soft: #fffaeb;
+  --warning-border: #fedf89;
+  --danger: #b42318;
+  --danger-soft: #fef3f2;
+  --danger-border: #fda29b;
+
+  /* Buttons */
+  --button-primary-bg: #171717;
+  --button-primary-fg: #ffffff;
+  --button-primary-bg-hover: #383838;
+  --button-danger-bg: #d92d20;
+  --button-danger-bg-hover: #b42318;
+
+  /* Type */
+  --font-sans:
+    "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  --font-main: var(--font-sans);
+  --font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Geometry */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.16);
+  --shadow: var(--shadow-lg);
+  --sidebar-width: 248px;
+  --content-max: 1120px;
+  --bar-height: 56px;
+  --control-height: 32px;
+
+  /* Compatibility aliases. Older component CSS names these; new CSS uses the
+     semantic tokens above. Mapping them here is what stops a second palette
+     growing inside one page file. */
+  --color-bg: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-muted);
+  --color-text-quaternary: var(--text-muted);
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --radius-control: var(--radius-sm);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #090909;
+    --surface: #111111;
+    --surface-subtle: #161616;
+    --surface-hover: #1c1c1c;
+    --surface-selected: #1f1f1f;
+    --overlay: rgba(0, 0, 0, 0.6);
+
+    --text: #ededed;
+    --text-secondary: #a3a3a3;
+    --text-muted: #8f8f8f;
+    --text-disabled: #5c5c5c;
+
+    --border: #292929;
+    --border-strong: #3a3a3a;
+
+    --accent: #3291ff;
+    --accent-hover: #5ba8ff;
+    --accent-soft: #0f2237;
+    --accent-contrast: #0a0a0a;
+
+    --success: #3dd68c;
+    --success-soft: #0d231a;
+    --success-border: #1d4b37;
+    --warning: #f5b544;
+    --warning-soft: #241a08;
+    --warning-border: #4d3a12;
+    --danger: #ff6b6b;
+    --danger-soft: #2a1110;
+    --danger-border: #5a2320;
+
+    --button-primary-bg: #ededed;
+    --button-primary-fg: #0a0a0a;
+    --button-primary-bg-hover: #ffffff;
+    --button-danger-bg: #e5484d;
+    --button-danger-bg-hover: #eb5c60;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.55);
+  }
 }
 
 html {
-  background: var(--color-bg);
+  background: var(--canvas);
   box-sizing: border-box;
-  color: var(--color-text);
+  color: var(--text);
   font-size: 16px;
   /* Reserve the scrollbar's space so pages that grow past one viewport don't
      shift horizontally when the scrollbar appears (classic scrollbars only). */
   scrollbar-gutter: stable;
+  -webkit-text-size-adjust: 100%;
 }
 
 *,
@@ -53,12 +177,11 @@ html {
   border: 0;
 }
 
-/* Keyboard focus ring — high-contrast, only on keyboard/AT focus (not mouse
+/* Keyboard focus ring — high contrast, only on keyboard/AT focus (not mouse
    clicks), so removing it from any control requires an explicit override. */
 :focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 4px;
-  /* Browsers round the outline to follow border-radius, even on inline links. */
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
   border-radius: 4px;
 }
 
@@ -66,8 +189,8 @@ html {
    ring. outline-offset is uniform, so we add inline padding and cancel it with
    an equal negative margin to avoid shifting surrounding text. */
 a:not([class]):focus-visible {
-  padding-inline: 0.4em;
-  margin-inline: -0.4em;
+  padding-inline: 0.3em;
+  margin-inline: -0.3em;
 }
 
 /* Honour the OS "reduce motion" setting — near-instant animations/transitions
@@ -84,17 +207,18 @@ a:not([class]):focus-visible {
 }
 
 body {
-  font-family: var(--font-main);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
   margin: 0;
-  /* 100vh first as the fallback; 100dvh tracks the actually-visible viewport on
-     mobile so the page isn't sized to include a retracted browser toolbar. */
   min-height: 100vh;
   /* biome-ignore lint/suspicious/noDuplicateProperties: dvh override is a
      deliberate progressive-enhancement fallback over the vh baseline. */
   min-height: 100dvh;
-  background: var(--color-bg);
-  color: var(--color-text);
-  line-height: 1.6;
+  background: var(--canvas);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 h1,
@@ -104,53 +228,58 @@ h4,
 h5,
 h6 {
   font-weight: 600;
-  margin: 0 0 0.5em 0;
-  line-height: 1.2;
+  margin: 0 0 var(--space-2);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
 
 h1 {
-  font-size: 2.2rem;
+  font-size: 24px;
+  line-height: 1.25;
   letter-spacing: -0.02em;
 }
 
 h2 {
+  font-size: 16px;
   letter-spacing: -0.01em;
 }
 
+h3 {
+  font-size: 14px;
+}
+
 p {
-  margin: 0 0 1.2em 0;
+  margin: 0 0 var(--space-4);
 }
 
 a {
-  color: var(--color-primary);
+  color: var(--accent);
   text-decoration: none;
-  transition: color 150ms ease;
+  transition: color 120ms ease;
 
   &:hover,
   &:focus {
-    color: var(--color-primary-hover);
+    color: var(--accent-hover);
     text-decoration: underline;
-    text-underline-offset: 3px;
+    text-underline-offset: 2px;
     text-decoration-thickness: 1px;
   }
 }
 
-button {
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  border: none;
-  background: var(--color-primary);
-  color: #fff;
-  cursor: pointer;
-  transition: all 150ms ease;
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
 
-  &:hover,
-  &:focus {
-    background: var(--color-primary-hover);
-  }
+pre code {
+  display: block;
+  padding: var(--space-3);
 }
 
 img {
@@ -158,81 +287,359 @@ img {
   display: block;
 }
 
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  display: inline-block;
-  margin-bottom: 2rem;
-  padding: 24px;
-  width: 100%;
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--space-6) 0;
+}
 
-  /* The trailing margin of the last block would otherwise stack on top of the
-     card's own padding and leave the bottom looking deeper than the top. */
-  > *:last-child {
-    margin-bottom: 0;
+/* Skip link: first focusable element on every page with chrome. */
+.skip-link {
+  position: absolute;
+  left: var(--space-4);
+  top: var(--space-4);
+  z-index: 100;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  transform: translateY(calc(-100% - var(--space-4)));
+  transition: transform 120ms ease;
+
+  &:focus-visible {
+    transform: translateY(0);
+    text-decoration: none;
   }
+}
+
+/* ---- Buttons ------------------------------------------------------------
+   One base, explicit variants. The legacy `.cms-*` button classes in
+   pages/cms.css extend these instead of redefining a box. */
+
+button,
+.btn {
+  align-items: center;
+  appearance: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  gap: var(--space-2);
+  height: var(--control-height);
+  justify-content: center;
+  line-height: 1;
+  padding: 0 var(--space-3);
+  text-decoration: none;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+
+  &:hover,
+  &:focus {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  &:active {
+    background: var(--surface-selected);
+  }
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    background: var(--surface-subtle);
+    border-color: var(--border);
+    color: var(--text-disabled);
+    cursor: default;
+    opacity: 0.7;
+  }
+}
+
+.btn-primary {
+  background: var(--button-primary-bg);
+  border-color: var(--button-primary-bg);
+  color: var(--button-primary-fg);
+
+  &:hover,
+  &:focus {
+    background: var(--button-primary-bg-hover);
+    border-color: var(--button-primary-bg-hover);
+    color: var(--button-primary-fg);
+  }
+
+  &:active {
+    background: var(--button-primary-bg);
+    border-color: var(--button-primary-bg);
+    color: var(--button-primary-fg);
+  }
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    background: var(--surface-subtle);
+    border-color: var(--border);
+    color: var(--text-disabled);
+  }
+}
+
+.btn-secondary {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
 }
 
 .btn-ghost {
   background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
+  border-color: transparent;
+  color: var(--text-secondary);
 
   &:hover,
   &:focus {
-    background: var(--color-surface);
-    color: var(--color-text);
+    background: var(--surface-hover);
+    border-color: transparent;
+    color: var(--text);
   }
 }
 
 .btn-danger {
-  background: transparent;
-  color: var(--color-danger);
+  background: var(--surface);
+  border-color: var(--danger-border);
+  color: var(--danger);
 
   &:hover,
   &:focus {
-    background: rgba(248, 113, 113, 0.1);
+    background: var(--danger-soft);
+    border-color: var(--danger);
+    color: var(--danger);
   }
 }
+
+.btn-danger-solid {
+  background: var(--button-danger-bg);
+  border-color: var(--button-danger-bg);
+  color: #ffffff;
+
+  &:hover,
+  &:focus {
+    background: var(--button-danger-bg-hover);
+    border-color: var(--button-danger-bg-hover);
+    color: #ffffff;
+  }
+}
+
+.btn-sm {
+  font-size: 12.5px;
+  height: 28px;
+  padding: 0 var(--space-2);
+}
+
+.btn-lg {
+  font-size: 14px;
+  height: 40px;
+  padding: 0 var(--space-4);
+}
+
+.btn-icon {
+  height: var(--control-height);
+  padding: 0;
+  width: var(--control-height);
+}
+
+/* A group of actions on one baseline. */
+.btn-group {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---- Form primitives ---------------------------------------------------- */
 
 input,
 textarea,
 select {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-text);
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
   font-family: inherit;
   /* 16px keeps iOS Safari from zooming the viewport on focus. */
   font-size: 16px;
-  padding: 8px 12px;
-  transition: border-color 150ms ease;
+  line-height: 1.4;
+  min-height: var(--control-height);
+  padding: 5px 10px;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+  width: 100%;
 
   &::placeholder {
-    color: var(--color-text-tertiary);
+    color: var(--input-placeholder);
+    opacity: 1;
+  }
+
+  &:hover {
+    border-color: var(--border-strong);
   }
 
   &:focus-visible {
-    border-color: var(--color-primary);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    outline: none;
+  }
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    background: var(--surface-subtle);
+    color: var(--text-disabled);
+    cursor: default;
+  }
+
+  &[aria-invalid="true"] {
+    border-color: var(--danger);
   }
 }
 
+@media (min-width: 641px) {
+  input,
+  textarea,
+  select {
+    font-size: 13.5px;
+  }
+}
+
+select {
+  appearance: none;
+  /* The chevron is an inline SVG so it follows currentColor in both themes. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+}
+
+textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+  width: 16px;
+}
+
+input[type="file"] {
+  padding: 4px 6px;
+}
+
+input[type="file"]::file-selector-button {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  margin-right: var(--space-2);
+  padding: 3px 8px;
+}
+
+/* A label, a control, its help and its error, as one vertical unit. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field > label,
+.field-label {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.field-hint,
+.field-help {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* ---- Containers --------------------------------------------------------- */
+
+.card,
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+}
+
+/* The trailing margin of the last block would otherwise stack on top of the
+   card's own padding and leave the bottom looking deeper than the top. */
+.card > *:last-child,
+.panel > *:last-child {
+  margin-bottom: 0;
+}
+
+.card {
+  margin-bottom: var(--space-6);
+}
+
+.panel-header {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+
+  h2,
+  h3 {
+    margin: 0;
+  }
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--space-6) 0;
+}
+
 .text-secondary {
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .text-tertiary {
-  color: var(--color-text-tertiary);
+  color: var(--text-muted);
 }
 
 .text-quaternary {
-  color: var(--color-text-quaternary);
+  color: var(--text-muted);
 }
 
 .lead {
-  font-size: 1.125rem;
+  color: var(--text-secondary);
+  font-size: 15px;
   font-weight: 400;
-  color: var(--color-text-tertiary);
-  line-height: 1.7;
+  line-height: 1.65;
 }

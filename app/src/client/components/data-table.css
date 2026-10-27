@@ -1,19 +1,52 @@
+/* Compact data table. Used where the data is genuinely tabular; list pages
+   with per-row actions use the row list in pages/cms.css instead. */
+
 .data-table {
-  width: 100%;
   border-collapse: collapse;
+  font-size: 13px;
+  width: 100%;
+
+  caption {
+    text-align: left;
+  }
 
   th {
-    color: var(--color-text-quaternary);
-    font-size: 11px;
+    background: var(--surface-subtle);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12px;
     font-weight: 500;
-    letter-spacing: 0.05em;
-    padding: 8px 12px;
+    letter-spacing: 0;
+    padding: var(--space-2) var(--space-3);
     text-align: left;
-    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   td {
-    border-top: 1px solid var(--color-border);
-    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: var(--space-2) var(--space-3);
+    vertical-align: middle;
+  }
+
+  tbody tr:hover td {
+    background: var(--surface-hover);
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  td:first-child {
+    color: var(--text);
+    font-weight: 500;
+  }
+}
+
+@media (width <= 640px) {
+  .data-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
   }
 }

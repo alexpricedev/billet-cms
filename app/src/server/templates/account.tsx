@@ -1,4 +1,5 @@
 import { Layout } from "../components/layouts";
+import { PageHeader } from "../components/page-header";
 import type { User } from "../services/users";
 
 export interface AccountProps {
@@ -17,7 +18,10 @@ export const Account = ({ user, csrfToken }: AccountProps) => (
     csrfToken={csrfToken}
     noindex
   >
-    <h1>Account</h1>
+    <PageHeader
+      title="Account"
+      description="You sign in through the site. The CMS never stores a password of its own."
+    />
 
     <section className="account-section card">
       <h2>Email address</h2>

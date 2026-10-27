@@ -28,7 +28,7 @@ export const ErrorPage = ({
       <p className="lead">{message}</p>
       {showHome && (
         <p className="error-actions">
-          <a className="btn-primary" href="/cms">
+          <a className="btn btn-primary" href="/cms">
             Go to the CMS
           </a>
         </p>

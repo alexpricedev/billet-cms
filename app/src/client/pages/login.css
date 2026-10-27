@@ -1,77 +1,97 @@
+/* Chrome-less auth pages (today, the /handoff confirm step). Centred, one
+   card, no navigation: nothing should invite a visitor to wander off in the
+   middle of signing in. */
+
 .login-page {
-  min-height: 100vh;
-  background: var(--color-bg);
+  align-items: center;
+  background: var(--canvas);
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: center;
-  padding: 48px 16px;
+  min-height: 100vh;
+  /* biome-ignore lint/suspicious/noDuplicateProperties: dvh fallback */
+  min-height: 100dvh;
+  padding: var(--space-8) var(--space-4);
 }
 
 .login-wrapper {
   width: 100%;
-  max-width: 440px;
+  max-width: 400px;
 }
 
 .login-header {
-  text-align: center;
-  margin-bottom: 32px;
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-6);
 
   a {
+    align-items: center;
+    color: var(--text);
     display: inline-flex;
-    color: var(--color-text);
+    gap: var(--space-2);
+    text-decoration: none;
+
+    svg {
+      height: 24px;
+      width: 24px;
+    }
   }
 }
 
 .login-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
 }
 
 .login-title {
-  font-size: 1.25rem;
+  color: var(--text);
+  font-size: 18px;
   font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-1);
   text-align: center;
 }
 
 .login-subtitle {
-  font-size: 14px;
-  color: var(--color-text-tertiary);
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: var(--space-5);
   text-align: center;
-  margin-bottom: 24px;
 }
 
 .login-card .flash-success p:first-child {
+  color: var(--text);
   font-weight: 500;
-  color: var(--color-text);
   margin: 0;
 }
 
 .login-card .flash-success p:nth-child(2) {
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: var(--space-1);
   margin-bottom: 0;
 }
 
 .login-card .flash-success p:last-child {
-  color: var(--color-text-quaternary);
+  color: var(--text-muted);
   font-size: 12px;
-  margin-top: 8px;
+  margin-top: var(--space-2);
   margin-bottom: 0;
 }
 
 .login-card .flash-error span {
-  font-size: 14px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .login-card .form-field {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
+}
+
+.login-card form .btn {
+  width: 100%;
 }
 
 .login-submit {
@@ -79,13 +99,13 @@
 }
 
 .login-footer {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin-top: var(--space-5);
   text-align: center;
-  margin-top: 24px;
-  color: var(--color-text-quaternary);
-  font-size: 14px;
 
   a {
-    font-size: 14px;
-    color: var(--color-text-quaternary);
+    color: var(--text-secondary);
+    font-size: 12.5px;
   }
 }

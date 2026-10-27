@@ -48,6 +48,12 @@ cloud workspaces.
 migrations at boot, the contract version, the one client-JS exception). `app/`
 is a Billet fork and `app/CLAUDE.md` still applies inside it.
 
+`DESIGN.md` is the visual system: the colour, type, spacing and radius tokens,
+the component variants, the application shell, interaction states, responsive
+and accessibility rules, and the explicit anti-patterns. Tokens live in
+`app/src/client/base.css`; shared component CSS is under
+`app/src/client/components/`.
+
 ## Deploying the CMS
 
 The CMS is one Railway service per site, from this repo, connected to that
