@@ -46,7 +46,7 @@ export const PageHistory = ({
       title="History"
       after={
         <p className="cms-slot-meta">
-          Page <code>{page.url}</code>
+          <code>{page.url}</code>
         </p>
       }
     />

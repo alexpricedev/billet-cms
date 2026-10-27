@@ -1,6 +1,10 @@
 import type { BunRequest } from "bun";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
-import { getSlotById, listSlotHistory } from "../../services/content";
+import {
+  getBlockTypeByName,
+  getSlotById,
+  listSlotHistory,
+} from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { SlotHistory } from "../../templates/cms/slot-history";
 import { render404 } from "../../utils/errors";
@@ -37,6 +41,11 @@ export const slotHistory = {
     const slot = await getSlotById(slotId);
     if (!slot) return render404();
 
+    // The block's name is on the header's muted line, beside the slot's key —
+    // the same pair the slot editor shows. A block type a deploy removed is
+    // still named, because the history it belongs to is still readable.
+    const blockType = await getBlockTypeByName(slot.blockName);
+
     // `?before=<revision id>` pages back through older revisions. A malformed
     // value is treated as "first page" rather than crashing the UUID cast.
     const params = new URL(req.url).searchParams;
@@ -62,6 +71,7 @@ export const slotHistory = {
       <SlotHistory
         user={ctx.user}
         slot={slot}
+        blockType={blockType}
         revisions={page.revisions}
         olderHref={olderHref}
         restoreCsrfToken={restoreCsrfToken}
