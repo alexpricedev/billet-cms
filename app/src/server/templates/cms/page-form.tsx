@@ -343,6 +343,10 @@ export const PageForm = ({
             name="base_revision"
             value={baseRevisionId ?? ""}
           />
+          {/* Set by the editor when a save is what stands between them and the
+              preview they asked for, so the redirect can bring them back to
+              it. Empty on an ordinary save, and ignored without JavaScript. */}
+          <input type="hidden" name="after" value="" data-save-after />
           {/* Flagged blocks the editor removed, by base-revision index. The
               client appends to this as Remove is pressed; re-rendered here so
               a failed save keeps the removal. */}
@@ -526,6 +530,7 @@ export const PageForm = ({
             type="submit"
             className="cms-preview-button"
             disabled={!hasDraft || upToDate}
+            data-preview-submit
           >
             Preview draft <span aria-hidden="true">↗</span>
             <span className="sr-only">(opens in a new tab)</span>

@@ -279,6 +279,15 @@ const isEmptyValue = (value: unknown): boolean => {
   ) {
     return isEmptyDocument((value as { content?: unknown }).content);
   }
+  // An untouched group: every control inside it read back as absent, so it has
+  // no keys. Without this, adding a row to a list of groups and typing nothing
+  // stores `{}` — an entry that counts towards the list's `min`/`max` and then
+  // fails the block's schema on a field the editor never saw themselves leave
+  // blank. Nothing else reads back as an empty object: an image with no id and
+  // a text input with no value both return undefined.
+  if (typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>).length === 0;
+  }
   return false;
 };
 
@@ -301,6 +310,28 @@ const listValue = (control: Element): unknown[] => {
   return values;
 };
 
+const groupValue = (control: Element): Record<string, unknown> => {
+  // `:scope >` for the same reason the list uses it: a group nested in this one
+  // has its own `[data-group-fields]`, and a descendant selector would read its
+  // children as this group's as well.
+  const container = control.querySelector(":scope > [data-group-fields]");
+  if (!container) return {};
+
+  const content: Record<string, unknown> = {};
+  for (const child of Array.from(
+    container.querySelectorAll(":scope > [data-field]"),
+  )) {
+    const name = child.getAttribute("data-field-name");
+    if (!name) continue;
+    const value = readControl(child);
+    // Empty children are left out rather than written as blanks, so a group
+    // whose controls were all untouched collapses to `{}` at every depth and
+    // `isEmptyValue` can recognise it as the empty row it is.
+    if (!isEmptyValue(value)) content[name] = value;
+  }
+  return content;
+};
+
 const readControl = (control: Element): unknown => {
   switch (control.getAttribute("data-field-kind")) {
     case "text":
@@ -313,6 +344,8 @@ const readControl = (control: Element): unknown => {
       return linkValue(control);
     case "list":
       return listValue(control);
+    case "group":
+      return groupValue(control);
     default:
       return undefined;
   }
@@ -332,6 +365,11 @@ const readFieldsIn = (
   const content: Record<string, unknown> = {};
   for (const control of Array.from(scope.querySelectorAll("[data-field]"))) {
     if (control.closest("[data-list-item]")) continue;
+    // A group's children are `[data-field]` too, and `groupValue` has already
+    // read them into the group's own object. Without this they would also land
+    // at the top level under their own names — content the block's schema
+    // rejects, from a form that looked right.
+    if (control.closest("[data-group-fields]")) continue;
     if (excludeBlocks && control.closest("[data-cms-block]")) continue;
     const name = control.getAttribute("data-field-name");
     if (!name) continue;

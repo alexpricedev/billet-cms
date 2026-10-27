@@ -127,11 +127,42 @@ describe("preview tokens", () => {
     expect(rows[0].token_hash).toBe(hashPreviewToken(rawToken));
     expect(rows[0].token_hash).not.toBe(rawToken);
 
-    // And the raw token resolves back to the subject.
+    // And the raw token resolves back to the subject. No draft yet, so there
+    // is no save time for the preview banner to name.
     expect(await readPreviewAccess(connection, rawToken, now)).toEqual({
       subjectType: "page",
       subjectId: pageId,
+      draftSavedAt: null,
     });
+  });
+
+  // What the banner prints. Read against the real tables rather than a fake,
+  // because the value comes out of a lateral join on cms_revisions and the
+  // thing worth proving is that the join finds the newest save.
+  test("carries the newest revision's time, for the banner", async () => {
+    const older = new Date("2026-10-13T08:00:00.000Z");
+    const newest = new Date("2026-10-13T08:30:00.000Z");
+    for (const createdAt of [older, newest]) {
+      await connection`
+        INSERT INTO cms_revisions (target_type, target_id, content, created_by, created_at)
+        VALUES ('page', ${pageId}, ${JSON.stringify({ blocks: [] })}::jsonb, ${editorId}, ${createdAt})
+      `;
+    }
+
+    const { rawToken } = await createPreviewToken({
+      subjectType: "page",
+      subjectId: pageId,
+      createdBy: editorId,
+      now: new Date("2026-10-13T09:00:00.000Z"),
+    });
+
+    const access = await readPreviewAccess(
+      connection,
+      rawToken,
+      new Date("2026-10-13T09:00:00.000Z"),
+    );
+
+    expect(access?.draftSavedAt?.toISOString()).toBe(newest.toISOString());
   });
 
   test("an expired token resolves to nothing; a wrong one too", async () => {

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { SQL } from "bun";
 import { publish } from "../packages/billet-cms/src/cli/publish/index.ts";
+import type { FieldMetadata } from "../packages/billet-cms/src/contract/index.ts";
 import {
   CMS_SIGN_IN_PATH,
   type MediaVariant,
@@ -222,9 +223,26 @@ beforeAll(async () => {
 
   // Deploy: publish the site's declarations the way `cms:publish` does.
   const summary = await publish(sql, siteDefinitions);
-  expect(summary.blocks).toBe(5);
-  expect(summary.slots).toBe(2);
-  expect(summary.pageTypes).toBe(2);
+  // Counted from the declarations rather than pinned, so adding one to the
+  // site's vocabulary is not a failure here about something else.
+  expect(summary.blocks).toBe(siteDefinitions.blocks.length);
+  expect(summary.slots).toBe(siteDefinitions.slots.length);
+  expect(summary.pageTypes).toBe(siteDefinitions.pageTypes.length);
+
+  // A `group` has to survive the trip through JSONB, not just the unit tests:
+  // the CMS builds its form from this row and never imports site code, so a
+  // nested field the publish step flattened wrongly would be a control that
+  // never renders.
+  const [stepsType] = (await sql`
+    SELECT fields, json_schema FROM cms_block_types WHERE name = 'steps'
+  `) as { fields: FieldMetadata[]; json_schema: Record<string, unknown> }[];
+  const items = stepsType.fields.find((field) => field.name === "items");
+  expect(items?.kind).toBe("list");
+  expect(items?.of?.kind).toBe("group");
+  expect(items?.of?.fields?.map((field) => field.name)).toEqual([
+    "title",
+    "body",
+  ]);
 
   const slots = (await sql`
     SELECT id FROM cms_slots WHERE name = 'home.hero'

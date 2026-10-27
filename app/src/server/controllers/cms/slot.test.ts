@@ -371,6 +371,56 @@ describe("Slot form controller", () => {
       expect(revisions).toHaveLength(1);
     });
 
+    // The editor pressed Preview, was asked to save on the way, and said yes:
+    // finishing on the form would hand them the button to press again.
+    test("carries on to the preview when the save was on the way to one", async () => {
+      const res = await slotForm.create(
+        await post({
+          content: JSON.stringify(validContent),
+          base_revision: "",
+          after: "preview",
+        }),
+      );
+
+      expect(res.status).toBe(303);
+      const location = res.headers.get("location") ?? "";
+      expect(location.startsWith(`${process.env.SITE_APP_URL}/`)).toBe(true);
+      expect(location).toContain("cms_preview=");
+
+      // The draft is written either way: the preview is the second half of the
+      // save, not an alternative to it.
+      expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
+      expect(await db`SELECT id FROM cms_preview_tokens`).toHaveLength(1);
+    });
+
+    test("still returns to the form on an ordinary save", async () => {
+      const res = await slotForm.create(
+        await post({
+          content: JSON.stringify(validContent),
+          base_revision: "",
+          after: "",
+        }),
+      );
+
+      expect(res.headers.get("location")).toBe(`${path(slotId)}?saved=1`);
+      expect(await db`SELECT id FROM cms_preview_tokens`).toHaveLength(0);
+    });
+
+    // A save that cannot be stored must not mint a preview for content that
+    // was never written.
+    test("does not preview a save that failed validation", async () => {
+      const res = await slotForm.create(
+        await post({
+          content: JSON.stringify({ ...validContent, heading: 5 }),
+          base_revision: "",
+          after: "preview",
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await db`SELECT id FROM cms_preview_tokens`).toHaveLength(0);
+    });
+
     test("re-renders with the failing field when the content is invalid", async () => {
       const res = await slotForm.create(
         await post({

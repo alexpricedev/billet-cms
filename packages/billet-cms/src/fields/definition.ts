@@ -15,7 +15,7 @@ import {
   type StoredPageType,
   type StoredSchema,
 } from "../contract";
-import type { Field } from "./field";
+import { type Field, readSchemaOf } from "./field";
 import { assertName, SLOT_NAME_PATTERN } from "./name";
 import { assertMinMax, assertNonNegativeInteger } from "./options";
 import { sameOriginPath } from "./path";
@@ -34,7 +34,15 @@ export type BlockRender<F extends BlockFields> = (
 export interface BlockDefinition<F extends BlockFields = BlockFields>
   extends BlockDefinitionShape {
   readonly fields: F;
-  /** The site's render function. Never published. */
+  /**
+   * The site's render function. Never published, and never called by this
+   * package — it is here so a site can keep a block's markup next to its
+   * declaration if it wants to.
+   *
+   * Always present so that `definition.render(content)` keeps typing for the
+   * sites that do use it; a block declared without one gets a no-op that
+   * returns `undefined`.
+   */
   readonly render: BlockRender<F>;
 }
 
@@ -53,11 +61,27 @@ export interface BlockDefinitionShape {
   readonly fields: BlockFields;
 }
 
-/** Define a block type. */
+/**
+ * A block declared without a render function.
+ *
+ * Returning `undefined` rather than throwing because nothing in this package
+ * calls `render`: it would only ever fire in a site that asked a block it never
+ * gave markup to for markup, which its own types already describe.
+ */
+const noRender: BlockRender<BlockFields> = () => undefined;
+
+/**
+ * Define a block type.
+ *
+ * `render` is optional. The publish step, `slot()` and `pageType()` never call
+ * it, and the CMS builds its form from the published metadata, so a site that
+ * renders its blocks in templates — most of them — has nothing to put there and
+ * should leave it out rather than write a stub.
+ */
 export const block = <F extends BlockFields>(
   name: string,
   fields: F,
-  render: BlockRender<F>,
+  render: BlockRender<F> = noRender,
 ): BlockDefinition<F> => {
   assertName(name, "block");
   for (const fieldName of Object.keys(fields)) {
@@ -222,6 +246,18 @@ const fieldShape = (fields: BlockFields): Record<string, z.ZodType> =>
     Object.entries(fields).map(([name, field]) => [name, field.schema]),
   );
 
+/**
+ * The same shape, with each composite field's read variant where it has one.
+ *
+ * Stripping an unknown key at the top level is not enough once a field can
+ * nest: a `group` whose child was dropped by a deploy still carries that key
+ * inside its own object, which the top-level strip never sees.
+ */
+const readFieldShape = (fields: BlockFields): Record<string, z.ZodType> =>
+  Object.fromEntries(
+    Object.entries(fields).map(([name, field]) => [name, readSchemaOf(field)]),
+  );
+
 /** The Zod schema for a block's stored content: just its fields. */
 export const blockContentSchema = (
   definition: BlockDefinitionShape,
@@ -240,7 +276,7 @@ export const blockContentSchema = (
  */
 export const blockContentReadSchema = (
   definition: BlockDefinitionShape,
-): z.ZodType => z.object(fieldShape(definition.fields));
+): z.ZodType => z.object(readFieldShape(definition.fields));
 
 /**
  * A block as it appears inside a page's content array: its fields plus a `type`

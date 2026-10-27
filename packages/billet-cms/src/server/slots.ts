@@ -83,12 +83,22 @@ export interface ContentReader {
    * The published content of `name`, or `null` when there is none to render.
    *
    * Pass `{ block }` to parse the row against the site's own block definition
-   * as well, so content its render function was not written for is skipped. The
-   * top-level `getSlot` infers the content type from the definition.
+   * as well, so content its render function was not written for is skipped.
+   *
+   * The overloads mirror the top-level `getSlot` deliberately. A site that
+   * wants its own logger has to build a reader — `onSkip` is reachable no other
+   * way — and before these were here, doing so silently cost the inferred
+   * content type and left every call annotating its own return. The two ways in
+   * should type the same.
    */
+  getSlot<T = SlotContent>(name: string): Promise<T | null>;
+  getSlot<F extends BlockFields>(
+    name: string,
+    options: { block: BlockDefinition<F>; preview?: PreviewAccess | null },
+  ): Promise<BlockContent<F> | null>;
   getSlot<T = SlotContent>(
     name: string,
-    options?: SlotReadOptions,
+    options: SlotReadOptions,
   ): Promise<T | null>;
   /**
    * A hard reset: drop every cached entry and re-read `content_version` on the

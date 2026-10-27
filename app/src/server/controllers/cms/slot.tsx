@@ -25,6 +25,7 @@ import {
   parseContent,
   UUID_PATTERN,
 } from "./params";
+import { previewRedirect } from "./preview";
 
 /**
  * A one-line outcome shown above the form after a save, a publish or a restore.
@@ -344,6 +345,24 @@ export const slotForm = {
           conflict: result.newer,
         },
       );
+    }
+
+    // The editor pressed Preview and was asked to save on the way, so finish
+    // what they asked for rather than handing them a form to press it on
+    // again. Same tab, not a new one: the save is a navigation, and a
+    // `target="_blank"` submitted after one carries no user gesture, so the
+    // browser blocks the tab it would open. The banner's "Back to the editor"
+    // is the way back, and nothing is lost going there — the draft is saved.
+    if (nonEmpty(formData.get("after")) === "preview") {
+      return previewRedirect({
+        subjectType: "slot",
+        subjectId: slot.id,
+        path: slot.previewPath,
+        createdBy: ctx.user.id,
+        // A preview that cannot be minted lands back on the form with the
+        // failure said out loud. The draft is already written either way.
+        returnTo: `/cms/slots/${slot.id}`,
+      });
     }
 
     return redirect(`/cms/slots/${slot.id}?saved=1`);

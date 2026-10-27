@@ -86,8 +86,19 @@ repo. This file is only the invariants.
   round 4 removed it). A session stores the site user's id and re-reads the view
   on every request, so a site that removes an account ends the session at the
   next request. There is no CMS account to provision.
-- **The generated CMS form is the one recorded exception to server-rendered
-  interaction.** `src/client/cms-form.ts` is shipped for the block editor and
+- **Two recorded exceptions to server-rendered interaction, and no more.**
+  `src/client/components/preview-guard.ts` is the smaller one: Preview mints a
+  token for the last *saved* revision, so pressed with unsaved edits on screen
+  it shows older words and says nothing about why. The guard marks the form
+  dirty on the first edit and, on a Preview pressed while it is dirty, asks
+  first and offers the save. It reads no state of its own — a dirty flag, a
+  hidden input and a `requestSubmit` — and with JavaScript off Preview posts
+  exactly as it always did. It lives outside `cms-form.ts` because that bundle
+  has a byte budget (`client/boundaries.test.ts`) and this is page chrome, not
+  content serialisation.
+
+  The larger one: **the generated CMS form.**
+  `src/client/cms-form.ts` is shipped for the block editor and
   the media focal-point picker: rich text is a `contenteditable` editor,
   repeatable lists are added and removed without a round trip, and the image
   field's picker writes the chosen id into the media-id input. The server
@@ -106,6 +117,16 @@ repo. This file is only the invariants.
   the CMS opens for it. An unknown, expired or missing token is the published
   view; a preview bypasses the `content_version` cache for the token's own
   subject only, so the other slots on the page stay cached.
+
+  Two things hang off that. The banner names **when the draft was saved**
+  (`PreviewAccess.draftSavedAt`, read in the same query as the token), which is
+  what lets an editor looking at words they did not type work out why. And a
+  save carrying `after=preview` — the preview guard's doing — finishes by
+  minting the token and redirecting on to the site rather than returning to the
+  form: a save is a navigation, and a `target="_blank"` submitted after one has
+  no user gesture behind it, so the tab it would open is blocked. That path
+  lands in the same tab on purpose; the banner's "Back to the editor" is the
+  way back.
 - **Media lives in an S3-compatible bucket, behind `cms_media`.** The CMS
   uploads an image once (JPEG, PNG or WebP, sniffed from its bytes — SVG and
   animated GIF are refused), caps it at 20 MB and 100 megapixels, applies EXIF
@@ -119,6 +140,16 @@ repo. This file is only the invariants.
   publishing a draft that names a deleted image is refused with "This image was
   deleted. Choose another." on the block (a save of that draft still succeeds, so
   the editor can pick another).
+
+  Both of those read the **field metadata tree**, through `collectReferences` in
+  `services/media/guidance.ts`, and both are only as deep as that walk. It has
+  to follow a `list`'s `of` and a `group`'s `fields`, on the item's *value* —
+  a list item is a bare value with no key to look itself up by, and getting
+  that wrong once meant `image()` inside `list()` collected zero references, so
+  neither the guidance nor the deleted-image refusal fired for a gallery.
+  `guidance.test.ts` pins every nesting. The delete protection is the one that
+  was never affected: it walks stored values (`collectMediaIds`), not metadata.
+
   The drivers (S3, the sandbox's local disk, the tests' memory store) come
   from `@alexpricedev/billet-storage`; `app/src/server/services/media/storage.ts`
   keeps only the CMS's own choice between them, which refuses uploads rather

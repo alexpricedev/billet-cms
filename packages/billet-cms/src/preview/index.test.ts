@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
 import {
   applyPreview,
+  formatDraftSavedAt,
   getPreviewAccess,
   hashPreviewToken,
   PREVIEW_BANNER_ID,
@@ -11,9 +12,21 @@ import {
   renderPreviewBanner,
 } from "./index";
 
-/** A pool whose only table is a map of token hash to subject. */
+/**
+ * A pool whose only table is a map of token hash to subject.
+ *
+ * `draft_saved_at` is the column the token read joins from `cms_revisions`, so
+ * a row without one stands for a subject that has never been saved.
+ */
 const fakeSql = (
-  tokens: Record<string, { subject_type: "page" | "slot"; subject_id: string }>,
+  tokens: Record<
+    string,
+    {
+      subject_type: "page" | "slot";
+      subject_id: string;
+      draft_saved_at?: Date;
+    }
+  >,
 ) => {
   const sql = {
     unsafe: (query: string, params: unknown[] = []) => {
@@ -44,6 +57,26 @@ describe("readPreviewAccess", () => {
     expect(await readPreviewAccess(sql, "good")).toEqual({
       subjectType: "page",
       subjectId: "p-1",
+      draftSavedAt: null,
+    });
+  });
+
+  // The banner prints this, so a preview opened before the editor saved shows
+  // a time that explains why the words are not the ones they just typed.
+  test("carries when the draft it shows was last saved", async () => {
+    const savedAt = new Date("2026-01-11T09:00:00Z");
+    const sql = fakeSql({
+      [hashPreviewToken("good")]: {
+        subject_type: "slot",
+        subject_id: "s-1",
+        draft_saved_at: savedAt,
+      },
+    });
+
+    expect(await readPreviewAccess(sql, "good")).toEqual({
+      subjectType: "slot",
+      subjectId: "s-1",
+      draftSavedAt: savedAt,
     });
   });
 
@@ -89,7 +122,7 @@ describe("readPreviewAccess", () => {
     ).toBeNull();
     expect(
       await readPreviewAccess(sql, "token", new Date("2026-10-13T10:30:00Z")),
-    ).toEqual({ subjectType: "page", subjectId: "p-1" });
+    ).toEqual({ subjectType: "page", subjectId: "p-1", draftSavedAt: null });
   });
 });
 
@@ -105,6 +138,7 @@ describe("getPreviewAccess", () => {
     expect(await getPreviewAccess(sql, req)).toEqual({
       subjectType: "slot",
       subjectId: "s-1",
+      draftSavedAt: null,
     });
   });
 
@@ -365,5 +399,51 @@ describe("applyPreview", () => {
     );
     expect(previewed.headers.get("ETag")).toBeNull();
     expect(new Uint8Array(await previewed.arrayBuffer())).toEqual(encoded);
+  });
+});
+
+describe("the banner's draft time", () => {
+  const slot = { subjectType: "slot" as const, subjectId: "s-1" };
+
+  // The whole point: an editor who previewed before saving sees a time older
+  // than the edit they just made, and the page stops being a mystery.
+  test("names when the draft was saved", () => {
+    const banner = renderPreviewBanner(
+      { ...slot, draftSavedAt: new Date("2026-01-11T09:00:00Z") },
+      undefined,
+    );
+
+    expect(banner).toContain("Draft saved 11 Jan 2026, 09:00 UTC.");
+  });
+
+  test("says nothing about a draft that has never been saved", () => {
+    expect(renderPreviewBanner({ ...slot, draftSavedAt: null })).not.toContain(
+      "Draft saved",
+    );
+    expect(renderPreviewBanner(slot)).not.toContain("Draft saved");
+  });
+
+  // Same lesson as the CMS's own formatWhen: ICU picks what joins a date and a
+  // time from `dateStyle`/`timeStyle`, and newer data gives "at" instead of a
+  // comma. This string sits next to the CMS's timestamps, so it is pinned.
+  test("joins the date and the time with a comma, whatever ICU ships", () => {
+    expect(formatDraftSavedAt(new Date("2026-10-14T15:25:00Z"))).toBe(
+      "14 Oct 2026, 15:25 UTC",
+    );
+  });
+
+  test("reads the time in UTC, not the process timezone", () => {
+    const instant = new Date("2026-01-02T03:04:00Z");
+    const expected = formatDraftSavedAt(instant);
+    const previous = process.env.TZ;
+    try {
+      process.env.TZ = "America/Los_Angeles";
+      expect(formatDraftSavedAt(instant)).toBe(expected);
+      process.env.TZ = "Asia/Tokyo";
+      expect(formatDraftSavedAt(instant)).toBe(expected);
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
   });
 });

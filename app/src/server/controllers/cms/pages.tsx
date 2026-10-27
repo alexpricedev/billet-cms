@@ -46,6 +46,7 @@ import {
   parseContent,
   UUID_PATTERN,
 } from "./params";
+import { previewRedirect } from "./preview";
 
 /**
  * A one-line outcome shown above a page form after a save, publish or restore.
@@ -494,6 +495,7 @@ export const pages = {
     const pageType = await getPageTypeByName(page.pageType);
     const latest = await getLatestRevision("page", page.id);
     const content = latest ? asPageContent(latest.content).blocks : [];
+    const params = new URL(req.url).searchParams;
 
     return renderPageForm(
       ctx,
@@ -501,7 +503,7 @@ export const pages = {
       pageType?.removedAt ? null : pageType,
       content,
       latest?.id ?? null,
-      { notice: await savedNotice(new URL(req.url).searchParams, page.id) },
+      { notice: await savedNotice(params, page.id) },
     );
   },
 
@@ -648,6 +650,29 @@ export const pages = {
       dropped.length > 0
         ? `&dropped=${encodeURIComponent(dropped.join(","))}`
         : "";
+    // The editor pressed Preview and was asked to save on the way, so finish
+    // what they asked for rather than handing them a form to press it on
+    // again. Same tab, not a new one: the save is a navigation, and a
+    // `target="_blank"` submitted after one carries no user gesture, so the
+    // browser blocks the tab it would open. The banner's "Back to the editor"
+    // is the way back, and nothing is lost going there — the draft is saved.
+    //
+    // A URL change or dropped blocks are reported on the editor page, which
+    // this skips past, so they keep the ordinary save path.
+    if (
+      nonEmpty(formData.get("after")) === "preview" &&
+      moved === "" &&
+      droppedParam === ""
+    ) {
+      return previewRedirect({
+        subjectType: "page",
+        subjectId: page.id,
+        path: page.url,
+        createdBy: ctx.user.id,
+        returnTo: `/cms/pages/${page.id}`,
+      });
+    }
+
     return redirect(`/cms/pages/${page.id}?saved=1${moved}${droppedParam}`);
   },
 

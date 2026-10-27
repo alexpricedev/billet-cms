@@ -39,6 +39,21 @@ export type PreviewSubjectType = "page" | "slot";
 export interface PreviewAccess {
   subjectType: PreviewSubjectType;
   subjectId: string;
+  /**
+   * When the draft this preview shows was last saved, or `null` when the
+   * subject has no revision yet.
+   *
+   * The banner prints it, which is what makes a stale preview explain itself:
+   * an editor who typed, previewed without saving, and is now looking at
+   * yesterday's words can see the time and know why. Without it the page is
+   * simply wrong with no way to tell from the page.
+   *
+   * Optional rather than required: `readPreviewAccess` always sets it, but a
+   * site forwarding or faking an access should not have to, and a banner
+   * without a date is the behaviour this had before. Degrading quietly is
+   * right for a label; it would not be for anything the page depends on.
+   */
+  draftSavedAt?: Date | null;
 }
 
 /** The SHA-256 hex of a raw preview token, which is what the database stores. */
@@ -57,15 +72,34 @@ export const readPreviewAccess = async (
   rawToken: string,
   now: Date = new Date(),
 ): Promise<PreviewAccess | null> => {
+  // The newest revision for the subject comes back with the token, in one
+  // read. The ordering matches `latestRevisionId` exactly (`created_at DESC,
+  // id DESC`), so the time printed on the banner is the save the preview
+  // actually renders rather than a different row that shares a timestamp.
   const rows = (await sql.unsafe(
-    `SELECT subject_type, subject_id FROM ${TABLES.previewTokens}
-     WHERE token_hash = $1 AND expires_at > $2`,
+    `SELECT t.subject_type, t.subject_id, r.created_at AS draft_saved_at
+     FROM ${TABLES.previewTokens} t
+     LEFT JOIN LATERAL (
+       SELECT created_at FROM ${TABLES.revisions}
+       WHERE target_type = t.subject_type AND target_id = t.subject_id
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1
+     ) r ON TRUE
+     WHERE t.token_hash = $1 AND t.expires_at > $2`,
     [hashPreviewToken(rawToken), now],
-  )) as { subject_type: PreviewSubjectType; subject_id: string }[];
+  )) as {
+    subject_type: PreviewSubjectType;
+    subject_id: string;
+    draft_saved_at: Date | null;
+  }[];
 
   const row = rows[0];
   return row
-    ? { subjectType: row.subject_type, subjectId: row.subject_id }
+    ? {
+        subjectType: row.subject_type,
+        subjectId: row.subject_id,
+        draftSavedAt: row.draft_saved_at ?? null,
+      }
     : null;
 };
 
@@ -143,6 +177,32 @@ export const PREVIEW_BANNER_ID = "cms-preview-banner";
  * landmark, not a transient announcement, so it should not be read out by a
  * screen reader on every page load.
  */
+/**
+ * When a draft was saved, as the banner prints it: "11 Jan 2026, 09:00 UTC".
+ *
+ * Composed from the parts rather than `toLocaleString({ dateStyle, timeStyle
+ * })`, because the separator that joins the date and the time is ICU's to
+ * choose and it changed — newer data gives en-GB "11 Jan 2026 at 09:00". This
+ * string is read by an editor next to the CMS's own timestamps, so the two
+ * must not drift apart depending on what the host happens to ship.
+ *
+ * UTC, like every other time the CMS shows, and said so on the label: an
+ * editor comparing this against the save time in the history needs them to be
+ * the same clock.
+ */
+export const formatDraftSavedAt = (date: Date): string => {
+  const day = date.toLocaleDateString("en-GB", {
+    dateStyle: "medium",
+    timeZone: "UTC",
+  });
+  const time = date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+  return `${day}, ${time} UTC`;
+};
+
 export const renderPreviewBanner = (
   access?: PreviewAccess | null,
   cmsUrl: string | undefined = typeof process === "undefined"
@@ -153,12 +213,21 @@ export const renderPreviewBanner = (
   const back = href
     ? ` <a href="${escapeAttribute(href)}" style="color:#fff;text-decoration:underline">Back to the editor</a>`
     : "";
+  // Naming the save is what turns "this isn't what I typed" into "I previewed
+  // before I saved". Escaped like any other value, even though it is built
+  // from a Date and cannot currently carry markup — the banner is a string
+  // concatenation on the site's own page, and nothing here should be the one
+  // place that trusts its input.
+  const saved = access?.draftSavedAt
+    ? ` Draft saved ${escapeText(formatDraftSavedAt(access.draftSavedAt))}.`
+    : "";
   return (
     `<div id="${PREVIEW_BANNER_ID}" role="region" aria-label="Preview" ` +
     'style="position:sticky;top:0;z-index:2147483647;' +
     "background:#b45309;color:#fff;font:600 14px/1.4 system-ui,sans-serif;" +
     'padding:8px 16px;text-align:center">' +
     "Preview — showing unpublished draft content. This is not the live site." +
+    saved +
     back +
     "</div>"
   );
@@ -183,6 +252,10 @@ const editorUrl = (access: PreviewAccess, cmsUrl?: string): string | null => {
     return null;
   }
 };
+
+/** Escape a value going into the banner's text, not into an attribute. */
+const escapeText = (value: string): string =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const escapeAttribute = (value: string): string =>
   value
