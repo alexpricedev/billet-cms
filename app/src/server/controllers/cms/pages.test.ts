@@ -218,6 +218,29 @@ describe("Pages controller", () => {
     expect(html).toContain("Enter a URL");
   });
 
+  // Part 9: the form names the page that already has the URL rather than
+  // saying "another page".
+  test("says which page has a taken URL", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About Northwind",
+    });
+    if (!created.ok) throw new Error("create failed");
+
+    const res = await pages.create(
+      await post(
+        "/cms/pages/new",
+        { pageType: "landing", url: "about", title: "Team" },
+        "/cms/pages/new",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("About Northwind already uses /about.");
+  });
+
   test("builds the editor from the page type's blocks and the page's settings", async () => {
     const created = await createPage({
       pageType: "landing",

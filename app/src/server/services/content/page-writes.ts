@@ -44,6 +44,7 @@ import {
 } from "./page-content";
 import {
   applyPageSettings,
+  duplicateUrlMessage,
   type FieldSettingIssue,
   getPageById,
   type PageRecord,
@@ -459,21 +460,12 @@ const writePage = async (
       return { kind: "saved" as const, revision, page: applied.page };
     });
   } catch (error) {
-    const duplicate = duplicatePageUrl(error);
-    if (duplicate) return { kind: "duplicate", issue: duplicate };
+    // Outside the rolled-back transaction: the owner of the URL is a committed
+    // row, so this names the page the editor collided with (part 9).
+    const message = await duplicateUrlMessage(error, settings.url);
+    if (message) return { kind: "duplicate", issue: { path: "url", message } };
     throw error;
   }
-};
-
-/** A unique violation on `cms_pages.url`, as an editor-facing issue. */
-const duplicatePageUrl = (error: unknown): FieldSettingIssue | null => {
-  if (typeof error !== "object" || error === null) return null;
-  const code = (error as { errno?: unknown }).errno;
-  const constraint = (error as { constraint?: unknown }).constraint;
-  if (code === "23505" && constraint === "cms_pages_url_idx") {
-    return { path: "url", message: "Another page already uses this URL." };
-  }
-  return null;
 };
 
 export type PublishPageResult =
