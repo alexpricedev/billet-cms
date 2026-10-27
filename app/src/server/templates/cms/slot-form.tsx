@@ -16,10 +16,7 @@ import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
 import { humanise } from "../../utils/humanise";
-
-/** A slot in an editor's words: its label, else its key humanised. */
-const slotTitle = (slot: { label: string | null; name: string }) =>
-  slot.label ?? humanise(slot.name);
+import { slotTitle } from "../../utils/slot-title";
 
 export interface SlotFormProps {
   user: User;
