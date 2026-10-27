@@ -1,21 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
-### The preview banner names when the draft was saved
+`group()` is the headline: a block can declare a repeated pair instead of two
+parallel lists that leave nothing tying one row to the other. The contract
+version moves to `0.8.0` with it, so deploy the CMS before the site, as always.
+The rest is the read path costing fewer queries, a preview that explains itself,
+and a handful of tightenings whose whole story is in the entries below.
 
-`PreviewAccess` gains an optional `draftSavedAt`, read in the same query as the
-token, and the banner prints it: "Preview — showing unpublished draft content.
-This is not the live site. Draft saved 11 Jan 2026, 09:00 UTC."
-
-It is there for one failure in particular. Preview mints a token for the last
-*saved* revision, so an editor who types and presses Preview without saving
-opens a tab showing their old words, with nothing on the page to explain it. A
-time they can compare against the save they remember making turns that into
-something they can reason about.
-
-A site that forwards or fakes a `PreviewAccess` need not supply it — a banner
-with no date is what this did before.
+**Deploy the CMS first.** A site on this version publishes `group` metadata an
+older CMS has no control to render.
 
 ### `group()`, a nested object of other fields
 
@@ -42,6 +36,58 @@ on save, because that is what becomes the stored JSON Schema, and tolerant on
 read, because Q4 says a field a deploy dropped stays in the stored content and
 must not break the block around it.
 
+### The read path costs one query, and one poll serves a pool
+
+Reading a slot took three queries — the slot row, its block type and its
+revision — and the first read after a publish paid for all three. `loadSlot`
+joins them, so a cold slot costs one, and the preview path reuses that same read
+and validation.
+
+The page, slot and media readers each owned a `ContentCache`, which meant a site
+that mounts the catch-all *and* reads slots asked `cms_meta` for
+`content_version` once a second per reader. `ContentVersion` is that poll on its
+own, and `contentVersionFor(sql)` hands every reader on a pool the same one, so
+the steady state is one `cms_meta` query a second in total; `invalidate()` on any
+reader resets the shared poll, so the next read from any of them goes back to
+the database.
+
+Simultaneous misses share their work too — one version read, one load per key —
+and the sharing is scoped to the generation in flight, so a load that started
+before a publish is neither stored nor handed to a caller reading the newer
+version. A preview keeps the cache for every subject but the token's own:
+opening a slot preview no longer re-reads the routing table, and the other slots
+on the page stay cached.
+
+**Nothing for a site to change.** A site that builds its own `ContentCache` may
+pass the shared `version` instead of `readVersion`; the old shape still works.
+
+### The preview banner names when the draft was saved
+
+`PreviewAccess` gains an optional `draftSavedAt`, read in the same query as the
+token, and the banner prints it: "Preview — showing unpublished draft content.
+This is not the live site. Draft saved 11 Jan 2026, 09:00 UTC."
+
+It is there for one failure in particular. Preview mints a token for the last
+*saved* revision, so an editor who types and presses Preview without saving
+opens a tab showing their old words, with nothing on the page to explain it. A
+time they can compare against the save they remember making turns that into
+something they can reason about.
+
+A site that forwards or fakes a `PreviewAccess` need not supply it — a banner
+with no date is what this did before.
+
+### A preview response says `no-referrer`, and the banner links back
+
+A preview URL holds the raw token for its whole half hour. `applyPreview` now
+sends `Referrer-Policy: no-referrer`, so the page's subresources — an analytics
+script, a third-party font — and the links out of the draft don't hand that URL
+to anyone in `Referer`.
+
+`renderPreviewBanner` also adds a "Back to the editor" link, built from
+`CMS_URL` (the same variable `createEditContentLink` reads) and the token's
+subject. A site without `CMS_URL` gets the banner it had before, and only an
+http(s) origin is accepted, so a bad value can't become a `javascript:` URL.
+
 ### Skips are throttled, and a reader types like the free function
 
 `defaultSkipLogger` now reports each distinct message at most once a minute, and
@@ -60,12 +106,64 @@ templates was writing a stub to satisfy the signature. The property is still
 always present, defaulting to a no-op, so `definition.render(content)` keeps
 typing for the sites that do use it.
 
+### A refused sign-in is a page, with a way back
+
 The refusal a signed-in non-editor gets from `handleCmsSignIn` is now a small
 HTML page (same sentence, who to ask, a Back to the site link), still a 403
 with no token written. A new optional `renderRefusal` option lets the site
 render its own; its status is forced to 403.
 
 **Nothing for a site to change.** The 403 body changes from plain text to HTML.
+
+### A `required` the compiler cannot resolve is maybe-absent
+
+`FieldValue` decided presence by testing `O extends { required: false }`, which
+is unsound when `required` is a plain `boolean`: a field declared through a
+variable typed `FieldOptions` produced a value the compiler treated as always
+present. The test is now whether the option type carries `required: true`, so an
+inline `text({ required: false })` still gives `string | undefined`, an
+optionless `text()` still gives `string`, and a flag the compiler cannot resolve
+gives `T | undefined`.
+
+A site whose render function takes a field declared that way may have to handle
+an `undefined` it was being told could not happen. Page content also reads as a
+discriminated union keyed on `type` now, so a page's `blocks` type narrows on
+the block it holds; no stored document or published schema changes.
+
+### The alt override on an image is capped at `MAX_ALT_LENGTH`
+
+An `image()` value's `alt` override was an unbounded string while the upload's
+own alt was capped at 1000 characters, so `{ mediaId, alt }` could store a
+paragraph that every page reusing the picture rendered into its `alt`
+attribute. `MAX_ALT_LENGTH`, exported from the contract, is now the cap in both
+places: `image()` compiles it to `maxLength` in the published JSON Schema, and
+the CMS refuses a longer value at save with the limit the site's own schema
+enforces.
+
+A stored override over the cap now fails its read like any other invalid
+content, so a block holding one falls back until an editor shortens it.
+
+### A slot name is dot-separated segments, and rich text is depth-checked
+
+`SLOT_NAME_PATTERN` was one character class with `.` allowed anywhere, so
+`"home..hero"`, `".hero"` and `"home."` all passed and then named a page the CMS
+could never match. The pattern is anchored per segment now, with the whole name
+capped at 64 characters like a single-segment one, and `slot()` checks its
+`page` option the same way, so a typo is caught beside the declaration. A site
+using a name of that shape has to fix it when its config loads.
+
+A rich text document nested deeper than `MAX_RICH_TEXT_LIST_DEPTH` (8) lists is
+refused when content is validated rather than overflowing the stack inside the
+recursive parse: the stored JSON Schema leaves the recursion unbounded, so the
+depth is checked on the raw value first, without recursion.
+
+### The CLIs say more, and ask for the pull token in the environment
+
+`billet-cms-pull`'s help and error text name `CMS_EXPORT_TOKEN` before
+`--token` — a flag lands in shell history and in a process listing, and the
+token reads everything published — and `--token` still works.
+`billet-cms-publish` prints the whole error, stack and all, for a failure it has
+no written message for, instead of a one-line message that hides the cause.
 
 ## 0.1.1
 
