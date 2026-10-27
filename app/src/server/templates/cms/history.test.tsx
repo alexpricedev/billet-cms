@@ -97,7 +97,7 @@ describe("history headers", () => {
 
   test("puts the slot key and block on one muted line", () => {
     expect(slotHtml).toContain(
-      '<code>footer.cta</code> · block <code>cta</code>',
+      "<code>footer.cta</code> · block <code>cta</code>",
     );
     expect(slotHtml).toContain('class="cms-slot-meta"');
   });
@@ -117,7 +117,9 @@ describe("history headers", () => {
   });
 
   test("shows a page's URL as muted metadata, not prose", () => {
-    expect(pageHtml).toContain('<p class="cms-slot-meta"><code>/about</code></p>');
+    expect(pageHtml).toContain(
+      '<p class="cms-slot-meta"><code>/about</code></p>',
+    );
     expect(pageHtml).not.toContain("Page <code>");
   });
 });

@@ -1,6 +1,10 @@
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
-import type { BlockTypeRecord, SlotRecord, SlotRevisionSummary } from "../../services/content";
+import type {
+  BlockTypeRecord,
+  SlotRecord,
+  SlotRevisionSummary,
+} from "../../services/content";
 import type { User } from "../../services/users";
 import { formatDay, formatDayShort, formatWhen } from "../../utils/format";
 import { humanise } from "../../utils/humanise";
