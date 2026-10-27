@@ -246,6 +246,12 @@ export const validatePageContent = (
  * The messages name the block by its type name. A block label would read nicer,
  * but the metadata carries none today (labels are deferred to the UI refresh),
  * so the messages use the name the editor sees on the block.
+ *
+ * A position issue points at the block that is in the wrong place
+ * (`blocks.N`), not at the list, and says which arrow fixes it: the editor's
+ * banner links to the block, and the block itself shows the message, which at
+ * 390 is several screens below the banner. A max/min issue belongs to the list
+ * and stays at `blocks`.
  */
 export const checkPageLimits = (
   pageType: PageTypeRecord,
@@ -290,9 +296,12 @@ export const checkPageLimits = (
       positions.length > 0 &&
       positions[0] !== 0
     ) {
+      // `blocks.N` points at the offending block rather than at the list: the
+      // editor's banner links to it, and the block itself shows the message,
+      // which at 390 is several screens below the banner.
       issues.push({
-        path: "blocks",
-        message: `The ${name} block has to be first.`,
+        path: `blocks.${positions[0]}`,
+        message: `The ${name} block has to be first. Use the ↑ arrow to move it up.`,
       });
     }
     if (
@@ -301,8 +310,8 @@ export const checkPageLimits = (
       positions[positions.length - 1] !== blocks.length - 1
     ) {
       issues.push({
-        path: "blocks",
-        message: `The ${name} block has to be last.`,
+        path: `blocks.${positions[positions.length - 1]}`,
+        message: `The ${name} block has to be last. Use the ↓ arrow to move it down.`,
       });
     }
   }

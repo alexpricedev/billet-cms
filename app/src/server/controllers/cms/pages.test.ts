@@ -244,8 +244,43 @@ describe("Pages controller", () => {
     expect(html).toContain('name="title"');
     expect(html).toContain("data-cms-page-content");
     expect(html).toContain('data-block-add="hero"');
+    // The empty state is rendered and visible: the client toggles it with the
+    // list, so the hook is always there and only the attribute changes.
+    expect(html).toMatch(
+      /<p[^>]*data-cms-blocks-empty(="true")?[^>]*>This page has no blocks yet/,
+    );
     // The link picker's page list is threaded through to the controls.
     expect(html).toContain("data-cms-content");
+  });
+
+  test("the empty-state line is hidden once the page has a block", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const saved = await savePageDraft({
+      pageId: created.page.id,
+      content: pageContent("Hi"),
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+    if (!saved.ok) throw new Error("save failed");
+
+    const res = await pages.form(
+      createBunRequest(
+        `${ORIGIN}/cms/pages/${created.page.id}`,
+        { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+        { id: created.page.id },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toMatch(
+      /<p[^>]*data-cms-blocks-empty(="true")?[^>]*hidden[^>]*>This page has no blocks yet/,
+    );
   });
 
   describe("Add buttons and the page type's limits", () => {
@@ -314,7 +349,7 @@ describe("Pages controller", () => {
         'aria-describedby="block-add-limit-hero"',
       );
       expect(html).toMatch(
-        /<span[^>]*id="block-add-limit-hero"(?![^>]*hidden)[^>]*>Only one hero per page/,
+        /<span[^>]*id="block-add-limit-hero"(?![^>]*hidden)[^>]*>Add hero is off: only one hero per page/,
       );
     });
 
@@ -341,7 +376,7 @@ describe("Pages controller", () => {
         { type: "prose", body: document },
       ]);
       expect(addButton(one, "prose")).not.toContain("aria-disabled");
-      expect(one).toContain("Only 2 prose blocks per page");
+      expect(one).toContain("Add prose is off: only 2 prose blocks per page");
     });
 
     test("a max of two greys the button at two blocks", async () => {
@@ -811,7 +846,8 @@ describe("Pages controller", () => {
   // so the summary names the block by position and type — otherwise a page
   // with several blocks gives no clue which one the rich text message is about
   // (review round 2). The bad block is second, so a summary that always named
-  // block 1 fails.
+  // block 1 fails. It also links to that block, and the block itself carries
+  // the message as an alert: at 390 the banner is several screens above it.
   test("names the block a whole-block issue belongs to", async () => {
     const created = await createPage({
       pageType: "landing",
@@ -865,10 +901,77 @@ describe("Pages controller", () => {
       `Block 2 (hero): Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.`,
     );
     expect(html).not.toContain("Block 1");
-    // The issue is whole-block, so no block is marked and the banner must not
+    // The banner line links to the block, and the block repeats the message.
+    expect(html).toContain(
+      `href="#block-2">Block 2 (hero): Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.</a>`,
+    );
+    expect(html).toMatch(
+      /id="block-2"[\s\S]{0,600}class="cms-block-alert-message" role="alert">Rich text lists may nest/,
+    );
+    // The issue is whole-block, so no field is marked and the banner must not
     // point at marked blocks that aren't there.
     expect(html).not.toContain("Check the blocks marked below.");
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
+  // Part 8: the hero-first refusal is shown on the hero itself and says which
+  // arrow fixes it; the banner links to the block rather than leaving the
+  // editor to find it several screens below at 390.
+  test("shows the hero-first refusal on the hero block", async () => {
+    await seedBlockType(db, prose);
+    // A type that takes both, so the hero can sit behind another block.
+    await seedPageType(
+      db,
+      pageType("mixed", {
+        allowedBlocks: [hero, prose],
+        requiredBlocks: [hero],
+        limits: { hero: { max: 1, position: "top" } },
+      }),
+    );
+    const created = await createPage({
+      pageType: "mixed",
+      url: "/landing",
+      title: "Landing",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "mixed",
+          url: "/landing",
+          title: "Landing",
+          content: JSON.stringify({
+            blocks: [
+              { type: "prose", body: document },
+              {
+                type: "hero",
+                heading: "Hi",
+                body: { type: "doc", content: [] },
+              },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(
+      'href="#block-2">Block 2 (hero): The hero block has to be first. Use the ↑ arrow to move it up.</a>',
+    );
+    expect(html).toMatch(
+      /id="block-2"[\s\S]{0,600}role="alert">The hero block has to be first. Use the ↑ arrow to move it up.</,
+    );
+    // The prose block first is fine on its own; only the hero is flagged.
+    expect(html).not.toMatch(
+      /id="block-1"[\s\S]{0,200}cms-block-alert-message/,
+    );
   });
 
   test("an over-size content save says so and keeps the base revision", async () => {
@@ -1325,7 +1428,10 @@ describe("Pages controller", () => {
     );
     const plain = await view("?saved=1");
     expect(plain).toContain("Draft saved.");
-    expect(plain).not.toContain("empty");
+    // The page always renders its "no blocks yet" line (the client toggles it),
+    // so the assertion is on the banner's own sentence, not the word "empty".
+    expect(plain).not.toContain("was removed");
+    expect(plain).not.toContain("were removed");
 
     // One removed names its type.
     const one = await saveWith("hero");
@@ -1350,12 +1456,15 @@ describe("Pages controller", () => {
     // Junk entries are ignored, and a value with none valid is the plain banner.
     const junk = await view("?saved=1&dropped=%3Cb%3E%2Chero%20x%2C");
     expect(junk).toContain("Draft saved.");
-    expect(junk).not.toContain("empty");
+    expect(junk).not.toContain("was removed");
+    expect(junk).not.toContain("were removed");
     expect((await saveWith("<b>")).headers.get("location")).toBe(
       `/cms/pages/${pageId}?saved=1`,
     );
     // The sentence only follows a save.
-    expect(await view("?published=1&dropped=hero")).not.toContain("empty");
+    expect(await view("?published=1&dropped=hero")).not.toMatch(
+      /empty (hero|text)? ?blocks? (was|were) removed/,
+    );
   });
 
   test("the removed-blocks sentence follows the redirect sentence", async () => {

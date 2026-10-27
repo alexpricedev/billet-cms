@@ -68,6 +68,12 @@ export interface PageFormProps {
   settingsErrors?: Map<string, FieldError[]>;
   /** Validation messages for a block's fields, keyed by the block's index. */
   blockErrors?: Map<number, Map<string, FieldError[]>>;
+  /**
+   * Whole-block messages (the hero-first rule, the rich-text nesting bound),
+   * keyed by the block's index. Shown on the block itself, and linked to from
+   * the banner's summary line.
+   */
+  blockAlerts?: Map<number, string>;
   /** Every content issue, shown as a list above the blocks. */
   contentIssues?: FieldIssue[];
   conflict?: RevisionConflict | null;
@@ -88,21 +94,27 @@ export interface PageFormProps {
  * A whole-block issue's summary line, worded so the editor knows which block.
  *
  * An issue at `blocks.N` rather than `blocks.N.field` has no control to mark —
- * the rich text nesting bound is the one the editor can reach — so without a
- * block name on the summary line, a page with several blocks gives no clue
- * which one the message is about (review round 2). The block's type is named
- * too, since the block legends show the type and no number.
+ * the hero-first rule and the rich text nesting bound are the two that land
+ * there — so without a block name on the summary line, a page with several
+ * blocks gives no clue which one the message is about (review round 2). The
+ * block's type is named too, since the block legends show the type and no
+ * number, and the line links to the block, which at 390 sits several screens
+ * below the banner.
  */
 const blockSummaryMessage = (
   issue: FieldIssue,
   blocks: PageBlock[],
-): string => {
+): JSX.Element => {
   const match = /^blocks\.(\d+)$/.exec(issue.path);
-  if (!match) return issue.message;
+  if (!match) return <>{issue.message}</>;
   const index = Number(match[1]);
   const type = blocks[index]?.type;
   const name = typeof type === "string" && type !== "" ? ` (${type})` : "";
-  return `Block ${index + 1}${name}: ${issue.message}`;
+  const summary = `Block ${index + 1}${name}: ${issue.message}`;
+  // A block the page type doesn't render as a card has no anchor to reach, so
+  // the line stays plain text rather than being a link to nowhere.
+  if (index >= blocks.length) return <>{summary}</>;
+  return <a href={`#block-${index + 1}`}>{summary}</a>;
 };
 
 const SettingsControl = ({
@@ -215,6 +227,7 @@ export const PageForm = ({
   pickerCapped,
   settingsErrors,
   blockErrors,
+  blockAlerts,
   contentIssues,
   conflict,
   refusedPublish,
@@ -400,6 +413,7 @@ export const PageForm = ({
                   blocks={content}
                   unavailable={unavailable}
                   errorsByBlock={blockErrors}
+                  alertsByBlock={blockAlerts}
                   pages={pages}
                   hasMedia={media.length > 0}
                   pickerCapped={pickerCapped}

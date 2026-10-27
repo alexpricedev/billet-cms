@@ -164,11 +164,25 @@ const blockTypeMap = (
 /** Split content issues into a per-block map and a flat list for the summary. */
 const blockErrors = (
   issues: FieldIssue[],
-): { byBlock: Map<number, Map<string, FieldError[]>>; list: FieldIssue[] } => {
+): {
+  byBlock: Map<number, Map<string, FieldError[]>>;
+  alerts: Map<number, string>;
+  list: FieldIssue[];
+} => {
   const byBlock = new Map<number, Map<string, FieldError[]>>();
+  const alerts = new Map<number, string>();
   const list: FieldIssue[] = [];
 
   for (const issue of issues) {
+    const whole = /^blocks\.(\d+)$/.exec(issue.path);
+    if (whole) {
+      // A whole-block issue (the hero-first rule, the rich-text nesting bound)
+      // has no field to mark, so it goes on the block itself as an alert. The
+      // banner still lists it, and links to the block (review round 2, #67 f11).
+      alerts.set(Number(whole[1]), issue.message);
+      list.push(issue);
+      continue;
+    }
     const match = /^blocks\.(\d+)\.(.+)$/.exec(issue.path);
     if (!match) {
       // A limit issue's path is just `blocks`; it belongs in the summary.
@@ -189,7 +203,7 @@ const blockErrors = (
     list.push(issue);
   }
 
-  return { byBlock, list };
+  return { byBlock, alerts, list };
 };
 
 interface FormExtras {
@@ -269,7 +283,7 @@ export const renderPageForm = async (
   const contentIssues = issues.filter(
     (issue) => !SETTINGS_FIELDS.has(issue.path),
   );
-  const { byBlock, list } = blockErrors(contentIssues);
+  const { byBlock, alerts, list } = blockErrors(contentIssues);
 
   const settingsErrors = new Map<string, FieldError[]>();
   for (const issue of settingsIssues) {
@@ -307,6 +321,7 @@ export const renderPageForm = async (
       pickerCapped={picker.capped}
       settingsErrors={settingsErrors}
       blockErrors={byBlock}
+      blockAlerts={alerts}
       contentIssues={list}
       conflict={extras.conflict ?? null}
       refusedPublish={extras.refusedPublish ?? false}

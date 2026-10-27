@@ -741,9 +741,19 @@ h1 {
   opacity: 0.6;
 }
 
+/* One Add control and its hint, kept on the same line: the hint names the
+   button ("Add hero is off: only one hero per page") and sits beside it, so it
+   cannot be read as a note about the next row. It wraps under its own button
+   on a narrow screen rather than pushing the button off the row. */
+.cms-block-add-row {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .cms-block-add-hint {
   color: var(--text-muted);
-  flex-basis: 100%;
   font-size: 12px;
 }
 
@@ -762,6 +772,25 @@ h1 {
   color: var(--text-muted);
   font-size: 13px;
   margin: 0;
+}
+
+.cms-blocks-empty[hidden] {
+  display: none;
+}
+
+/* A block whose own rule failed (the hero is not first): the message is on the
+   block, not only in the banner several screens above it at 390. */
+.cms-block-alert {
+  border-color: var(--danger-border);
+}
+
+.cms-block-alert-message {
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 13px;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
 }
 
 .cms-block-unavailable {

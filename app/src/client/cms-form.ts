@@ -506,7 +506,9 @@ const syncListsIn = (root: Element | null): void => {
  *
  * The server counts every stored block, so the count here is every
  * `[data-cms-block]` of the type except one marked removed. The hint is
- * rendered by the server and only toggled with `hidden`.
+ * rendered by the server and only toggled with `hidden`. The "no blocks yet"
+ * line follows the list the same way, so a block added in this tab hides it
+ * before anything is saved.
  */
 const syncBlockAdds = (container: Element | null): void => {
   const list = container?.querySelector(":scope > [data-cms-blocks]");
@@ -514,6 +516,8 @@ const syncBlockAdds = (container: Element | null): void => {
   const blocks = Array.from(
     list.querySelectorAll(":scope > [data-cms-block]"),
   ).filter((block) => !block.hasAttribute("data-block-removed"));
+  const empty = container.querySelector<HTMLElement>("[data-cms-blocks-empty]");
+  if (empty) empty.hidden = blocks.length > 0;
   for (const button of Array.from(
     container.querySelectorAll("[data-block-add][data-block-max]"),
   )) {
