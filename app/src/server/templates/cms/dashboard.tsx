@@ -55,19 +55,6 @@ export const Dashboard = ({
     <PageHeader
       title="Content"
       description="These are the parts of the site you can edit. Your changes stay drafts until you publish them."
-      actions={
-        <>
-          <a className="cms-new-page-link" href="/cms/pages">
-            Pages
-          </a>
-          <a className="cms-new-page-link" href="/cms/media">
-            Media
-          </a>
-          <a className="cms-new-page-link" href="/cms/export">
-            Export
-          </a>
-        </>
-      }
     />
 
     {groups.length === 0 ? (
