@@ -12,6 +12,7 @@ fixture site's `users` table*. It must never touch a real site's database.
 
 ```bash
 bun run sandbox     # load fixtures, start the site and the CMS, print both URLs
+                    # and the personas' sign-in emails
 bun run fixtures    # reload the data only
 bun run scripts/persona-session.ts leo --side site   # prints  site_session=<id>
 bun run scripts/persona-session.ts leo --side cms    # prints  northwind_cms_session=<raw>
