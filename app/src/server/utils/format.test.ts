@@ -1,7 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { formatWhen } from "./format";
+import { formatDay, formatWhen } from "./format";
 
 describe("formatWhen", () => {
+  // Pinned, separator included. `toLocaleString({ dateStyle, timeStyle })`
+  // lets ICU choose what joins the date and the time, and it changed: newer
+  // data gives en-GB "11 Jan 2026 at 09:00". Two callers introduce this value
+  // with their own "at" ("…, at {formatWhen(…)} UTC."), so that spelling ships
+  // a doubled "at" to an editor, and the only thing that caught it was a
+  // template test somewhere else.
+  test("joins the date and the time with a comma", () => {
+    expect(formatWhen(new Date("2026-01-11T09:00:00Z"))).toBe(
+      "11 Jan 2026, 09:00",
+    );
+  });
+
+  test("uses the same date as formatDay", () => {
+    const instant = new Date("2026-10-14T15:25:00Z");
+
+    expect(formatWhen(instant).startsWith(`${formatDay(instant)}, `)).toBe(
+      true,
+    );
+  });
+
   test("names the instant in UTC", () => {
     const shown = formatWhen(new Date("2026-10-14T15:25:00Z"));
     expect(shown).toContain("2026");

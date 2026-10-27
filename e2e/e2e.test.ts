@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { SQL } from "bun";
 import { publish } from "../packages/billet-cms/src/cli/publish/index.ts";
+import type { FieldMetadata } from "../packages/billet-cms/src/contract/index.ts";
 import {
   CMS_SIGN_IN_PATH,
   type MediaVariant,
@@ -222,9 +223,26 @@ beforeAll(async () => {
 
   // Deploy: publish the site's declarations the way `cms:publish` does.
   const summary = await publish(sql, siteDefinitions);
-  expect(summary.blocks).toBe(5);
-  expect(summary.slots).toBe(2);
-  expect(summary.pageTypes).toBe(2);
+  // Counted from the declarations rather than pinned, so adding one to the
+  // site's vocabulary is not a failure here about something else.
+  expect(summary.blocks).toBe(siteDefinitions.blocks.length);
+  expect(summary.slots).toBe(siteDefinitions.slots.length);
+  expect(summary.pageTypes).toBe(siteDefinitions.pageTypes.length);
+
+  // A `group` has to survive the trip through JSONB, not just the unit tests:
+  // the CMS builds its form from this row and never imports site code, so a
+  // nested field the publish step flattened wrongly would be a control that
+  // never renders.
+  const [stepsType] = (await sql`
+    SELECT fields, json_schema FROM cms_block_types WHERE name = 'steps'
+  `) as { fields: FieldMetadata[]; json_schema: Record<string, unknown> }[];
+  const items = stepsType.fields.find((field) => field.name === "items");
+  expect(items?.kind).toBe("list");
+  expect(items?.of?.kind).toBe("group");
+  expect(items?.of?.fields?.map((field) => field.name)).toEqual([
+    "title",
+    "body",
+  ]);
 
   const slots = (await sql`
     SELECT id FROM cms_slots WHERE name = 'home.hero'
@@ -397,6 +415,120 @@ const publishLatest = async (): Promise<void> => {
   );
 };
 
+/** Create a page through the CMS's create form, returning its id. */
+const createPage = async (input: {
+  url: string;
+  title: string;
+}): Promise<string> => {
+  const response = await cmsFetch("/cms/pages/new", {}, ctx.cookie);
+  expect(response.status).toBe(200);
+  const html = await response.text();
+
+  const created = await cmsFetch(
+    "/cms/pages/new",
+    {
+      method: "POST",
+      headers: {
+        Origin: ctx.cmsUrl,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        _csrf: csrfFor(html, "/cms/pages/new"),
+        pageType: "landing",
+        url: input.url,
+        title: input.title,
+      }),
+    },
+    ctx.cookie,
+  );
+  expect(created.status).toBe(303);
+
+  const match = /^\/cms\/pages\/([0-9a-f-]{36})$/.exec(
+    created.headers.get("location") ?? "",
+  );
+  if (!match) throw new Error("The CMS created no page");
+  return match[1];
+};
+
+/** GET a page's editor and pull out what a save and a publish need. */
+const openPageForm = async (
+  pageId: string,
+): Promise<{
+  html: string;
+  saveCsrf: string;
+  publishCsrf: string;
+  baseRevision: string;
+  latestRevision: string;
+}> => {
+  const response = await cmsFetch(`/cms/pages/${pageId}`, {}, ctx.cookie);
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  return {
+    html,
+    saveCsrf: csrfFor(html, `/cms/pages/${pageId}`),
+    publishCsrf: csrfFor(html, `/cms/pages/${pageId}/publish`),
+    baseRevision: attr(html, "base_revision"),
+    latestRevision: attr(html, "revision"),
+  };
+};
+
+/** Save a page's blocks, keeping the settings the form rendered. */
+const savePageDraft = async (
+  pageId: string,
+  blocks: Record<string, unknown>[],
+): Promise<void> => {
+  const form = await openPageForm(pageId);
+  const response = await cmsFetch(
+    `/cms/pages/${pageId}`,
+    {
+      method: "POST",
+      headers: {
+        Origin: ctx.cmsUrl,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        _csrf: form.saveCsrf,
+        base_revision: form.baseRevision,
+        // Settings and content save in one submit; posting back what the form
+        // rendered leaves the URL and title as they were. `landing` is the type
+        // `createPage` makes.
+        pageType: "landing",
+        url: attr(form.html, "url"),
+        title: attr(form.html, "title"),
+        content: JSON.stringify({ blocks }),
+      }),
+    },
+    ctx.cookie,
+  );
+  expect(response.status).toBe(303);
+  expect(response.headers.get("location")).toBe(`/cms/pages/${pageId}?saved=1`);
+};
+
+/** Publish a page's newest draft through the CMS's publish endpoint. */
+const publishPageDraft = async (pageId: string): Promise<void> => {
+  const form = await openPageForm(pageId);
+  expect(form.latestRevision).not.toBe("");
+  const response = await cmsFetch(
+    `/cms/pages/${pageId}/publish`,
+    {
+      method: "POST",
+      headers: {
+        Origin: ctx.cmsUrl,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        _csrf: form.publishCsrf,
+        revision: form.latestRevision,
+      }),
+    },
+    ctx.cookie,
+  );
+  expect(response.status).toBe(303);
+  expect(response.headers.get("location")).toBe(
+    `/cms/pages/${pageId}?published=1`,
+  );
+};
+
 const siteHtml = async (path = "/"): Promise<string> => {
   const response = await fetch(`${ctx.siteUrl}${path}`);
   expect(response.status).toBe(200);
@@ -556,6 +688,54 @@ describe("the ticket's Done when, end to end", () => {
     ctx.site.invalidate();
     expect(await siteHtml()).toContain("https://bucket.example/e2e/1920.jpg");
   });
+
+  // Nothing else renders a `group()` on a page, which is how `steps` came to be
+  // published with no site renderer and drop out of the page without a word.
+  test("a page's steps block renders each item's title with its own body", async () => {
+    const pageId = await createPage({ url: "/about-me", title: "About me" });
+    ctx.site.invalidate();
+
+    // Draft only: the page is not on the site until it is published.
+    const draftOnly = await fetch(`${ctx.siteUrl}/about-me`);
+    expect(draftOnly.status).toBe(404);
+
+    await savePageDraft(pageId, [
+      {
+        type: "steps",
+        heading: "How we work",
+        items: [
+          {
+            title: "Collect the requirements",
+            body: "Ask what the site has to do.",
+          },
+          { title: "Sketch the layout", body: "Draw it before building it." },
+        ],
+      },
+    ]);
+    await publishPageDraft(pageId);
+    ctx.site.invalidate();
+
+    const live = await siteHtml("/about-me");
+    expect(live).toContain("How we work");
+
+    // One `<li>` per item, so a title sits with its own body rather than in a
+    // list of titles above a list of bodies. Strip the tags and read the pairs
+    // back in order: the exact markup is the site's business, the pairing is not.
+    const section = live.match(
+      /<section data-block="steps">[\s\S]*?<\/section>/,
+    )?.[0];
+    if (!section) throw new Error("The page rendered no steps block");
+    const items = [...section.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((item) =>
+      item[1]
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
+    expect(items).toEqual([
+      "Collect the requirements Ask what the site has to do.",
+      "Sketch the layout Draw it before building it.",
+    ]);
+  }, 30_000);
 
   test("the site keeps serving after the CMS is stopped", async () => {
     ctx.cms.kill();

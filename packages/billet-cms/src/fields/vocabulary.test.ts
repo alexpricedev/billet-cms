@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_ALT_LENGTH } from "../contract";
-import { block, blockStoredSchema } from "./definition";
+import {
+  block,
+  blockContentReadSchema,
+  blockContentSchema,
+  blockStoredSchema,
+} from "./definition";
 import {
   type Field,
   type FieldOptions,
+  group,
   image,
   link,
   list,
@@ -610,6 +616,100 @@ describe("list", () => {
     expect(() => list(field)).toThrow(
       new RegExp(`nest at most ${MAX_LIST_DEPTH} deep`),
     );
+  });
+});
+
+describe("group", () => {
+  test("nests its children's metadata under `fields`, in declared order", () => {
+    const field = group(
+      { title: text({ max: 60 }), body: text({ max: 200 }) },
+      { label: "Step" },
+    );
+
+    expect(field.metadata("step")).toEqual({
+      name: "step",
+      kind: "group",
+      required: true,
+      label: "Step",
+      fields: [
+        { name: "title", kind: "text", required: true, max: 60 },
+        { name: "body", kind: "text", required: true, max: 200 },
+      ],
+    });
+  });
+
+  // The shape `list()` alone could not express: two parallel lists leave
+  // nothing tying titles[2] to bodies[2].
+  test("repeats as a list of paired values", () => {
+    const steps = list(group({ title: text(), body: text() }), { max: 2 });
+
+    expect(
+      steps.schema.safeParse([
+        { title: "One", body: "First" },
+        { title: "Two", body: "Second" },
+      ]).success,
+    ).toBe(true);
+    expect(steps.schema.safeParse([{ title: "One" }]).success).toBe(false);
+  });
+
+  test("publishes a nested object in the block's JSON Schema", () => {
+    const stored = blockStoredSchema(
+      block("card", { cta: group({ label: text(), href: text() }) }),
+    );
+
+    expect(properties(stored).cta).toMatchObject({
+      type: "object",
+      required: ["label", "href"],
+      additionalProperties: false,
+    });
+  });
+
+  // Q4 at depth. A block gets its loose variant from blockContentReadSchema;
+  // a group is one field, so it has to carry its own or dropping a child field
+  // takes the whole block down to the site's fallback.
+  test("is strict on save but tolerates a dropped child field on read", () => {
+    const card = block("card", { cta: group({ label: text() }) });
+    const stale = { cta: { label: "Go", removedLastDeploy: "x" } };
+
+    expect(blockContentSchema(card).safeParse(stale).success).toBe(false);
+    expect(blockContentReadSchema(card).safeParse(stale).success).toBe(true);
+  });
+
+  test("keeps the loose read through a list of groups", () => {
+    const card = block("card", {
+      steps: list(group({ title: text() })),
+    });
+    const stale = { steps: [{ title: "One", dropped: "x" }] };
+
+    expect(blockContentReadSchema(card).safeParse(stale).success).toBe(true);
+  });
+
+  test("refuses an empty group", () => {
+    expect(() => group({})).toThrow(/at least one field/);
+  });
+
+  test("checks its children's names", () => {
+    expect(() => group({ "Not A Name": text() })).toThrow(/in a group/);
+  });
+
+  test("bounds nesting together with lists, not separately", () => {
+    // One budget for both: the editor recurses the metadata tree without
+    // caring which kind nested it.
+    let field: Field = text();
+    for (let depth = 1; depth <= MAX_LIST_DEPTH; depth += 1) {
+      field = depth % 2 === 0 ? list(field) : group({ inner: field });
+    }
+
+    expect(() => group({ inner: field })).toThrow(
+      new RegExp(`nest at most ${MAX_LIST_DEPTH} deep`),
+    );
+  });
+
+  test("can be made optional", () => {
+    const field = group({ label: text() }, { required: false });
+
+    expect(field.schema.safeParse(undefined).success).toBe(true);
+    expect(field.metadata("cta").required).toBe(false);
   });
 });
 

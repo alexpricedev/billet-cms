@@ -19,10 +19,19 @@ have run its migrations before the site's first publish, or the publish stops.
 bun add @alexpricedev/billet-cms
 ```
 
-The package is TypeScript source with no build step, so Bun runs it as-is. It
-needs Bun `>=1.4.0`, and it has a `zod@^4` peer. Bun installs that peer
+The package is TypeScript source with no build step, so Bun runs it as-is. One
+consequence worth knowing before the first `bun run typecheck`: `skipLibCheck`
+only skips `.d.ts`, so the site's own compiler checks this package's `.ts` under
+the site's `strict` settings and TypeScript version. A site on an older
+TypeScript than the one the package is authored against can see errors inside
+`node_modules` that are nothing to do with its own code — the fix is to match
+versions, not to work around it locally.
+
+It needs Bun `>=1.4.0`, and it has a `zod@^4` peer. Bun installs that peer
 automatically; pin it in `package.json` as well if you want the version the site
-runs to be explicit:
+runs to be explicit — and do, if anything but Bun ever installs the site, since
+a package manager that does not auto-install peers leaves it out and the server
+will not boot:
 
 ```bash
 bun add @alexpricedev/billet-cms zod
@@ -101,15 +110,37 @@ export { blocks, pageTypes, slots } from "./src/server/cms/definitions";
 
 Three rules that are easy to get wrong:
 
-- **`render` is never published.** The CMS serialises the field vocabulary to
-  JSON Schema; the render function is for the site only. A block can return a
-  Preact element, a string, anything — the site owns the markup.
+- **`render` is never published, and it is optional.** The CMS serialises the
+  field vocabulary to JSON Schema; the render function is for the site only, and
+  nothing in the package ever calls it. A block can return a Preact element, a
+  string, anything — the site owns the markup. A site that renders its blocks in
+  templates rather than next to their declarations should leave the argument out
+  rather than write a stub.
 - **Names are the contract.** A stored page carries the block's `name` in its
   `type` field, so renaming a block is a breaking change: republish, and treat
   the old rows as content that no longer validates (they are skipped, not
   served).
 - **A page's blocks are told apart by `type`**, which is why a block may not
   declare a field of that name. The vocabulary rejects it at import time.
+- **Repeated pairs are `list(group({...}))`, not two lists.** `list()` repeats a
+  single field, so a card with a heading and a body, or a numbered step with a
+  title and a description, needs `group()` to hold them together. Two parallel
+  lists leave nothing tying `titles[2]` to `bodies[2]`, and the editor sees two
+  unrelated controls they can get out of step:
+
+  ```ts
+  steps: list(group({ title: text({ max: 60 }), body: text({ max: 200 }) }), {
+    min: 1,
+    max: 4,
+    label: "Steps",
+  });
+  ```
+
+  A group is a field like any other: it holds an `image()`, it nests in another
+  group, and `BlockContent` types its value as a nested object. Fields inside a
+  group are strict on save and tolerant on read, the same way a block's own are
+  — dropping one from a group in a later deploy leaves the stale key in stored
+  content without breaking the read.
 
 `cms.config.ts` sits outside `tsconfig.include` in Billet core (`src/**/*`,
 `scripts/**/*.ts`, `.railway/**/*.ts`, `.claude/hooks/**/*`). Bun loads it fine;
@@ -231,7 +262,10 @@ Only `GET` and `HEAD` reach it, so form posts to unknown paths still fall
 through to the site.
 
 The banner's "Back to the editor" link uses `CMS_URL`; without it the banner
-still shows and the link is left out.
+still shows and the link is left out. It also names when the draft was saved, so
+an editor who previewed before saving can see why the words are not the ones
+they just typed — the site needs nothing for that beyond passing the access
+through, which `applyPreview` already does.
 
 ## 5. Read a slot on a page you render yourself
 

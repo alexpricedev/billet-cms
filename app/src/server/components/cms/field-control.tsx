@@ -627,6 +627,67 @@ export const FieldControl = ({
       );
     }
 
+    case "group": {
+      const children = field.fields ?? [];
+      if (children.length === 0) {
+        return (
+          <div
+            className="cms-field"
+            data-field
+            data-field-kind="group"
+            data-field-name={field.name}
+          >
+            <span className="cms-field-label">{fieldName(field)}</span>
+            <span className="cms-field-help">
+              This group has no field metadata published; it can't be edited.
+            </span>
+          </div>
+        );
+      }
+
+      const record = asRecord(value);
+
+      return (
+        <fieldset
+          className="cms-field cms-field-group"
+          data-field
+          data-field-kind="group"
+          data-field-name={field.name}
+          id={controlId}
+          aria-label={labelOverride}
+        >
+          {labelOverride ? (
+            <span className="cms-field-label">{labelOverride}</span>
+          ) : (
+            <legend className="cms-field-label">
+              <FieldLabelText field={field} />
+            </legend>
+          )}
+          {/* Scoped, so the client reads these as the group's own fields and
+              not a second time as the form's. */}
+          <div data-group-fields>
+            {children.map((child) => (
+              <FieldControl
+                key={child.name}
+                field={child}
+                value={record?.[child.name]}
+                // A group in a list row has no id to hang a <label for> on, so
+                // its children name themselves with their own label rather
+                // than inheriting the row's — "Title", not "Steps".
+                idBase={controlId ? `${controlId}-${child.name}` : undefined}
+                labelOverride={controlId ? undefined : fieldName(child)}
+                pages={pages}
+                hasMedia={hasMedia}
+                pickerCapped={pickerCapped}
+              />
+            ))}
+          </div>
+          <FieldErrors errors={errors} id={errorId} />
+          <FieldHelp help={field.help} id={helpId} />
+        </fieldset>
+      );
+    }
+
     case "list": {
       const items = Array.isArray(value) ? value : [];
       const itemField = field.of;

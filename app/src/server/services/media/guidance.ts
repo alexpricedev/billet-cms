@@ -39,6 +39,51 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
+/**
+ * Collect the image references in one field's value, at any depth.
+ *
+ * Takes the value rather than the record holding it, because a list's items
+ * are bare values: an item has no key to look itself up by. The previous
+ * version recursed with the item wrapped in a record and the item metadata's
+ * own name (`"item"`) as the key, so it looked for `item.item` and found
+ * nothing — `image()` inside `list()` was collected as zero references, which
+ * silently turned off `minWidth`/`aspect` enforcement on a save and the
+ * deleted-image refusal on a publish for every image in a list. The delete
+ * protection itself was never affected: that walks stored values through
+ * `collectMediaIds`, not this tree.
+ */
+const collectFrom = (
+  field: FieldMetadata,
+  value: unknown,
+  path: string,
+  into: Reference[],
+): void => {
+  if (field.kind === "image") {
+    const mediaId = asRecord(value)?.mediaId;
+    if (typeof mediaId === "string" && mediaId !== "") {
+      into.push({ path, mediaId, guidance: field.image ?? {} });
+    }
+    return;
+  }
+
+  if (field.kind === "list") {
+    const item = field.of;
+    if (!item || !Array.isArray(value)) return;
+    value.forEach((entry, index) => {
+      collectFrom(item, entry, `${path}.${index}`, into);
+    });
+    return;
+  }
+
+  if (field.kind === "group") {
+    const record = asRecord(value);
+    if (!record) return;
+    for (const child of field.fields ?? []) {
+      collectFrom(child, record[child.name], `${path}.${child.name}`, into);
+    }
+  }
+};
+
 /** Walk a field's metadata tree, collecting every image reference it declares. */
 const collectReferences = (
   fields: FieldMetadata[],
@@ -47,32 +92,7 @@ const collectReferences = (
   into: Reference[],
 ): void => {
   for (const field of fields) {
-    const path = `${prefix}${field.name}`;
-
-    if (field.kind === "image") {
-      const value = asRecord(content[field.name]);
-      const mediaId = value?.mediaId;
-      if (typeof mediaId === "string" && mediaId !== "") {
-        into.push({ path, mediaId, guidance: field.image ?? {} });
-      }
-      continue;
-    }
-
-    if (field.kind === "list" && field.of) {
-      const items = content[field.name];
-      if (!Array.isArray(items)) continue;
-      items.forEach((item, index) => {
-        const record = asRecord(item);
-        if (record) {
-          collectReferences(
-            [field.of as FieldMetadata],
-            record,
-            `${path}.${index}.`,
-            into,
-          );
-        }
-      });
-    }
+    collectFrom(field, content[field.name], `${prefix}${field.name}`, into);
   }
 };
 

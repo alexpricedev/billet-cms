@@ -6,14 +6,21 @@ with the field vocabulary and publishes them on deploy; the CMS service reads
 those rows and never imports site code.
 
 ```ts
-import { block, slot, text } from "@alexpricedev/billet-cms/fields";
+import { block, group, list, slot, text } from "@alexpricedev/billet-cms/fields";
 
-export const hero = block("hero", { heading: text({ max: 80 }) }, (content) => (
-  <h1>{content.heading}</h1>
-));
+export const hero = block("hero", {
+  heading: text({ max: 80 }),
+  // A repeated pair: `list()` repeats one field, `group()` holds several.
+  steps: list(group({ title: text({ max: 60 }), body: text({ max: 200 })})),
+});
 
 export const homeHero = slot("home.hero", hero);
 ```
+
+A block takes an optional third argument, a render function, for a site that
+keeps its markup next to the declaration. Nothing in this package calls it —
+the CMS builds its form from the published metadata — so a site that renders in
+templates should leave it out.
 
 ## Reading published content on the site
 
@@ -41,6 +48,37 @@ well. The content type is inferred from the definition, so a render function is
 handed exactly what its fields declare, and content the schema rejects is
 logged and returned as `null`.
 
+### Where skips are logged
+
+Skips go to the console by default, throttled so each distinct message is
+reported at most once a minute. The throttle is the difference between a useful
+log and an unreadable one: a skip is per subject per read, so a site whose CMS
+is not set up yet — the state it is in between deploying the plugin and
+deploying the CMS — reports one line per slot on *every* request. What that
+buries is the line that matters later, a single slot whose stored content
+stopped validating.
+
+Pass `onSkip` to send them somewhere else. Build a reader to do it, and wrap
+your own sink in `throttleSkips` to keep the behaviour:
+
+```ts
+import {
+  createContentReader,
+  throttleSkips,
+} from "@alexpricedev/billet-cms/server";
+
+const reader = createContentReader({
+  sql,
+  onSkip: throttleSkips((message) => log.warn("cms", message)),
+});
+
+const content = await reader.getSlot("home.hero", { block: hero });
+```
+
+A reader's `getSlot` takes and returns exactly what the top-level one does,
+including inferring the content type from `{ block }`, so reaching for your own
+logger costs nothing else.
+
 ## Preview
 
 Preview is a token row, not an API. The CMS mints a short-lived token for one
@@ -60,15 +98,22 @@ const content = await getSlot(sql, "home.hero", { block: hero, preview });
 const response = await applyPreview(render(content), preview);
 ```
 
-`getPreviewAccess` reads `?cms_preview=` and returns `{ subjectType, subjectId }`
-for a live token, or `null` for a missing, unknown, expired or unreadable one —
-so a caller never branches on an error. Pass that access to `getSlot` (or
-`getPage`) as `{ preview }`: when the token's subject is that slot or page the
-newest draft is read, uncached; `null` is the published read, so it can be
-forwarded without a check. `applyPreview` sets `Cache-Control: no-store` and
-`X-Robots-Tag: noindex`, and injects the Preview banner into an HTML response —
-the headers alone for anything else, and the response untouched when the access
-is `null`.
+`getPreviewAccess` reads `?cms_preview=` and returns
+`{ subjectType, subjectId, draftSavedAt }` for a live token, or `null` for a
+missing, unknown, expired or unreadable one — so a caller never branches on an
+error. Pass that access to `getSlot` (or `getPage`) as `{ preview }`: when the
+token's subject is that slot or page the newest draft is read, uncached; `null`
+is the published read, so it can be forwarded without a check. `applyPreview`
+sets `Cache-Control: no-store` and `X-Robots-Tag: noindex`, and injects the
+Preview banner into an HTML response — the headers alone for anything else, and
+the response untouched when the access is `null`.
+
+The banner names when the draft was saved (`draftSavedAt`, read in the same
+query as the token). That line is doing a job: an editor who types, hits Preview
+without saving and sees their old words has nothing on the page to tell them
+why, and a time they can compare against the save they remember making turns a
+mystery into an explanation. A site that forwards or fakes an access without it
+gets the undated banner.
 
 A slot has no URL of its own, so it declares the site path whose Preview opens
 it, and the CMS opens that page:
@@ -132,8 +177,12 @@ environment and the deploy order — is
 This section is the reference for the pieces it mounts.
 
 ```bash
-bun add @alexpricedev/billet-cms
+bun add @alexpricedev/billet-cms zod
 ```
+
+`zod@^4` is a peer. Bun installs it on its own, but naming it keeps the version
+the site runs in `package.json` — and a package manager that does not
+auto-install peers leaves it out, and the server will not boot without it.
 
 1. **Declare the site's blocks, slots and page types** in a `cms.config.ts`.
    Export the arrays by name (or from a default export):

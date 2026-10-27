@@ -8,8 +8,9 @@
  * time.
  *
  * Loads the fixtures, publishes the site's definitions, starts the site in this
- * process and the CMS as a subprocess pointed at each other, prints both URLs,
- * and stops both on Ctrl-C. The guards run before anything opens a database.
+ * process and the CMS as a subprocess pointed at each other, prints both URLs
+ * and each persona's sign-in email, and stops both on Ctrl-C. The guards run
+ * before anything opens a database.
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -104,13 +105,22 @@ for (;;) {
   await Bun.sleep(250);
 }
 
+const keyWidth = Math.max(...PERSONAS.map((persona) => persona.key.length));
+const emailWidth = Math.max(...PERSONAS.map((persona) => persona.email.length));
+const personaLines = PERSONAS.map((persona) => {
+  const access = persona.role === "admin" ? "editor" : "site only, no CMS";
+  return `  ${persona.key.padEnd(keyWidth)}  ${persona.email.padEnd(emailWidth)}  ${access}`;
+}).join("\n");
+
 console.log(`
 Sandbox ready.
   Site: ${config.siteUrl}
   CMS:  ${config.cmsUrl}
 
-Sign in as a persona (${PERSONAS.map((p) => p.key).join(", ")}):
+Sign in at ${config.siteUrl}/login with one of these emails:
+${personaLines}
+
+Or skip the form (${PERSONAS.map((p) => p.key).join(", ")}):
   bun run scripts/persona-session.ts leo --side site   # site cookie, then press Edit content
   bun run scripts/persona-session.ts leo --side cms    # CMS cookie, skips the handoff
-Or sign in at ${config.siteUrl}/login with a persona's email.
 Ctrl-C stops both.`);

@@ -37,9 +37,13 @@ import { createHash } from "node:crypto";
  * can render one. Phase 8 adds `cms_export_tokens` (the admin-created,
  * export-only credentials `cms:pull` presents) and `cms_audit` (the append-only
  * record of what was created, revoked and exported), and fixes the export
- * document a pull replaces local content with.
+ * document a pull replaces local content with. Phase 9 adds the `group` field
+ * kind and `FieldMetadata.fields`, so a block can declare a nested object and a
+ * list can repeat one; an older CMS reading a published `group` has no control
+ * to render it with, and an older site reading content written against one
+ * cannot validate the nesting.
  */
-export const CONTRACT_VERSION = "0.7.0";
+export const CONTRACT_VERSION = "0.8.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -275,7 +279,13 @@ export const STORED_SCHEMA_FORMAT = "billet-cms/schema";
 export const STORED_SCHEMA_FORMAT_VERSION = 2;
 
 /** The vocabulary kind of a field, used to pick the CMS's form control. */
-export type FieldKind = "text" | "richText" | "image" | "link" | "list";
+export type FieldKind =
+  | "text"
+  | "richText"
+  | "image"
+  | "link"
+  | "list"
+  | "group";
 
 /** Upload guidance for an image field, checked by the CMS when an editor uploads. */
 export interface ImageGuidance {
@@ -289,8 +299,10 @@ export interface ImageGuidance {
  * Guidance attached to one field, rendered by the CMS when it builds a form.
  *
  * This is the "field metadata tree": a `list` carries the metadata of its item
- * under `of`, so a form can render a repeatable control without the CMS ever
- * importing site code.
+ * under `of` and a `group` carries its children under `fields`, so a form can
+ * render a repeatable or nested control without the CMS ever importing site
+ * code. Anything that walks the tree has to follow both — a walker that knows
+ * only `of` reads a group as a leaf and silently ignores everything inside it.
  */
 export interface FieldMetadata {
   /** The field name as it appears in the block's stored content. */
@@ -309,6 +321,8 @@ export interface FieldMetadata {
   image?: ImageGuidance;
   /** Present for list fields: the metadata of the repeated item. */
   of?: FieldMetadata;
+  /** Present for group fields: the metadata of each child, in declared order. */
+  fields?: FieldMetadata[];
 }
 
 /** The document published for one block type. */

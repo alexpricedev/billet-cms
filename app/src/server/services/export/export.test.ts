@@ -1,5 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
+import {
+  CONTRACT_VERSION,
+  type MediaVariant,
+} from "@alexpricedev/billet-cms/contract";
 import { block, image, text } from "@alexpricedev/billet-cms/fields";
 import type { SQL } from "bun";
 import {
@@ -165,7 +168,10 @@ describe("export document", () => {
     // Envelope.
     expect(document.format).toBe("billet-cms/export");
     expect(document.version).toBe(1);
-    expect(document.contractVersion).toBe("0.7.0");
+    // The constant, not a literal: the assertion is that the export stamps the
+    // contract it was written against, and pinning the number here only means
+    // a bump fails a test about something else.
+    expect(document.contractVersion).toBe(CONTRACT_VERSION);
     // The keys are exactly the scope guarantee: there is nowhere for a draft,
     // a user, a session or a token to hide.
     expect(Object.keys(document).sort()).toEqual([

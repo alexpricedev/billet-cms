@@ -9,6 +9,7 @@
  */
 import {
   block,
+  group,
   image,
   link,
   list,
@@ -80,9 +81,25 @@ export const footerCta = slot("footer.cta", cta, {
   previewPath: "/",
 });
 
+/**
+ * A repeated pair, which `list()` alone cannot hold. Here so the publish step
+ * carries a `group` through real Postgres — the metadata tree, the nested
+ * JSON Schema and the schema hash — rather than only through unit tests.
+ */
+export const steps = block("steps", {
+  heading: text({ max: 120, label: "Heading" }),
+  items: list(
+    group({
+      title: text({ max: 60, label: "Title" }),
+      body: text({ max: 200, label: "Body" }),
+    }),
+    { label: "Steps", min: 1, max: 4 },
+  ),
+});
+
 export const landing = pageType("landing", {
   label: "Landing",
-  allowedBlocks: [hero, textBlock, gallery, quote, cta],
+  allowedBlocks: [hero, textBlock, gallery, quote, cta, steps],
   requiredBlocks: [],
   limits: { hero: { max: 1, position: "top" } },
 });
@@ -94,7 +111,7 @@ export const article = pageType("article", {
 });
 
 export const siteDefinitions = {
-  blocks: [hero, textBlock, gallery, quote, cta],
+  blocks: [hero, textBlock, gallery, quote, cta, steps],
   slots: [homeHero, footerCta],
   pageTypes: [landing, article],
 };

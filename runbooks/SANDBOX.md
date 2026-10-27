@@ -12,6 +12,7 @@ fixture site's `users` table*. It must never touch a real site's database.
 
 ```bash
 bun run sandbox     # load fixtures, start the site and the CMS, print both URLs
+                    # and the personas' sign-in emails
 bun run fixtures    # reload the data only
 bun run scripts/persona-session.ts leo --side site   # prints  site_session=<id>
 bun run scripts/persona-session.ts leo --side cms    # prints  northwind_cms_session=<raw>
@@ -88,6 +89,7 @@ Everything has a fixed id and timestamp; loading twice gives identical rows
 | 08 Move a page | `/about` editor, Priya | `/studio` is free; one redirect (`/our-work`) already exists |
 | 09 Clear out a used image | `team` detail, Zofia | `team` on two pages; `office` unused |
 | 10 Pull content | `/cms/export`, Ade | one live and one revoked token |
+| 11 Preview what I just typed | `home.hero`, Leo | nothing extra — the story is what happens when you *don't* save first |
 
 ## Uploads without a bucket
 
