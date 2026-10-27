@@ -602,6 +602,8 @@ export interface PageRevisionSummary {
   authorEmail: string | null;
   isPublished: boolean;
   isLatest: boolean;
+  /** The draft: the newest revision and not the published one. See the slot's. */
+  isDraft: boolean;
   /** When the revision this one restored was saved; null if not a restore. */
   restoredFromAt: Date | null;
 }
@@ -624,14 +626,19 @@ export const listPageHistory = async (
     restored_from_at: Date | null;
   }[];
 
-  return rows.map((row, index) => ({
-    id: row.id,
-    createdAt: row.created_at,
-    authorEmail: row.author_email,
-    isPublished: row.id === page.publishedRevisionId,
-    isLatest: index === 0,
-    restoredFromAt: row.restored_from_at,
-  }));
+  return rows.map((row, index) => {
+    const isPublished = row.id === page.publishedRevisionId;
+    const isLatest = index === 0;
+    return {
+      id: row.id,
+      createdAt: row.created_at,
+      authorEmail: row.author_email,
+      isPublished,
+      isLatest,
+      isDraft: isLatest && !isPublished,
+      restoredFromAt: row.restored_from_at,
+    };
+  });
 };
 
 export type RestorePageResult =

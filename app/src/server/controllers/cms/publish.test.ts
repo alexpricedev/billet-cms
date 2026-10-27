@@ -380,6 +380,58 @@ describe("slot publish and history controllers", () => {
       expect(older).toContain(`value="${first.id}"`);
     });
 
+    // Part 5, end to end: save, restore an older revision, publish the copy.
+    // The row the copy came from must not keep saying "Current draft", and the
+    // copy is a revision of its own — not a second row for the same thing.
+    test("drops the Current draft label from every row once a restore is published", async () => {
+      const first = await draft("First");
+      await draft("Second");
+
+      await slotPublish.restore(
+        await postForm(
+          restorePath(slotId),
+          slotId,
+          { revision: first.id },
+          sessionId,
+        ),
+      );
+      const restored = await getLatestRevision("slot", slotId);
+      if (!restored) throw new Error("restore did not write a revision");
+
+      await slotPublish.publish(
+        await postForm(
+          publishPath(slotId),
+          slotId,
+          { revision: restored.id },
+          sessionId,
+        ),
+      );
+
+      const rows = historyRows(
+        await (
+          await slotHistory.index(
+            request(historyPath(slotId), slotId, {
+              method: "GET",
+              headers: { cookie: `cms_session=${sessionId}` },
+            }),
+          )
+        ).text(),
+      );
+
+      expect(rows).toHaveLength(3);
+      expect(rows[0]).toContain("Published");
+      expect(rows[0]).not.toContain("Current draft");
+      expect(rows.filter((row) => row.includes("Current draft"))).toHaveLength(
+        0,
+      );
+      // One row per revision: the restored copy and its source both remain, and
+      // each revision id appears once.
+      const ids = rows.flatMap((row) => [
+        ...row.matchAll(/name="revision" value="([^"]+)"/g),
+      ]);
+      expect(new Set(ids.map((match) => match[1])).size).toBe(ids.length);
+    });
+
     test("shows a neutral empty state before anything is saved", async () => {
       const res = await slotHistory.index(
         request(historyPath(slotId), slotId, {

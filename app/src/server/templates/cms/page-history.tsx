@@ -80,7 +80,7 @@ export const PageHistory = ({
                   Restored from {formatDay(revision.restoredFromAt)}
                 </span>
               )}
-              {revision.isLatest && (
+              {revision.isDraft && (
                 <span className="cms-history-badge cms-history-draft">
                   Current draft
                 </span>

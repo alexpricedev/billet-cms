@@ -257,6 +257,54 @@ describe("history and restore", () => {
     expect(history[1].authorEmail).toBe("editor@example.com");
   });
 
+  // Part 5. After a restore-then-publish the newest revision is live, so it is
+  // not a draft any more — and the row the editor would load is the live one,
+  // not some older revision that merely looks like it (the copy is identical
+  // and saved in the same minute as its source).
+  test("stops calling the newest revision the draft once it is published", async () => {
+    const first = await draft("First", editorId);
+    const second = await draft("Second", editorId);
+    const restored = await restoreSlotRevision({
+      slotId,
+      revisionId: first.id,
+      actorId: editorId,
+    });
+    if (!restored.ok) throw new Error("restore failed");
+    await publishSlot({ slotId, revisionId: restored.revision.id });
+
+    const slot = await getSlotById(slotId);
+    if (!slot) throw new Error("slot missing");
+    const { revisions: history } = await listSlotHistory(slot);
+
+    expect(history.map((entry) => entry.id)).toEqual([
+      restored.revision.id,
+      second.id,
+      first.id,
+    ]);
+    // The live row is newest and published; nothing is offered as the draft.
+    expect(history[0].isPublished).toBe(true);
+    expect(history[0].isLatest).toBe(true);
+    expect(history[0].isDraft).toBe(false);
+    expect(history.every((entry) => !entry.isDraft)).toBe(true);
+    // The source of the restore is still its own row, not a duplicate.
+    expect(history.filter((entry) => entry.id === first.id)).toHaveLength(1);
+  });
+
+  test("marks the newest unpublished revision as the draft", async () => {
+    const first = await draft("First", editorId);
+    await publishSlot({ slotId, revisionId: first.id });
+    const second = await draft("Second", editorId);
+
+    const slot = await getSlotById(slotId);
+    if (!slot) throw new Error("slot missing");
+    const { revisions: history } = await listSlotHistory(slot);
+
+    expect(history[0].id).toBe(second.id);
+    expect(history[0].isDraft).toBe(true);
+    expect(history[1].isDraft).toBe(false);
+    expect(history[1].isPublished).toBe(true);
+  });
+
   // Slot history is paged: the newest 50, then a cursor to the next-oldest
   // revision via `?before=<id>`. Ordering is `(created_at, id)`, so the cursor
   // is that pair and equal timestamps don't skip or repeat a row.
