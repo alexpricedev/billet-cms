@@ -87,7 +87,7 @@ const pageContent = (heading: string) => ({
 
 /** Whether the Preview draft button rendered disabled. */
 const previewDisabled = (html: string): boolean =>
-  /<button[^>]*class="cms-preview-button"[^>]*disabled/.test(html);
+  /<button[^>]*class="[^"]*cms-preview-button[^"]*"[^>]*disabled/.test(html);
 
 /** The contents of the form's one options template, or "" when it has none. */
 const mediaOptionsTemplate = (html: string): string =>
@@ -568,6 +568,102 @@ describe("Pages controller", () => {
       )
     ).text();
     expect(html).toContain("create a preview link");
+  });
+
+  // Parts 1-3 on the page editor: the same bar, the same two-sided status.
+  describe("action bar", () => {
+    const statusOf = (html: string): string =>
+      html.match(/class="cms-publish-status"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+
+    const publishButton = (html: string): string =>
+      html.match(
+        /<button[^>]*class="[^"]*cms-publish-button[^"]*"[^>]*>/,
+      )?.[0] ?? "";
+
+    const saveButton = (html: string): string =>
+      html.match(/<button[^>]*class="[^"]*cms-save[^"]*"[^>]*>/)?.[0] ?? "";
+
+    const formHtml = async (pageId: string): Promise<string> =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+
+    const create = async (): Promise<string> => {
+      const created = await createPage({
+        pageType: "landing",
+        url: "/about",
+        title: "About us",
+      });
+      if (!created.ok) throw new Error("create failed");
+      return created.page.id;
+    };
+
+    test("says no draft is saved and why both buttons are off", async () => {
+      const pageId = await create();
+      const html = await formHtml(pageId);
+
+      expect(statusOf(html)).toBe("No draft saved yet.");
+      expect(html).toContain("Nothing to publish: no draft saved yet.");
+      expect(html).toContain("No draft to preview.");
+      expect(publishButton(html)).toContain("disabled");
+      expect(publishButton(html)).toContain("btn-secondary");
+      expect(saveButton(html)).toContain("btn-primary");
+    });
+
+    test("says what the saved draft is when nothing is live", async () => {
+      const pageId = await create();
+      const saved = await savePageDraft({
+        pageId,
+        content: pageContent("About us"),
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+
+      const html = await formHtml(pageId);
+
+      expect(statusOf(html)).toMatch(
+        /^Not published yet\. Draft saved \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\.$/,
+      );
+      expect(publishButton(html)).toContain("btn-primary");
+      expect(publishButton(html)).not.toContain("disabled");
+      expect(saveButton(html)).toContain("btn-secondary");
+    });
+
+    test("says what is live once the draft is published", async () => {
+      const pageId = await create();
+      const saved = await savePageDraft({
+        pageId,
+        content: pageContent("About us"),
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+      await publishPage({ pageId, revisionId: saved.revision.id });
+
+      const html = await formHtml(pageId);
+
+      expect(statusOf(html)).toMatch(
+        /^Live since \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\. No unpublished changes\.$/,
+      );
+      expect(html).toContain("Nothing to publish: no unpublished changes.");
+      expect(html).toContain("Nothing to preview: no unpublished changes.");
+      expect(publishButton(html)).toContain("disabled");
+    });
+
+    test("keeps Save draft a submit of the content form", async () => {
+      const pageId = await create();
+      const html = await formHtml(pageId);
+
+      expect(saveButton(html)).toContain('form="cms-page-form"');
+      expect(html).toContain('id="cms-page-form"');
+    });
   });
 
   test("an invalid content save writes neither settings nor a redirect", async () => {

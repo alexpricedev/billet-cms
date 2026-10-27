@@ -83,7 +83,7 @@ const saveFormCsrf = (html: string): string | undefined =>
 
 /** Whether the Preview draft button rendered disabled. */
 const previewDisabled = (html: string): boolean =>
-  /<button[^>]*class="cms-preview-button"[^>]*disabled/.test(html);
+  /<button[^>]*class="[^"]*cms-preview-button[^"]*"[^>]*disabled/.test(html);
 
 /** The contents of the form's one options template, or "" when it has none. */
 const mediaOptionsTemplate = (html: string): string =>
@@ -352,6 +352,113 @@ describe("Slot form controller", () => {
 
       const html = await (await slotForm.index(get())).text();
       expect(hiddenValue(html, "revision")).toBe(second.revision.id);
+    });
+  });
+
+  // Parts 1-3: the bar says what is live and what is draft, Publish is the
+  // primary button when it would do something, and a disabled button says why.
+  describe("action bar", () => {
+    const statusOf = (html: string): string =>
+      html.match(/class="cms-publish-status"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+
+    const publishButton = (html: string): string =>
+      html.match(
+        /<button[^>]*class="[^"]*cms-publish-button[^"]*"[^>]*>/,
+      )?.[0] ?? "";
+
+    const saveButton = (html: string): string =>
+      html.match(/<button[^>]*class="[^"]*cms-save[^"]*"[^>]*>/)?.[0] ?? "";
+
+    test("says no draft is saved and why both buttons are off", async () => {
+      const html = await (await slotForm.index(get())).text();
+
+      expect(statusOf(html)).toBe("No draft saved yet.");
+      expect(html).toContain("Nothing to publish: no draft saved yet.");
+      expect(html).toContain("No draft to preview.");
+      expect(publishButton(html)).toContain("disabled");
+      expect(publishButton(html)).toContain(
+        'aria-describedby="publish-reason"',
+      );
+      expect(previewDisabled(html)).toBe(true);
+    });
+
+    test("says what the saved draft is when nothing is live", async () => {
+      const saved = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+
+      const html = await (await slotForm.index(get())).text();
+
+      expect(statusOf(html)).toMatch(
+        /^Not published yet\. Draft saved \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\.$/,
+      );
+      // Unpublished changes: Publish is the filled action, Save draft the quiet
+      // one beside it.
+      expect(publishButton(html)).toContain("btn-primary");
+      expect(publishButton(html)).not.toContain("disabled");
+      expect(saveButton(html)).toContain("btn-secondary");
+      expect(html).not.toContain("Nothing to publish");
+    });
+
+    test("says what is live once the draft is published", async () => {
+      const saved = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+      await publishSlot({ slotId, revisionId: saved.revision.id });
+
+      const html = await (await slotForm.index(get())).text();
+
+      expect(statusOf(html)).toMatch(
+        /^Live since \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\. No unpublished changes\.$/,
+      );
+      expect(html).toContain("Nothing to publish: no unpublished changes.");
+      expect(html).toContain("Nothing to preview: no unpublished changes.");
+      expect(publishButton(html)).toContain("disabled");
+      expect(publishButton(html)).toContain("btn-secondary");
+      // With nothing to publish, saving is the action that does something.
+      expect(saveButton(html)).toContain("btn-primary");
+    });
+
+    test("names both times when a newer draft sits on a published one", async () => {
+      const first = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!first.ok) throw new Error("first save failed");
+      await publishSlot({ slotId, revisionId: first.revision.id });
+      const second = await saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "Newer" },
+        baseRevisionId: first.revision.id,
+        actorId: editorId,
+      });
+      if (!second.ok) throw new Error("second save failed");
+
+      const html = await (await slotForm.index(get())).text();
+
+      expect(statusOf(html)).toMatch(
+        /^Live since \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\. Draft saved \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC, not published yet\.$/,
+      );
+      expect(publishButton(html)).toContain("btn-primary");
+    });
+
+    // Moving Save draft out of the form must not orphan it: `form` is what
+    // keeps it a submit of the form whose content the client serialises.
+    test("keeps Save draft a submit of the content form", async () => {
+      const html = await (await slotForm.index(get())).text();
+
+      expect(saveButton(html)).toContain('form="cms-slot-form"');
+      expect(html).toContain('id="cms-slot-form"');
     });
   });
 

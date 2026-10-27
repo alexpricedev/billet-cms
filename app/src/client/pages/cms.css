@@ -451,91 +451,53 @@ h1 {
   }
 }
 
-/* The publish row sits beside the save form: a status line, the publish
-   button and a link into the history. */
+/* The action bar: what is live, what is draft, and the buttons that change it.
+   It sticks to the bottom of the viewport so Publish is in reach on a phone
+   without scrolling past a long form. A strip rather than a card: a top
+   hairline separates it from the fields, and the page's own surface behind it
+   means nothing shows through as the form scrolls under. */
 .cms-actions {
-  align-items: center;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+  bottom: 0;
+  display: grid;
+  gap: var(--space-2);
   margin-top: var(--space-6);
-  max-width: 760px;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) 0;
+  position: sticky;
+  z-index: 10;
 }
 
 .cms-publish-status {
   color: var(--text-secondary);
   font-size: 12.5px;
-  margin: 0 var(--space-2) 0 0;
-  margin-right: auto;
+  margin: 0;
+}
+
+.cms-action-buttons {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .cms-actions form {
   margin: 0;
 }
 
-.cms-publish-button,
-.cms-preview-button {
-  align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  cursor: pointer;
-  display: inline-flex;
-  font-size: 13px;
-  font-weight: 500;
-  gap: var(--space-1);
-  height: var(--control-height);
-  padding: 0 var(--space-3);
-}
-
-/* A mouse press or a tap only sets `:focus`, so these states keep the neutral
-   surface and make the change read through the border rather than a colour
-   fill that would drop the label's contrast. */
-.cms-publish-button:hover,
-.cms-publish-button:focus,
-.cms-preview-button:hover,
-.cms-preview-button:focus {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-
-/* Publish is the committing action in its bar, so it carries the filled
-   treatment; Preview stays secondary beside it. */
-.cms-publish-button {
-  background: var(--button-primary-bg);
-  border-color: var(--button-primary-bg);
-  color: var(--button-primary-fg);
-}
-
-.cms-publish-button:hover,
-.cms-publish-button:focus {
-  background: var(--button-primary-bg-hover);
-  border-color: var(--button-primary-bg-hover);
-  color: var(--button-primary-fg);
-}
-
-.cms-publish-button:disabled,
-.cms-publish-button:disabled:hover,
-.cms-publish-button:disabled:focus,
-.cms-preview-button:disabled,
-.cms-preview-button:disabled:hover,
-.cms-preview-button:disabled:focus {
-  background: var(--surface-subtle);
-  border-color: var(--border);
-  color: var(--text-disabled);
-  cursor: default;
-  opacity: 0.7;
+/* The two disabled buttons share one sentence; it sits under them, in the
+   muted text a help line uses, so it reads as the bar's own note rather than
+   an error. */
+.cms-action-reason {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
 }
 
 .cms-history-link {
   font-size: 12.5px;
   font-weight: 500;
+  margin-left: auto;
 }
 
 /* ---- Revision history -------------------------------------------------- */
@@ -1120,19 +1082,33 @@ h1 {
     justify-self: start;
   }
 
+  /* At a phone's width the bar stacks into two columns with the status across
+     the top: four buttons in one row would each be too narrow to read. */
   .cms-actions {
-    align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .cms-publish-status,
+  .cms-action-reason {
+    grid-column: 1 / -1;
+  }
+
+  .cms-action-buttons {
+    display: contents;
   }
 
   .cms-actions form,
   .cms-actions .cms-publish-button,
-  .cms-actions .cms-preview-button {
+  .cms-actions .cms-preview-button,
+  .cms-actions .cms-save,
+  .cms-actions .cms-history-link {
     width: 100%;
   }
 
-  .cms-publish-status {
-    margin-right: 0;
+  .cms-history-link {
+    justify-content: center;
+    margin-left: 0;
   }
 
   .cms-media-upload,

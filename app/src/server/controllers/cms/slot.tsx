@@ -115,6 +115,13 @@ export const renderSlotForm = async (
   // and Publish button have to reflect what is actually newest.
   const latest = await getLatestRevision("slot", slot.id);
 
+  // The status line says when the live revision was saved, so the editor can
+  // tell whose words the site is serving. Read here rather than on the slot row:
+  // a publish moves the pointer, it does not copy the revision.
+  const published = slot.publishedRevisionId
+    ? await getRevisionById(slot.publishedRevisionId)
+    : null;
+
   // A re-render posts only the declared fields: the hidden `content` field the
   // form renders holds no removed ones, so a save's carried-through fields have
   // to be read back from the revision the editor loaded. Without that, the
@@ -166,7 +173,9 @@ export const renderSlotForm = async (
       content={declaredContent}
       baseRevisionId={baseRevisionId}
       latestRevisionId={latest?.id ?? null}
+      latestRevisionAt={latest?.createdAt ?? null}
       publishedRevisionId={slot.publishedRevisionId}
+      publishedRevisionAt={published?.createdAt ?? null}
       removedFieldNames={removed.names}
       media={picker.media}
       pickerCapped={picker.capped}

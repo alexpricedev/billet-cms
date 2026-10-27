@@ -19,6 +19,11 @@ import { normalisePageUrl } from "../../services/content/pages";
 import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
+import {
+  previewReason,
+  publishReason,
+  publishStatusLine,
+} from "../../utils/publish-status";
 import { PageBlocks } from "./page-blocks";
 
 export interface PageFormProps {
@@ -46,8 +51,12 @@ export interface PageFormProps {
   removed?: number[];
   /** The newest revision, which is what Publish would make live. */
   latestRevisionId: string | null;
+  /** When that revision was saved, for the status line. */
+  latestRevisionAt: Date | null;
   /** The revision the site is currently rendering, when there is one. */
   publishedRevisionId: string | null;
+  /** When the live revision was saved, for the status line. */
+  publishedRevisionAt: Date | null;
   /** Old paths that redirect to this page, so Publish can say so. */
   oldUrls?: string[];
   pages: PageOption[];
@@ -197,7 +206,9 @@ export const PageForm = ({
   baseRevisionId,
   removed,
   latestRevisionId,
+  latestRevisionAt,
   publishedRevisionId,
+  publishedRevisionAt,
   oldUrls,
   pages,
   media,
@@ -220,13 +231,15 @@ export const PageForm = ({
   const hasDraft = latestRevisionId !== null;
   const upToDate =
     latestRevisionId !== null && latestRevisionId === publishedRevisionId;
-  const publishStatus = !hasDraft
-    ? "No draft saved yet."
-    : upToDate
-      ? "Published."
-      : publishedRevisionId
-        ? "Unpublished changes."
-        : "Not published yet.";
+  const canPublish = hasDraft && !upToDate;
+  const status = publishStatusLine({
+    latestRevisionAt,
+    upToDate,
+    published: publishedRevisionId !== null,
+    publishedRevisionAt,
+  });
+  const publishWhy = publishReason(hasDraft, upToDate);
+  const previewWhy = previewReason(hasDraft, upToDate);
 
   const redirected = oldUrls ?? [];
   const publishMessage = `The site picks it up within seconds.${
@@ -326,6 +339,7 @@ export const PageForm = ({
 
       {!uneditable && (
         <form
+          id="cms-page-form"
           method="POST"
           action={`/cms/pages/${page.id}`}
           className="cms-page-form"
@@ -496,60 +510,86 @@ export const PageForm = ({
               />
             </section>
           </div>
-
-          <button type="submit" className="cms-save">
-            {conflict ? "Overwrite and save" : "Save draft"}
-          </button>
         </form>
       )}
 
       <section className="cms-actions" aria-label="Publishing">
         <p className="cms-publish-status" role="status">
-          {publishStatus}
+          {status}
         </p>
-        <form
-          method="POST"
-          action={`/cms/pages/${page.id}/publish`}
-          data-confirm={publishMessage}
-          data-confirm-title={`Publish '${page.title}'?`}
-          data-confirm-label="Publish"
-          data-confirm-danger="false"
-        >
-          <input type="hidden" name="_csrf" value={publishCsrfToken} />
-          <input type="hidden" name="revision" value={latestRevisionId ?? ""} />
-          <button
-            type="submit"
-            className="cms-publish-button"
-            disabled={!hasDraft || upToDate}
+        <div className="cms-action-buttons">
+          {/* Outside the save form so the bar can be sticky and hold every
+              action, but still a submit of it: `form` is what keeps Enter in a
+              field saving, and the preview guard's `requestSubmit` working. */}
+          {!uneditable && (
+            <button
+              type="submit"
+              form="cms-page-form"
+              className={`cms-save btn ${canPublish ? "btn-secondary" : "btn-primary"}`}
+            >
+              {conflict ? "Overwrite and save" : "Save draft"}
+            </button>
+          )}
+          <form
+            method="POST"
+            action={`/cms/pages/${page.id}/publish`}
+            data-confirm={publishMessage}
+            data-confirm-title={`Publish '${page.title}'?`}
+            data-confirm-label="Publish"
+            data-confirm-danger="false"
           >
-            Publish
-          </button>
-        </form>
-        {/* Preview mints a short-lived token and opens the site in a new tab
-            with it, so the editor sees the draft without leaving the CMS.
-            Disabled with no draft, and when the draft is already the live
-            revision: there is no unpublished change to preview. Matches
-            Publish, which is disabled in the same two cases. */}
-        <form
-          method="POST"
-          action={`/cms/pages/${page.id}/preview`}
-          target="_blank"
-          rel="noopener"
-        >
-          <input type="hidden" name="_csrf" value={previewCsrfToken} />
-          <button
-            type="submit"
-            className="cms-preview-button"
-            disabled={!hasDraft || upToDate}
-            data-preview-submit
+            <input type="hidden" name="_csrf" value={publishCsrfToken} />
+            <input
+              type="hidden"
+              name="revision"
+              value={latestRevisionId ?? ""}
+            />
+            <button
+              type="submit"
+              className={`cms-publish-button btn ${canPublish ? "btn-primary" : "btn-secondary"}`}
+              disabled={!canPublish}
+              aria-describedby={publishWhy ? "publish-reason" : undefined}
+            >
+              Publish
+            </button>
+          </form>
+          {/* Preview mints a short-lived token and opens the site in a new tab
+              with it, so the editor sees the draft without leaving the CMS.
+              Disabled with no draft, and when the draft is already the live
+              revision: there is no unpublished change to preview. Matches
+              Publish, which is disabled in the same two cases. */}
+          <form
+            method="POST"
+            action={`/cms/pages/${page.id}/preview`}
+            target="_blank"
+            rel="noopener"
           >
-            Preview draft <span aria-hidden="true">↗</span>
-            <span className="sr-only">(opens in a new tab)</span>
-          </button>
-        </form>
-        <a className="cms-history-link" href={`/cms/pages/${page.id}/history`}>
-          History
-        </a>
+            <input type="hidden" name="_csrf" value={previewCsrfToken} />
+            <button
+              type="submit"
+              className="cms-preview-button btn btn-secondary"
+              disabled={!canPublish}
+              aria-describedby={previewWhy ? "preview-reason" : undefined}
+              data-preview-submit
+            >
+              Preview draft <span aria-hidden="true">↗</span>
+              <span className="sr-only">(opens in a new tab)</span>
+            </button>
+          </form>
+          <a
+            className="cms-history-link btn btn-ghost"
+            href={`/cms/pages/${page.id}/history`}
+          >
+            History
+          </a>
+        </div>
+        {(publishWhy || previewWhy) && (
+          <p className="cms-action-reason">
+            {publishWhy && <span id="publish-reason">{publishWhy}</span>}
+            {publishWhy && previewWhy && " "}
+            {previewWhy && <span id="preview-reason">{previewWhy}</span>}
+          </p>
+        )}
       </section>
 
       <section className="cms-danger" aria-label="Delete">

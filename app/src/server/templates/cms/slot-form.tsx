@@ -16,6 +16,11 @@ import type { MediaOption } from "../../services/media";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
 import { humanise } from "../../utils/humanise";
+import {
+  previewReason,
+  publishReason,
+  publishStatusLine,
+} from "../../utils/publish-status";
 import { slotTitle } from "../../utils/slot-title";
 
 export interface SlotFormProps {
@@ -35,8 +40,12 @@ export interface SlotFormProps {
   baseRevisionId: string | null;
   /** The newest revision, which is what Publish would make live. */
   latestRevisionId: string | null;
+  /** When that revision was saved, for the status line. */
+  latestRevisionAt: Date | null;
   /** The revision the site is currently rendering, when there is one. */
   publishedRevisionId: string | null;
+  /** When the live revision was saved, for the status line. */
+  publishedRevisionAt: Date | null;
   /** Fields present in the saved content but no longer published (Q4). */
   removedFieldNames: string[];
   /** The uploads an `image` field's picker offers, rendered once for the form. */
@@ -68,7 +77,9 @@ export const SlotForm = ({
   content,
   baseRevisionId,
   latestRevisionId,
+  latestRevisionAt,
   publishedRevisionId,
+  publishedRevisionAt,
   removedFieldNames,
   media,
   pickerCapped,
@@ -88,13 +99,17 @@ export const SlotForm = ({
   const hasDraft = latestRevisionId !== null;
   const upToDate =
     latestRevisionId !== null && latestRevisionId === publishedRevisionId;
-  const publishStatus = !hasDraft
-    ? "No draft saved yet."
-    : upToDate
-      ? "Published."
-      : publishedRevisionId
-        ? "Unpublished changes."
-        : "Not published yet.";
+  // Publish is the committing action only when it would actually do something;
+  // otherwise it is a greyed secondary button with a reason beside it.
+  const canPublish = hasDraft && !upToDate;
+  const status = publishStatusLine({
+    latestRevisionAt,
+    upToDate,
+    published: publishedRevisionId !== null,
+    publishedRevisionAt,
+  });
+  const publishWhy = publishReason(hasDraft, upToDate);
+  const previewWhy = previewReason(hasDraft, upToDate);
 
   const errorsByField = new Map<string, FieldError[]>();
   for (const issue of errors ?? []) {
@@ -208,6 +223,7 @@ export const SlotForm = ({
       )}
 
       <form
+        id="cms-slot-form"
         method="POST"
         action={`/cms/slots/${slot.id}`}
         className="cms-slot-form"
@@ -252,62 +268,86 @@ export const SlotForm = ({
           hasMedia={media.length > 0}
           pickerCapped={pickerCapped}
         />
-
-        <button type="submit" className="cms-save">
-          {conflict ? "Overwrite and save" : "Save draft"}
-        </button>
       </form>
 
       <section className="cms-actions" aria-label="Publishing">
         <p className="cms-publish-status" role="status">
-          {publishStatus}
+          {status}
         </p>
-        <form
-          method="POST"
-          action={`/cms/slots/${slot.id}/publish`}
-          data-confirm="The site picks it up within seconds."
-          data-confirm-title={`Publish '${slotTitle(slot)}'?`}
-          data-confirm-label="Publish"
-          data-confirm-danger="false"
-        >
-          <input type="hidden" name="_csrf" value={publishCsrfToken} />
-          {/* The revision this form rendered. Publishing it — rather than the
-              newest at submit time — is what makes a stale click a warning
-              instead of someone else's draft going live unseen. */}
-          <input type="hidden" name="revision" value={latestRevisionId ?? ""} />
+        <div className="cms-action-buttons">
+          {/* Outside the save form so the bar can be sticky and hold every
+              action, but still a submit of it: `form` is what keeps Enter in a
+              field saving, and the preview guard's `requestSubmit` working. */}
           <button
             type="submit"
-            className="cms-publish-button"
-            disabled={!hasDraft || upToDate}
+            form="cms-slot-form"
+            className={`cms-save btn ${canPublish ? "btn-secondary" : "btn-primary"}`}
           >
-            Publish
+            {conflict ? "Overwrite and save" : "Save draft"}
           </button>
-        </form>
-        {/* Preview mints a short-lived token and opens the slot's declared
-            page on the site in a new tab, so the editor sees the draft inside
-            the real page. Disabled with no draft, and when the draft is
-            already the live revision: there is no unpublished change to
-            preview. Matches Publish, which is disabled in the same two cases. */}
-        <form
-          method="POST"
-          action={`/cms/slots/${slot.id}/preview`}
-          target="_blank"
-          rel="noopener"
-        >
-          <input type="hidden" name="_csrf" value={previewCsrfToken} />
-          <button
-            type="submit"
-            className="cms-preview-button"
-            disabled={!hasDraft || upToDate}
-            data-preview-submit
+          <form
+            method="POST"
+            action={`/cms/slots/${slot.id}/publish`}
+            data-confirm="The site picks it up within seconds."
+            data-confirm-title={`Publish '${slotTitle(slot)}'?`}
+            data-confirm-label="Publish"
+            data-confirm-danger="false"
           >
-            Preview draft <span aria-hidden="true">↗</span>
-            <span className="sr-only">(opens in a new tab)</span>
-          </button>
-        </form>
-        <a className="cms-history-link" href={`/cms/slots/${slot.id}/history`}>
-          History
-        </a>
+            <input type="hidden" name="_csrf" value={publishCsrfToken} />
+            {/* The revision this form rendered. Publishing it — rather than the
+                newest at submit time — is what makes a stale click a warning
+                instead of someone else's draft going live unseen. */}
+            <input
+              type="hidden"
+              name="revision"
+              value={latestRevisionId ?? ""}
+            />
+            <button
+              type="submit"
+              className={`cms-publish-button btn ${canPublish ? "btn-primary" : "btn-secondary"}`}
+              disabled={!canPublish}
+              aria-describedby={publishWhy ? "publish-reason" : undefined}
+            >
+              Publish
+            </button>
+          </form>
+          {/* Preview mints a short-lived token and opens the slot's declared
+              page on the site in a new tab, so the editor sees the draft inside
+              the real page. Disabled with no draft, and when the draft is
+              already the live revision: there is no unpublished change to
+              preview. Matches Publish, which is disabled in the same two cases. */}
+          <form
+            method="POST"
+            action={`/cms/slots/${slot.id}/preview`}
+            target="_blank"
+            rel="noopener"
+          >
+            <input type="hidden" name="_csrf" value={previewCsrfToken} />
+            <button
+              type="submit"
+              className="cms-preview-button btn btn-secondary"
+              disabled={!canPublish}
+              aria-describedby={previewWhy ? "preview-reason" : undefined}
+              data-preview-submit
+            >
+              Preview draft <span aria-hidden="true">↗</span>
+              <span className="sr-only">(opens in a new tab)</span>
+            </button>
+          </form>
+          <a
+            className="cms-history-link btn btn-ghost"
+            href={`/cms/slots/${slot.id}/history`}
+          >
+            History
+          </a>
+        </div>
+        {(publishWhy || previewWhy) && (
+          <p className="cms-action-reason">
+            {publishWhy && <span id="publish-reason">{publishWhy}</span>}
+            {publishWhy && previewWhy && " "}
+            {previewWhy && <span id="preview-reason">{previewWhy}</span>}
+          </p>
+        )}
       </section>
 
       <script type="module" src={getAssetUrl("/assets/cms-form.js")} />

@@ -240,6 +240,12 @@ export const renderPageForm = async (
       page.publishedRevisionId ? listPageRedirects(page.id) : [],
     ]);
 
+  // The status line says when the live revision was saved. A publish moves
+  // `published_revision_id`, so the time has to be read from the revision.
+  const published = page.publishedRevisionId
+    ? await getRevisionById(page.publishedRevisionId)
+    : null;
+
   const navCsrfToken = await createCsrfToken(sessionId, "POST", "/auth/logout");
 
   if (!pageType) {
@@ -292,7 +298,9 @@ export const renderPageForm = async (
       baseRevisionId={baseRevisionId}
       removed={extras.removed ?? []}
       latestRevisionId={latest?.id ?? null}
+      latestRevisionAt={latest?.createdAt ?? null}
       publishedRevisionId={page.publishedRevisionId}
+      publishedRevisionAt={published?.createdAt ?? null}
       oldUrls={oldUrls}
       pages={pages}
       media={picker.media}
