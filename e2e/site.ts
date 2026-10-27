@@ -235,8 +235,36 @@ export const createSite = (sql: SQL, options: E2eSiteOptions = {}): E2eSite => {
           `${escapeHtml(String(block.heading ?? ""))}</h2>` +
           `${await renderLink(block.link, "Get in touch")}</section>`
         );
+      case "steps": {
+        const items = Array.isArray(block.items) ? block.items : [];
+        // Each item's title and its own body share one `<li>`: the pairing is
+        // the whole point of the block, and two lists would read as if any
+        // title could belong to any body.
+        const rendered = items.map((item) => {
+          const step = (item ?? {}) as { title?: unknown; body?: unknown };
+          return (
+            `<li><h3>${escapeHtml(String(step.title ?? ""))}</h3>` +
+            `<p>${escapeHtml(String(step.body ?? ""))}</p></li>`
+          );
+        });
+        return (
+          `<section data-block="steps"><h2>` +
+          `${escapeHtml(String(block.heading ?? ""))}</h2>` +
+          `<ol>${rendered.join("")}</ol></section>`
+        );
+      }
       default:
-        return "";
+        // A block type this site has no renderer for. In production that is a
+        // blank space on purpose: a deploy can publish a type before the site
+        // ships its renderer, and a visitor has no use for "this block is
+        // missing" — while a page that 500s is worse than one that skips it.
+        // Anywhere else it is a labelled hole in the page, so the gap shows up
+        // in the sandbox and the e2e suite rather than in front of a reader.
+        if (process.env.NODE_ENV === "production") return "";
+        return (
+          `<section data-block="${escapeHtml(block.type)}" data-unrendered>` +
+          `<p>No renderer for the "${escapeHtml(block.type)}" block.</p></section>`
+        );
     }
   };
 
