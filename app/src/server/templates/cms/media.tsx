@@ -1,5 +1,6 @@
 import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import { getAssetUrl } from "../../services/assets";
 import {
   MAX_ALT_LENGTH,
@@ -94,14 +95,15 @@ export const MediaList = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <p className="cms-breadcrumb">
-      <a href="/cms">Content</a> / <span>Media</span>
-    </p>
-    <h1>Media</h1>
-    <p className="cms-intro">
-      Upload an image once and reuse it across the site. Alt text is required;
-      JPEG, PNG and WebP up to 20 MB.
-    </p>
+    <PageHeader
+      breadcrumb={
+        <>
+          <a href="/cms">Content</a> / <span>Media</span>
+        </>
+      }
+      title="Media"
+      description="Upload an image once and reuse it across the site. Alt text is required; JPEG, PNG and WebP up to 20 MB."
+    />
 
     {notice && (
       <div className="flash-success" role="status">
@@ -160,8 +162,9 @@ export const MediaList = ({
     </form>
 
     {items.length === 0 ? (
-      <div className="flash-warning" role="status">
-        No images yet. Upload one above to use it in an image field.
+      <div className="empty-state" role="status">
+        <span className="empty-state-title">No images yet</span>
+        <span>Upload one above to use it in an image field.</span>
       </div>
     ) : (
       <ul className="cms-media-grid">
@@ -243,16 +246,22 @@ export const MediaDetail = ({
       csrfToken={navCsrfToken}
       noindex
     >
-      <p className="cms-breadcrumb">
-        <a href="/cms">Content</a> / <a href="/cms/media">Media</a> /{" "}
-        <span>{media.alt}</span>
-      </p>
-      <h1>Image</h1>
-      {/* The reuse lists in the page and slot forms list only the newest
-          uploads, and an editor who needs an older one pastes its id here. */}
-      <p className="cms-media-meta">
-        Media id <code>{media.id}</code>
-      </p>
+      <PageHeader
+        breadcrumb={
+          <>
+            <a href="/cms">Content</a> / <a href="/cms/media">Media</a> /{" "}
+            <span>{media.alt}</span>
+          </>
+        }
+        title="Image"
+        after={
+          // The reuse lists in the page and slot forms list only the newest
+          // uploads, and an editor who needs an older one pastes its id here.
+          <p className="cms-media-meta">
+            Media id <code>{media.id}</code>
+          </p>
+        }
+      />
 
       {notice && (
         <div
@@ -419,11 +428,16 @@ export const MediaDeleteConfirm = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <p className="cms-breadcrumb">
-      <a href="/cms">Content</a> / <a href="/cms/media">Media</a> /{" "}
-      <a href={`/cms/media/${media.id}`}>{media.alt}</a> / <span>Delete</span>
-    </p>
-    <h1>Delete this image?</h1>
+    <PageHeader
+      breadcrumb={
+        <>
+          <a href="/cms">Content</a> / <a href="/cms/media">Media</a> /{" "}
+          <a href={`/cms/media/${media.id}`}>{media.alt}</a> /{" "}
+          <span>Delete</span>
+        </>
+      }
+      title="Delete this image?"
+    />
     <img
       className="cms-media-delete-preview"
       src={variantForDisplay(media, DELETE_PREVIEW_WIDTH)?.fallbackUrl ?? ""}

@@ -41,7 +41,7 @@ export const Handoff = ({ token, csrfToken }: HandoffProps) => {
         <form method="POST" action={HANDOFF_PATH}>
           <CsrfField token={csrfToken} />
           <input type="hidden" name="token" value={token} />
-          <button type="submit" className="login-submit">
+          <button type="submit" className="btn btn-primary login-submit">
             Continue to Billet CMS
           </button>
         </form>

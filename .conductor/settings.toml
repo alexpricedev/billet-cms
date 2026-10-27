@@ -10,8 +10,13 @@ run_mode = "concurrent"
 
 [tasks.Run]
 available_in = "local"
-command = "bun run dev"
+command = "bun run sandbox"
 default = true
+icon = "play"
+
+[tasks.Dev]
+available_in = "local"
+command = "bun run dev"
 icon = "play"
 
 [tasks.Test]

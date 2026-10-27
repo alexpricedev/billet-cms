@@ -1,4 +1,5 @@
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import type {
   PageTypeRecord,
   SlotPageGroup,
@@ -51,23 +52,10 @@ export const Dashboard = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <h1>Content</h1>
-    <p className="cms-intro">
-      These are the parts of the site you can edit. Your changes stay drafts
-      until you publish them.
-    </p>
-
-    <p className="cms-new-page">
-      <a className="cms-new-page-link" href="/cms/pages">
-        Pages
-      </a>{" "}
-      <a className="cms-new-page-link" href="/cms/media">
-        Media
-      </a>{" "}
-      <a className="cms-new-page-link" href="/cms/export">
-        Export
-      </a>
-    </p>
+    <PageHeader
+      title="Content"
+      description="These are the parts of the site you can edit. Your changes stay drafts until you publish them."
+    />
 
     {groups.length === 0 ? (
       <div className="flash-warning" role="status">

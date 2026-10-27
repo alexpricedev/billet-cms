@@ -4,6 +4,7 @@ import {
   MediaOptionsTemplate,
 } from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import { getAssetUrl } from "../../services/assets";
 import type {
   BlockTypeRecord,
@@ -116,14 +117,20 @@ export const SlotForm = ({
       csrfToken={navCsrfToken}
       noindex
     >
-      <p className="cms-breadcrumb">
-        <a href="/cms">Content</a> / <span>{humanise(slot.page)}</span> /{" "}
-        <span>{slotTitle(slot)}</span>
-      </p>
-      <h1>{slotTitle(slot)}</h1>
-      <p className="cms-slot-meta">
-        <code>{slot.name}</code> · block <code>{blockType.name}</code>
-      </p>
+      <PageHeader
+        breadcrumb={
+          <>
+            <a href="/cms">Content</a> / <span>{humanise(slot.page)}</span> /{" "}
+            <span>{slotTitle(slot)}</span>
+          </>
+        }
+        title={slotTitle(slot)}
+        after={
+          <p className="cms-slot-meta">
+            <code>{slot.name}</code> · block <code>{blockType.name}</code>
+          </p>
+        }
+      />
 
       {slot.removedAt && (
         <div className="flash-warning" role="status">
@@ -203,7 +210,12 @@ export const SlotForm = ({
         </div>
       )}
 
-      <form method="POST" action={`/cms/slots/${slot.id}`} data-cms-form>
+      <form
+        method="POST"
+        action={`/cms/slots/${slot.id}`}
+        className="cms-slot-form"
+        data-cms-form
+      >
         <input type="hidden" name="_csrf" value={formCsrfToken} />
         {/* The reuse list, once for the form; each image picker is filled from
             it on focus rather than repeating it per field. */}

@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 import type { FieldError } from "../../components/cms/field-control";
 import { MediaOptionsTemplate } from "../../components/cms/field-control";
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import { getAssetUrl } from "../../services/assets";
 import type {
   BlockTypeRecord,
@@ -255,17 +256,21 @@ export const PageForm = ({
       csrfToken={navCsrfToken}
       noindex
     >
-      <p className="cms-breadcrumb">
-        <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
-        <span>{page.url}</span>
-        {moving && (
+      <PageHeader
+        breadcrumb={
           <>
-            {" "}
-            <span>(unsaved: {settings.url})</span>
+            <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
+            <span>{page.url}</span>
+            {moving && (
+              <>
+                {" "}
+                <span>(unsaved: {settings.url})</span>
+              </>
+            )}
           </>
-        )}
-      </p>
-      <h1>{page.title}</h1>
+        }
+        title={page.title}
+      />
 
       {notice && (
         <div
@@ -365,126 +370,132 @@ export const PageForm = ({
             data-cms-dropped
           />
 
-          <section className="cms-page-settings" aria-label="Page settings">
-            <h2>Settings</h2>
-            <div className="cms-field" data-field-kind="setting">
-              <label className="cms-field-label" htmlFor="pageType">
-                Page type
-              </label>
-              <select
-                id="pageType"
-                name="pageType"
-                aria-invalid={
-                  settingsErrors?.get("pageType") ? "true" : undefined
-                }
-                aria-describedby={
-                  settingsErrors?.get("pageType") ? "pageType-error" : undefined
-                }
-              >
-                {pageTypes
-                  .filter(
-                    (candidate) =>
-                      candidate.removedAt === null ||
-                      candidate.name === settings.pageType,
-                  )
-                  .map((candidate) => (
-                    <option
-                      value={candidate.name}
-                      key={candidate.id}
-                      selected={candidate.name === settings.pageType}
-                    >
-                      {candidate.label ?? candidate.name}
-                    </option>
-                  ))}
-                {/* A page whose type a deploy removed still has to show its
-                    current type rather than silently switching on save. */}
-                {pageTypes.every(
-                  (candidate) => candidate.name !== settings.pageType,
-                ) && (
-                  <option value={settings.pageType}>{settings.pageType}</option>
-                )}
-              </select>
-              {settingsErrors?.get("pageType") && (
-                <ul className="cms-field-errors" id="pageType-error">
-                  {settingsErrors.get("pageType")?.map((error, index) => (
-                    <li key={`${error.path}:${index}`}>{error.message}</li>
-                  ))}
-                </ul>
+          <div className="editor-layout">
+            <section className="cms-page-content-section" aria-label="Blocks">
+              <h2>Blocks</h2>
+              <noscript>
+                <p className="cms-noscript">
+                  Editing rich text, lists and blocks needs JavaScript. You can
+                  still save the stored content unchanged.
+                </p>
+              </noscript>
+              {pageType ? (
+                <PageBlocks
+                  pageType={pageType}
+                  blockTypes={blockTypes}
+                  blocks={content}
+                  unavailable={unavailable}
+                  errorsByBlock={blockErrors}
+                  pages={pages}
+                  hasMedia={media.length > 0}
+                  pickerCapped={pickerCapped}
+                />
+              ) : (
+                <p className="cms-blocks-empty">
+                  The page type isn't published, so its blocks can't be edited.
+                </p>
               )}
-            </div>
-            <SettingsControl
-              name="url"
-              label="URL"
-              help="The path the page is served at, e.g. /about."
-              value={settings.url}
-              errors={settingsErrors?.get("url")}
-              required
-              live={page.url}
-              extra={{
-                id: "url-move",
-                node: (
-                  <p
-                    className="cms-field-help cms-url-move"
-                    id="url-move"
-                    data-url-move
-                    hidden={!moving}
-                  >
-                    <span aria-hidden="true">⚠ </span>Saving moves this page:{" "}
-                    <code>{page.url}</code> will redirect to the new URL as soon
-                    as you save, even before you publish.
-                  </p>
-                ),
-              }}
-            />
-            <SettingsControl
-              name="title"
-              label="Title"
-              value={settings.title}
-              errors={settingsErrors?.get("title")}
-              required
-            />
-            <SettingsControl
-              name="seoDescription"
-              label="SEO description"
-              help="Used for the meta description and social cards."
-              value={settings.seoDescription ?? ""}
-              errors={settingsErrors?.get("seoDescription")}
-              textarea
-            />
-            <SettingsControl
-              name="socialImage"
-              label="Social image URL"
-              help="An absolute or site-relative image URL for social cards."
-              value={settings.socialImage ?? ""}
-              errors={settingsErrors?.get("socialImage")}
-            />
-          </section>
+            </section>
 
-          <section className="cms-page-content-section" aria-label="Blocks">
-            <h2>Blocks</h2>
-            <noscript>
-              <p className="cms-noscript">
-                Editing rich text, lists and blocks needs JavaScript. You can
-                still save the stored content unchanged.
-              </p>
-            </noscript>
-            {pageType ? (
-              <PageBlocks
-                pageType={pageType}
-                blockTypes={blockTypes}
-                blocks={content}
-                unavailable={unavailable}
-                errorsByBlock={blockErrors}
-                pages={pages}
-                hasMedia={media.length > 0}
-                pickerCapped={pickerCapped}
+            <section className="cms-page-settings" aria-label="Page settings">
+              <h2>Settings</h2>
+              <div className="cms-field" data-field-kind="setting">
+                <label className="cms-field-label" htmlFor="pageType">
+                  Page type
+                </label>
+                <select
+                  id="pageType"
+                  name="pageType"
+                  aria-invalid={
+                    settingsErrors?.get("pageType") ? "true" : undefined
+                  }
+                  aria-describedby={
+                    settingsErrors?.get("pageType")
+                      ? "pageType-error"
+                      : undefined
+                  }
+                >
+                  {pageTypes
+                    .filter(
+                      (candidate) =>
+                        candidate.removedAt === null ||
+                        candidate.name === settings.pageType,
+                    )
+                    .map((candidate) => (
+                      <option
+                        value={candidate.name}
+                        key={candidate.id}
+                        selected={candidate.name === settings.pageType}
+                      >
+                        {candidate.label ?? candidate.name}
+                      </option>
+                    ))}
+                  {/* A page whose type a deploy removed still has to show its
+                    current type rather than silently switching on save. */}
+                  {pageTypes.every(
+                    (candidate) => candidate.name !== settings.pageType,
+                  ) && (
+                    <option value={settings.pageType}>
+                      {settings.pageType}
+                    </option>
+                  )}
+                </select>
+                {settingsErrors?.get("pageType") && (
+                  <ul className="cms-field-errors" id="pageType-error">
+                    {settingsErrors.get("pageType")?.map((error, index) => (
+                      <li key={`${error.path}:${index}`}>{error.message}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <SettingsControl
+                name="url"
+                label="URL"
+                help="The path the page is served at, e.g. /about."
+                value={settings.url}
+                errors={settingsErrors?.get("url")}
+                required
+                live={page.url}
+                extra={{
+                  id: "url-move",
+                  node: (
+                    <p
+                      className="cms-field-help cms-url-move"
+                      id="url-move"
+                      data-url-move
+                      hidden={!moving}
+                    >
+                      <span aria-hidden="true">⚠ </span>Saving moves this page:{" "}
+                      <code>{page.url}</code> will redirect to the new URL as
+                      soon as you save, even before you publish.
+                    </p>
+                  ),
+                }}
               />
-            ) : (
-              <p className="cms-blocks-empty">
-                The page type isn't published, so its blocks can't be edited.
-              </p>
-            )}
-          </section>
+              <SettingsControl
+                name="title"
+                label="Title"
+                value={settings.title}
+                errors={settingsErrors?.get("title")}
+                required
+              />
+              <SettingsControl
+                name="seoDescription"
+                label="SEO description"
+                help="Used for the meta description and social cards."
+                value={settings.seoDescription ?? ""}
+                errors={settingsErrors?.get("seoDescription")}
+                textarea
+              />
+              <SettingsControl
+                name="socialImage"
+                label="Social image URL"
+                help="An absolute or site-relative image URL for social cards."
+                value={settings.socialImage ?? ""}
+                errors={settingsErrors?.get("socialImage")}
+              />
+            </section>
+          </div>
 
           <button type="submit" className="cms-save">
             {conflict ? "Overwrite and save" : "Save draft"}
@@ -598,15 +609,16 @@ export const NewPageForm = ({
       csrfToken={navCsrfToken}
       noindex
     >
-      <p className="cms-breadcrumb">
-        <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
-        <span>New</span>
-      </p>
-      <h1>New page</h1>
-      <p className="cms-intro">
-        Pick a page type, then choose the URL, title and SEO settings. You'll
-        add blocks on the next screen, and nothing goes live until you publish.
-      </p>
+      <PageHeader
+        breadcrumb={
+          <>
+            <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
+            <span>New</span>
+          </>
+        }
+        title="New page"
+        description="Pick a page type, then choose the URL, title and SEO settings. You'll add blocks on the next screen, and nothing goes live until you publish."
+      />
 
       {pageTypes.length === 0 ? (
         <div className="flash-warning" role="status">
@@ -713,10 +725,14 @@ export const PageUnavailable = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <p className="cms-breadcrumb">
-      <a href="/cms">Content</a> / <span>{page.url}</span>
-    </p>
-    <h1>{page.title}</h1>
+    <PageHeader
+      breadcrumb={
+        <>
+          <a href="/cms">Content</a> / <span>{page.url}</span>
+        </>
+      }
+      title={page.title}
+    />
     <div className="flash-warning" role="alert">
       The page type <code>{page.pageType}</code> is no longer published. This
       page's content is kept but cannot be edited until it is declared again.

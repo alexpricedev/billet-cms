@@ -1,4 +1,5 @@
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import type { PageRecord, PageRevisionSummary } from "../../services/content";
 import type { User } from "../../services/users";
 import { formatDay, formatDayShort, formatWhen } from "../../utils/format";
@@ -34,14 +35,21 @@ export const PageHistory = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <p className="cms-breadcrumb">
-      <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
-      <a href={`/cms/pages/${page.id}`}>{page.title}</a> / <span>History</span>
-    </p>
-    <h1>History</h1>
-    <p className="cms-slot-meta">
-      Page <code>{page.url}</code>
-    </p>
+    <PageHeader
+      breadcrumb={
+        <>
+          <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
+          <a href={`/cms/pages/${page.id}`}>{page.title}</a> /{" "}
+          <span>History</span>
+        </>
+      }
+      title="History"
+      after={
+        <p className="cms-slot-meta">
+          Page <code>{page.url}</code>
+        </p>
+      }
+    />
 
     {notice && (
       <div className="flash-warning" role="status">

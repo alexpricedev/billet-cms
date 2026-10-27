@@ -1,50 +1,68 @@
+/* Error and maintenance pages. They ship no client JavaScript, so everything
+   here is static and legible in both themes. */
+
+.error-bar {
+  align-items: center;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  height: var(--bar-height);
+  padding: 0 var(--space-5);
+
+  .logo {
+    align-items: center;
+    color: var(--text);
+    display: flex;
+    gap: var(--space-2);
+    text-decoration: none;
+
+    svg {
+      height: 20px;
+      width: 20px;
+    }
+
+    span {
+      font-size: 13.5px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+  }
+}
+
 [data-page="error"] {
-  & > main {
-    text-align: center;
+  .app-main {
+    display: grid;
+    min-height: calc(100dvh - var(--bar-height));
+    place-items: center;
   }
 
   .error-page {
     margin: 0 auto;
-    max-width: 32rem;
-    padding-block: 3rem;
+    max-width: 34rem;
+    padding-block: var(--space-12);
+    text-align: center;
   }
 
   .error-status {
-    color: var(--color-text-quaternary);
-    font-size: 3rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
     line-height: 1;
-    margin: 0;
+    margin: 0 0 var(--space-4);
   }
 
   .error-page h1 {
-    margin-top: 0.5rem;
+    font-size: 24px;
+    margin-bottom: var(--space-2);
+  }
+
+  .error-page .lead {
+    margin-bottom: 0;
   }
 
   .error-actions {
-    margin-top: 2rem;
-  }
-
-  /* There is no global .btn-primary, so the error CTA gets its filled-primary
-     treatment here (it's an anchor, not a <button>). */
-  .error-actions .btn-primary {
-    align-items: center;
-    background: var(--color-primary);
-    border-radius: var(--radius);
-    color: #fff;
-    display: inline-flex;
-    font-size: 14px;
-    font-weight: 500;
-    padding: 10px 22px;
-    text-decoration: none;
-    transition: all 150ms ease;
-
-    &:hover,
-    &:focus {
-      background: var(--color-primary-hover);
-      color: #fff;
-      text-decoration: none;
-    }
+    margin: var(--space-6) 0 0;
   }
 }

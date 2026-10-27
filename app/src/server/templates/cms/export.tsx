@@ -1,4 +1,5 @@
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import type { ExportTokenRecord } from "../../services/export";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
@@ -46,16 +47,22 @@ export const ExportPage = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <p className="cms-breadcrumb">
-      <a href="/cms">Content</a> / <span>Export</span>
-    </p>
-    <h1>Export</h1>
-    <p className="cms-intro">
-      An export token lets a local or preview environment pull this CMS's
-      published content with <code>bun run cms:pull</code>. It is read-only,
-      one-way, and can be revoked at any time. Images keep pointing at this
-      CMS's bucket.
-    </p>
+    <PageHeader
+      breadcrumb={
+        <>
+          <a href="/cms">Content</a> / <span>Export</span>
+        </>
+      }
+      title="Export"
+      description={
+        <>
+          An export token lets a local or preview environment pull this CMS's
+          published content with <code>bun run cms:pull</code>. It is read-only,
+          one-way, and can be revoked at any time. Images keep pointing at this
+          CMS's bucket.
+        </>
+      }
+    />
 
     {notice && (
       <div className="flash-success" role="status">
@@ -78,8 +85,11 @@ export const ExportPage = ({
     <section className="cms-page" aria-labelledby="export-tokens-heading">
       <h2 id="export-tokens-heading">Tokens</h2>
       {tokens.length === 0 ? (
-        <div className="cms-empty-card" role="status">
-          No export tokens yet.
+        <div className="empty-state" role="status">
+          <span className="empty-state-title">No export tokens yet</span>
+          <span>
+            Create one below to pull content into another environment.
+          </span>
         </div>
       ) : (
         <ul className="cms-slot-list">
@@ -114,7 +124,7 @@ export const ExportPage = ({
                   />
                   <button
                     type="submit"
-                    className="btn-ghost"
+                    className="btn btn-ghost btn-sm"
                     aria-label={`Revoke ${token.label}`}
                   >
                     Revoke
@@ -134,7 +144,11 @@ export const ExportPage = ({
           {error}
         </div>
       )}
-      <form method="POST" action="/cms/export">
+      <form
+        method="POST"
+        action="/cms/export"
+        className="panel cms-export-create"
+      >
         <input type="hidden" name="_csrf" value={createCsrfToken} />
         <div className="form-field">
           <label htmlFor="export-label">Name</label>

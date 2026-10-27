@@ -1,4 +1,5 @@
 import { Layout } from "../../components/layouts";
+import { PageHeader } from "../../components/page-header";
 import type {
   PageRecord,
   PageTypeRecord,
@@ -34,20 +35,20 @@ export const PagesList = ({
     csrfToken={navCsrfToken}
     noindex
   >
-    <p className="cms-breadcrumb">
-      <a href="/cms">Content</a> / <span>Pages</span>
-    </p>
-    <h1>Pages</h1>
-    <p className="cms-intro">
-      A page is served at its URL after the site's own routes, published from
-      the CMS. Renaming one leaves a 301 from its old URL.
-    </p>
-
-    <p className="cms-new-page">
-      <a className="cms-new-page-link" href="/cms/pages/new">
-        New page
-      </a>
-    </p>
+    <PageHeader
+      breadcrumb={
+        <>
+          <a href="/cms">Content</a> / <span>Pages</span>
+        </>
+      }
+      title="Pages"
+      description="A page is served at its URL after the site's own routes, published from the CMS. Renaming one leaves a 301 from its old URL."
+      actions={
+        <a className="btn btn-primary" href="/cms/pages/new">
+          New page
+        </a>
+      }
+    />
 
     {notice && (
       <div className="flash-success" role="status">
@@ -112,7 +113,10 @@ export const PagesList = ({
         <ul className="cms-page-type-list">
           {pageTypes.map((pageType) => (
             <li key={pageType.id}>
-              {pageType.label ?? pageType.name} <code>{pageType.name}</code>
+              {pageType.label ?? pageType.name}
+              {pageType.label &&
+                pageType.label.toLowerCase() !==
+                  pageType.name.toLowerCase() && <code>{pageType.name}</code>}
               {pageType.removedAt && (
                 <span className="cms-removed"> (no longer declared)</span>
               )}
