@@ -20,25 +20,19 @@ export interface FlashField {
   label: string;
 }
 
-interface FlashContentProps {
+interface FlashProps {
+  tone: FlashTone;
   title?: ComponentChildren;
   detail?: ComponentChildren;
   actions?: readonly FlashAction[];
   fields?: readonly FlashField[];
   /**
-   * The body of the old API. Rendered after `detail` so callers that pass
-   * only `type` and children keep their message until the swap is finished.
+   * Extra body markup between the detail line and the actions, for a banner
+   * whose body is not a sentence (the removed-fields list, the one-time export
+   * token). Prefer `detail` for plain text.
    */
   children?: ComponentChildren;
 }
-
-// `tone` is the API; `type` is its alias for the callers the template swap has
-// not reached yet. One of the two must be given, and `tone` wins if both are.
-type FlashProps = FlashContentProps &
-  (
-    | { tone: FlashTone; type?: FlashTone }
-    | { tone?: undefined; type: FlashTone }
-  );
 
 // One 20px line icon per tone. The tone is carried by the shape as well as the
 // colour, so the four states stay distinguishable without relying on colour.
@@ -110,18 +104,15 @@ const roleFor = (tone: FlashTone): "status" | "alert" =>
  */
 export const Flash = ({
   tone,
-  type,
   title,
   detail,
   actions,
   fields,
   children,
 }: FlashProps) => {
-  const resolved = tone ?? type ?? "info";
-
   return (
-    <div className="flash" data-tone={resolved} role={roleFor(resolved)}>
-      <Icon tone={resolved} />
+    <div className="flash" data-tone={tone} role={roleFor(tone)}>
+      <Icon tone={tone} />
       <div className="flash-body">
         {title !== undefined && <p className="flash-title">{title}</p>}
         {detail !== undefined && <p className="flash-detail">{detail}</p>}

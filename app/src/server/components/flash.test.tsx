@@ -86,23 +86,16 @@ describe("Flash", () => {
     expect(html).toMatch(/data-flash-dismiss[^>]*hidden/);
   });
 
-  test("accepts type as an alias of tone for the old callers", () => {
+  test("renders extra body markup after the detail line", () => {
     const html = renderToString(
-      <Flash type="warning">This slot is no longer declared.</Flash>,
+      <Flash tone="warning" title="Copy this token now.">
+        <p>
+          <code data-export-token>abc123</code>
+        </p>
+      </Flash>,
     );
 
-    expect(html).toContain('data-tone="warning"');
-    expect(html).toContain('role="status"');
-    expect(html).toContain("This slot is no longer declared.");
-  });
-
-  test("tone wins when both props are given", () => {
-    const html = renderToString(
-      <Flash tone="success" type="error" title="Draft saved." />,
-    );
-
-    expect(html).toContain('data-tone="success"');
-    expect(html).toContain('role="status"');
-    expect(html).not.toContain('data-tone="error"');
+    expect(html).toContain('class="flash-body"');
+    expect(html).toContain('<code data-export-token="true">abc123</code>');
   });
 });

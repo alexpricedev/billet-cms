@@ -564,6 +564,9 @@ export const PageForm = ({
         </form>
       )}
 
+      {/* The status line and the disabled-button reasons are the bar's own
+          persistent state and help text, not event notices: they render on
+          every load and are never dismissible, so they stay out of Flash. */}
       <section className="cms-actions" aria-label="Publishing">
         <p className="cms-publish-status" role="status">
           {status}
