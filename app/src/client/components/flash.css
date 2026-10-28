@@ -129,3 +129,47 @@
     width: 16px;
   }
 }
+
+/* ---- Editor field errors ------------------------------------------------
+   The error banner is the summary; these mark the controls it links to. Only
+   the page and slot editor forms get the treatment, so a `.cms-field-errors`
+   elsewhere keeps the plain list it has. Scoped selectors, because `pages/
+   cms.css` loads after this file and owns the default list styling. */
+
+.cms-page-form [aria-invalid="true"],
+.cms-slot-form [aria-invalid="true"] {
+  border: 1.5px solid var(--danger);
+}
+
+.cms-page-form .cms-field-errors,
+.cms-slot-form .cms-field-errors {
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 18px;
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+
+.cms-page-form .cms-field-errors li,
+.cms-slot-form .cms-field-errors li {
+  align-items: flex-start;
+  display: flex;
+  gap: 6px;
+}
+
+/* The message's own words say what is wrong, so the 14px circle-! is
+   decoration painted in `currentColor` (which keeps it red in both themes)
+   rather than text. */
+.cms-page-form .cms-field-errors li::before,
+.cms-slot-form .cms-field-errors li::before {
+  background-color: currentColor;
+  content: "";
+  flex: 0 0 auto;
+  height: 14px;
+  margin-top: 2px;
+  mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='10' cy='10' r='8'/%3E%3Cpath d='M10 6v5'/%3E%3Cpath d='M10 14h.01'/%3E%3C/svg%3E")
+    center / 14px 14px no-repeat;
+  width: 14px;
+}
