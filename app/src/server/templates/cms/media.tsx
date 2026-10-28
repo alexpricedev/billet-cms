@@ -1,4 +1,5 @@
 import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import { getAssetUrl } from "../../services/assets";
@@ -106,21 +107,15 @@ export const MediaList = ({
       description="Upload an image once and reuse it across the site. Alt text is required; JPEG, PNG and WebP up to 20 MB."
     />
 
-    {notice && (
-      <div className="flash-success" role="status">
-        {notice}
-      </div>
-    )}
+    {notice && <Flash tone="success" title={notice} />}
 
-    {errors && errors.length > 0 && (
-      <div className="flash-error" role="alert">
-        <ul>
-          {errors.map((error) => (
-            <li key={`${error.field}:${error.message}`}>{error.message}</li>
-          ))}
-        </ul>
-      </div>
-    )}
+    {errors?.map((error) => (
+      <Flash
+        key={`${error.field}:${error.message}`}
+        tone="error"
+        title={error.message}
+      />
+    ))}
 
     <form
       method="POST"
@@ -264,26 +259,15 @@ export const MediaDetail = ({
         }
       />
 
-      {notice && (
-        <div
-          className={
-            notice.kind === "success" ? "flash-success" : "flash-warning"
-          }
-          role="status"
-        >
-          {notice.message}
-        </div>
-      )}
+      {notice && <Flash tone={notice.kind} title={notice.message} />}
 
-      {errors && errors.length > 0 && (
-        <div className="flash-error" role="alert">
-          <ul>
-            {errors.map((error) => (
-              <li key={`${error.field}:${error.message}`}>{error.message}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {errors?.map((error) => (
+        <Flash
+          key={`${error.field}:${error.message}`}
+          tone="error"
+          title={error.message}
+        />
+      ))}
 
       <form
         method="POST"

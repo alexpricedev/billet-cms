@@ -62,6 +62,19 @@ describe("Flash", () => {
     expect(html).toContain('href="#cms-field-body"');
   });
 
+  test("renders a field with no control to link to as plain text", () => {
+    const html = renderToString(
+      <Flash
+        tone="error"
+        title="Couldn't save draft."
+        fields={[{ label: "The page needs a hero block." }]}
+      />,
+    );
+
+    expect(html).toContain("<li>The page needs a hero block.</li>");
+    expect(html).not.toContain('href="#');
+  });
+
   test("ships the dismiss button hidden and labelled", () => {
     const html = renderToString(<Flash tone="info" title="Draft saved." />);
 

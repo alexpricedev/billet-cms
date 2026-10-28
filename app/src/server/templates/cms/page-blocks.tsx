@@ -1,6 +1,7 @@
 import { Fragment } from "preact";
 import { ContentFields } from "../../components/cms/content-fields";
 import type { FieldError } from "../../components/cms/field-control";
+import { Flash } from "../../components/flash";
 import type {
   BlockTypeRecord,
   PageBlock,
@@ -245,9 +246,7 @@ export const PageBlocks = ({
                   <code>{block.type}</code>
                 </legend>
                 <FlaggedBlockActions type={block.type} />
-                <p className="flash-warning" role="status">
-                  {unavailableMessage(reason)}
-                </p>
+                <Flash tone="warning" title={unavailableMessage(reason)} />
               </fieldset>
             );
           }

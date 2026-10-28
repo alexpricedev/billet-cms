@@ -1,3 +1,4 @@
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type {
@@ -59,10 +60,11 @@ export const Dashboard = ({
     />
 
     {groups.length === 0 ? (
-      <div className="flash-warning" role="status">
-        No slots are published yet. Deploy the site, or check that its publish
-        step ran against this database.
-      </div>
+      <Flash
+        tone="warning"
+        title="No slots are published yet."
+        detail="Deploy the site, or check that its publish step ran against this database."
+      />
     ) : (
       groups.map((group) => (
         <section className="cms-page" key={group.page}>

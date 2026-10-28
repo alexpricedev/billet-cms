@@ -46,7 +46,7 @@ export const Account = ({
         description="You sign in through the site. The CMS never stores a password of its own."
       />
 
-      {notice && <Flash type={notice.type}>{notice.message}</Flash>}
+      {notice && <Flash tone={notice.type} title={notice.message} />}
 
       <section className="account-section card">
         <h2>Email address</h2>

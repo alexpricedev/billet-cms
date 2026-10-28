@@ -1,3 +1,4 @@
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { McpGrantSummary } from "../../mcp/oauth/tokens";
@@ -85,16 +86,8 @@ export const McpPage = ({
         }
       />
 
-      {notice && (
-        <div className="flash-success" role="status">
-          {notice}
-        </div>
-      )}
-      {error && (
-        <div className="flash-error" role="alert">
-          {error}
-        </div>
-      )}
+      {notice && <Flash tone="success" title={notice} />}
+      {error && <Flash tone="error" title={error} />}
 
       <section className="cms-page" aria-labelledby="connected-heading">
         <h2 id="connected-heading">Connected</h2>

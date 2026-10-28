@@ -277,7 +277,7 @@ describe("slot publish and history controllers", () => {
       const html = await res.text();
       // The save form's own banner and per-field error state, not `?publish=`,
       // and the banner names the action that was refused: a publish.
-      expect(html).toContain("This content can't be published");
+      expect(html).toContain("Couldn't publish.");
       expect(html).toContain('aria-invalid="true"');
       expect(html).toContain('href="#cms-field-heading"');
 
@@ -494,7 +494,7 @@ describe("slot publish and history controllers", () => {
       expect(html).toContain("no saved revisions yet");
       expect(html).toContain("cms-history-empty");
       // A static empty state, not a live-region warning.
-      expect(html).not.toContain("flash-warning");
+      expect(html).not.toContain('class="flash"');
       expect(html).not.toContain("Show older");
     });
 

@@ -32,12 +32,10 @@ export const Handoff = ({ token, csrfToken }: HandoffProps) => {
       footer={null}
     >
       {!csrfToken ? (
-        <Flash type="error">
-          <span>
-            We couldn't start a session in your browser. Check that cookies are
-            enabled and open the link again.
-          </span>
-        </Flash>
+        <Flash
+          tone="error"
+          title="We couldn't start a session in your browser. Check that cookies are enabled and open the link again."
+        />
       ) : (
         <form method="POST" action={HANDOFF_PATH}>
           <CsrfField token={csrfToken} />

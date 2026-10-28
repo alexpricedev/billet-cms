@@ -3,6 +3,7 @@ import {
   type FieldError,
   MediaOptionsTemplate,
 } from "../../components/cms/field-control";
+import { Flash, type FlashField } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import { getAssetUrl } from "../../services/assets";
@@ -120,6 +121,30 @@ export const SlotForm = ({
     errorsByField.set(name, list);
   }
 
+  // The error banner links each invalid field once, to the control it belongs
+  // to. An issue outside the block's fields (`(content)`, `(form)`) has no
+  // control to reach, so it keeps its own message as plain text.
+  const issueFields: FlashField[] = [];
+  const seenIssueFields = new Set<string>();
+  for (const issue of errors ?? []) {
+    const name = topLevelField(issue.path);
+    if (!blockType.fields.some((candidate) => candidate.name === name)) {
+      issueFields.push({ label: issue.message });
+      continue;
+    }
+    const id = `cms-field-${name}`;
+    if (seenIssueFields.has(id)) continue;
+    seenIssueFields.add(id);
+    issueFields.push({ id, label: labelFor(name) });
+  }
+  const fieldIssueCount = seenIssueFields.size;
+  const fixLine =
+    fieldIssueCount === 0
+      ? undefined
+      : fieldIssueCount === 1
+        ? "Fix this field and try again:"
+        : `Fix these ${fieldIssueCount} fields and try again:`;
+
   return (
     <Layout
       title={`${slotTitle(slot)} - ${SITE_NAME}`}
@@ -146,81 +171,57 @@ export const SlotForm = ({
       />
 
       {slot.removedAt && (
-        <div className="flash-warning" role="status">
-          This slot is no longer declared in the site's templates. Its saved
-          content is kept and can still be edited, but a deploy no longer
-          renders it.
-        </div>
+        <Flash
+          tone="warning"
+          title="This slot is no longer declared in the site's templates. Its saved content is kept and can still be edited, but a deploy no longer renders it."
+        />
       )}
 
-      {notice && (
-        <div
-          className={
-            notice.kind === "success" ? "flash-success" : "flash-warning"
-          }
-          role="status"
-        >
-          {notice.message}
-        </div>
-      )}
+      {notice && <Flash tone={notice.kind} title={notice.message} />}
 
       {conflict && (
-        <div className="flash-warning" role="alert">
-          <p>
-            Someone saved a newer version while this form was open
-            {conflict.authorEmail ? ` (${conflict.authorEmail})` : ""}, at{" "}
-            {formatWhen(conflict.createdAt)} UTC.
-          </p>
-          <p>
-            Saving now will create another draft on top of theirs.{" "}
-            <a href={`/cms/slots/${slot.id}`}>Load their version</a> instead to
-            start from what they saved.
-          </p>
-        </div>
+        <Flash
+          tone="warning"
+          title={
+            <>
+              Someone saved a newer version while this form was open
+              {conflict.authorEmail ? ` (${conflict.authorEmail})` : ""}, at{" "}
+              {formatWhen(conflict.createdAt)} UTC.
+            </>
+          }
+          detail={
+            <>
+              Saving now will create another draft on top of theirs.{" "}
+              <a href={`/cms/slots/${slot.id}`}>Load their version</a> instead
+              to start from what they saved.
+            </>
+          }
+        />
       )}
 
       {errors && errors.length > 0 && (
-        <div className="flash-error" role="alert">
-          <p>
-            {refusedPublish
-              ? "This content can't be published. Check the fields marked below."
-              : "This content can't be saved. Check the fields marked below."}
-          </p>
-          <ul>
-            {errors.map((issue, index) => {
-              const name = topLevelField(issue.path);
-              const isField = blockType.fields.some(
-                (candidate) => candidate.name === name,
-              );
-              return (
-                <li key={`${issue.path}:${index}`}>
-                  {isField && (
-                    <>
-                      <a href={`#cms-field-${name}`}>{labelFor(name)}</a>{" "}
-                    </>
-                  )}
-                  {issue.message}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        <Flash
+          tone="error"
+          title={refusedPublish ? "Couldn't publish." : "Couldn't save draft."}
+          detail={fixLine}
+          fields={issueFields}
+        />
       )}
 
       {removedFieldNames.length > 0 && (
-        <div className="flash-warning" role="status">
-          <p>
-            These fields are no longer defined in code. Their saved values are
-            kept as they are and cannot be edited here:
-          </p>
-          <ul>
+        <Flash
+          tone="warning"
+          title="These fields are no longer defined in code."
+          detail="Their saved values are kept as they are and cannot be edited here:"
+        >
+          <ul className="flash-fields">
             {removedFieldNames.map((name) => (
               <li key={name}>
                 <code>{name}</code>
               </li>
             ))}
           </ul>
-        </div>
+        </Flash>
       )}
 
       <form
@@ -381,10 +382,15 @@ export const SlotUnavailable = ({
       <span>{slotTitle(slot)}</span>
     </p>
     <h1>{slotTitle(slot)}</h1>
-    <div className="flash-warning" role="alert">
-      The block type <code>{slot.blockName}</code> for this slot is no longer
-      published. Its saved content is kept but cannot be edited until it is
-      declared again.
-    </div>
+    <Flash
+      tone="warning"
+      title={
+        <>
+          The block type <code>{slot.blockName}</code> for this slot is no
+          longer published. Its saved content is kept but cannot be edited until
+          it is declared again.
+        </>
+      }
+    />
   </Layout>
 );

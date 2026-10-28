@@ -10,9 +10,13 @@ export interface FlashAction {
   newTab?: boolean;
 }
 
-/** One invalid field, linked to the input it belongs to. */
+/**
+ * One line in the banner's list: an invalid field, linked to its control, or a
+ * message with nothing to link to (a page-limit issue, an unreadable body).
+ */
 export interface FlashField {
-  id: string;
+  /** The control's id; when absent the line renders as plain text. */
+  id?: string;
   label: string;
 }
 
@@ -139,8 +143,12 @@ export const Flash = ({
         {fields && fields.length > 0 && (
           <ul className="flash-fields">
             {fields.map((field) => (
-              <li key={field.id}>
-                <a href={`#${field.id}`}>{field.label}</a>
+              <li key={`${field.id ?? ""}:${field.label}`}>
+                {field.id ? (
+                  <a href={`#${field.id}`}>{field.label}</a>
+                ) : (
+                  field.label
+                )}
               </li>
             ))}
           </ul>

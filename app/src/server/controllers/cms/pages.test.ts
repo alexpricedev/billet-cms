@@ -809,18 +809,20 @@ describe("Pages controller", () => {
     // The empty page picker names the field, not the id format.
     expect(html).toContain("Choose a page.");
     expect(html).not.toContain("Invalid UUID");
-    // The block carries field errors, so the summary points at the marked
-    // blocks (the other half of the whole-document-error behaviour).
-    expect(html).toContain("Check the blocks marked below.");
+    // The block carries two field errors, so the banner says how many fields
+    // want fixing and links each one to its control.
+    expect(html).toContain("Fix these 2 fields and try again:");
+    expect(html).toContain('href="#cms-block-0-hero-heading"');
+    expect(html).toContain('href="#cms-block-0-hero-cta"');
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
-  // The banner names the marked blocks only when a block really carries a field
-  // error: a page-limit issue (`blocks`) has no block to mark, so telling the
-  // editor to check marked blocks would send them looking for a highlight that
-  // isn't there (review round 2).
-  test("points the summary at marked blocks only when one carries a field error", async () => {
+  // The banner's "Fix these N fields" line counts real fields only: a
+  // page-limit issue (`blocks`) has no control to fix, so promising fields
+  // would send the editor looking for a highlight that isn't there (review
+  // round 2).
+  test("counts and links fields only when a block carries a field error", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -848,18 +850,22 @@ describe("Pages controller", () => {
       return res.text();
     };
 
-    // A block with a bad field: the block is marked, so the banner says so.
+    // A block with a bad field: the field is marked, so the banner counts it
+    // and links to it.
     const withFieldError = await save({
       blocks: [{ type: "hero", heading: "x".repeat(81), body: document }],
     });
-    expect(withFieldError).toContain("This content can't be saved.");
-    expect(withFieldError).toContain("Check the blocks marked below.");
+    expect(withFieldError).toContain("Couldn't save draft.");
+    expect(withFieldError).toContain("Fix this field and try again:");
+    expect(withFieldError).toContain('href="#cms-block-0-hero-heading"');
 
-    // No hero at all: the page-limit issue has no block to mark, so the banner
-    // drops the sentence.
+    // No hero at all: the page-limit issue has no field to fix, so the banner
+    // keeps the message but drops the field count and link.
     const limitOnly = await save({ blocks: [] });
-    expect(limitOnly).toContain("This content can't be saved.");
-    expect(limitOnly).not.toContain("Check the blocks marked below.");
+    expect(limitOnly).toContain("Couldn't save draft.");
+    expect(limitOnly).not.toContain("Fix this field");
+    expect(limitOnly).not.toContain("Fix these");
+    expect(limitOnly).not.toContain('href="#cms-block-');
 
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
@@ -932,8 +938,9 @@ describe("Pages controller", () => {
       /id="block-2"[\s\S]{0,600}class="cms-block-alert-message" role="alert">Rich text lists may nest/,
     );
     // The issue is whole-block, so no field is marked and the banner must not
-    // point at marked blocks that aren't there.
-    expect(html).not.toContain("Check the blocks marked below.");
+    // promise fields to fix.
+    expect(html).not.toContain("Fix these");
+    expect(html).not.toContain('href="#cms-block-');
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
@@ -1058,9 +1065,8 @@ describe("Pages controller", () => {
     expect(html).toContain("Kept description.");
     expect(html).toContain('value="https://example.com/og.png"');
     // No block carries a field error here — the body is over the size cap, not
-    // a field — so the banner must not point at blocks that aren't marked
-    // (review round 1).
-    expect(html).not.toContain("Check the blocks marked below.");
+    // a field — so the banner must not promise fields to fix (review round 1).
+    expect(html).not.toContain("Fix these");
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
   });
@@ -1461,16 +1467,18 @@ describe("Pages controller", () => {
     expect(one.headers.get("location")).toBe(
       `/cms/pages/${pageId}?saved=1&dropped=hero`,
     );
-    expect(await view("?saved=1&dropped=hero")).toContain(
-      "Draft saved. 1 empty hero block was removed.",
+    const oneHtml = await view("?saved=1&dropped=hero");
+    expect(oneHtml).toContain('<p class="flash-title">Draft saved.</p>');
+    expect(oneHtml).toContain(
+      '<p class="flash-detail">1 empty hero block was removed.</p>',
     );
 
     // Several of one type name it; several of mixed types count blocks.
     expect(await view("?saved=1&dropped=text%2Ctext")).toContain(
-      "Draft saved. 2 empty text blocks were removed.",
+      '<p class="flash-detail">2 empty text blocks were removed.</p>',
     );
     expect(await view("?saved=1&dropped=hero%2Ctext%2Ctext")).toContain(
-      "Draft saved. 3 empty blocks were removed.",
+      '<p class="flash-detail">3 empty blocks were removed.</p>',
     );
     expect((await saveWith("hero,text")).headers.get("location")).toBe(
       `/cms/pages/${pageId}?saved=1&dropped=hero%2Ctext`,
@@ -1490,7 +1498,7 @@ describe("Pages controller", () => {
     );
   });
 
-  test("the removed-blocks sentence follows the redirect sentence", async () => {
+  test("the removed-blocks line follows the redirect sentence", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -1526,8 +1534,12 @@ describe("Pages controller", () => {
     expect(save.headers.get("location")).toBe(
       `/cms/pages/${pageId}?saved=1&moved=%2Fabout&dropped=hero%2Chero`,
     );
-    expect(await view("?saved=1&moved=%2Fabout&dropped=hero%2Chero")).toContain(
-      "Draft saved. /about now redirects here. 2 empty hero blocks were removed.",
+    const html = await view("?saved=1&moved=%2Fabout&dropped=hero%2Chero");
+    expect(html).toContain(
+      '<p class="flash-title">Draft saved. /about now redirects here.</p>',
+    );
+    expect(html).toContain(
+      '<p class="flash-detail">2 empty hero blocks were removed.</p>',
     );
   });
 
