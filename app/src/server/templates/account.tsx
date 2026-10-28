@@ -7,6 +7,8 @@ export interface AccountProps {
   user: User;
   // Token for the nav's sign-out form, bound to its POST /auth/logout.
   csrfToken?: string;
+  // Token for the Theme card's form, bound to its POST /account/theme.
+  themeCsrfToken?: string;
 }
 
 export const Account = ({ user, csrfToken }: AccountProps) => (

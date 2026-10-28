@@ -1,4 +1,13 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 import type { SQL } from "bun";
 import { createBunRequest } from "../../test-utils/bun-request";
 import { testDatabase } from "../../test-utils/database";
@@ -43,6 +52,7 @@ mock.module("../../services/database", () => ({
   },
 }));
 
+import { createCsrfToken, TIME_WINDOW_MINUTES } from "../../services/csrf";
 import { db } from "../../services/database";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { account } from "./account";
@@ -55,9 +65,35 @@ const getAccount = (sessionId?: string) =>
     ...(sessionId ? { headers: { cookie: `cms_session=${sessionId}` } } : {}),
   });
 
+const postTheme = (
+  sessionId: string | undefined,
+  fields: Record<string, string>,
+) => {
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    formData.append(key, value);
+  }
+
+  return createBunRequest(`${ORIGIN}/account/theme`, {
+    method: "POST",
+    headers: {
+      Origin: ORIGIN,
+      ...(sessionId ? { Cookie: `cms_session=${sessionId}` } : {}),
+    },
+    body: formData,
+  });
+};
+
+const themeToken = (sessionId: string) =>
+  createCsrfToken(sessionId, "POST", "/account/theme");
+
 describe("Account Controller", () => {
   beforeEach(async () => {
     await cleanupTestData(db);
+  });
+
+  afterEach(() => {
+    setSystemTime();
   });
 
   afterAll(async () => {
@@ -114,6 +150,119 @@ describe("Account Controller", () => {
       );
 
       expect(html).toContain('name="robots" content="noindex, nofollow"');
+    });
+  });
+
+  describe("POST /account/theme", () => {
+    for (const theme of ["light", "dark", "system"] as const) {
+      test(`saves ${theme} for the editor`, async () => {
+        const user = await seedIdentity(db, `theme-${theme}@example.com`);
+        const sessionId = await createAuthenticatedSession(user.id);
+        const token = await themeToken(sessionId);
+
+        const response = await account.saveTheme(
+          postTheme(sessionId, { _csrf: token, theme }),
+        );
+
+        expect(response.status).toBe(303);
+        expect(response.headers.get("location")).toBe("/account?theme=saved");
+
+        const rows = (await db`
+          SELECT theme FROM cms_user_preferences WHERE user_id = ${user.id}
+        `) as { theme: string }[];
+        expect(rows).toHaveLength(1);
+        expect(rows[0].theme).toBe(theme);
+      });
+    }
+
+    test("refuses a bad value and writes nothing", async () => {
+      const user = await seedIdentity(db, "theme-bad@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+      const token = await themeToken(sessionId);
+
+      const response = await account.saveTheme(
+        postTheme(sessionId, { _csrf: token, theme: "neon" }),
+      );
+
+      expect(response.status).toBe(303);
+      expect(response.headers.get("location")).toBe("/account?theme=invalid");
+
+      const rows = await db`
+        SELECT theme FROM cms_user_preferences WHERE user_id = ${user.id}
+      `;
+      expect(rows).toHaveLength(0);
+    });
+
+    test("a refused value leaves an existing choice alone", async () => {
+      const user = await seedIdentity(db, "theme-keep@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+
+      await account.saveTheme(
+        postTheme(sessionId, {
+          _csrf: await themeToken(sessionId),
+          theme: "dark",
+        }),
+      );
+
+      await account.saveTheme(
+        postTheme(sessionId, {
+          _csrf: await themeToken(sessionId),
+          theme: "neon",
+        }),
+      );
+
+      const rows = (await db`
+        SELECT theme FROM cms_user_preferences WHERE user_id = ${user.id}
+      `) as { theme: string }[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].theme).toBe("dark");
+    });
+
+    test("rejects a request with no CSRF token", async () => {
+      const user = await seedIdentity(db, "theme-no-csrf@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+
+      const response = await account.saveTheme(
+        postTheme(sessionId, { theme: "dark" }),
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.text()).toBe("Invalid CSRF token");
+
+      const rows = await db`
+        SELECT theme FROM cms_user_preferences WHERE user_id = ${user.id}
+      `;
+      expect(rows).toHaveLength(0);
+    });
+
+    test("rejects a stale CSRF token without saving", async () => {
+      const user = await seedIdentity(db, "theme-stale@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+
+      setSystemTime(new Date(Date.now() - TIME_WINDOW_MINUTES * 3 * 60 * 1000));
+      const staleToken = await themeToken(sessionId);
+      setSystemTime();
+
+      const response = await account.saveTheme(
+        postTheme(sessionId, { _csrf: staleToken, theme: "dark" }),
+      );
+
+      expect(response.status).toBe(403);
+      expect(await response.text()).toBe("Invalid CSRF token");
+
+      const rows = await db`
+        SELECT theme FROM cms_user_preferences WHERE user_id = ${user.id}
+      `;
+      expect(rows).toHaveLength(0);
+    });
+
+    test("redirects a signed-out visitor to sign in", async () => {
+      const response = await account.saveTheme(
+        postTheme(undefined, { theme: "dark" }),
+      );
+
+      expect(response.status).toBe(303);
+      expect(response.headers.get("location")).toBe("/sign-in");
     });
   });
 });
