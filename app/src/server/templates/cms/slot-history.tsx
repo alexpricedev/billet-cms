@@ -5,6 +5,7 @@ import type {
   SlotRecord,
   SlotRevisionSummary,
 } from "../../services/content";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatDay, formatDayShort, formatWhen } from "../../utils/format";
 import { humanise } from "../../utils/humanise";
@@ -44,7 +45,7 @@ export const SlotHistory = ({
   notice,
 }: SlotHistoryProps) => (
   <Layout
-    title={`${slotTitle(slot)} history - Billet CMS`}
+    title={`${slotTitle(slot)} history - ${SITE_NAME}`}
     name="cms"
     description="A slot's revision history."
     canonicalPath={`/cms/slots/${slot.id}/history`}

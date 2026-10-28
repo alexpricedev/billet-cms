@@ -1,6 +1,7 @@
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { PageRecord, PageUsage } from "../../services/content";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 
 export interface PageDeleteConfirmProps {
@@ -30,7 +31,7 @@ export const PageDeleteConfirm = ({
   usage,
 }: PageDeleteConfirmProps) => (
   <Layout
-    title={`Delete ${page.title} - Billet CMS`}
+    title={`Delete ${page.title} - ${SITE_NAME}`}
     name="cms"
     description="Confirm deleting a page."
     canonicalPath={`/cms/pages/${page.id}/delete`}

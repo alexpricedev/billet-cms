@@ -24,6 +24,15 @@
   }
 }
 
+/* The theme card's radio group and Save button, spaced without the fieldset's
+   own box. */
+.account-theme-form {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 .account-email {
   color: var(--text);
   font-family: var(--font-mono);

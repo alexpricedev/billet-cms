@@ -1,6 +1,7 @@
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { ExportTokenRecord } from "../../services/export";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
 
@@ -39,7 +40,7 @@ export const ExportPage = ({
   error,
 }: ExportPageProps) => (
   <Layout
-    title="Export - Billet CMS"
+    title={`Export - ${SITE_NAME}`}
     name="cms"
     description="Create tokens for pulling content into another environment."
     canonicalPath="/cms/export"

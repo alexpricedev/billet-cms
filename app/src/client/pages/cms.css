@@ -274,16 +274,6 @@ h1 {
   display: none;
 }
 
-.cms-field-checkbox {
-  align-items: center;
-  display: flex;
-  gap: var(--space-2);
-}
-
-.cms-field-checkbox input[type="checkbox"] {
-  margin: 0;
-}
-
 .cms-noscript {
   background: var(--surface-subtle);
   border: 1px solid var(--border);

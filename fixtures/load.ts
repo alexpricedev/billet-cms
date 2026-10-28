@@ -53,6 +53,10 @@ export interface LoadOptions {
 
 /** The tables the loader owns and empties. `users` is the fixture site's own. */
 const RESET_TABLES = [
+  "cms_mcp_auth_requests",
+  "cms_mcp_tokens",
+  "cms_mcp_grants",
+  "cms_mcp_clients",
   "cms_audit",
   "cms_export_tokens",
   "cms_media",

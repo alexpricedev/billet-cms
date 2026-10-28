@@ -370,7 +370,7 @@ describe("browser smoke", () => {
     const confirm = await until(bodyText, (text) =>
       text.includes("Confirm to open the editor"),
     );
-    expect(confirm).toContain("Continue to Billet CMS");
+    expect(confirm).toContain("Continue to ");
 
     await clickThrough("form button.login-submit");
 
@@ -533,7 +533,7 @@ describe("browser smoke", () => {
     const confirm = await until(bodyText, (text) =>
       text.includes("Confirm to open the editor"),
     );
-    expect(confirm).toContain("Continue to Billet CMS");
+    expect(confirm).toContain("Continue to ");
 
     await clickThrough("form button.login-submit");
     const signedIn = await until(bodyText, (text) => text.includes("Sign out"));

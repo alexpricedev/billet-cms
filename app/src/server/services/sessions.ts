@@ -8,6 +8,8 @@ import {
 } from "../utils/database";
 import type { User } from "./auth";
 import { db } from "./database";
+import { log } from "./logger";
+import { DEFAULT_THEME, getTheme } from "./preferences";
 
 export type SessionType = "guest" | "authenticated";
 
@@ -100,6 +102,29 @@ const loadIdentity = async (
   }
 };
 
+/**
+ * Read the theme saved for an identity, tolerating a missing
+ * `cms_user_preferences`.
+ *
+ * A missing row is `system` — the editor never chose one — and so is a failed
+ * lookup: a database whose migrations have not created the table yet must not
+ * cost the reader their session. The failure is logged rather than swallowed,
+ * so a page that unexpectedly loses its dark colours leaves a trace.
+ */
+const loadTheme = async (userId: string) => {
+  try {
+    return await getTheme(userId);
+  } catch (error) {
+    log.warn(
+      "sessions",
+      `Could not read the saved theme, falling back to system: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return DEFAULT_THEME;
+  }
+};
+
 export const getSessionContextFromDB = async (
   rawSessionId: string,
 ): Promise<SessionContext | null> => {
@@ -128,15 +153,22 @@ export const getSessionContextFromDB = async (
     // Re-read through the view on every request, so a site that removes an
     // account or drops its role from `cms_identities` ends the session at the
     // next request rather than when the cookie expires.
-    const identity =
-      data.session_type === "authenticated" && data.user_id
-        ? await loadIdentity(data.user_id)
-        : null;
+    //
+    // The theme does not depend on the identity row, only on the session's
+    // user_id, so read both at once: a saved theme is one PK lookup on the same
+    // request path as the session, and serialising it would put that latency in
+    // front of every authenticated page.
+    const userId = data.session_type === "authenticated" ? data.user_id : null;
+    const [identity, theme] = await Promise.all([
+      userId ? loadIdentity(userId) : Promise.resolve(null),
+      userId ? loadTheme(userId) : Promise.resolve(null),
+    ]);
     const user: User | null = identity
       ? {
           id: identity.id,
           email: identity.email,
           role: identity.role ?? "user",
+          theme: theme ?? DEFAULT_THEME,
         }
       : null;
 

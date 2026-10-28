@@ -8,6 +8,7 @@ import {
 } from "../controllers/app";
 import { account, handoff, logout, signIn } from "../controllers/auth";
 import {
+  connectedApps,
   dashboard,
   exportTokens,
   media,
@@ -36,6 +37,11 @@ export const appRoutes = {
   // sign-in.tsx` and the plugin's `handleCmsSignIn`.
   "/sign-in": signIn.index,
   "/account": account.index,
+  // The account page's Theme card. Its own path so the CSRF token is bound to
+  // the form that minted it, and a save redirects back to the page.
+  "/account/theme": createRouteHandler({
+    POST: account.saveTheme,
+  }),
   // The CMS's own surface. /cms lists the pages and slots a site published;
   // /cms/slots/:id is the generated editor for one slot, with publish and
   // history alongside it. Each write is its own path so a refresh repeats a
@@ -105,6 +111,13 @@ export const appRoutes = {
   }),
   "/cms/export/:id/revoke": createRouteHandler({
     POST: exportTokens.revoke,
+  }),
+  // Connected apps: the OAuth grants on this CMS. A revoke is a POST with its
+  // own CSRF token and disconnects the client immediately; the row stays as
+  // history rather than being deleted.
+  "/cms/mcp": connectedApps.index,
+  "/cms/mcp/:id/revoke": createRouteHandler({
+    POST: connectedApps.revoke,
   }),
   // The Edit content handoff and CMS sign-in both arrive as a single-use token
   // the site minted, so both render a confirm step on GET and spend the token on

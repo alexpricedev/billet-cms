@@ -24,9 +24,8 @@ live in `app/src/client/base.css` and components consume them.
 ## Colour tokens
 
 Semantic tokens only. A component never introduces an arbitrary hex value.
-Both themes are defined; the CMS follows the operating system setting through
-`prefers-color-scheme` (there is no in-app toggle, so no control can drift from
-the rendered theme).
+Both themes are defined; the theme follows the user's setting, System (the OS)
+by default.
 
 | Token | Light | Dark | Meaning |
 |---|---|---|---|
@@ -147,6 +146,12 @@ raises the border; focus uses a 3px accent ring plus the border, never an
 outline that shifts layout. Placeholders use `--text-muted` and never replace a
 label. Invalid controls use `--danger` border and `aria-invalid`, with the
 message adjacent.
+
+A choice row — a radio or checkbox wrapped in its own `label` — is one flex
+row: `display: flex; align-items: center; gap: var(--space-2)`, with the
+control's margin removed, so the control centres on its text and the row shares
+the card's left edge. Group rows in a `.choice-group` fieldset, with one
+`--space-2` gap between them.
 
 ### Cards and panels
 

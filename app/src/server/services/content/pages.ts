@@ -271,6 +271,55 @@ export const listPages = async (): Promise<PageRecord[]> => {
   return rows.map(toPage);
 };
 
+export type PageState =
+  | { kind: "live" }
+  | { kind: "draft"; since: Date }
+  | { kind: "never" };
+
+interface PageStateRow {
+  id: string;
+  published_revision_id: string | null;
+  latest_id: string | null;
+  latest_created_at: Date | null;
+}
+
+/**
+ * Whether each page's newest edit is live, in one query for the whole list.
+ *
+ * The same shape as `listSlotStates`: the newest revision is the draft, and a
+ * page with no published revision is "never", whatever drafts it has.
+ */
+export const listPageStates = async (): Promise<Map<string, PageState>> => {
+  const rows = (await db`
+    SELECT p.id, p.published_revision_id,
+           latest.id AS latest_id, latest.created_at AS latest_created_at
+    FROM cms_pages p
+    LEFT JOIN LATERAL (
+      SELECT id, created_at
+      FROM cms_revisions
+      WHERE target_type = 'page' AND target_id = p.id
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    ) latest ON true
+  `) as PageStateRow[];
+
+  const states = new Map<string, PageState>();
+  for (const row of rows) {
+    if (row.published_revision_id === null) {
+      states.set(row.id, { kind: "never" });
+    } else if (
+      row.latest_id !== null &&
+      row.latest_id !== row.published_revision_id &&
+      row.latest_created_at
+    ) {
+      states.set(row.id, { kind: "draft", since: row.latest_created_at });
+    } else {
+      states.set(row.id, { kind: "live" });
+    }
+  }
+  return states;
+};
+
 export const getPageById = async (id: string): Promise<PageRecord | null> => {
   const rows = (await db`
     SELECT id, page_type, url, title, seo_description, social_image,

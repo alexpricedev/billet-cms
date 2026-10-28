@@ -1,5 +1,6 @@
 import { TABLES } from "@alexpricedev/billet-cms/contract";
 import { db } from "./database";
+import type { Theme } from "./preferences";
 import { createAuthenticatedSession, deleteSession } from "./sessions";
 
 /**
@@ -9,11 +10,17 @@ import { createAuthenticatedSession, deleteSession } from "./sessions";
  * in, read through the view the site defines (the default exposes its admins).
  * `role` is whatever the view exposes — the default leaves it `'admin'`, and a
  * site that widens the view can add editor roles without the CMS knowing them.
+ *
+ * `theme` is the editor's saved theme, read from `cms_user_preferences` when the
+ * session context is built. It is optional because a `User` built from an
+ * identity alone — `findUserById`, a fixture — has no preferences row to read;
+ * absent means `system`.
  */
 export interface User {
   id: string;
   email: string;
   role: string;
+  theme?: Theme;
 }
 
 interface IdentityRow {

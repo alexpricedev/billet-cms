@@ -1,6 +1,7 @@
 export { dashboard } from "./dashboard";
 export { exportTokens } from "./export";
 export { slotHistory } from "./history";
+export { connectedApps } from "./mcp";
 export { media } from "./media";
 export { pagePublish } from "./page-publish";
 export { pages } from "./pages";

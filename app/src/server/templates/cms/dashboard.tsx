@@ -5,6 +5,7 @@ import type {
   SlotPageGroup,
   SlotState,
 } from "../../services/content";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { humanise } from "../../utils/humanise";
 
@@ -44,7 +45,7 @@ export const Dashboard = ({
   pageTypes,
 }: DashboardProps) => (
   <Layout
-    title="Content - Billet CMS"
+    title={`Content - ${SITE_NAME}`}
     name="cms"
     description="Manage the content of the site's blocks."
     canonicalPath="/cms"

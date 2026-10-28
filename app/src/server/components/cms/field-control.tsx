@@ -655,7 +655,7 @@ export const FieldControl = ({
             aria-label={controlId ? undefined : "Label"}
             value={asString(link.label)}
           />
-          <label className="cms-field-checkbox">
+          <label>
             <input
               type="checkbox"
               id={idFor("newtab")}
