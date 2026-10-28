@@ -8,7 +8,7 @@ import {
 } from "bun:test";
 import { createBunRequest } from "../test-utils/bun-request";
 import { setIpSource } from "./client-ip";
-import { clearRateLimitLog, rateLimit } from "./rate-limit";
+import { clearRateLimitLog, rateLimit, rateLimitByKey } from "./rate-limit";
 
 const url = "http://localhost:3000/login";
 
@@ -171,5 +171,15 @@ describe("rateLimit", () => {
       expect(rateLimit(request(), "api-write", 1, 60_000)).toBeNull();
       expect(rateLimit(request(), "api-write", 1, 60_000)?.status).toBe(429);
     });
+  });
+});
+
+describe("rateLimitByKey", () => {
+  beforeEach(() => clearRateLimitLog());
+
+  test("budgets each key separately, so one grant cannot spend another's", () => {
+    expect(rateLimitByKey("mcp-tool:grant-a", 1, 60_000)).toBeNull();
+    expect(rateLimitByKey("mcp-tool:grant-a", 1, 60_000)?.status).toBe(429);
+    expect(rateLimitByKey("mcp-tool:grant-b", 1, 60_000)).toBeNull();
   });
 });

@@ -133,5 +133,44 @@ export function validateEnv(exit: (code: number) => void = process.exit): void {
     );
   }
 
+  // The MCP endpoint is OAuth-first now. In production the only credential is
+  // an OAuth access token; the development token is a local seam and is ignored
+  // by `mcp/auth.ts` when NODE_ENV is production. Non-production may use either,
+  // and the token is optional there because OAuth works without it.
+  const mcpEnabled = process.env.MCP_ENABLED;
+  if (mcpEnabled !== undefined && !["true", "false"].includes(mcpEnabled)) {
+    log.error(
+      "env",
+      `MCP_ENABLED must be one of: true, false (got "${mcpEnabled}")`,
+    );
+    exit(1);
+  }
+  if (mcpEnabled === "true") {
+    const token = process.env.MCP_DEV_TOKEN?.trim() ?? "";
+    if (process.env.NODE_ENV === "production") {
+      if (token !== "") {
+        log.warn(
+          "env",
+          "MCP_DEV_TOKEN is set in production and will be ignored; only OAuth access tokens authenticate there.",
+        );
+      }
+      log.info("env", "MCP enabled at /mcp (OAuth)");
+    } else {
+      if (token !== "" && token.length < 24) {
+        log.error(
+          "env",
+          "MCP_DEV_TOKEN must be at least 24 characters when set. Generate one with `openssl rand -base64 32`.",
+        );
+        exit(1);
+      }
+      log.info(
+        "env",
+        token
+          ? "MCP enabled at /mcp (OAuth and the development token)"
+          : "MCP enabled at /mcp (OAuth)",
+      );
+    }
+  }
+
   log.info("env", "Environment variables validated");
 }

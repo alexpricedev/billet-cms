@@ -42,9 +42,16 @@ export const siteUrl = (): string => {
 export const indexingAllowed = (): boolean =>
   process.env.ALLOW_INDEXING === "true";
 
-export const SITE_NAME = "Billet CMS";
-export const SITE_DESCRIPTION =
-  "Billet CMS — a headless CMS for Billet sites, on Bun and PostgreSQL";
+/**
+ * The deployment's display name.
+ *
+ * `APP_NAME` is required at boot, so a client deployment sets its own brand
+ * there; the fallback is the CMS's own name for a bare local run. Every page
+ * title, the nav, the consent screen and the MCP server identity read this, so
+ * one variable rebrands the whole surface.
+ */
+export const SITE_NAME = process.env.APP_NAME?.trim() || "Billet CMS";
+export const SITE_DESCRIPTION = `${SITE_NAME} — a headless CMS for the site's content, on Bun and PostgreSQL`;
 
 // Absolute URL for a site-relative path. Exported so llms-txt.ts resolves against
 // the same origin rather than keeping its own copy of this line.

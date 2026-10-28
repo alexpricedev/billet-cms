@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 import type { JSX } from "preact";
+import { MCP_AUTH_COOKIE } from "../../mcp/oauth/config";
 import { getSessionContext } from "../../middleware/auth";
 import { csrfProtection } from "../../middleware/csrf";
 import { rateLimit } from "../../middleware/rate-limit";
@@ -106,9 +107,16 @@ export const handoff = {
 
       setSessionCookie(req, result.sessionId);
 
+      // A pending MCP authorization request rides in this cookie across the
+      // site's sign-in. When it is present, the browser came here from
+      // /mcp/authorize and belongs at the consent screen, not the dashboard.
+      // A normal Edit content handoff has no cookie and still goes to /cms.
+      const pendingMcp = req.cookies.get(MCP_AUTH_COOKIE);
       return new Response("", {
         status: 303,
-        headers: { Location: "/cms" },
+        headers: {
+          Location: pendingMcp ? "/mcp/authorize/continue" : "/cms",
+        },
       });
     } catch {
       return redirect("/sign-in");

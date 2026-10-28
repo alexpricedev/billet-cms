@@ -8,6 +8,7 @@ import {
 } from "../controllers/app";
 import { account, handoff, logout, signIn } from "../controllers/auth";
 import {
+  connectedApps,
   dashboard,
   exportTokens,
   media,
@@ -105,6 +106,13 @@ export const appRoutes = {
   }),
   "/cms/export/:id/revoke": createRouteHandler({
     POST: exportTokens.revoke,
+  }),
+  // Connected apps: the OAuth grants on this CMS. A revoke is a POST with its
+  // own CSRF token and disconnects the client immediately; the row stays as
+  // history rather than being deleted.
+  "/cms/mcp": connectedApps.index,
+  "/cms/mcp/:id/revoke": createRouteHandler({
+    POST: connectedApps.revoke,
   }),
   // The Edit content handoff and CMS sign-in both arrive as a single-use token
   // the site minted, so both render a confirm step on GET and spend the token on

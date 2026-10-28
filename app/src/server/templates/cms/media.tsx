@@ -8,6 +8,7 @@ import {
   type MediaRecord,
   type MediaUsage,
 } from "../../services/media";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 
 export interface MediaListProps {
@@ -87,7 +88,7 @@ export const MediaList = ({
   values,
 }: MediaListProps) => (
   <Layout
-    title="Media - Billet CMS"
+    title={`Media - ${SITE_NAME}`}
     name="cms"
     description="Upload and reuse images."
     canonicalPath="/cms/media"
@@ -238,7 +239,7 @@ export const MediaDetail = ({
 
   return (
     <Layout
-      title={`${media.alt} - Media - Billet CMS`}
+      title={`${media.alt} - Media - ${SITE_NAME}`}
       name="cms"
       description="Edit an image's alt text and focal point."
       canonicalPath={`/cms/media/${media.id}`}
@@ -420,7 +421,7 @@ export const MediaDeleteConfirm = ({
   media,
 }: MediaDeleteConfirmProps) => (
   <Layout
-    title={`Delete ${media.alt} - Billet CMS`}
+    title={`Delete ${media.alt} - ${SITE_NAME}`}
     name="cms"
     description="Confirm deleting an image."
     canonicalPath={`/cms/media/${media.id}/delete`}

@@ -14,6 +14,7 @@ mock.module("../../services/database", () => ({
 
 import { clearRateLimitLog } from "../../middleware/rate-limit";
 import { db } from "../../services/database";
+import { SITE_NAME } from "../../services/seo";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { createBunRequest, findSetCookie } from "../../test-utils/bun-request";
 import { handoff } from "./handoff";
@@ -93,11 +94,11 @@ describe("Handoff Controller", () => {
       const { res, html } = await open(token);
 
       expect(res.status).toBe(200);
-      expect(html).toContain("Sign in to Billet CMS");
-      expect(html).toContain("Continue to Billet CMS");
+      expect(html).toContain(`Sign in to ${SITE_NAME}`);
+      expect(html).toContain(`Continue to ${SITE_NAME}`);
       expect(html).toContain(`name="token" value="${token}"`);
       expect(html).toContain("Confirm to open the editor");
-      expect(html).not.toContain("Back to Billet CMS");
+      expect(html).not.toContain(`Back to ${SITE_NAME}`);
 
       const rows = await db`SELECT used_at FROM cms_handoff_tokens`;
       expect(rows[0].used_at).toBeNull();

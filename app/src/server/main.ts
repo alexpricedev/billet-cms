@@ -3,6 +3,7 @@ import { runMigrations } from "./database/migrate";
 import { setIpSource } from "./middleware/client-ip";
 import { apiRoutes } from "./routes/api";
 import { appRoutes } from "./routes/app";
+import { mcpRoutes } from "./routes/mcp";
 import { initAssets, warnOnMissingDevBundles } from "./services/assets";
 import { startCleanupSweep } from "./services/cleanup";
 import { closeDatabase } from "./services/database";
@@ -39,10 +40,16 @@ const server = Bun.serve({
   // oversized body is refused with a 413 before it is buffered rather than
   // reaching the media service.
   maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
-  routes: secureRoutes({
-    ...appRoutes,
-    ...apiRoutes,
-  }),
+  routes: {
+    // The MCP endpoint and its OAuth discovery surface are machine-facing and
+    // live outside `secureRoutes`: they answer JSON-RPC errors, not the CMS's
+    // HTML 500, and nothing may buffer their streams. See `routes/mcp.ts`.
+    ...mcpRoutes,
+    ...secureRoutes({
+      ...appRoutes,
+      ...apiRoutes,
+    }),
+  },
   async fetch(req) {
     return handleGuarded(req, handleFallback);
   },

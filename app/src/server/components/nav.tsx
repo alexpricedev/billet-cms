@@ -1,3 +1,5 @@
+import { isMcpEnabled } from "../mcp/config";
+import { SITE_NAME } from "../services/seo";
 import type { User } from "../services/users";
 import { CsrfField } from "./csrf-field";
 import { Logo } from "./logo";
@@ -8,10 +10,10 @@ interface NavItem {
   label: string;
   /** The path prefix that marks this item current. */
   match: string;
-  icon: "overview" | "pages" | "media" | "export";
+  icon: "overview" | "pages" | "media" | "export" | "apps";
 }
 
-const items: readonly NavItem[] = [
+const BASE_ITEMS: readonly NavItem[] = [
   { href: "/cms", label: "Content", match: "/cms", icon: "overview" },
   { href: "/cms/pages", label: "Pages", match: "/cms/pages", icon: "pages" },
   { href: "/cms/media", label: "Media", match: "/cms/media", icon: "media" },
@@ -22,6 +24,13 @@ const items: readonly NavItem[] = [
     icon: "export",
   },
 ];
+
+const APPS_ITEM: NavItem = {
+  href: "/cms/mcp",
+  label: "Apps",
+  match: "/cms/mcp",
+  icon: "apps",
+};
 
 // Paths that should light up an item. The dashboard is exact (`/cms`,
 // `/cms?…`) so a child route never highlights both it and its own item.
@@ -40,6 +49,7 @@ const Icon = ({ name }: { name: NavItem["icon"] }) => {
     pages: "M5 3h7l3 3v11H5V3Zm7 0v3h3M8 9h4M8 13h4",
     media: "M3 4h14v12H3V4Zm0 9 4-4 3 3 2-2 5 5",
     export: "M10 3v9m0 0 3.5-3.5M10 12 6.5 8.5M4 15v2h12v-2",
+    apps: "M7 3v4M13 3v4M5 7h10v3a5 5 0 0 1-10 0V7ZM10 15v3",
   };
   return (
     <svg
@@ -71,6 +81,7 @@ export const Nav = ({ page, user, csrfToken, canonicalPath }: NavProps) => {
   // A signed-out visitor, and every error page, gets the plain top bar: no
   // destinations to group and no account to manage.
   const variant = user ? "app" : "plain";
+  const items = isMcpEnabled() ? [...BASE_ITEMS, APPS_ITEM] : BASE_ITEMS;
 
   return (
     <nav
@@ -80,7 +91,7 @@ export const Nav = ({ page, user, csrfToken, canonicalPath }: NavProps) => {
     >
       <a href="/" className="logo nav-brand">
         <Logo />
-        <span>Billet CMS</span>
+        <span>{SITE_NAME}</span>
       </a>
       {/* Rendered hidden and unhidden by src/client/components/nav-menu.ts.
           Without that script — an error page ships none, and JavaScript may be

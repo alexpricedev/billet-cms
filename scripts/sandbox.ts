@@ -66,7 +66,7 @@ const cms = Bun.spawn({
     DATABASE_URL: databaseUrl,
     CRYPTO_PEPPER: SANDBOX_PEPPER,
     PORT: String(config.cmsPort),
-    APP_NAME: "Billet CMS (sandbox)",
+    APP_NAME: "Northwind Studio",
     APP_URL: config.cmsUrl,
     SITE_APP_URL: config.siteUrl,
     SESSION_COOKIE_NAME: config.cmsCookieName,

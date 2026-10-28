@@ -40,7 +40,7 @@ export const buildLlmsTxt = (): string =>
     "",
     `> ${SITE_DESCRIPTION}`,
     "",
-    "Billet CMS is the headless CMS service for a Billet site: it runs on its own host, shares the site's PostgreSQL database, and builds its forms from the block, slot and page definitions the site publishes. Sign-in goes through the site — the CMS has no login of its own.",
+    `${SITE_NAME} is the headless CMS service for this site: it runs on its own host, shares the site's PostgreSQL database, and builds its forms from the block, slot and page definitions the site publishes. Sign-in goes through the site — the CMS has no login of its own.`,
     "",
     ...(PAGES.length > 0 ? ["## Pages", "", ...PAGES.map(linkLine), ""] : []),
     "## Resources",
