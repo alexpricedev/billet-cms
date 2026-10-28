@@ -1,11 +1,9 @@
 /**
- * The MCP spike's environment.
+ * The MCP endpoint's environment.
  *
- * This is deliberately a development seam, not a product surface: there is no
- * OAuth yet, so the only credential the endpoint accepts is a single bearer
- * token from the environment. `validateEnv` refuses to boot with MCP enabled in
- * production, and refuses to boot with MCP enabled and no token, so the spike
- * can never become an unauthenticated production endpoint by accident.
+ * `MCP_ENABLED` switches the whole surface on. OAuth is the credential in every
+ * environment; `MCP_DEV_TOKEN` is an optional local seam that `mcp/auth.ts`
+ * ignores in production, where `validateEnv` only warns if one is set.
  *
  * Read at call time rather than module load: tests set these on the process.
  */
@@ -13,7 +11,7 @@
 /** Whether `/mcp` answers at all. Off unless explicitly `true`. */
 export const isMcpEnabled = (): boolean => process.env.MCP_ENABLED === "true";
 
-/** The one bearer token the spike accepts. `null` when unset. */
+/** The development bearer token, accepted outside production. `null` when unset. */
 export const mcpDevToken = (): string | null => {
   const value = process.env.MCP_DEV_TOKEN?.trim();
   return value ? value : null;

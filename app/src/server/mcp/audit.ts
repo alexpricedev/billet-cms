@@ -45,10 +45,10 @@ export const parseToolCall = (body: unknown): ToolCall | null => {
   };
 };
 
-/** Read the tool call out of a request without consuming the SDK's body. */
-export const readToolCall = async (req: Request): Promise<ToolCall | null> => {
+/** Parse the JSON-RPC body without consuming the SDK's copy; `null` if unparseable. */
+export const readRpcBody = async (req: Request): Promise<unknown> => {
   try {
-    return parseToolCall(await req.clone().json());
+    return await req.clone().json();
   } catch {
     return null;
   }
