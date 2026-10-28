@@ -1146,7 +1146,9 @@ h1 {
     width: 100%;
   }
 
-  .cms-history-link {
+  /* Scoped like the rule above so biome's specificity check stays quiet: a bare
+     `.cms-history-link` here would be a descending selector after it. */
+  .cms-actions .cms-history-link {
     justify-content: center;
     margin-left: 0;
   }
