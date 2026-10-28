@@ -43,7 +43,8 @@ const server = Bun.serve({
   routes: {
     // The MCP endpoint and its OAuth discovery surface are machine-facing and
     // live outside `secureRoutes`: they answer JSON-RPC errors, not the CMS's
-    // HTML 500, and nothing may buffer their streams. See `routes/mcp.ts`.
+    // HTML 500, and nothing may buffer their streams. The consent pages inside
+    // it opt back in to `handleGuarded`. See `routes/mcp.ts`.
     ...mcpRoutes,
     ...secureRoutes({
       ...appRoutes,

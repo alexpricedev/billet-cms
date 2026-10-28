@@ -46,10 +46,10 @@ import { CONSENT_PATH, Consent } from "../../templates/mcp/consent";
 import { ConsentError } from "../../templates/mcp/consent-error";
 import { redirect, render } from "../../utils/response";
 
+// The CSP and `X-Frame-Options` come from `handleGuarded` (routes/mcp.ts): a CSP
+// set here would stop the full policy being applied.
 const CONSENT_HEADERS = {
   "Cache-Control": "no-store",
-  "X-Frame-Options": "DENY",
-  "Content-Security-Policy": "frame-ancestors 'none'",
   "X-Robots-Tag": "noindex",
 };
 

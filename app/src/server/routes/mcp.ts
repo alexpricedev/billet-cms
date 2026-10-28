@@ -3,7 +3,9 @@
  *
  * These are mounted outside `secureRoutes` (`main.ts`), so they answer JSON and
  * JSON-RPC errors rather than the CMS's HTML pipeline, and nothing buffers a
- * stream. Every one is gated by `MCP_ENABLED`.
+ * stream. The two browser-facing consent routes are the exception: they render
+ * HTML, so they opt back in to `handleGuarded` (security headers, maintenance
+ * mode, the styled 500). Every one is gated by `MCP_ENABLED`.
  *
  * Auth is a bearer token: the development token outside production, or an
  * OAuth access token once the connector flow is in use. There is no session and
@@ -13,7 +15,7 @@ import type { BunRequest } from "bun";
 import { authorize } from "../controllers/mcp/authorize";
 import { token } from "../controllers/mcp/token";
 import { mcpHandler } from "../mcp";
-import { auditToolCall, readToolCall } from "../mcp/audit";
+import { auditToolCall, parseToolCall, readRpcBody } from "../mcp/audit";
 import { authenticateMcpRequest, grantIdFromAuthInfo } from "../mcp/auth";
 import { isMcpEnabled } from "../mcp/config";
 import { registerClient } from "../mcp/oauth/clients";
@@ -24,6 +26,7 @@ import {
 import { rateLimit, rateLimitByKey } from "../middleware/rate-limit";
 import { log } from "../services/logger";
 import { createRouteHandler } from "../utils/route-handler";
+import { handleGuarded } from "../utils/security-headers";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -63,10 +66,37 @@ const internalError = (message: string): Response =>
     { status: 500, headers: JSON_HEADERS },
   );
 
+/**
+ * JSON-RPC batches are refused outright.
+ *
+ * The rate limit and the audit both work on a single `tools/call`; the SDK would
+ * still run every call in a batch, so one POST could publish repeatedly with
+ * neither. MCP dropped batching in the 2025-06-18 revision, so no current client
+ * sends one.
+ */
+const batchRefused = (): Response =>
+  new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32600,
+        message:
+          "JSON-RPC batches are not supported. Send one request per POST.",
+      },
+    }),
+    { status: 400, headers: JSON_HEADERS },
+  );
+
 const TOOL_CALLS_PER_MINUTE = 120;
 const WRITES_PER_MINUTE = 30;
 
-/** Tools that change content, and so spend the smaller per-grant budget. */
+/**
+ * Tools that change content, and so spend the smaller per-grant budget.
+ *
+ * The delete and media names are reserved for tools that are not registered yet,
+ * so the write budget already applies the day one of them lands.
+ */
 const WRITE_TOOLS = new Set([
   "save_slot",
   "save_page",
@@ -120,7 +150,9 @@ export const handleMcp = async (req: BunRequest): Promise<Response> => {
   // Parse the call before the SDK reads the body: the clone gives us the tool
   // name for the budget and for the audit, without changing what the handler
   // sees.
-  const call = await readToolCall(req);
+  const body = await readRpcBody(req);
+  if (Array.isArray(body)) return batchRefused();
+  const call = parseToolCall(body);
   if (call) {
     const grantId = grantIdFromAuthInfo(auth.authInfo) ?? "unknown";
     const limited = rateLimitByKey(
@@ -267,6 +299,10 @@ const gated =
   async (req: BunRequest): Promise<Response> =>
     isMcpEnabled() ? handler(req) : disabled();
 
+/** `gated`, plus the CMS's header and error pipeline for the HTML consent pages. */
+const guarded = (handler: (req: BunRequest) => Response | Promise<Response>) =>
+  gated((req) => handleGuarded(req, handler));
+
 export const mcpRoutes = {
   "/mcp": handleMcp,
   "/.well-known/oauth-protected-resource": wellKnown(protectedResourceMetadata),
@@ -278,11 +314,11 @@ export const mcpRoutes = {
   ),
   "/mcp/register": register,
   "/mcp/authorize": createRouteHandler({
-    GET: gated(authorize.index),
-    POST: gated(authorize.create),
+    GET: guarded(authorize.index),
+    POST: guarded(authorize.create),
   }),
   "/mcp/authorize/continue": createRouteHandler({
-    GET: gated(authorize.continue),
+    GET: guarded(authorize.continue),
   }),
   "/mcp/token": createRouteHandler({
     POST: gated(token.create),
