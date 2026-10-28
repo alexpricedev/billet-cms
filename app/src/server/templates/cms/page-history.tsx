@@ -1,6 +1,7 @@
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { PageRecord, PageRevisionSummary } from "../../services/content";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatDay, formatDayShort, formatWhen } from "../../utils/format";
 
@@ -27,7 +28,7 @@ export const PageHistory = ({
   notice,
 }: PageHistoryProps) => (
   <Layout
-    title={`${page.title} history - Billet CMS`}
+    title={`${page.title} history - ${SITE_NAME}`}
     name="cms"
     description="A page's revision history."
     canonicalPath={`/cms/pages/${page.id}/history`}

@@ -109,3 +109,28 @@
     font-size: 12.5px;
   }
 }
+
+/* The MCP consent screen: one permission, two buttons, no chrome to hide in. */
+.consent-details {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+
+  strong {
+    color: var(--text);
+  }
+}
+
+.consent-actions {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+
+  button {
+    width: 100%;
+  }
+}

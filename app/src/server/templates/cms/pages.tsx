@@ -5,6 +5,7 @@ import type {
   PageTypeRecord,
   RedirectRecord,
 } from "../../services/content";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 
 export interface PagesListProps {
@@ -27,7 +28,7 @@ export const PagesList = ({
   notice,
 }: PagesListProps) => (
   <Layout
-    title="Pages - Billet CMS"
+    title={`Pages - ${SITE_NAME}`}
     name="cms"
     description="Manage the site's pages."
     canonicalPath="/cms/pages"

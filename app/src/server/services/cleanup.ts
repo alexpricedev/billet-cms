@@ -1,4 +1,5 @@
 import { ensureIdentitiesView } from "../database/identity-view";
+import { cleanupExpiredMcpCredentials } from "../mcp/oauth/tokens";
 import { cleanupExpired } from "./auth";
 import { log } from "./logger";
 
@@ -17,6 +18,7 @@ const SWEEP_SCHEDULE = "0 * * * *";
  */
 export const runCleanupSweep = async (): Promise<void> => {
   await cleanupExpired();
+  await cleanupExpiredMcpCredentials();
   await ensureIdentitiesView();
 };
 

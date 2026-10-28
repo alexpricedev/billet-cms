@@ -13,6 +13,7 @@ import type {
   SlotRecord,
 } from "../../services/content";
 import type { MediaOption } from "../../services/media";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
 import { humanise } from "../../utils/humanise";
@@ -109,7 +110,7 @@ export const SlotForm = ({
 
   return (
     <Layout
-      title={`${slotTitle(slot)} - Billet CMS`}
+      title={`${slotTitle(slot)} - ${SITE_NAME}`}
       name="cms"
       description="Edit a slot's content."
       canonicalPath={`/cms/slots/${slot.id}`}
@@ -331,7 +332,7 @@ export const SlotUnavailable = ({
   navCsrfToken,
 }: SlotUnavailableProps) => (
   <Layout
-    title={`${slotTitle(slot)} - Billet CMS`}
+    title={`${slotTitle(slot)} - ${SITE_NAME}`}
     name="cms"
     user={user}
     csrfToken={navCsrfToken}

@@ -1,5 +1,6 @@
 import { Layout } from "../components/layouts";
 import { PageHeader } from "../components/page-header";
+import { SITE_NAME } from "../services/seo";
 import type { User } from "../services/users";
 
 export interface AccountProps {
@@ -10,9 +11,9 @@ export interface AccountProps {
 
 export const Account = ({ user, csrfToken }: AccountProps) => (
   <Layout
-    title="Account - Billet CMS"
+    title={`Account - ${SITE_NAME}`}
     name="account"
-    description="Your Billet CMS account."
+    description={`Your ${SITE_NAME} account.`}
     canonicalPath="/account"
     user={user}
     csrfToken={csrfToken}

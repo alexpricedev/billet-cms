@@ -1,6 +1,7 @@
 import { AuthPage } from "../components/auth-page";
 import { CsrfField } from "../components/csrf-field";
 import { Flash } from "../components/flash";
+import { SITE_NAME } from "../services/seo";
 
 export const HANDOFF_PATH = "/handoff";
 
@@ -23,10 +24,10 @@ export interface HandoffProps {
 export const Handoff = ({ token, csrfToken }: HandoffProps) => {
   return (
     <AuthPage
-      title="Sign in - Billet CMS"
-      description="Continue to Billet CMS to edit the site's content."
+      title={`Sign in - ${SITE_NAME}`}
+      description={`Continue to ${SITE_NAME} to edit the site's content.`}
       canonicalPath={HANDOFF_PATH}
-      heading="Sign in to Billet CMS"
+      heading={`Sign in to ${SITE_NAME}`}
       subtitle="Confirm to open the editor"
       footer={null}
     >
@@ -42,7 +43,7 @@ export const Handoff = ({ token, csrfToken }: HandoffProps) => {
           <CsrfField token={csrfToken} />
           <input type="hidden" name="token" value={token} />
           <button type="submit" className="btn btn-primary login-submit">
-            Continue to Billet CMS
+            Continue to {SITE_NAME}
           </button>
         </form>
       )}
@@ -64,7 +65,7 @@ const BackToSite = ({ siteUrl }: HandoffGoneProps) =>
  */
 export const HandoffExpired = ({ siteUrl }: HandoffGoneProps) => (
   <AuthPage
-    title="Link expired - Billet CMS"
+    title={`Link expired - ${SITE_NAME}`}
     description="This Edit content link can't be used again."
     canonicalPath={HANDOFF_PATH}
     heading="This link has already been used or has expired"
@@ -76,7 +77,7 @@ export const HandoffExpired = ({ siteUrl }: HandoffGoneProps) => (
 /** The link was fine but the site no longer lists the person as an editor. */
 export const HandoffNoAccount = ({ siteUrl }: HandoffGoneProps) => (
   <AuthPage
-    title="Can't sign in - Billet CMS"
+    title={`Can't sign in - ${SITE_NAME}`}
     description="This account can no longer sign in to the CMS."
     canonicalPath={HANDOFF_PATH}
     heading="This account can no longer sign in"

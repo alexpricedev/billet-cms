@@ -8,7 +8,7 @@ A headless CMS for [Billet](https://github.com/alexpricedev/Billet) sites. Three
 | `packages/billet-cms` | `@alexpricedev/billet-cms`, the block plugin sites install. Holds the field vocabulary, the site-side read helpers and the contract both sides share. |
 | `e2e/` | A small Bun site (also the sandbox's Northwind Studio) and the end-to-end suite that proves the whole thing works. |
 | `fixtures/`, `scripts/` | The fixture data, loader and sandbox commands. See `runbooks/SANDBOX.md`. |
-| `runbooks/` | Installing the CMS in a site (`INSTALLING-IN-A-SITE.md`) and the sandbox (`SANDBOX.md`). |
+| `runbooks/` | Installing the CMS in a site (`INSTALLING-IN-A-SITE.md`), the sandbox (`SANDBOX.md`), and the MCP spike (`MCP.md`). |
 
 The CMS is never on the public site's request path. A site declares its blocks,
 slots and page types in code and publishes them into `cms_` tables on deploy;

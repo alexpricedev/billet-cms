@@ -17,6 +17,7 @@ import type {
 } from "../../services/content";
 import { normalisePageUrl } from "../../services/content/pages";
 import type { MediaOption } from "../../services/media";
+import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
 import { PageBlocks } from "./page-blocks";
@@ -248,7 +249,7 @@ export const PageForm = ({
 
   return (
     <Layout
-      title={`${page.title} - Billet CMS`}
+      title={`${page.title} - ${SITE_NAME}`}
       name="cms"
       description="Edit a page's content and settings."
       canonicalPath={`/cms/pages/${page.id}`}
@@ -601,7 +602,7 @@ export const NewPageForm = ({
 
   return (
     <Layout
-      title="New page - Billet CMS"
+      title={`New page - ${SITE_NAME}`}
       name="cms"
       description="Create a page."
       canonicalPath="/cms/pages/new"
@@ -717,7 +718,7 @@ export const PageUnavailable = ({
   navCsrfToken,
 }: PageUnavailableProps) => (
   <Layout
-    title={`${page.title} - Billet CMS`}
+    title={`${page.title} - ${SITE_NAME}`}
     name="cms"
     description="A page that can't be edited."
     canonicalPath={`/cms/pages/${page.id}`}

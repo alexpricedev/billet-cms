@@ -20,7 +20,14 @@ import { clientKey } from "./client-ip";
  * reads the whole published site and the media library, and `cms:pull` is a
  * deliberate command, not a paging client.
  */
-export type RateLimitBucket = "auth" | "api-read" | "api-write" | "export";
+export type RateLimitBucket =
+  | "auth"
+  | "api-read"
+  | "api-write"
+  | "export"
+  | "mcp-register"
+  | "mcp-token"
+  | "mcp-authorize";
 
 const requestLog = new Map<string, number[]>();
 
@@ -32,7 +39,22 @@ export function rateLimit(
 ): Response | null {
   // A bucket name never contains ":", so no address can collide with another
   // bucket's entry — including an IPv6 address, which is all colons.
-  const key = `${bucket}:${clientKey(req)}`;
+  return rateLimitByKey(`${bucket}:${clientKey(req)}`, maxRequests, windowMs);
+}
+
+/**
+ * The same budget, keyed by something other than the client address.
+ *
+ * The MCP endpoint budgets a connected grant rather than an IP: several agents
+ * can share a NAT, and one agent on a laptop should not be able to spend the
+ * whole office's allowance. The caller supplies the whole key, so the shape of
+ * it (a grant id, a token id) is the caller's business.
+ */
+export function rateLimitByKey(
+  key: string,
+  maxRequests = 10,
+  windowMs = 5000,
+): Response | null {
   const now = Date.now();
 
   const timestamps = requestLog.get(key) || [];

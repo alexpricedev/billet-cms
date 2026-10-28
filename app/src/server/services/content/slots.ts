@@ -113,6 +113,25 @@ export const getSlotById = async (id: string): Promise<SlotRecord | null> => {
   return rows.length > 0 ? toSlot(rows[0]) : null;
 };
 
+/**
+ * Read one slot by the name its template declared.
+ *
+ * This is the handle the CMS's own UI and an MCP caller both see (`home.hero`),
+ * so a caller that only knows the name does not have to list every slot to
+ * find its id.
+ */
+export const getSlotByName = async (
+  name: string,
+): Promise<SlotRecord | null> => {
+  const rows = (await db`
+    SELECT id, name, block_name, page, preview_path, label, help, removed_at,
+           published_revision_id
+    FROM cms_slots
+    WHERE name = ${name}
+  `) as SlotRow[];
+  return rows.length > 0 ? toSlot(rows[0]) : null;
+};
+
 export interface SlotPageGroup {
   page: string;
   slots: SlotRecord[];

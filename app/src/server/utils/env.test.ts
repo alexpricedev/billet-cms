@@ -55,6 +55,8 @@ const ENV_KEYS = [
   "SITE_APP_URL",
   "SITE_URL",
   "TRUST_PROXY",
+  "MCP_ENABLED",
+  "MCP_DEV_TOKEN",
 ] as const;
 
 let saved: Record<string, string | undefined> = {};
@@ -131,5 +133,38 @@ describe("validateEnv", () => {
           line.includes("absolute URL including the scheme"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("the MCP environment", () => {
+  beforeEach(() => {
+    process.env.NODE_ENV = "production";
+    process.env.APP_URL = "https://cms.example.com";
+    process.env.SITE_APP_URL = "https://example.com";
+    process.env.MCP_ENABLED = "true";
+    delete process.env.MCP_DEV_TOKEN;
+  });
+
+  test("allows MCP in production now that OAuth issues the tokens", () => {
+    expect(runValidateEnv().code).toBeNull();
+  });
+
+  test("allows a dev token to be present in production and ignores it", () => {
+    process.env.MCP_DEV_TOKEN = "a".repeat(32);
+    expect(runValidateEnv().code).toBeNull();
+  });
+
+  test("refuses a short dev token outside production", () => {
+    process.env.NODE_ENV = "development";
+    process.env.APP_URL = "http://localhost:3000";
+    process.env.SITE_APP_URL = "http://localhost:4000";
+    process.env.MCP_DEV_TOKEN = "short";
+
+    expect(runValidateEnv().code).toBe(1);
+  });
+
+  test("refuses an unknown flag", () => {
+    process.env.MCP_ENABLED = "yes";
+    expect(runValidateEnv().code).toBe(1);
   });
 });
