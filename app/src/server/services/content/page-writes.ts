@@ -553,23 +553,55 @@ export const publishPage = async (
       }[];
       if (locked.length === 0) throw new Error(`Page ${page.id} not found`);
 
+      const latest = await getLatestRevision("page", page.id, tx);
       const revision = input.revisionId
         ? await getRevisionById(input.revisionId, tx)
-        : await getLatestRevision("page", page.id, tx);
+        : latest;
 
       if (revision?.targetType !== "page" || revision.targetId !== page.id) {
         return { ok: false as const, reason: "no-draft" as const };
       }
 
-      if (input.requireLatest) {
-        const latest = await getLatestRevision("page", page.id, tx);
-        if (latest && latest.id !== revision.id) {
+      if (input.requireLatest && latest && latest.id !== revision.id) {
+        return {
+          ok: false as const,
+          reason: "stale" as const,
+          latestRevisionId: latest.id,
+        };
+      }
+
+      // The queued address change belongs to the newest revision: publishing an
+      // older one leaves it alone, because the draft that carried it is not what
+      // goes live.
+      const applyingDraftUrl =
+        latest !== null &&
+        latest.id === revision.id &&
+        locked[0].draft_url !== null;
+
+      // The revision is already live, so only a pending address change can be
+      // applied (ticket #66: a URL-only save leaves the pointer alone). The
+      // content is not changing, so the content checks below are skipped — a
+      // queued move must not be refused for a block the live page already has.
+      if (locked[0].published_revision_id === revision.id) {
+        if (!applyingDraftUrl) {
           return {
-            ok: false as const,
-            reason: "stale" as const,
-            latestRevisionId: latest.id,
+            ok: true as const,
+            revisionId: revision.id,
+            contentVersion: await readContentVersion(tx),
+            changed: false,
+            moved: null,
+            warnings: [],
           };
         }
+        const moved = await applyDraftUrl(tx, page.id);
+        return {
+          ok: true as const,
+          revisionId: revision.id,
+          contentVersion: await bumpContentVersion(tx),
+          changed: true,
+          moved,
+          warnings: [],
+        };
       }
 
       const validation = validatePageContent(
@@ -583,24 +615,6 @@ export const publishPage = async (
           ok: false as const,
           reason: "invalid" as const,
           issues: validation.issues,
-        };
-      }
-
-      // A pending address change is applied even when the revision is already
-      // the published one: a URL-only save leaves the pointer alone, so this is
-      // the safety net that still moves the page (ticket #66).
-      const applyingDraftUrl = locked[0].draft_url !== null;
-      if (
-        locked[0].published_revision_id === revision.id &&
-        !applyingDraftUrl
-      ) {
-        return {
-          ok: true as const,
-          revisionId: revision.id,
-          contentVersion: await readContentVersion(tx),
-          changed: false,
-          moved: null,
-          warnings: [],
         };
       }
 
@@ -639,7 +653,7 @@ export const publishPage = async (
       // version bump tells the site both the content and the address changed.
       // `applyDraftUrl` re-checks the address under the same lock, so a page
       // that took it after the save refuses the whole publish.
-      const moved = await applyDraftUrl(tx, page.id);
+      const moved = applyingDraftUrl ? await applyDraftUrl(tx, page.id) : null;
 
       await tx`
         UPDATE cms_pages
@@ -719,7 +733,12 @@ export const listPageHistory = async (
 };
 
 export type RestorePageResult =
-  | { ok: true; revision: RevisionRecord }
+  | {
+      ok: true;
+      revision: RevisionRecord;
+      /** The address change the restore dropped, for the editor's notice. */
+      droppedUrl: string | null;
+    }
   | { ok: false; reason: "not-found" };
 
 export interface RestorePageInput {
@@ -749,15 +768,15 @@ export const restorePageRevision = async (
     return { ok: false, reason: "not-found" };
   }
 
-  const revision = await db.begin(async (tx) => {
-    const locked = await tx`
-      SELECT id FROM cms_pages WHERE id = ${page.id} FOR UPDATE
-    `;
+  const restored = await db.begin(async (tx) => {
+    const locked = (await tx`
+      SELECT draft_url FROM cms_pages WHERE id = ${page.id} FOR UPDATE
+    `) as { draft_url: string | null }[];
     if (locked.length === 0) {
       throw new Error(`Page ${page.id} not found`);
     }
 
-    const restored = await createRevision(
+    const revision = await createRevision(
       {
         targetType: "page",
         targetId: page.id,
@@ -769,8 +788,8 @@ export const restorePageRevision = async (
     );
 
     await tx`UPDATE cms_pages SET draft_url = NULL WHERE id = ${page.id}`;
-    return restored;
+    return { revision, droppedUrl: locked[0].draft_url };
   });
 
-  return { ok: true, revision };
+  return { ok: true, ...restored };
 };

@@ -370,12 +370,18 @@ export const createPage = async (
 
   try {
     const page = await db.begin(async (tx) => {
+      const id = randomUUID();
+      // A published page can hold a path as a *pending* address change, which
+      // no unique index covers, so the new page would otherwise take it and the
+      // owner's Publish would fail later with a conflict. Refuse it here.
+      const owner = await findPageHoldingUrl(tx, settings.url, id);
+      if (owner) throw new PageUrlConflictError(settings.url, owner.title);
       await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
       const rows = (await tx`
         INSERT INTO cms_pages
           (id, page_type, url, title, seo_description, social_image)
         VALUES (
-          ${randomUUID()},
+          ${id},
           ${input.pageType},
           ${settings.url},
           ${settings.title},

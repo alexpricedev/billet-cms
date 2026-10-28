@@ -548,8 +548,21 @@ export const PageForm = ({
                       hidden={!moving}
                     >
                       <span aria-hidden="true">⚠ </span>
-                      Publishing moves this page: <code>{page.url}</code> will
-                      redirect to <code data-url-move-to>{movingTo}</code>.
+                      {publishedRevisionId !== null ? (
+                        <>
+                          Publishing moves this page: <code>{page.url}</code>{" "}
+                          will redirect to{" "}
+                          <code data-url-move-to>{movingTo}</code>.
+                        </>
+                      ) : (
+                        // A page that has never been published has nothing live
+                        // to protect, so its address moves on Save — no
+                        // redirect, and no waiting for Publish.
+                        <>
+                          Saving moves this page to{" "}
+                          <code data-url-move-to>{movingTo}</code>.
+                        </>
+                      )}
                     </p>
                   ),
                 }}

@@ -138,9 +138,15 @@ export const pageNotice = (params: URLSearchParams): Notice | null => {
       : { kind: "success", message };
   }
   if (params.get("restored") === "1") {
+    // Untrusted, like `moved`: only a path this app could have stored is named.
+    const dropped = params.get("dropped");
+    const droppedUrl = dropped && /^\/[^/]/.test(dropped) ? dropped : null;
     return {
       kind: "success",
       message: "Restored as a new draft. Publish to make it live.",
+      ...(droppedUrl
+        ? { detail: `The pending URL change to ${droppedUrl} was discarded.` }
+        : {}),
     };
   }
   if (params.get("deleted") === "1") {

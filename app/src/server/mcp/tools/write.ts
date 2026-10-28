@@ -99,6 +99,8 @@ const pageImageGuidance = async (
 const summarizePage = (page: PageRecord) => ({
   id: page.id,
   url: page.url,
+  /** An address change waiting for Publish, when one is saved. */
+  draftUrl: page.draftUrl,
   title: page.title,
   pageType: page.pageType,
 });
@@ -480,7 +482,9 @@ export const registerWriteTools = (
           page,
           settings: {
             pageType: settings?.pageType ?? page.pageType,
-            url: settings?.url ?? page.url,
+            // The saved draft address is what the editor shows, and passing the
+            // live one back would read as "revert the move" and clear it.
+            url: settings?.url ?? page.draftUrl ?? page.url,
             title: settings?.title ?? page.title,
             seoDescription:
               settings?.seoDescription !== undefined

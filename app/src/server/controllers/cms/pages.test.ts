@@ -1499,6 +1499,72 @@ describe("Pages controller", () => {
     expect(afterRestore).not.toContain("The old address");
   });
 
+  test("a restore names the pending URL change it discarded", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const save = async (url: string, base: string) =>
+      pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url,
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: base,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+
+    await save("/about", "");
+    const first = await getLatestRevision("page", pageId);
+    const published = await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: first?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    expect(published.status).toBe(303);
+    await save("/studio", first?.id ?? "");
+    expect((await getPageById(pageId))?.draftUrl).toBe("/studio");
+
+    const restored = await pagePublish.restore(
+      await post(
+        `/cms/pages/${pageId}/restore`,
+        { revision: first?.id ?? "" },
+        `/cms/pages/${pageId}/restore`,
+        { id: pageId },
+      ),
+    );
+    expect(restored.status).toBe(303);
+    expect(restored.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?restored=1&dropped=%2Fstudio`,
+    );
+
+    // The notice says a queued move went with the restore, rather than
+    // dropping it silently.
+    const html = await (
+      await pages.form(
+        createBunRequest(
+          `${ORIGIN}/cms/pages/${pageId}?restored=1&dropped=%2Fstudio`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id: pageId },
+        ),
+      )
+    ).text();
+    expect(html).toContain("The pending URL change to /studio was discarded.");
+    expect((await getPageById(pageId))?.draftUrl).toBeNull();
+  });
+
   test("reports a URL change without claiming a redirect on save", async () => {
     const created = await createPage({
       pageType: "landing",
@@ -1545,7 +1611,10 @@ describe("Pages controller", () => {
       )
     ).text();
     expect(failed).toMatch(/<p[^>]*data-url-move(?![^>]*hidden)/);
-    expect(failed).toContain("Publishing moves this page");
+    // Never published: the address moves on Save, so the line must not promise
+    // a redirect that only a Publish would make.
+    expect(failed).toContain("Saving moves this page to");
+    expect(failed).not.toContain("Publishing moves this page");
     expect(failed).toContain("(unsaved: /studio)");
 
     const save = await pages.save(

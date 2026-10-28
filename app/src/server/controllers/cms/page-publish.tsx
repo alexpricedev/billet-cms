@@ -188,7 +188,12 @@ export const pagePublish = {
       return redirect(`/cms/pages/${pageId}/history?error=not-found`);
     }
 
-    return redirect(`/cms/pages/${pageId}?restored=1`);
+    // A restore is the editor's discard, so it may have dropped a queued move;
+    // name it in the notice rather than clearing it silently.
+    const dropped = result.droppedUrl
+      ? `&dropped=${encodeURIComponent(result.droppedUrl)}`
+      : "";
+    return redirect(`/cms/pages/${pageId}?restored=1${dropped}`);
   },
 
   /** A page's revision history, with a restore button per older revision. */
