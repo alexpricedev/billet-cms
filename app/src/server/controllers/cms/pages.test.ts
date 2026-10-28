@@ -1392,6 +1392,11 @@ describe("Pages controller", () => {
     // The editor shows the draft address and Publish names both addresses.
     const editor = await view("?saved=1");
     expect(editor).toContain('value="/about-us"');
+    expect(editor).toContain("<code>/about-us</code> (not published)");
+    expect(editor).toMatch(/<p[^>]*data-url-move(?![^>]*hidden)/);
+    expect(editor).toContain(
+      'Publishing moves this page: <code>/about</code> will redirect to <code data-url-move-to="true">/about-us</code>.',
+    );
     expect(editor).toContain(
       "The old address /about will redirect to /about-us.",
     );
@@ -1517,6 +1522,9 @@ describe("Pages controller", () => {
     const plain = await view();
     expect(plain).toMatch(/<p[^>]*data-url-move[^>]*hidden/);
     expect(plain).toContain('aria-describedby="url-help url-move"');
+    // The help text is a neutral example, not one that reads as the old URL.
+    expect(plain).toContain("The path the page is served at, e.g. /company.");
+    expect(plain).not.toContain("e.g. /about.");
 
     // A failed save with a new URL re-renders the line visible and the
     // breadcrumb names the unsaved URL.
@@ -1537,7 +1545,7 @@ describe("Pages controller", () => {
       )
     ).text();
     expect(failed).toMatch(/<p[^>]*data-url-move(?![^>]*hidden)/);
-    expect(failed).toContain("Saving moves this page");
+    expect(failed).toContain("Publishing moves this page");
     expect(failed).toContain("(unsaved: /studio)");
 
     const save = await pages.save(

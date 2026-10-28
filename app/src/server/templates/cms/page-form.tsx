@@ -214,10 +214,11 @@ const SettingsControl = ({
 /**
  * The page editor: the page's settings, its blocks, and publishing alongside.
  *
- * Settings are live columns (a URL, a title, an SEO description, a social
- * image); content is versioned in `cms_revisions`. One save writes both, so the
- * URL a redirect is written for is the one the editor can see, and the content
- * the site will render is the one they just looked at.
+ * Settings are live columns (a title, an SEO description, a social image) —
+ * except the URL, which is stored with the draft and moves on Publish, like the
+ * content in `cms_revisions`. One save writes both, so the URL a redirect is
+ * written for is the one the editor can see, and the content the site will
+ * render is the one they just looked at.
  */
 export const PageForm = ({
   user,
@@ -278,10 +279,19 @@ export const PageForm = ({
       : ""
   }`;
 
-  // The URL takes effect on save, not on publish: the stored row is the live
-  // address, and the redirect from it is written with the save.
+  // The field starts at the stored address — the draft if one is pending — and
+  // the warning compares what is typed with the *live* address, because that is
+  // what Publish would move.
   const typedUrl = normalisePageUrl(settings.url);
+  const storedUrl = page.draftUrl ?? page.url;
   const moving = typedUrl.ok ? typedUrl.url !== page.url : false;
+  const movingTo = typedUrl.ok ? typedUrl.url : settings.url;
+  // A saved draft URL sits in the breadcrumb beside the live one; anything
+  // typed on top of it is a second, unsaved value.
+  const draftPending = page.draftUrl !== null && page.draftUrl !== page.url;
+  const unsaved = typedUrl.ok
+    ? typedUrl.url !== storedUrl
+    : settings.url.trim() !== storedUrl;
 
   const uneditable = pageType === null;
 
@@ -324,7 +334,15 @@ export const PageForm = ({
           <>
             <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
             <span>{page.url}</span>
-            {moving && (
+            {draftPending && (
+              <>
+                {" "}
+                <span>
+                  <code>{page.draftUrl}</code> (not published)
+                </span>
+              </>
+            )}
+            {unsaved && (
               <>
                 {" "}
                 <span>(unsaved: {settings.url})</span>
@@ -515,7 +533,7 @@ export const PageForm = ({
               <SettingsControl
                 name="url"
                 label="URL"
-                help="The path the page is served at, e.g. /about."
+                help="The path the page is served at, e.g. /company."
                 value={settings.url}
                 errors={settingsErrors?.get("url")}
                 required
@@ -529,9 +547,9 @@ export const PageForm = ({
                       data-url-move
                       hidden={!moving}
                     >
-                      <span aria-hidden="true">⚠ </span>Saving moves this page:{" "}
-                      <code>{page.url}</code> will redirect to the new URL as
-                      soon as you save, even before you publish.
+                      <span aria-hidden="true">⚠ </span>
+                      Publishing moves this page: <code>{page.url}</code> will
+                      redirect to <code data-url-move-to>{movingTo}</code>.
                     </p>
                   ),
                 }}
@@ -762,7 +780,7 @@ export const NewPageForm = ({
           <SettingsControl
             name="url"
             label="URL"
-            help="The path the page is served at, e.g. /about."
+            help="The path the page is served at, e.g. /company."
             value={values.url}
             errors={errorsByField.get("url")}
             required
