@@ -24,9 +24,8 @@ live in `app/src/client/base.css` and components consume them.
 ## Colour tokens
 
 Semantic tokens only. A component never introduces an arbitrary hex value.
-Both themes are defined; the CMS follows the operating system setting through
-`prefers-color-scheme` (there is no in-app toggle, so no control can drift from
-the rendered theme).
+Both themes are defined; the theme follows the user's setting, System (the OS)
+by default.
 
 | Token | Light | Dark | Meaning |
 |---|---|---|---|
