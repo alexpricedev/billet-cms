@@ -33,6 +33,7 @@ import {
   listRedirects,
   type PageBlock,
   publishPage,
+  restorePageRevision,
   savePageDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
@@ -1231,7 +1232,7 @@ describe("Pages controller", () => {
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
-  test("writes a redirect when the URL changes", async () => {
+  test("moves a never-published page's URL on save", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -1255,9 +1256,9 @@ describe("Pages controller", () => {
       ),
     );
     expect(save.status).toBe(303);
-    expect(save.headers.get("location")).toBe(
-      `/cms/pages/${pageId}?saved=1&moved=%2Fabout`,
-    );
+    // Nothing was live to wait for, so the address moves now; the banner
+    // mentions no redirect because a save never applies one for a live page.
+    expect(save.headers.get("location")).toBe(`/cms/pages/${pageId}?saved=1`);
     expect(await getPageByUrl("/about-us")).not.toBeNull();
     expect(await getPageByUrl("/about")).toBeNull();
     const redirects = await listRedirects();
@@ -1329,7 +1330,242 @@ describe("Pages controller", () => {
     );
   });
 
-  test("says a URL change redirects, before and after the save", async () => {
+  test("a published page's URL change waits for Publish", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const save = async (url: string, base: string) =>
+      pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url,
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: base,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+    const view = async (query = "") =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}${query}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+    const publishLatest = async () => {
+      const latest = await getLatestRevision("page", pageId);
+      return pagePublish.publish(
+        await post(
+          `/cms/pages/${pageId}/publish`,
+          { revision: latest?.id ?? "" },
+          `/cms/pages/${pageId}/publish`,
+          { id: pageId },
+        ),
+      );
+    };
+
+    // Give the page a live address to move away from.
+    await save("/about", "");
+    const first = await getLatestRevision("page", pageId);
+    expect((await publishLatest()).status).toBe(303);
+
+    // The change is stored with the draft: nothing live moves, no redirect.
+    const draft = await save("/about-us", first?.id ?? "");
+    expect(draft.status).toBe(303);
+    expect(draft.headers.get("location")).toBe(`/cms/pages/${pageId}?saved=1`);
+    expect(await getPageByUrl("/about")).not.toBeNull();
+    expect(await getPageByUrl("/about-us")).toBeNull();
+    expect(await listRedirects()).toHaveLength(0);
+
+    // The editor shows the draft address and Publish names both addresses.
+    const editor = await view("?saved=1");
+    expect(editor).toContain('value="/about-us"');
+    expect(editor).toContain("<code>/about-us</code> (not published)");
+    expect(editor).toMatch(/<p[^>]*data-url-move(?![^>]*hidden)/);
+    expect(editor).toContain(
+      'Publishing moves this page: <code>/about</code> will redirect to <code data-url-move-to="true">/about-us</code>.',
+    );
+    expect(editor).toContain(
+      "The old address /about will redirect to /about-us.",
+    );
+
+    // Publish applies it and the banner names the redirect as the detail.
+    const published = await publishLatest();
+    expect(published.status).toBe(303);
+    expect(published.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?published=1&moved=%2Fabout`,
+    );
+    expect(await getPageByUrl("/about")).toBeNull();
+    expect(await getPageByUrl("/about-us")).not.toBeNull();
+    expect(
+      (await listRedirects()).map((redirect) => redirect.fromPath),
+    ).toContain("/about");
+
+    const banner = await view("?published=1&moved=%2Fabout");
+    expect(banner).toContain('<p class="flash-title">Page published.</p>');
+    expect(banner).toContain(
+      '<p class="flash-detail">/about now redirects here.</p>',
+    );
+  });
+
+  test("the publish dialog lists only the pending move, and a restore drops it", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const save = async (url: string, base: string) =>
+      pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url,
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: base,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+    const view = async () =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+
+    // Publish a first move, so an older redirect (/about) is already live.
+    await save("/about", "");
+    const first = await getLatestRevision("page", pageId);
+    await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: first?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    await save("/about-us", first?.id ?? "");
+    await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: (await getLatestRevision("page", pageId))?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+
+    // A second move is pending; the dialog names only the live address it
+    // moves away from, not the earlier /about redirect.
+    const publishedRevisionId = (await getPageById(pageId))
+      ?.publishedRevisionId;
+    await save("/studio", publishedRevisionId ?? "");
+    const pending = await view();
+    expect(pending).toContain(
+      "The old address /about-us will redirect to /studio.",
+    );
+    expect(pending).not.toContain("The old address /about will");
+
+    // Restoring the published revision discards the pending address, so the
+    // dialog stops mentioning a redirect (#60 f45).
+    const restored = await restorePageRevision({
+      pageId,
+      revisionId: publishedRevisionId ?? "",
+      actorId: editorId,
+    });
+    expect(restored.ok).toBe(true);
+    const afterRestore = await view();
+    expect(afterRestore).toContain('value="/about-us"');
+    expect(afterRestore).not.toContain("The old address");
+  });
+
+  test("a restore names the pending URL change it discarded", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const save = async (url: string, base: string) =>
+      pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url,
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: base,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+
+    await save("/about", "");
+    const first = await getLatestRevision("page", pageId);
+    const published = await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: first?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    expect(published.status).toBe(303);
+    await save("/studio", first?.id ?? "");
+    expect((await getPageById(pageId))?.draftUrl).toBe("/studio");
+
+    const restored = await pagePublish.restore(
+      await post(
+        `/cms/pages/${pageId}/restore`,
+        { revision: first?.id ?? "" },
+        `/cms/pages/${pageId}/restore`,
+        { id: pageId },
+      ),
+    );
+    expect(restored.status).toBe(303);
+    expect(restored.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?restored=1&dropped=%2Fstudio`,
+    );
+
+    // The notice says a queued move went with the restore, rather than
+    // dropping it silently.
+    const html = await (
+      await pages.form(
+        createBunRequest(
+          `${ORIGIN}/cms/pages/${pageId}?restored=1&dropped=%2Fstudio`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id: pageId },
+        ),
+      )
+    ).text();
+    expect(html).toContain("The pending URL change to /studio was discarded.");
+    expect((await getPageById(pageId))?.draftUrl).toBeNull();
+  });
+
+  test("reports a URL change without claiming a redirect on save", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -1352,6 +1588,9 @@ describe("Pages controller", () => {
     const plain = await view();
     expect(plain).toMatch(/<p[^>]*data-url-move[^>]*hidden/);
     expect(plain).toContain('aria-describedby="url-help url-move"');
+    // The help text is a neutral example, not one that reads as the old URL.
+    expect(plain).toContain("The path the page is served at, e.g. /company.");
+    expect(plain).not.toContain("e.g. /about.");
 
     // A failed save with a new URL re-renders the line visible and the
     // breadcrumb names the unsaved URL.
@@ -1372,7 +1611,10 @@ describe("Pages controller", () => {
       )
     ).text();
     expect(failed).toMatch(/<p[^>]*data-url-move(?![^>]*hidden)/);
-    expect(failed).toContain("Saving moves this page");
+    // Never published: the address moves on Save, so the line must not promise
+    // a redirect that only a Publish would make.
+    expect(failed).toContain("Saving moves this page to");
+    expect(failed).not.toContain("Publishing moves this page");
     expect(failed).toContain("(unsaved: /studio)");
 
     const save = await pages.save(
@@ -1389,11 +1631,11 @@ describe("Pages controller", () => {
         { id: pageId },
       ),
     );
-    expect(save.headers.get("location")).toBe(
-      `/cms/pages/${pageId}?saved=1&moved=%2Fabout`,
-    );
-    expect(await view("?saved=1&moved=%2Fabout")).toContain(
-      "Draft saved. /about now redirects here.",
+    expect(save.headers.get("location")).toBe(`/cms/pages/${pageId}?saved=1`);
+    // A save never carries the redirect sentence; only Publish does.
+    expect(await view("?saved=1&moved=%2Fabout")).toContain("Draft saved.");
+    expect(await view("?saved=1&moved=%2Fabout")).not.toContain(
+      "now redirects here",
     );
     // A path that isn't one of this page's redirects, or isn't a path, is the
     // plain notice.
@@ -1407,7 +1649,8 @@ describe("Pages controller", () => {
       expect(html).not.toContain("now redirects here");
     }
 
-    // The banner after publishing is unchanged: the move was announced on save.
+    // This page had never been published, so its move was already live: the
+    // publish applies no address change and adds no redirect sentence.
     const latest = await getLatestRevision("page", pageId);
     const published = await pagePublish.publish(
       await post(
@@ -1510,7 +1753,7 @@ describe("Pages controller", () => {
     );
   });
 
-  test("the removed-blocks line follows the redirect sentence", async () => {
+  test("the removed-blocks line is the save banner's detail", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -1544,12 +1787,10 @@ describe("Pages controller", () => {
       ),
     );
     expect(save.headers.get("location")).toBe(
-      `/cms/pages/${pageId}?saved=1&moved=%2Fabout&dropped=hero%2Chero`,
+      `/cms/pages/${pageId}?saved=1&dropped=hero%2Chero`,
     );
-    const html = await view("?saved=1&moved=%2Fabout&dropped=hero%2Chero");
-    expect(html).toContain(
-      '<p class="flash-title">Draft saved. /about now redirects here.</p>',
-    );
+    const html = await view("?saved=1&dropped=hero%2Chero");
+    expect(html).toContain('<p class="flash-title">Draft saved.</p>');
     expect(html).toContain(
       '<p class="flash-detail">2 empty hero blocks were removed.</p>',
     );

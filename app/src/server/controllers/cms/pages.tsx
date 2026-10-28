@@ -64,29 +64,31 @@ export interface Notice {
 }
 
 /**
- * The notice for a page GET: `pageNotice`, with the redirect a URL change left
- * behind when `moved` names a path that really redirects to this page. The
- * param is untrusted, so anything else is the plain notice.
+ * The notice for a page GET, with the redirect a Publish left behind when
+ * `moved` names a path that really redirects to this page. Only a publish
+ * applies an address change, so a save never carries the sentence. The param is
+ * untrusted, so anything else is the plain notice.
  */
 export const savedNotice = async (
   params: URLSearchParams,
   pageId: string,
 ): Promise<Notice | null> => {
   const notice = pageNotice(params);
-  if (params.get("saved") !== "1" || !notice) return notice;
+  if (!notice) return notice;
   const moved = params.get("moved");
-  let message = notice.message;
-  if (
+  const redirectsHere =
     moved &&
     /^\/[^/]/.test(moved) &&
     (await listPageRedirects(pageId)).includes(moved)
-  ) {
-    message += ` ${moved} now redirects here.`;
+      ? moved
+      : null;
+  if (params.get("published") === "1" && redirectsHere) {
+    return { ...notice, detail: `${redirectsHere} now redirects here.` };
   }
+  // The removed-blocks sentence belongs to a save, not to any other notice.
+  if (params.get("saved") !== "1") return notice;
   const dropped = droppedSentence(droppedBlocksFrom(params.get("dropped")));
-  return dropped
-    ? { ...notice, message, detail: dropped }
-    : { ...notice, message };
+  return dropped ? { ...notice, detail: dropped } : notice;
 };
 
 const BLOCK_TYPE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -127,7 +129,7 @@ export const pageNotice = (params: URLSearchParams): Notice | null => {
       : { kind: "success", message: "Draft saved." };
   }
   if (params.get("published") === "1") {
-    const message = "Published. The site picks the change up within seconds.";
+    const message = "Page published.";
     return narrow > 0
       ? {
           kind: "warning",
@@ -136,9 +138,15 @@ export const pageNotice = (params: URLSearchParams): Notice | null => {
       : { kind: "success", message };
   }
   if (params.get("restored") === "1") {
+    // Untrusted, like `moved`: only a path this app could have stored is named.
+    const dropped = params.get("dropped");
+    const droppedUrl = dropped && /^\/[^/]/.test(dropped) ? dropped : null;
     return {
       kind: "success",
       message: "Restored as a new draft. Publish to make it live.",
+      ...(droppedUrl
+        ? { detail: `The pending URL change to ${droppedUrl} was discarded.` }
+        : {}),
     };
   }
   if (params.get("deleted") === "1") {
@@ -261,15 +269,13 @@ export const renderPageForm = async (
   const sessionId = ctx.sessionId as string;
   const user = ctx.user as NonNullable<SessionContext["user"]>;
 
-  const [blockTypes, pageTypes, pages, picker, latest, oldUrls] =
-    await Promise.all([
-      listBlockTypes(),
-      listPageTypes(),
-      listPageOptions(),
-      listPickerMedia(content),
-      getLatestRevision("page", page.id),
-      page.publishedRevisionId ? listPageRedirects(page.id) : [],
-    ]);
+  const [blockTypes, pageTypes, pages, picker, latest] = await Promise.all([
+    listBlockTypes(),
+    listPageTypes(),
+    listPageOptions(),
+    listPickerMedia(content),
+    getLatestRevision("page", page.id),
+  ]);
 
   // The status line says when the live revision was saved. A publish moves
   // `published_revision_id`, so the time has to be read from the revision.
@@ -332,7 +338,6 @@ export const renderPageForm = async (
       latestRevisionAt={latest?.createdAt ?? null}
       publishedRevisionId={page.publishedRevisionId}
       publishedRevisionAt={published?.createdAt ?? null}
-      oldUrls={oldUrls}
       pages={pages}
       media={picker.media}
       pickerCapped={picker.capped}
@@ -681,10 +686,6 @@ export const pages = {
       });
     }
 
-    const moved =
-      page.url !== result.page.url
-        ? `&moved=${encodeURIComponent(page.url)}`
-        : "";
     const dropped = droppedBlocksFrom(formData.get("dropped_blocks"));
     const droppedParam =
       dropped.length > 0
@@ -697,24 +698,22 @@ export const pages = {
     // browser blocks the tab it would open. The banner's "Back to the editor"
     // is the way back, and nothing is lost going there — the draft is saved.
     //
-    // A URL change or dropped blocks are reported on the editor page, which
-    // this skips past, so they keep the ordinary save path.
-    if (
-      nonEmpty(formData.get("after")) === "preview" &&
-      moved === "" &&
-      droppedParam === ""
-    ) {
+    // Preview opens the live address: a URL change saved with the draft waits
+    // for Publish, and a never-published page's save has already made its new
+    // address the live one. Dropped blocks are reported on the editor page,
+    // which this skips past, so they keep the ordinary save path.
+    if (nonEmpty(formData.get("after")) === "preview" && droppedParam === "") {
       return previewRedirect({
         subjectType: "page",
         subjectId: page.id,
-        path: page.url,
+        path: result.page.url,
         createdBy: ctx.user.id,
         returnTo: `/cms/pages/${page.id}`,
       });
     }
 
     return redirect(
-      `/cms/pages/${page.id}?saved=1${moved}${droppedParam}${warningsParam(
+      `/cms/pages/${page.id}?saved=1${droppedParam}${warningsParam(
         result.warnings.length,
       )}`,
     );

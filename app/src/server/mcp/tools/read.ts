@@ -397,6 +397,8 @@ export const registerReadTools = (
         page: {
           id: page.id,
           url: page.url,
+          /** An address change saved for Publish; `url` is still live. */
+          draftUrl: page.draftUrl,
           title: page.title,
           pageType: page.pageType,
           seoDescription: page.seoDescription,

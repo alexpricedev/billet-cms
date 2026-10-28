@@ -44,7 +44,9 @@ import {
   validatePageContent,
 } from "./page-content";
 import {
+  applyDraftUrl,
   applyPageSettings,
+  type DraftUrlMove,
   duplicateUrlMessage,
   type FieldSettingIssue,
   getPageById,
@@ -460,6 +462,7 @@ const writePage = async (
         page.id,
         settings,
         pageType.name,
+        "draft",
       );
 
       const carried = await carryUnavailableBlocks(
@@ -499,11 +502,15 @@ export type PublishPageResult =
       revisionId: string;
       contentVersion: number;
       changed: boolean;
+      /** The address change this publish applied, for the editor's banner. */
+      moved: DraftUrlMove | null;
       /** Guidance the publish went ahead over — currently a narrow image. */
       warnings: FieldIssue[];
     }
   | { ok: false; reason: "no-draft" }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
+  /** A pending URL change lost its address to another page after it was saved. */
+  | { ok: false; reason: "duplicate"; issue: FieldSettingIssue }
   | { ok: false; reason: "stale"; latestRevisionId: string };
 
 export interface PublishPageInput {
@@ -535,101 +542,149 @@ export const publishPage = async (
   const pageType = await pageTypeForWrite(page);
   const blockTypes = await blockTypesByName();
 
-  return await db.begin(async (tx) => {
-    const locked = (await tx`
-      SELECT published_revision_id FROM cms_pages
-      WHERE id = ${page.id} FOR UPDATE
-    `) as { published_revision_id: string | null }[];
-    if (locked.length === 0) throw new Error(`Page ${page.id} not found`);
+  try {
+    return await db.begin(async (tx) => {
+      const locked = (await tx`
+        SELECT published_revision_id, draft_url FROM cms_pages
+        WHERE id = ${page.id} FOR UPDATE
+      `) as {
+        published_revision_id: string | null;
+        draft_url: string | null;
+      }[];
+      if (locked.length === 0) throw new Error(`Page ${page.id} not found`);
 
-    const revision = input.revisionId
-      ? await getRevisionById(input.revisionId, tx)
-      : await getLatestRevision("page", page.id, tx);
-
-    if (revision?.targetType !== "page" || revision.targetId !== page.id) {
-      return { ok: false as const, reason: "no-draft" as const };
-    }
-
-    if (input.requireLatest) {
       const latest = await getLatestRevision("page", page.id, tx);
-      if (latest && latest.id !== revision.id) {
+      const revision = input.revisionId
+        ? await getRevisionById(input.revisionId, tx)
+        : latest;
+
+      if (revision?.targetType !== "page" || revision.targetId !== page.id) {
+        return { ok: false as const, reason: "no-draft" as const };
+      }
+
+      if (input.requireLatest && latest && latest.id !== revision.id) {
         return {
           ok: false as const,
           reason: "stale" as const,
           latestRevisionId: latest.id,
         };
       }
-    }
 
-    const validation = validatePageContent(
-      pageType,
-      blockTypes,
-      asPageContent(revision.content),
-      { allowNotAllowedBlocks: true },
-    );
-    if (!validation.ok) {
-      return {
-        ok: false as const,
-        reason: "invalid" as const,
-        issues: validation.issues,
-      };
-    }
+      // The queued address change belongs to the newest revision: publishing an
+      // older one leaves it alone, because the draft that carried it is not what
+      // goes live.
+      const applyingDraftUrl =
+        latest !== null &&
+        latest.id === revision.id &&
+        locked[0].draft_url !== null;
 
-    if (locked[0].published_revision_id === revision.id) {
+      // The revision is already live, so only a pending address change can be
+      // applied (ticket #66: a URL-only save leaves the pointer alone). The
+      // content is not changing, so the content checks below are skipped — a
+      // queued move must not be refused for a block the live page already has.
+      if (locked[0].published_revision_id === revision.id) {
+        if (!applyingDraftUrl) {
+          return {
+            ok: true as const,
+            revisionId: revision.id,
+            contentVersion: await readContentVersion(tx),
+            changed: false,
+            moved: null,
+            warnings: [],
+          };
+        }
+        const moved = await applyDraftUrl(tx, page.id);
+        return {
+          ok: true as const,
+          revisionId: revision.id,
+          contentVersion: await bumpContentVersion(tx),
+          changed: true,
+          moved,
+          warnings: [],
+        };
+      }
+
+      const validation = validatePageContent(
+        pageType,
+        blockTypes,
+        asPageContent(revision.content),
+        { allowNotAllowedBlocks: true },
+      );
+      if (!validation.ok) {
+        return {
+          ok: false as const,
+          reason: "invalid" as const,
+          issues: validation.issues,
+        };
+      }
+
+      // Hold the images this revision references for the length of the write, so
+      // a concurrent delete can't remove one between here and the pointer write
+      // (review r1-4). The same read answers the deleted-image check (Q1): an
+      // image deleted while this revision sat as a draft has no row here, so the
+      // publish is refused with a message on the block and nothing goes live.
+      // Saving the same draft stayed legal, so the editor can still choose another.
+      const existingMedia = await lockReferencedMedia(tx, revision.content);
+      const deletedImages = blockDeletedImageIssues(
+        blockTypes,
+        asPageContent(revision.content),
+        existingMedia,
+      );
+      if (deletedImages.length > 0) {
+        return {
+          ok: false as const,
+          reason: "invalid" as const,
+          issues: deletedImages,
+        };
+      }
+
+      // A narrow image does not refuse the publish (part 10): the width is a
+      // fidelity guideline, and blocking here would put back the refusal the save
+      // just stopped making. The warning rides back so the editor is told what is
+      // live. The read joins the transaction that already holds the rows.
+      const guidance = await blockImageGuidance(
+        blockTypes,
+        asPageContent(revision.content),
+        tx,
+      );
+
+      // The address moves with the publish, in this transaction: `url` is set,
+      // the old address redirects here and `draft_url` clears, then the one
+      // version bump tells the site both the content and the address changed.
+      // `applyDraftUrl` re-checks the address under the same lock, so a page
+      // that took it after the save refuses the whole publish.
+      const moved = applyingDraftUrl ? await applyDraftUrl(tx, page.id) : null;
+
+      await tx`
+        UPDATE cms_pages
+        SET published_revision_id = ${revision.id}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${page.id}
+      `;
+      const contentVersion = await bumpContentVersion(tx);
+
       return {
         ok: true as const,
         revisionId: revision.id,
-        contentVersion: await readContentVersion(tx),
-        changed: false,
-        warnings: [],
+        contentVersion,
+        changed: true,
+        moved,
+        warnings: guidance.warnings,
       };
-    }
-
-    // Hold the images this revision references for the length of the write, so
-    // a concurrent delete can't remove one between here and the pointer write
-    // (review r1-4). The same read answers the deleted-image check (Q1): an
-    // image deleted while this revision sat as a draft has no row here, so the
-    // publish is refused with a message on the block and nothing goes live.
-    // Saving the same draft stayed legal, so the editor can still choose another.
-    const existingMedia = await lockReferencedMedia(tx, revision.content);
-    const deletedImages = blockDeletedImageIssues(
-      blockTypes,
-      asPageContent(revision.content),
-      existingMedia,
-    );
-    if (deletedImages.length > 0) {
+    });
+  } catch (error) {
+    // The address was checked when it was saved, but another page may have taken
+    // it since. The transaction rolled back whole, so nothing is applied; the
+    // editor gets the same message a save gives.
+    const message = await duplicateUrlMessage(error, page.draftUrl ?? page.url);
+    if (message) {
       return {
-        ok: false as const,
-        reason: "invalid" as const,
-        issues: deletedImages,
+        ok: false,
+        reason: "duplicate",
+        issue: { path: "url", message },
       };
     }
-
-    // A narrow image does not refuse the publish (part 10): the width is a
-    // fidelity guideline, and blocking here would put back the refusal the save
-    // just stopped making. The warning rides back so the editor is told what is
-    // live. The read joins the transaction that already holds the rows.
-    const guidance = await blockImageGuidance(
-      blockTypes,
-      asPageContent(revision.content),
-      tx,
-    );
-
-    await tx`
-      UPDATE cms_pages
-      SET published_revision_id = ${revision.id}, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${page.id}
-    `;
-    const contentVersion = await bumpContentVersion(tx);
-
-    return {
-      ok: true as const,
-      revisionId: revision.id,
-      contentVersion,
-      changed: true,
-      warnings: guidance.warnings,
-    };
-  });
+    throw error;
+  }
 };
 
 export interface PageRevisionSummary {
@@ -678,7 +733,12 @@ export const listPageHistory = async (
 };
 
 export type RestorePageResult =
-  | { ok: true; revision: RevisionRecord }
+  | {
+      ok: true;
+      revision: RevisionRecord;
+      /** The address change the restore dropped, for the editor's notice. */
+      droppedUrl: string | null;
+    }
   | { ok: false; reason: "not-found" };
 
 export interface RestorePageInput {
@@ -688,7 +748,15 @@ export interface RestorePageInput {
   actorId: string | null;
 }
 
-/** Restore an old page revision by copying it into a new draft. */
+/**
+ * Restore an old page revision by copying it into a new draft.
+ *
+ * Restoring is the editor's way to discard a draft (there is no separate
+ * discard action), so a pending address change goes with it: the revision and
+ * `draft_url = NULL` are written in one transaction under the page's row lock.
+ * Nothing live changes — the page keeps its address and redirects until
+ * Publish.
+ */
 export const restorePageRevision = async (
   input: RestorePageInput,
 ): Promise<RestorePageResult> => {
@@ -700,13 +768,28 @@ export const restorePageRevision = async (
     return { ok: false, reason: "not-found" };
   }
 
-  const revision = await createRevision({
-    targetType: "page",
-    targetId: page.id,
-    content: source.content,
-    createdBy: input.actorId,
-    restoredFrom: source.id,
+  const restored = await db.begin(async (tx) => {
+    const locked = (await tx`
+      SELECT draft_url FROM cms_pages WHERE id = ${page.id} FOR UPDATE
+    `) as { draft_url: string | null }[];
+    if (locked.length === 0) {
+      throw new Error(`Page ${page.id} not found`);
+    }
+
+    const revision = await createRevision(
+      {
+        targetType: "page",
+        targetId: page.id,
+        content: source.content,
+        createdBy: input.actorId,
+        restoredFrom: source.id,
+      },
+      tx,
+    );
+
+    await tx`UPDATE cms_pages SET draft_url = NULL WHERE id = ${page.id}`;
+    return { revision, droppedUrl: locked[0].draft_url };
   });
 
-  return { ok: true, revision };
+  return { ok: true, ...restored };
 };

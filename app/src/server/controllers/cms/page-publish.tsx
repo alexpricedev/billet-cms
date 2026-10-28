@@ -117,11 +117,33 @@ export const pagePublish = {
           },
         );
       }
+      // A pending address change lost its URL to another page after the save,
+      // so nothing was applied; show the same message a save gives.
+      if (result.reason === "duplicate") {
+        const revision = revisionId ? await getRevisionById(revisionId) : null;
+        const content = revision ? asPageContent(revision.content).blocks : [];
+        return renderPageForm(
+          ctx,
+          page,
+          pageType,
+          content,
+          revision?.id ?? null,
+          {
+            errors: [result.issue],
+            refusedPublish: true,
+          },
+        );
+      }
       return redirect(`/cms/pages/${pageId}?publish=empty`);
     }
 
+    // Only a publish moves the address, so only its redirect carries the old
+    // path for the banner. The redirect is written in the same transaction.
+    const moved = result.moved
+      ? `&moved=${encodeURIComponent(result.moved.from)}`
+      : "";
     return redirect(
-      `/cms/pages/${pageId}?published=1${warningsParam(
+      `/cms/pages/${pageId}?published=1${moved}${warningsParam(
         result.warnings.length,
       )}`,
     );
@@ -166,7 +188,12 @@ export const pagePublish = {
       return redirect(`/cms/pages/${pageId}/history?error=not-found`);
     }
 
-    return redirect(`/cms/pages/${pageId}?restored=1`);
+    // A restore is the editor's discard, so it may have dropped a queued move;
+    // name it in the notice rather than clearing it silently.
+    const dropped = result.droppedUrl
+      ? `&dropped=${encodeURIComponent(result.droppedUrl)}`
+      : "";
+    return redirect(`/cms/pages/${pageId}?restored=1${dropped}`);
   },
 
   /** A page's revision history, with a restore button per older revision. */
