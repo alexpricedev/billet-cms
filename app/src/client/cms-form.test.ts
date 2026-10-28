@@ -1529,7 +1529,10 @@ describe("url move line", () => {
       <form data-cms-form>
         <input type="hidden" name="content" data-cms-content value="{}">
         <input id="url" data-url-live="/about" value="/about">
-        <p data-url-move hidden>Saving moves this page</p>
+        <p data-url-move hidden>
+          Publishing moves this page: <code>/about</code> will redirect to
+          <code data-url-move-to>/about</code>.
+        </p>
       </form>
     `);
   });
@@ -1538,13 +1541,25 @@ describe("url move line", () => {
     document.body.innerHTML = "";
   });
 
-  test("shows while the URL differs from the stored one", () => {
+  test("names the typed URL while it differs from the live one", () => {
     const input = document.getElementById("url") as HTMLInputElement;
     const line = document.querySelector("[data-url-move]") as HTMLElement;
-    input.value = "/studio";
+    const to = document.querySelector("[data-url-move-to]") as HTMLElement;
+
+    input.value = "/studio/";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     expect(line.hidden).toBe(false);
+    expect(to.textContent).toBe("/studio");
+
+    input.value = " studio//team ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(to.textContent).toBe("/studio/team");
+
     input.value = " /about ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(line.hidden).toBe(true);
+
+    input.value = "";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     expect(line.hidden).toBe(true);
   });

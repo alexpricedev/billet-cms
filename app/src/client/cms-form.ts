@@ -931,16 +931,25 @@ const wireFocalPoint = (form: HTMLFormElement): void => {
   });
 };
 
-/** Shows the "this page moves" line while the URL input differs from the stored one. */
+/**
+ * Shows the "Publishing moves this page" line while the URL input differs from
+ * the live one, and names the typed URL in it as the editor types.
+ */
 const wireUrlMove = (form: HTMLFormElement): void => {
   const input = form.querySelector<HTMLInputElement>("[data-url-live]");
   const line = form.querySelector<HTMLElement>("[data-url-move]");
   if (!input || !line) return;
+  const to = form.querySelector<HTMLElement>("[data-url-move-to]");
   // The server's own spelling of a path (leading slash, no doubled or trailing
   // slashes), so `/about/` doesn't claim a move the save won't make.
   const update = (): void => {
-    const typed = `/${input.value.trim()}`.replace(/\/{2,}/g, "/");
-    line.hidden = (typed.replace(/\/$/, "") || "/") === input.dataset.urlLive;
+    const value = input.value.trim();
+    const typed = `/${value}`.replace(/\/{2,}/g, "/");
+    const url = typed.replace(/\/$/, "") || "/";
+    // An emptied field is not a move to the root: the server refuses "" before
+    // it ever gets that far, so the line stays hidden.
+    line.hidden = value === "" || url === input.dataset.urlLive;
+    if (to) to.textContent = url;
   };
   input.addEventListener("input", update);
   update();
