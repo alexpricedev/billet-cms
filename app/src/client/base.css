@@ -612,6 +612,14 @@ input[type="file"]::file-selector-button {
   gap: 6px;
 }
 
+/* `fieldset.field` groups radios rather than drawing a box: the card owns the
+   frame, so drop the browser's groove border and its default margin/padding. */
+fieldset.field {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
 .field > label,
 .field-label {
   color: var(--text);

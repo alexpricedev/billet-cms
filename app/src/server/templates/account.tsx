@@ -67,7 +67,11 @@ export const Account = ({
         <h2>Theme</h2>
         {/* A plain form: with JavaScript off the radios post and the page
           redirects back with its notice, like every other mutation here. */}
-        <form method="POST" action="/account/theme">
+        <form
+          method="POST"
+          action="/account/theme"
+          className="account-theme-form"
+        >
           <CsrfField token={themeCsrfToken} />
           <fieldset className="field">
             <legend className="sr-only">Theme</legend>

@@ -6,8 +6,15 @@ import { describe, expect, test } from "bun:test";
 // or the sandbox); what fails here is a selector quietly changing.
 const css = await Bun.file(new URL("./base.css", import.meta.url)).text();
 
-function tokens(block: string): string[] {
-  return [...block.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]).sort();
+// The full `--token: value` declarations, so a value edited in one copy and not
+// the other fails here too — not just a token added to one list and not the
+// other.
+function declarations(block: string): string[] {
+  return block
+    .split(";")
+    .map((declaration) => declaration.trim())
+    .filter((declaration) => declaration !== "")
+    .sort();
 }
 
 describe("base.css theme scopes", () => {
@@ -39,17 +46,19 @@ describe("base.css theme scopes", () => {
     expect(css).not.toMatch(/\[data-theme="light"\]\s*\{/);
   });
 
-  // The two dark blocks are a deliberate duplicate; if a token is added to one
-  // it has to land in the other, or System and the explicit Dark setting drift.
+  // The two dark blocks are a deliberate duplicate — plain CSS has no way to
+  // put one declaration block under both an attribute selector and a media
+  // query — so if a token or a value changes in one it has to change in the
+  // other, or System and the explicit Dark setting drift.
   test("the two dark token lists agree", () => {
     const explicit = /:root\[data-theme="dark"\]\s*\{([^}]*)\}/.exec(css)?.[1];
     const media =
-      /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{([\s\S]*?)\n\}/.exec(
+      /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{[\s\S]*?:root:not\(\[data-theme\]\)\s*\{([^}]*)\}/.exec(
         css,
       )?.[1];
     expect(explicit).toBeDefined();
     expect(media).toBeDefined();
-    expect(tokens(explicit ?? "")).toEqual(tokens(media ?? ""));
+    expect(declarations(explicit ?? "")).toEqual(declarations(media ?? ""));
   });
 
   // A `:root` block later in the file would tie on specificity with the light
