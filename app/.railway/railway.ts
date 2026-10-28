@@ -88,6 +88,12 @@ export default defineRailway(() => {
       MAINTENANCE_MODE: preserve(),
       MAINTENANCE_RETRY_AFTER: preserve(),
 
+      // OAuth is the production credential. A staging service sets this to true
+      // to expose the MCP endpoint; production leaves it unset until the hosted
+      // client test passes. MCP_DEV_TOKEN is deliberately absent so an apply
+      // cannot carry the local development credential into a deployment.
+      MCP_ENABLED: preserve(),
+
       // PORT is deliberately absent: Railway sets it on the deployment itself.
     },
   });
