@@ -147,6 +147,12 @@ outline that shifts layout. Placeholders use `--text-muted` and never replace a
 label. Invalid controls use `--danger` border and `aria-invalid`, with the
 message adjacent.
 
+A choice row — a radio or checkbox wrapped in its own `label` — is one flex
+row: `display: flex; align-items: center; gap: var(--space-2)`, with the
+control's margin removed, so the control centres on its text and the row shares
+the card's left edge. Group rows in a `.choice-group` fieldset, with one
+`--space-2` gap between them.
+
 ### Cards and panels
 
 `.panel` is a bordered surface for a group of controls. `.panel-header` carries

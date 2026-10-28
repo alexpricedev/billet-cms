@@ -620,6 +620,30 @@ fieldset.field {
   padding: 0;
 }
 
+/* A choice row: a label wrapping its own radio or checkbox. Flex puts the
+   control on the text's centre line instead of the inline baseline, and the
+   zeroed margin removes the browser's default indent so the row starts on the
+   same left edge as the card's heading and its button. */
+label:has(> input[type="radio"]),
+label:has(> input[type="checkbox"]) {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+}
+
+label > input[type="radio"],
+label > input[type="checkbox"] {
+  margin: 0;
+}
+
+/* A group of choice rows: one row per line, spaced by one step from the scale
+   rather than the tighter label/control gap of `.field`. */
+.choice-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .field > label,
 .field-label {
   color: var(--text);

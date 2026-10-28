@@ -73,7 +73,7 @@ export const Account = ({
           className="account-theme-form"
         >
           <CsrfField token={themeCsrfToken} />
-          <fieldset className="field">
+          <fieldset className="field choice-group">
             <legend className="sr-only">Theme</legend>
             {THEME_OPTIONS.map((option) => (
               <label key={option.value}>

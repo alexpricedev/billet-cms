@@ -72,3 +72,32 @@ describe("base.css theme scopes", () => {
     );
   });
 });
+
+describe("base.css choice rows", () => {
+  // The alignment wart: a radio on the inline baseline and carrying the
+  // browser's default margin sits high and indented from the card's edge.
+  test("centres a radio or checkbox on its label, with no indent", () => {
+    const row =
+      /label:has\(> input\[type="radio"\]\),\s*label:has\(> input\[type="checkbox"\]\)\s*\{([^}]*)\}/.exec(
+        css,
+      )?.[1];
+    expect(row).toBeDefined();
+    expect(row).toContain("align-items: center");
+    expect(row).toContain("display: flex");
+    expect(row).toContain("gap: var(--space-2)");
+
+    const control =
+      /label > input\[type="radio"\],\s*label > input\[type="checkbox"\]\s*\{([^}]*)\}/.exec(
+        css,
+      )?.[1];
+    expect(control).toBeDefined();
+    expect(control).toContain("margin: 0");
+  });
+
+  // Three rows read as one group only if they share the same vertical rhythm.
+  test("spaces every choice row by one step from the scale", () => {
+    const group = /\.choice-group\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(group).toBeDefined();
+    expect(group).toContain("gap: var(--space-2)");
+  });
+});
