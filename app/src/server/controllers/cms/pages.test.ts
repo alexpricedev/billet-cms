@@ -856,6 +856,13 @@ describe("Pages controller", () => {
       blocks: [{ type: "hero", heading: "x".repeat(81), body: document }],
     });
     expect(withFieldError).toContain("Couldn't save draft.");
+    // A failed save is the error tone: it interrupts, and it is closable.
+    expect(withFieldError).toContain(
+      'class="flash" data-tone="error" role="alert"',
+    );
+    expect(withFieldError).toMatch(
+      /class="flash-dismiss"[^>]*aria-label="Dismiss"/,
+    );
     expect(withFieldError).toContain("Fix this field and try again:");
     expect(withFieldError).toContain('href="#cms-block-0-hero-heading"');
 
@@ -1457,6 +1464,11 @@ describe("Pages controller", () => {
     );
     const plain = await view("?saved=1");
     expect(plain).toContain("Draft saved.");
+    // The saved notice is the success banner: announced politely, and its ×
+    // ships hidden so the banner is not closable without the client script.
+    expect(plain).toContain('class="flash" data-tone="success" role="status"');
+    expect(plain).toMatch(/class="flash-dismiss"[^>]*aria-label="Dismiss"/);
+    expect(plain).toMatch(/data-flash-dismiss[^>]*hidden/);
     // The page always renders its "no blocks yet" line (the client toggles it),
     // so the assertion is on the banner's own sentence, not the word "empty".
     expect(plain).not.toContain("was removed");
