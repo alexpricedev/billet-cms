@@ -8,6 +8,7 @@ import {
 } from "../utils/database";
 import type { User } from "./auth";
 import { db } from "./database";
+import { DEFAULT_THEME, getTheme } from "./preferences";
 
 export type SessionType = "guest" | "authenticated";
 
@@ -100,6 +101,22 @@ const loadIdentity = async (
   }
 };
 
+/**
+ * Read the theme saved for an identity, tolerating a missing
+ * `cms_user_preferences`.
+ *
+ * A missing row is `system` — the editor never chose one — and so is a failed
+ * lookup: a database whose migrations have not created the table yet must not
+ * cost the reader their session.
+ */
+const loadTheme = async (userId: string) => {
+  try {
+    return await getTheme(userId);
+  } catch {
+    return DEFAULT_THEME;
+  }
+};
+
 export const getSessionContextFromDB = async (
   rawSessionId: string,
 ): Promise<SessionContext | null> => {
@@ -137,6 +154,7 @@ export const getSessionContextFromDB = async (
           id: identity.id,
           email: identity.email,
           role: identity.role ?? "user",
+          theme: await loadTheme(identity.id),
         }
       : null;
 

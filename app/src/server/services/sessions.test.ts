@@ -19,6 +19,10 @@ const {
 } = await import("./sessions");
 
 const { computeHMAC } = await import("../utils/crypto");
+const { setTheme } = await import("./preferences");
+const { up: createPreferencesTable } = await import(
+  "../database/migrations/018_add_user_preferences"
+);
 
 const db = connection;
 
@@ -114,6 +118,23 @@ describe("getSessionContextFromDB", () => {
     expect(ctx?.user?.email).toBe("auth@example.com");
   });
 
+  test("carries the editor's saved theme on the user", async () => {
+    const user = await seedIdentity(db, "dark@example.com");
+    await setTheme(user.id, "dark");
+    const rawId = await createAuthenticatedSession(user.id);
+
+    const ctx = await getSessionContextFromDB(rawId);
+    expect(ctx?.user?.theme).toBe("dark");
+  });
+
+  test("reads system when the editor has no preferences row", async () => {
+    const user = await seedIdentity(db, "default@example.com");
+    const rawId = await createAuthenticatedSession(user.id);
+
+    const ctx = await getSessionContextFromDB(rawId);
+    expect(ctx?.user?.theme).toBe("system");
+  });
+
   test("returns null for expired session", async () => {
     const rawId = await createGuestSession();
     const hash = computeHMAC(rawId);
@@ -182,6 +203,27 @@ describe("a missing cms_identities view", () => {
       expect(ctx?.user).toBeNull();
     } finally {
       await recreateView();
+    }
+  });
+});
+
+describe("a missing cms_user_preferences table", () => {
+  // Preferences are an enhancement on the session, not a condition of it: a
+  // database where the table is absent or mid-migration must still sign the
+  // editor in, on the default theme.
+  test("returns the session and its user, on system", async () => {
+    const user = await seedIdentity(db, "no-preferences@example.com");
+    const rawId = await createAuthenticatedSession(user.id);
+    await db`DROP TABLE cms_user_preferences`;
+
+    try {
+      const ctx = await getSessionContextFromDB(rawId);
+      expect(ctx).not.toBeNull();
+      expect(ctx?.isAuthenticated).toBe(true);
+      expect(ctx?.user?.id).toBe(user.id);
+      expect(ctx?.user?.theme).toBe("system");
+    } finally {
+      await createPreferencesTable(db);
     }
   });
 });
