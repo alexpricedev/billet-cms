@@ -545,7 +545,7 @@ describe("Slot form controller", () => {
 
       expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toMatch(/can.{0,5}t be saved/);
+      expect(html).toContain("Couldn't save draft.");
       // The field's own label, not its machine name.
       expect(html).toContain("Heading");
       expect(html).toContain('aria-invalid="true"');
@@ -655,7 +655,7 @@ describe("Slot form controller", () => {
       );
       expect(invalid.status).toBe(200);
       const invalidHtml = await invalid.text();
-      expect(invalidHtml).toContain("This content can't be saved");
+      expect(invalidHtml).toContain("Couldn't save draft.");
       expect(invalidHtml).toContain("droppedField");
 
       // The client no longer sends removed fields; the server carries them
@@ -857,7 +857,7 @@ describe("Slot form controller", () => {
           ),
         )
       ).text();
-      expect(html).toContain("flash-warning");
+      expect(html).toContain('data-tone="warning"');
       expect(html).toContain("Draft saved.");
       expect(html).toContain("narrower than its field wants");
     });

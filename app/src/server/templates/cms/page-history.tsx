@@ -1,3 +1,4 @@
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { PageRecord, PageRevisionSummary } from "../../services/content";
@@ -52,11 +53,7 @@ export const PageHistory = ({
       }
     />
 
-    {notice && (
-      <div className="flash-warning" role="status">
-        {notice}
-      </div>
-    )}
+    {notice && <Flash tone="warning" title={notice} />}
 
     {revisions.length === 0 ? (
       <p className="cms-history-empty">This page has no saved revisions yet.</p>

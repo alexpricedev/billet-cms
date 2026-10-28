@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import type { FieldError } from "../../components/cms/field-control";
 import { MediaOptionsTemplate } from "../../components/cms/field-control";
+import { Flash, type FlashField } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import { getAssetUrl } from "../../services/assets";
@@ -83,7 +84,12 @@ export interface PageFormProps {
    * banner names the action the editor took.
    */
   refusedPublish?: boolean;
-  notice?: { kind: "success" | "warning"; message: string } | null;
+  notice?: {
+    kind: "success" | "warning";
+    message: string;
+    /** A second line, e.g. how many empty blocks a save removed. */
+    detail?: string;
+  } | null;
   /**
    * The settings to show in the fields. Defaults to the page's stored settings;
    * a failed save passes what the editor typed so their input isn't discarded.
@@ -92,30 +98,41 @@ export interface PageFormProps {
 }
 
 /**
- * A whole-block issue's summary line, worded so the editor knows which block.
+ * One line in the error banner's list.
  *
  * An issue at `blocks.N` rather than `blocks.N.field` has no control to mark —
  * the hero-first rule and the rich text nesting bound are the two that land
- * there — so without a block name on the summary line, a page with several
- * blocks gives no clue which one the message is about (review round 2). The
- * block's type is named too, since the block legends show the type and no
- * number, and the line links to the block, which at 390 sits several screens
- * below the banner.
+ * there — so it names the block (position and type) and links to the block,
+ * which at 390 sits several screens below the banner (review round 2). A field
+ * issue links to the control the field renders, whose anchor is the block's id
+ * prefix plus the field name. Anything else, or a block that isn't on the page,
+ * has nothing to link to and stays plain text.
  */
-const blockSummaryMessage = (
+const contentIssueField = (
   issue: FieldIssue,
   blocks: PageBlock[],
-): JSX.Element => {
-  const match = /^blocks\.(\d+)$/.exec(issue.path);
-  if (!match) return <>{issue.message}</>;
+  blockTypes: BlockTypeRecord[],
+): FlashField => {
+  const match = /^blocks\.(\d+)(?:\.(.+))?$/.exec(issue.path);
+  if (!match) return { label: issue.message };
   const index = Number(match[1]);
-  const type = blocks[index]?.type;
-  const name = typeof type === "string" && type !== "" ? ` (${type})` : "";
-  const summary = `Block ${index + 1}${name}: ${issue.message}`;
-  // A block the page type doesn't render as a card has no anchor to reach, so
-  // the line stays plain text rather than being a link to nowhere.
-  if (index >= blocks.length) return <>{summary}</>;
-  return <a href={`#block-${index + 1}`}>{summary}</a>;
+  const block = blocks[index];
+  const type = block?.type;
+  if (typeof type !== "string" || type === "") return { label: issue.message };
+  if (match[2] === undefined) {
+    const summary = `Block ${index + 1} (${type}): ${issue.message}`;
+    // A block the page type doesn't render as a card has no anchor to reach,
+    // so the line stays plain text rather than being a link to nowhere.
+    return index >= blocks.length
+      ? { label: summary }
+      : { id: `block-${index + 1}`, label: summary };
+  }
+  const field = match[2].split(".")[0];
+  const definition = blockTypes.find((candidate) => candidate.name === type);
+  const label =
+    definition?.fields.find((candidate) => candidate.name === field)?.label ??
+    field;
+  return { id: `cms-block-${index}-${type}-${field}`, label };
 };
 
 const SettingsControl = ({
@@ -268,10 +285,30 @@ export const PageForm = ({
   const moving = typedUrl.ok ? typedUrl.url !== page.url : false;
 
   const uneditable = pageType === null;
-  // Whether a block below carries a field error. A limit issue (`blocks`) or an
-  // unreadable body (`(content)`) has no block to point at, so the banner must
-  // not tell the editor to look at blocks that aren't marked (review round 1).
-  const hasBlockErrors = (blockErrors?.size ?? 0) > 0;
+
+  // The error banner lists every issue: a field links to its control, a whole
+  // block links to the block, and an issue with neither (a page-limit rule, an
+  // unreadable body) keeps its own message. The "Fix these N fields" line only
+  // counts real fields — a whole-block issue has no field to fix, and telling
+  // the editor to check marked blocks that aren't marked was the review-round-1
+  // failure.
+  const issueFields: FlashField[] = [];
+  const seenIssueFields = new Set<string>();
+  for (const issue of contentIssues ?? []) {
+    const field = contentIssueField(issue, content, blockTypes);
+    if (field.id?.startsWith("cms-block-")) {
+      if (seenIssueFields.has(field.id)) continue;
+      seenIssueFields.add(field.id);
+    }
+    issueFields.push(field);
+  }
+  const fieldIssueCount = seenIssueFields.size;
+  const fixLine =
+    fieldIssueCount === 0
+      ? undefined
+      : fieldIssueCount === 1
+        ? "Fix this field and try again:"
+        : `Fix these ${fieldIssueCount} fields and try again:`;
 
   return (
     <Layout
@@ -300,55 +337,53 @@ export const PageForm = ({
       />
 
       {notice && (
-        <div
-          className={
-            notice.kind === "success" ? "flash-success" : "flash-warning"
-          }
-          role="status"
-        >
-          {notice.message}
-        </div>
+        <Flash
+          tone={notice.kind}
+          title={notice.message}
+          detail={notice.detail}
+        />
       )}
 
       {conflict && (
-        <div className="flash-warning" role="alert">
-          <p>
-            Someone saved a newer version while this form was open
-            {conflict.authorEmail ? ` (${conflict.authorEmail})` : ""}, at{" "}
-            {formatWhen(conflict.createdAt)} UTC.
-          </p>
-          <p>
-            Saving now will create another draft on top of theirs.{" "}
-            <a href={`/cms/pages/${page.id}`}>Load their version</a> instead to
-            start from what they saved.
-          </p>
-        </div>
+        <Flash
+          tone="warning"
+          title={
+            <>
+              Someone saved a newer version while this form was open
+              {conflict.authorEmail ? ` (${conflict.authorEmail})` : ""}, at{" "}
+              {formatWhen(conflict.createdAt)} UTC.
+            </>
+          }
+          detail={
+            <>
+              Saving now will create another draft on top of theirs.{" "}
+              <a href={`/cms/pages/${page.id}`}>Load their version</a> instead
+              to start from what they saved.
+            </>
+          }
+        />
       )}
 
       {uneditable && (
-        <div className="flash-warning" role="alert">
-          The page type <code>{page.pageType}</code> is no longer published, so
-          this page can't be edited until it is declared again. Its content is
-          kept.
-        </div>
+        <Flash
+          tone="warning"
+          title={
+            <>
+              The page type <code>{page.pageType}</code> is no longer published,
+              so this page can't be edited until it is declared again. Its
+              content is kept.
+            </>
+          }
+        />
       )}
 
       {contentIssues && contentIssues.length > 0 && (
-        <div className="flash-error" role="alert">
-          <p>
-            {refusedPublish
-              ? "This content can't be published."
-              : "This content can't be saved."}
-            {hasBlockErrors ? " Check the blocks marked below." : ""}
-          </p>
-          <ul>
-            {contentIssues.map((issue, index) => (
-              <li key={`${issue.path}:${index}`}>
-                {blockSummaryMessage(issue, content)}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <Flash
+          tone="error"
+          title={refusedPublish ? "Couldn't publish." : "Couldn't save draft."}
+          detail={fixLine}
+          fields={issueFields}
+        />
       )}
 
       {!uneditable && (
@@ -529,6 +564,9 @@ export const PageForm = ({
         </form>
       )}
 
+      {/* The status line and the disabled-button reasons are the bar's own
+          persistent state and help text, not event notices: they render on
+          every load and are never dismissible, so they stay out of Flash. */}
       <section className="cms-actions" aria-label="Publishing">
         <p className="cms-publish-status" role="status">
           {status}
@@ -677,10 +715,11 @@ export const NewPageForm = ({
       />
 
       {pageTypes.length === 0 ? (
-        <div className="flash-warning" role="status">
-          No page types are published yet. Deploy the site, or check that its
-          publish step ran against this database.
-        </div>
+        <Flash
+          tone="warning"
+          title="No page types are published yet."
+          detail="Deploy the site, or check that its publish step ran against this database."
+        />
       ) : (
         <form
           method="POST"
@@ -789,9 +828,15 @@ export const PageUnavailable = ({
       }
       title={page.title}
     />
-    <div className="flash-warning" role="alert">
-      The page type <code>{page.pageType}</code> is no longer published. This
-      page's content is kept but cannot be edited until it is declared again.
-    </div>
+    <Flash
+      tone="warning"
+      title={
+        <>
+          The page type <code>{page.pageType}</code> is no longer published.
+          This page's content is kept but cannot be edited until it is declared
+          again.
+        </>
+      }
+    />
   </Layout>
 );

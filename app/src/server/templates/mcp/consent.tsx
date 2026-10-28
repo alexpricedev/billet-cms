@@ -66,12 +66,10 @@ export const Consent = ({
     </ul>
 
     {!csrfToken ? (
-      <Flash type="error">
-        <span>
-          We couldn't prepare this request in your browser. Check that cookies
-          are enabled and try connecting again.
-        </span>
-      </Flash>
+      <Flash
+        tone="error"
+        title="We couldn't prepare this request in your browser. Check that cookies are enabled and try connecting again."
+      />
     ) : (
       <form method="POST" action={CONSENT_PATH} className="consent-actions">
         <CsrfField token={csrfToken} />

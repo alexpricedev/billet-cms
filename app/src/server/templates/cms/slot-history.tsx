@@ -1,3 +1,4 @@
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type {
@@ -74,11 +75,7 @@ export const SlotHistory = ({
       }
     />
 
-    {notice && (
-      <div className="flash-warning" role="status">
-        {notice}
-      </div>
-    )}
+    {notice && <Flash tone="warning" title={notice} />}
 
     {revisions.length === 0 ? (
       <p className="cms-history-empty">

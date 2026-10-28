@@ -59,6 +59,8 @@ import { previewRedirect } from "./preview";
 export interface Notice {
   kind: "success" | "warning";
   message: string;
+  /** A second line, e.g. how many empty blocks the save removed. */
+  detail?: string;
 }
 
 /**
@@ -82,8 +84,9 @@ export const savedNotice = async (
     message += ` ${moved} now redirects here.`;
   }
   const dropped = droppedSentence(droppedBlocksFrom(params.get("dropped")));
-  if (dropped) message += ` ${dropped}`;
-  return { ...notice, message };
+  return dropped
+    ? { ...notice, message, detail: dropped }
+    : { ...notice, message };
 };
 
 const BLOCK_TYPE = /^[A-Za-z0-9_-]{1,64}$/;

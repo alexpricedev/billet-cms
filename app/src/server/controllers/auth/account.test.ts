@@ -174,7 +174,7 @@ describe("Account Controller", () => {
       ).text();
 
       expect(html).toContain("Theme saved.");
-      expect(html).toContain('class="flash-success"');
+      expect(html).toContain('data-tone="success"');
     });
 
     test("asks for a valid theme after a bad save", async () => {
@@ -185,7 +185,7 @@ describe("Account Controller", () => {
       ).text();
 
       expect(html).toContain("Choose Light, Dark or System.");
-      expect(html).toContain('class="flash-warning"');
+      expect(html).toContain('data-tone="warning"');
     });
 
     test("reads the session once, not once per guard", async () => {
