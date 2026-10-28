@@ -73,18 +73,46 @@ describe("cms.css history layout", () => {
   });
 });
 
+describe("cms.css action bar", () => {
+  // Publish has to be in reach on a phone without scrolling past a long form,
+  // so the bar sticks to the bottom of the viewport.
+  test("sticks the action bar to the bottom", () => {
+    expect(css).toMatch(/\.cms-actions\s*\{[^}]*position:\s*sticky/);
+    expect(css).toMatch(/\.cms-actions\s*\{[^}]*bottom:\s*0/);
+  });
+
+  // A bar that is a card with a max-width reads as a panel in the form rather
+  // than the page's own action strip; this is the full-width hairline version.
+  test("keeps the bar full width with a hairline, not a card", () => {
+    const rule = /\.cms-actions\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(rule).toContain("border-top: 1px solid var(--border)");
+    expect(rule).not.toContain("border-radius");
+    expect(rule).not.toContain("max-width");
+  });
+
+  // The legacy `.cms-*` button classes are styled through the `.btn` variants;
+  // no rule of their own may reintroduce a background the variant cannot see.
+  test("styles the legacy buttons through the variants", () => {
+    expect(css).not.toMatch(/\.cms-publish-button\s*\{/);
+    expect(css).not.toMatch(/\.cms-preview-button\s*\{/);
+  });
+
+  test("stacks the bar into two columns on a phone", () => {
+    const mobile = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
+      css,
+    )?.[1];
+    expect(mobile).toContain(
+      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+    );
+    // The status line spans both columns so it is not squeezed into half of one.
+    expect(mobile).toContain("grid-column: 1 / -1");
+  });
+});
+
 describe("cms.css secondary button focus", () => {
   // The global `button:focus` turns the background purple, leaving the light
   // text at 2.25:1. A mouse press or a tap only sets `:focus`, not
   // `:focus-visible`, so the override has to match `:focus` as well.
-  test("keeps the publish button neutral on plain focus", () => {
-    const selector = /([^{}]*\.cms-publish-button:hover[^{}]*)\{/.exec(
-      css,
-    )?.[1];
-    expect(selector).toContain(".cms-publish-button:focus");
-    expect(selector).not.toContain(":focus-visible");
-  });
-
   test("keeps the restore button neutral on plain focus", () => {
     const selector = /([^{}]*\.cms-restore-button:hover[^{}]*)\{/.exec(
       css,

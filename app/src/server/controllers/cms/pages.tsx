@@ -1,3 +1,4 @@
+import { narrowImagesSentence } from "@shared/image-guidance";
 import type { BunRequest } from "bun";
 import type { FieldError } from "../../components/cms/field-control";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
@@ -45,6 +46,8 @@ import {
   nonEmpty,
   parseContent,
   UUID_PATTERN,
+  warningsFrom,
+  warningsParam,
 } from "./params";
 import { previewRedirect } from "./preview";
 
@@ -109,14 +112,25 @@ const droppedSentence = (types: string[]): string | null => {
 };
 
 export const pageNotice = (params: URLSearchParams): Notice | null => {
+  // As on a slot: a save or publish that carried a narrow-image warning says
+  // both what happened and what wants the editor's eye (part 10).
+  const narrow = warningsFrom(params);
   if (params.get("saved") === "1") {
-    return { kind: "success", message: "Draft saved." };
+    return narrow > 0
+      ? {
+          kind: "warning",
+          message: `Draft saved. ${narrowImagesSentence(narrow)}`,
+        }
+      : { kind: "success", message: "Draft saved." };
   }
   if (params.get("published") === "1") {
-    return {
-      kind: "success",
-      message: "Published. The site picks the change up within seconds.",
-    };
+    const message = "Published. The site picks the change up within seconds.";
+    return narrow > 0
+      ? {
+          kind: "warning",
+          message: `${message} ${narrowImagesSentence(narrow)}`,
+        }
+      : { kind: "success", message };
   }
   if (params.get("restored") === "1") {
     return {
@@ -164,11 +178,25 @@ const blockTypeMap = (
 /** Split content issues into a per-block map and a flat list for the summary. */
 const blockErrors = (
   issues: FieldIssue[],
-): { byBlock: Map<number, Map<string, FieldError[]>>; list: FieldIssue[] } => {
+): {
+  byBlock: Map<number, Map<string, FieldError[]>>;
+  alerts: Map<number, string>;
+  list: FieldIssue[];
+} => {
   const byBlock = new Map<number, Map<string, FieldError[]>>();
+  const alerts = new Map<number, string>();
   const list: FieldIssue[] = [];
 
   for (const issue of issues) {
+    const whole = /^blocks\.(\d+)$/.exec(issue.path);
+    if (whole) {
+      // A whole-block issue (the hero-first rule, the rich-text nesting bound)
+      // has no field to mark, so it goes on the block itself as an alert. The
+      // banner still lists it, and links to the block (review round 2, #67 f11).
+      alerts.set(Number(whole[1]), issue.message);
+      list.push(issue);
+      continue;
+    }
     const match = /^blocks\.(\d+)\.(.+)$/.exec(issue.path);
     if (!match) {
       // A limit issue's path is just `blocks`; it belongs in the summary.
@@ -189,7 +217,7 @@ const blockErrors = (
     list.push(issue);
   }
 
-  return { byBlock, list };
+  return { byBlock, alerts, list };
 };
 
 interface FormExtras {
@@ -240,6 +268,12 @@ export const renderPageForm = async (
       page.publishedRevisionId ? listPageRedirects(page.id) : [],
     ]);
 
+  // The status line says when the live revision was saved. A publish moves
+  // `published_revision_id`, so the time has to be read from the revision.
+  const published = page.publishedRevisionId
+    ? await getRevisionById(page.publishedRevisionId)
+    : null;
+
   const navCsrfToken = await createCsrfToken(sessionId, "POST", "/auth/logout");
 
   if (!pageType) {
@@ -263,7 +297,7 @@ export const renderPageForm = async (
   const contentIssues = issues.filter(
     (issue) => !SETTINGS_FIELDS.has(issue.path),
   );
-  const { byBlock, list } = blockErrors(contentIssues);
+  const { byBlock, alerts, list } = blockErrors(contentIssues);
 
   const settingsErrors = new Map<string, FieldError[]>();
   for (const issue of settingsIssues) {
@@ -292,13 +326,16 @@ export const renderPageForm = async (
       baseRevisionId={baseRevisionId}
       removed={extras.removed ?? []}
       latestRevisionId={latest?.id ?? null}
+      latestRevisionAt={latest?.createdAt ?? null}
       publishedRevisionId={page.publishedRevisionId}
+      publishedRevisionAt={published?.createdAt ?? null}
       oldUrls={oldUrls}
       pages={pages}
       media={picker.media}
       pickerCapped={picker.capped}
       settingsErrors={settingsErrors}
       blockErrors={byBlock}
+      blockAlerts={alerts}
       contentIssues={list}
       conflict={extras.conflict ?? null}
       refusedPublish={extras.refusedPublish ?? false}
@@ -673,7 +710,11 @@ export const pages = {
       });
     }
 
-    return redirect(`/cms/pages/${page.id}?saved=1${moved}${droppedParam}`);
+    return redirect(
+      `/cms/pages/${page.id}?saved=1${moved}${droppedParam}${warningsParam(
+        result.warnings.length,
+      )}`,
+    );
   },
 
   /** The confirm step before a page is deleted. */

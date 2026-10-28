@@ -112,13 +112,35 @@ describe("page CRUD", () => {
     ]);
   });
 
-  test("refuses a second page on the same URL", async () => {
-    await create("/about");
+  // Part 9: the message names the page that holds the URL, so the editor knows
+  // which one to go and change.
+  test("refuses a second page on the same URL, naming the page that has it", async () => {
+    await create("/about", "About Northwind");
     const again = await create("about/");
     expect(again.ok).toBe(false);
     if (again.ok) return;
     expect(again.issues[0]?.path).toBe("url");
-    expect(again.issues[0]?.message).toContain("already uses this URL");
+    expect(again.issues[0]?.message).toBe(
+      "About Northwind already uses /about.",
+    );
+  });
+
+  test("names the page that has the URL when a rename collides", async () => {
+    const about = await create("/about", "About Northwind");
+    const team = await create("/team", "Team");
+    if (!about.ok || !team.ok) throw new Error("create failed");
+
+    const result = await updatePageSettings({
+      pageId: team.page.id,
+      pageType: "landing",
+      url: "/about",
+      title: "Team",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.message).toBe(
+      "About Northwind already uses /about.",
+    );
   });
 
   test("refuses settings that are invalid before touching the database", async () => {

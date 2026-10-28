@@ -1003,6 +1003,75 @@ describe("page block editor", () => {
     });
   });
 
+  // Part 6: the line stays visible after a block is added, including one added
+  // in this tab and not yet saved — so the client toggles it from the list.
+  describe("empty-state line", () => {
+    const MARKUP = `
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <div data-cms-page-content>
+          <div data-cms-blocks></div>
+          <p class="cms-blocks-empty" data-cms-blocks-empty>This page has no blocks yet. Add one below.</p>
+          <template data-cms-block-template data-block-type="prose">
+            <fieldset data-cms-block data-block-type="prose">
+              <div data-field data-field-kind="text" data-field-name="heading">
+                <input type="text" data-text-input value="">
+              </div>
+              <button type="button" data-block-remove>Remove</button>
+            </fieldset>
+          </template>
+          <div class="cms-block-add">
+            <button type="button" data-block-add="prose">Add prose</button>
+          </div>
+        </div>
+      </form>
+    `;
+    const empty = () =>
+      document.querySelector("[data-cms-blocks-empty]") as HTMLElement;
+
+    beforeEach(() => {
+      document.body.innerHTML = "";
+      mount(MARKUP);
+    });
+
+    test("shows with no blocks", () => {
+      expect(empty().hidden).toBe(false);
+    });
+
+    test("hides when a block is added and comes back when it is removed", () => {
+      click(document.querySelector("[data-block-add]") as Element);
+      expect(empty().hidden).toBe(true);
+
+      click(
+        document.querySelector(
+          "[data-cms-block] [data-block-remove]",
+        ) as Element,
+      );
+      expect(empty().hidden).toBe(false);
+    });
+
+    test("stays hidden while a flagged block is only marked removed", () => {
+      // A flagged block is still a block until the save carries the removal
+      // through, and it is not detached — so the line must not reappear until
+      // the marker is set.
+      document.body.innerHTML = "";
+      mount(
+        MARKUP.replace(
+          "<div data-cms-blocks></div>",
+          `<div data-cms-blocks>
+            <fieldset data-cms-block data-block-unavailable data-block-index="0">
+              <button type="button" data-block-remove>Remove</button>
+            </fieldset>
+          </div>`,
+        ),
+      );
+      expect(empty().hidden).toBe(true);
+
+      click(document.querySelector("[data-block-remove]") as Element);
+      expect(empty().hidden).toBe(false);
+    });
+  });
+
   test("removes a block", () => {
     const remove = document.createElement("button");
     remove.setAttribute("data-block-remove", "");
@@ -1095,6 +1164,90 @@ describe("media picker", () => {
       form().querySelector<HTMLInputElement>("[data-image-id]")?.value,
     ).toBe(MEDIA_ID);
     expect(buildContent(form()).photo).toEqual({ mediaId: MEDIA_ID });
+  });
+
+  test("picking a narrow image warns beside the field; a wide one clears it", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="image" data-field-name="photo" data-image-min-width="1600">
+          <select data-image-picker>
+            <option value="">Choose an image…</option>
+            <option value="small" data-media-width="800">Small (800×400)</option>
+            <option value="big" data-media-width="2000">Big (2000×1000)</option>
+          </select>
+          <input type="text" data-image-id value="">
+          <input type="text" data-image-alt value="">
+          <p class="cms-field-warning" data-image-warning hidden></p>
+        </div>
+      </form>
+    `);
+
+    const picker = document.querySelector<HTMLSelectElement>(
+      "[data-image-picker]",
+    );
+    const warning = document.querySelector<HTMLElement>("[data-image-warning]");
+    if (!picker || !warning) throw new Error("missing picker or warning");
+
+    picker.value = "small";
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(warning.hidden).toBe(false);
+    expect(warning.textContent).toContain("800px");
+    expect(warning.textContent).toContain("1600px");
+
+    picker.value = "big";
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(warning.hidden).toBe(true);
+    expect(warning.textContent).toBe("");
+  });
+
+  test("a field with no minimum width never warns, whatever the picker's width", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="image" data-field-name="photo">
+          <select data-image-picker>
+            <option value="">Choose an image…</option>
+            <option value="small" data-media-width="100">Small (100×100)</option>
+          </select>
+          <input type="text" data-image-id value="">
+          <p class="cms-field-warning" data-image-warning hidden></p>
+        </div>
+      </form>
+    `);
+
+    const picker = document.querySelector<HTMLSelectElement>(
+      "[data-image-picker]",
+    );
+    const warning = document.querySelector<HTMLElement>("[data-image-warning]");
+    if (!picker || !warning) throw new Error("missing picker or warning");
+
+    picker.value = "small";
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(warning.hidden).toBe(true);
+  });
+
+  test("typing a media id clears the picker's warning", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="image" data-field-name="photo" data-image-min-width="1600">
+          <select data-image-picker>
+            <option value="small" data-media-width="800" selected>Small (800×400)</option>
+          </select>
+          <input type="text" data-image-id value="small">
+          <input type="text" data-image-alt value="">
+          <p class="cms-field-warning" data-image-warning>already shown</p>
+        </div>
+      </form>
+    `);
+
+    const input = document.querySelector<HTMLInputElement>("[data-image-id]");
+    const warning = document.querySelector<HTMLElement>("[data-image-warning]");
+    if (!input || !warning) throw new Error("missing input or warning");
+    expect(warning.hidden).toBe(false);
+
+    input.value = "some-other-id";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(warning.hidden).toBe(true);
+    expect(warning.textContent).toBe("");
   });
 
   test("fills a picker from the form's options template on first focus", () => {

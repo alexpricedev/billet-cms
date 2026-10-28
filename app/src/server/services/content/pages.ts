@@ -386,21 +386,33 @@ export const createPage = async (
     });
     return { ok: true, page };
   } catch (error) {
-    const message = duplicateUrlMessage(error);
+    const message = await duplicateUrlMessage(error, settings.url);
     if (message) return { ok: false, issues: [{ path: "url", message }] };
     throw error;
   }
 };
 
-/** A unique violation on the URL, as an editor-facing message. */
-const duplicateUrlMessage = (error: unknown): string | null => {
+/**
+ * A unique violation on the URL, as an editor-facing message.
+ *
+ * The message names the page that holds the URL: "Another page already uses
+ * this URL." leaves the editor to hunt for it, and the row is one lookup away.
+ * The lookup runs after the failed transaction, so it only ever reads a
+ * committed row; if it finds nothing (the owner was renamed or deleted in
+ * between) the message falls back to the old wording rather than naming nobody.
+ */
+export const duplicateUrlMessage = async (
+  error: unknown,
+  url: string,
+): Promise<string | null> => {
   if (typeof error !== "object" || error === null) return null;
   const code = (error as { errno?: unknown }).errno;
   const constraint = (error as { constraint?: unknown }).constraint;
-  if (code === "23505" && constraint === "cms_pages_url_idx") {
-    return "Another page already uses this URL.";
-  }
-  return null;
+  if (code !== "23505" || constraint !== "cms_pages_url_idx") return null;
+  const owner = await getPageByUrl(url);
+  return owner
+    ? `${owner.title} already uses ${url}.`
+    : "Another page already uses this URL.";
 };
 
 export interface UpdatePageSettingsInput extends PageSettingsInput {
@@ -504,7 +516,7 @@ export const updatePageSettings = async (
     );
     return { ok: true, page: page.page };
   } catch (error) {
-    const message = duplicateUrlMessage(error);
+    const message = await duplicateUrlMessage(error, settings.url);
     if (message) return { ok: false, issues: [{ path: "url", message }] };
     throw error;
   }

@@ -7,9 +7,11 @@ import {
   list,
   text,
 } from "@alexpricedev/billet-cms/fields";
+import { narrowImageWarning } from "@shared/image-guidance";
 import {
   DELETED_IMAGE_MESSAGE,
   findDeletedImageIssues,
+  findImageGuidance,
   findImageGuidanceIssues,
   referencedMediaIds,
 } from "./guidance";
@@ -83,53 +85,86 @@ describe("collecting image references", () => {
   });
 });
 
-describe("findImageGuidanceIssues", () => {
-  // Before the walker was fixed this returned nothing, so a save could put a
-  // 100px image in a field that asked for 400.
-  test("enforces minWidth on an image inside a list", () => {
+describe("findImageGuidance", () => {
+  // Part 10: a narrow image used to refuse the save, which moved the argument
+  // to the moment the editor picked the picture. It is now a warning: the save
+  // goes ahead and the editor is told the hero may look soft.
+  test("warns about minWidth on an image inside a list", () => {
     const fields = { images: list(image({ minWidth: 400 })) };
     const sizes = new Map([[id(1), narrow]]);
 
-    const issues = findImageGuidanceIssues(
+    const { issues, warnings } = findImageGuidance(
       metadataOf(fields),
       { images: [{ mediaId: id(1) }] },
       sizes,
     );
 
-    expect(issues).toHaveLength(1);
-    expect(issues[0]?.path).toBe("images.0.mediaId");
-    expect(issues[0]?.message).toContain("at least 400px");
+    expect(issues).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.path).toBe("images.0.mediaId");
+    expect(warnings[0]?.message).toBe(narrowImageWarning(100, 400));
   });
 
-  test("enforces minWidth on an image inside a group", () => {
+  test("warns about minWidth on an image inside a group", () => {
     const fields = { cta: group({ photo: image({ minWidth: 400 }) }) };
     const sizes = new Map([[id(1), narrow]]);
 
-    const issues = findImageGuidanceIssues(
+    const { issues, warnings } = findImageGuidance(
       metadataOf(fields),
       { cta: { photo: { mediaId: id(1) } } },
       sizes,
     );
 
-    expect(issues.map((issue) => issue.path)).toEqual(["cta.photo.mediaId"]);
+    expect(issues).toEqual([]);
+    expect(warnings.map((issue) => issue.path)).toEqual(["cta.photo.mediaId"]);
   });
 
-  test("names the row an issue is in", () => {
+  test("names the row a warning is in", () => {
     const fields = { cards: list(group({ photo: image({ minWidth: 400 }) })) };
     const sizes = new Map([
       [id(1), { width: 800, height: 800 }],
       [id(2), narrow],
     ]);
 
-    const issues = findImageGuidanceIssues(
+    const { warnings } = findImageGuidance(
       metadataOf(fields),
       { cards: [{ photo: { mediaId: id(1) } }, { photo: { mediaId: id(2) } }] },
       sizes,
     );
 
-    expect(issues.map((issue) => issue.path)).toEqual([
+    expect(warnings.map((issue) => issue.path)).toEqual([
       "cards.1.photo.mediaId",
     ]);
+  });
+
+  // Aspect is the layout's shape, not a fidelity guideline, so it stays a
+  // refusal — and an image can be both too narrow and the wrong shape, in
+  // which case it is reported once, as the refusal.
+  test("still refuses an image of the wrong aspect", () => {
+    const fields = { photo: image({ aspect: "1:1" }) };
+    const sizes = new Map([[id(1), { width: 1600, height: 900 }]]);
+
+    const { issues, warnings } = findImageGuidance(
+      metadataOf(fields),
+      { photo: { mediaId: id(1) } },
+      sizes,
+    );
+
+    expect(issues.map((issue) => issue.path)).toEqual(["photo.mediaId"]);
+    expect(issues[0]?.message).toContain("1:1");
+    expect(warnings).toEqual([]);
+  });
+
+  test("a warning does not refuse the save", () => {
+    const fields = { photo: image({ minWidth: 400 }) };
+
+    expect(
+      findImageGuidanceIssues(
+        metadataOf(fields),
+        { photo: { mediaId: id(1) } },
+        new Map([[id(1), narrow]]),
+      ),
+    ).toEqual([]);
   });
 });
 

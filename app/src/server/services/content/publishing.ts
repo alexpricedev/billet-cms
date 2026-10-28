@@ -16,7 +16,13 @@
 import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { SQL } from "bun";
 import { db } from "../database";
-import { findDeletedImageIssues, lockReferencedMedia } from "../media/guidance";
+import {
+  findDeletedImageIssues,
+  findImageGuidance,
+  loadMediaSizes,
+  lockReferencedMedia,
+  referencedMediaIds,
+} from "../media/guidance";
 import { type BlockTypeRecord, getBlockTypeByName } from "./definitions";
 import { type FieldIssue, formatIssues } from "./drafts";
 import {
@@ -34,6 +40,12 @@ export type PublishSlotResult =
       contentVersion: number;
       /** False when the slot already pointed at this revision. */
       changed: boolean;
+      /**
+       * Guidance the publish went ahead over — currently a narrow image.
+       * Allowed on purpose: the width is a site guideline, and refusing here
+       * would only move the refusal the save no longer makes (part 10).
+       */
+      warnings: FieldIssue[];
     }
   | { ok: false; reason: "no-draft" }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
@@ -171,6 +183,9 @@ export const publishSlot = async (
         revisionId: revision.id,
         contentVersion: await readContentVersion(tx),
         changed: false,
+        // Nothing was published, so there is no publish to warn about. The
+        // button is disabled in this state anyway.
+        warnings: [],
       };
     }
 
@@ -194,6 +209,20 @@ export const publishSlot = async (
       };
     }
 
+    // A narrow image does not refuse the publish (part 10): the width is a
+    // fidelity guideline, and blocking here would put back the refusal the save
+    // just stopped making. The warning rides back with the result so the editor
+    // is told what is live. The sizes come from the rows already locked above,
+    // in the transaction holding them.
+    const guidance = findImageGuidance(
+      blockType.fields,
+      revision.content,
+      await loadMediaSizes(
+        referencedMediaIds(blockType.fields, revision.content),
+        tx,
+      ),
+    );
+
     await tx`
       UPDATE cms_slots
       SET published_revision_id = ${revision.id}, updated_at = CURRENT_TIMESTAMP
@@ -206,6 +235,7 @@ export const publishSlot = async (
       revisionId: revision.id,
       contentVersion,
       changed: true,
+      warnings: guidance.warnings,
     };
   });
 };
@@ -219,6 +249,13 @@ export interface SlotRevisionSummary {
   isPublished: boolean;
   /** The newest revision, which the editor's form would load as the draft. */
   isLatest: boolean;
+  /**
+   * Whether this row is the draft: the newest revision *and* not the one the
+   * site renders. Both are needed — after a restore-then-publish the newest row
+   * is live, and calling it "Current draft" left an older row looking like the
+   * draft the editor had open.
+   */
+  isDraft: boolean;
   /** When the revision this one restored was saved; null if not a restore. */
   restoredFromAt: Date | null;
 }
@@ -276,15 +313,20 @@ export const listSlotHistory = async (
   const page = rows.slice(0, HISTORY_PAGE_SIZE);
 
   return {
-    revisions: page.map((row, index) => ({
-      id: row.id,
-      createdAt: row.created_at,
-      authorEmail: row.author_email,
-      isPublished: row.id === slot.publishedRevisionId,
+    revisions: page.map((row, index) => {
+      const isPublished = row.id === slot.publishedRevisionId;
       // Only the first page holds the newest revision.
-      isLatest: before === null && index === 0,
-      restoredFromAt: row.restored_from_at,
-    })),
+      const isLatest = before === null && index === 0;
+      return {
+        id: row.id,
+        createdAt: row.created_at,
+        authorEmail: row.author_email,
+        isPublished,
+        isLatest,
+        isDraft: isLatest && !isPublished,
+        restoredFromAt: row.restored_from_at,
+      };
+    }),
     hasOlder,
   };
 };

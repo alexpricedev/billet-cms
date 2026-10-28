@@ -48,7 +48,15 @@ export interface RevisionConflict {
 }
 
 export type SaveDraftResult =
-  | { ok: true; revision: RevisionRecord }
+  | {
+      ok: true;
+      revision: RevisionRecord;
+      /**
+       * Guidance the save went ahead over — currently a `minWidth` shortfall.
+       * The caller shows them; they are not reasons the save failed.
+       */
+      warnings: FieldIssue[];
+    }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
   | { ok: false; reason: "conflict"; newer: RevisionConflict };
 
@@ -289,14 +297,13 @@ export const saveSlotDraft = async (
   }
 
   // The schema can only say an image reference is a UUID; whether the picture
-  // behind it is big enough, or the right shape, is a `cms_media` row. Enforce
-  // the field's guidance before anything is written.
-  const guidanceIssues = await checkImageGuidance(
-    blockType.fields,
-    input.content,
-  );
-  if (guidanceIssues.length > 0) {
-    return { ok: false, reason: "invalid", issues: guidanceIssues };
+  // behind it is the right shape, or big enough for the field, is a `cms_media`
+  // row. A wrong shape refuses the save; a short width does not — a narrow hero
+  // still renders, so it is a warning the caller shows and the save goes ahead
+  // (part 10).
+  const guidance = await checkImageGuidance(blockType.fields, input.content);
+  if (guidance.issues.length > 0) {
+    return { ok: false, reason: "invalid", issues: guidance.issues };
   }
 
   const outcome = await db.begin(async (tx) => {
@@ -345,5 +352,5 @@ export const saveSlotDraft = async (
     };
   }
 
-  return { ok: true, revision: outcome.revision };
+  return { ok: true, revision: outcome.revision, warnings: guidance.warnings };
 };

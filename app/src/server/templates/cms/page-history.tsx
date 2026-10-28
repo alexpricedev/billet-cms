@@ -47,7 +47,7 @@ export const PageHistory = ({
       title="History"
       after={
         <p className="cms-slot-meta">
-          Page <code>{page.url}</code>
+          <code>{page.url}</code>
         </p>
       }
     />
@@ -81,7 +81,7 @@ export const PageHistory = ({
                   Restored from {formatDay(revision.restoredFromAt)}
                 </span>
               )}
-              {revision.isLatest && (
+              {revision.isDraft && (
                 <span className="cms-history-badge cms-history-draft">
                   Current draft
                 </span>

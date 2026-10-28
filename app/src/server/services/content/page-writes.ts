@@ -24,7 +24,8 @@ import { findUserById } from "../auth";
 import { db } from "../database";
 import {
   findDeletedImageIssues,
-  findImageGuidanceIssues,
+  findImageGuidance,
+  type ImageGuidance,
   loadMediaSizes,
   lockReferencedMedia,
   referencedMediaIds,
@@ -44,6 +45,7 @@ import {
 } from "./page-content";
 import {
   applyPageSettings,
+  duplicateUrlMessage,
   type FieldSettingIssue,
   getPageById,
   type PageRecord,
@@ -69,16 +71,20 @@ const blockTypesByName = async (): Promise<Map<string, BlockTypeRecord>> =>
 /**
  * Enforce every block's image guidance across a page's content.
  *
- * Each block is checked against its own metadata tree, and an issue is reported
+ * Each block is checked against its own metadata tree, and a finding is reported
  * with the block's own index so the form points the message at the right
  * control, exactly as the schema issues are. The referenced ids are gathered
  * across every block first and loaded in one query, rather than one `cms_media`
  * read per block (review r1-11).
+ *
+ * A wrong aspect is an issue the save is refused on; a short width comes back
+ * as a warning beside it (part 10).
  */
 const blockImageGuidance = async (
   blockTypes: Map<string, BlockTypeRecord>,
   content: PageContent,
-): Promise<FieldIssue[]> => {
+  sql?: SQL,
+): Promise<ImageGuidance> => {
   const blocks: {
     index: number;
     fields: BlockTypeRecord["fields"];
@@ -97,21 +103,25 @@ const blockImageGuidance = async (
     }
   }
 
-  const sizes = await loadMediaSizes([...ids]);
+  const sizes = await loadMediaSizes([...ids], sql);
   const issues: FieldIssue[] = [];
+  const warnings: FieldIssue[] = [];
   for (const block of blocks) {
-    for (const issue of findImageGuidanceIssues(
-      block.fields,
-      block.content,
-      sizes,
-    )) {
+    const guidance = findImageGuidance(block.fields, block.content, sizes);
+    for (const issue of guidance.issues) {
       issues.push({
         path: `blocks.${block.index}.${issue.path}`,
         message: issue.message,
       });
     }
+    for (const warning of guidance.warnings) {
+      warnings.push({
+        path: `blocks.${block.index}.${warning.path}`,
+        message: warning.message,
+      });
+    }
   }
-  return issues;
+  return { issues, warnings };
 };
 
 /**
@@ -149,7 +159,12 @@ const blockDeletedImageIssues = (
 };
 
 export type SavePageDraftResult =
-  | { ok: true; revision: RevisionRecord }
+  | {
+      ok: true;
+      revision: RevisionRecord;
+      /** Guidance the save went ahead over — currently a narrow image. */
+      warnings: FieldIssue[];
+    }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
   | { ok: false; reason: "conflict"; newer: RevisionConflict };
 
@@ -260,8 +275,8 @@ export const savePageDraft = async (
   }
 
   const guidance = await blockImageGuidance(blockTypes, input.content);
-  if (guidance.length > 0) {
-    return { ok: false, reason: "invalid", issues: guidance };
+  if (guidance.issues.length > 0) {
+    return { ok: false, reason: "invalid", issues: guidance.issues };
   }
 
   const outcome = await db.begin(async (tx) => {
@@ -310,11 +325,17 @@ export const savePageDraft = async (
     };
   }
 
-  return { ok: true, revision: outcome.revision };
+  return { ok: true, revision: outcome.revision, warnings: guidance.warnings };
 };
 
 export type SavePageResult =
-  | { ok: true; revision: RevisionRecord; page: PageRecord }
+  | {
+      ok: true;
+      revision: RevisionRecord;
+      page: PageRecord;
+      /** Guidance the save went ahead over — currently a narrow image. */
+      warnings: FieldIssue[];
+    }
   | { ok: false; reason: "settings"; issues: FieldSettingIssue[] }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
   | { ok: false; reason: "conflict"; newer: RevisionConflict };
@@ -374,8 +395,8 @@ export const savePage = async (
   }
 
   const guidance = await blockImageGuidance(blockTypes, input.content);
-  if (guidance.length > 0) {
-    return { ok: false, reason: "invalid", issues: guidance };
+  if (guidance.issues.length > 0) {
+    return { ok: false, reason: "invalid", issues: guidance.issues };
   }
 
   const outcome = await writePage(page, pageType, blockTypes, settings, input);
@@ -392,7 +413,12 @@ export const savePage = async (
     };
   }
 
-  return { ok: true, revision: outcome.revision, page: outcome.page };
+  return {
+    ok: true,
+    revision: outcome.revision,
+    page: outcome.page,
+    warnings: guidance.warnings,
+  };
 };
 
 type PageWriteOutcome =
@@ -459,25 +485,23 @@ const writePage = async (
       return { kind: "saved" as const, revision, page: applied.page };
     });
   } catch (error) {
-    const duplicate = duplicatePageUrl(error);
-    if (duplicate) return { kind: "duplicate", issue: duplicate };
+    // Outside the rolled-back transaction: the owner of the URL is a committed
+    // row, so this names the page the editor collided with (part 9).
+    const message = await duplicateUrlMessage(error, settings.url);
+    if (message) return { kind: "duplicate", issue: { path: "url", message } };
     throw error;
   }
 };
 
-/** A unique violation on `cms_pages.url`, as an editor-facing issue. */
-const duplicatePageUrl = (error: unknown): FieldSettingIssue | null => {
-  if (typeof error !== "object" || error === null) return null;
-  const code = (error as { errno?: unknown }).errno;
-  const constraint = (error as { constraint?: unknown }).constraint;
-  if (code === "23505" && constraint === "cms_pages_url_idx") {
-    return { path: "url", message: "Another page already uses this URL." };
-  }
-  return null;
-};
-
 export type PublishPageResult =
-  | { ok: true; revisionId: string; contentVersion: number; changed: boolean }
+  | {
+      ok: true;
+      revisionId: string;
+      contentVersion: number;
+      changed: boolean;
+      /** Guidance the publish went ahead over — currently a narrow image. */
+      warnings: FieldIssue[];
+    }
   | { ok: false; reason: "no-draft" }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
   | { ok: false; reason: "stale"; latestRevisionId: string };
@@ -557,6 +581,7 @@ export const publishPage = async (
         revisionId: revision.id,
         contentVersion: await readContentVersion(tx),
         changed: false,
+        warnings: [],
       };
     }
 
@@ -580,6 +605,16 @@ export const publishPage = async (
       };
     }
 
+    // A narrow image does not refuse the publish (part 10): the width is a
+    // fidelity guideline, and blocking here would put back the refusal the save
+    // just stopped making. The warning rides back so the editor is told what is
+    // live. The read joins the transaction that already holds the rows.
+    const guidance = await blockImageGuidance(
+      blockTypes,
+      asPageContent(revision.content),
+      tx,
+    );
+
     await tx`
       UPDATE cms_pages
       SET published_revision_id = ${revision.id}, updated_at = CURRENT_TIMESTAMP
@@ -592,6 +627,7 @@ export const publishPage = async (
       revisionId: revision.id,
       contentVersion,
       changed: true,
+      warnings: guidance.warnings,
     };
   });
 };
@@ -602,6 +638,8 @@ export interface PageRevisionSummary {
   authorEmail: string | null;
   isPublished: boolean;
   isLatest: boolean;
+  /** The draft: the newest revision and not the published one. See the slot's. */
+  isDraft: boolean;
   /** When the revision this one restored was saved; null if not a restore. */
   restoredFromAt: Date | null;
 }
@@ -624,14 +662,19 @@ export const listPageHistory = async (
     restored_from_at: Date | null;
   }[];
 
-  return rows.map((row, index) => ({
-    id: row.id,
-    createdAt: row.created_at,
-    authorEmail: row.author_email,
-    isPublished: row.id === page.publishedRevisionId,
-    isLatest: index === 0,
-    restoredFromAt: row.restored_from_at,
-  }));
+  return rows.map((row, index) => {
+    const isPublished = row.id === page.publishedRevisionId;
+    const isLatest = index === 0;
+    return {
+      id: row.id,
+      createdAt: row.created_at,
+      authorEmail: row.author_email,
+      isPublished,
+      isLatest,
+      isDraft: isLatest && !isPublished,
+      restoredFromAt: row.restored_from_at,
+    };
+  });
 };
 
 export type RestorePageResult =

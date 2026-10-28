@@ -4,6 +4,7 @@ import {
   type FieldError,
 } from "../../components/cms/field-control";
 import type { PageOption } from "../../services/content/pages";
+import type { MediaOption } from "../../services/media";
 
 export interface ContentFieldsProps {
   fields: FieldMetadata[];
@@ -16,6 +17,11 @@ export interface ContentFieldsProps {
   hasMedia: boolean;
   /** Whether that picker's reuse list was capped. */
   pickerCapped: boolean;
+  /**
+   * The uploads the picker offers. A field uses them for one thing only: the
+   * current image's own label and width (part 10).
+   */
+  media?: MediaOption[];
   /**
    * Id prefix for the controls. A page renders one block per `ContentFields`,
    * and two blocks can declare the same field name, so the block's own prefix
@@ -32,6 +38,7 @@ export const ContentFields = ({
   pages,
   hasMedia,
   pickerCapped,
+  media,
   idPrefix = "cms-field",
 }: ContentFieldsProps) => (
   <div className="cms-fields" data-cms-fields>
@@ -45,6 +52,7 @@ export const ContentFields = ({
         pages={pages}
         hasMedia={hasMedia}
         pickerCapped={pickerCapped}
+        media={media}
       />
     ))}
   </div>
