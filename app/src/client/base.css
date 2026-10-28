@@ -104,8 +104,55 @@
   --radius-control: var(--radius-sm);
 }
 
+/* An editor who chose Dark gets these tokens whatever the OS says. The list is
+   duplicated below rather than shared: plain CSS with no preprocessor cannot
+   make one declaration block land under both a media query and an attribute
+   selector. Keep the two lists in step — `base-css.test.ts` compares them. */
+:root[data-theme="dark"] {
+  --canvas: #090909;
+  --surface: #111111;
+  --surface-subtle: #161616;
+  --surface-hover: #1c1c1c;
+  --surface-selected: #1f1f1f;
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --text: #ededed;
+  --text-secondary: #a3a3a3;
+  --text-muted: #8f8f8f;
+  --text-disabled: #5c5c5c;
+
+  --border: #292929;
+  --border-strong: #3a3a3a;
+
+  --accent: #3291ff;
+  --accent-hover: #5ba8ff;
+  --accent-soft: #0f2237;
+  --accent-contrast: #0a0a0a;
+
+  --success: #3dd68c;
+  --success-soft: #0d231a;
+  --success-border: #1d4b37;
+  --warning: #f5b544;
+  --warning-soft: #241a08;
+  --warning-border: #4d3a12;
+  --danger: #ff6b6b;
+  --danger-soft: #2a1110;
+  --danger-border: #5a2320;
+
+  --button-primary-bg: #ededed;
+  --button-primary-fg: #0a0a0a;
+  --button-primary-bg-hover: #ffffff;
+  --button-danger-bg: #e5484d;
+  --button-danger-bg-hover: #eb5c60;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* System (the default, and every signed-out page) has no `data-theme`, so the
+   OS setting decides. A page carrying `data-theme="light"` never matches. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --canvas: #090909;
     --surface: #111111;
     --surface-subtle: #161616;
