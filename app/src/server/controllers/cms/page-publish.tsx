@@ -117,6 +117,23 @@ export const pagePublish = {
           },
         );
       }
+      // A pending address change lost its URL to another page after the save,
+      // so nothing was applied; show the same message a save gives.
+      if (result.reason === "duplicate") {
+        const revision = revisionId ? await getRevisionById(revisionId) : null;
+        const content = revision ? asPageContent(revision.content).blocks : [];
+        return renderPageForm(
+          ctx,
+          page,
+          pageType,
+          content,
+          revision?.id ?? null,
+          {
+            errors: [result.issue],
+            refusedPublish: true,
+          },
+        );
+      }
       return redirect(`/cms/pages/${pageId}?publish=empty`);
     }
 

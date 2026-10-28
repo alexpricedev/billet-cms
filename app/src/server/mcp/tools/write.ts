@@ -673,6 +673,11 @@ export const registerWriteTools = (
             { issues: result.issues },
           );
         }
+        if (result.reason === "duplicate") {
+          return issuesResult(result.issue.message, "invalid", {
+            issues: [result.issue],
+          });
+        }
         return issuesResult(
           "A newer draft arrived while this one was being published, so nothing went live. Call get_page, review the newer draft, and publish it.",
           "stale",

@@ -14,6 +14,7 @@ mock.module("../database", () => ({
 }));
 
 import { db } from "../database";
+import { publishPage, restorePageRevision, savePage } from "./page-writes";
 import {
   applyDraftUrl,
   createPage,
@@ -603,6 +604,161 @@ describe("applyDraftUrl", () => {
     expect(stored?.url).toBe("/about");
     expect(stored?.draftUrl).toBe("/studio");
     expect(await listRedirects()).toEqual([]);
+  });
+});
+
+describe("publishing a drafted URL change", () => {
+  beforeEach(async () => {
+    await cleanupTestData(db);
+    await seedPageType(db, landing);
+  });
+
+  const createPublished = async (url: string, title = "About us") => {
+    const created = await createPage({ pageType: "landing", url, title });
+    if (!created.ok) throw new Error("create failed");
+    const revision = await createRevision({
+      targetType: "page",
+      targetId: created.page.id,
+      content: { blocks: [] },
+      createdBy: null,
+    });
+    await db`
+      UPDATE cms_pages SET published_revision_id = ${revision.id}
+      WHERE id = ${created.page.id}
+    `;
+    return { page: created.page, revision };
+  };
+
+  const contentVersion = async (): Promise<number> =>
+    Number(
+      (await db`SELECT content_version FROM cms_meta WHERE id = 1`)[0]
+        .content_version,
+    );
+
+  const saveSettings = async (
+    pageId: string,
+    url: string,
+    baseRevisionId: string | null,
+    title = "About us",
+  ) => {
+    const saved = await savePage({
+      pageId,
+      settings: { pageType: "landing", url, title },
+      content: { blocks: [] },
+      baseRevisionId,
+      actorId: null,
+    });
+    if (!saved.ok) throw new Error(`save failed: ${JSON.stringify(saved)}`);
+    return saved;
+  };
+
+  test("publishing applies the change, writes the redirect and bumps once", async () => {
+    const { page, revision } = await createPublished("/about");
+    const version = await contentVersion();
+
+    const saved = await saveSettings(page.id, "/studio", revision.id);
+    // Saving alone changes nothing the site can see.
+    expect(saved.page.draftUrl).toBe("/studio");
+    expect((await getPageById(page.id))?.url).toBe("/about");
+    expect(await listRedirects()).toEqual([]);
+    expect(await contentVersion()).toBe(version);
+
+    const published = await publishPage({ pageId: page.id });
+    expect(published.ok).toBe(true);
+    if (!published.ok) return;
+    expect(published.moved).toEqual({ from: "/about", to: "/studio" });
+    expect(published.changed).toBe(true);
+
+    const stored = await getPageById(page.id);
+    expect(stored?.url).toBe("/studio");
+    expect(stored?.draftUrl).toBeNull();
+    expect(await getPageByUrl("/about")).toBeNull();
+    const redirects = await listRedirects();
+    expect(redirects).toHaveLength(1);
+    expect(redirects[0]).toMatchObject({
+      fromPath: "/about",
+      toPageId: page.id,
+    });
+    // One bump: the save drafted the address, the publish applied it.
+    expect(await contentVersion()).toBe(version + 1);
+  });
+
+  test("a pending address still applies when the revision is already live", async () => {
+    const { page } = await createPublished("/about");
+    const version = await contentVersion();
+
+    // A settings save makes no revision, so the published one stays the newest.
+    const drafted = await updatePageSettings({
+      pageId: page.id,
+      pageType: "landing",
+      url: "/studio",
+      title: "About us",
+    });
+    expect(drafted.ok).toBe(true);
+    expect((await getPageById(page.id))?.draftUrl).toBe("/studio");
+
+    const published = await publishPage({ pageId: page.id });
+    expect(published.ok).toBe(true);
+    if (!published.ok) return;
+    expect(published.moved).toEqual({ from: "/about", to: "/studio" });
+
+    const stored = await getPageById(page.id);
+    expect(stored?.url).toBe("/studio");
+    expect(stored?.draftUrl).toBeNull();
+    expect(await contentVersion()).toBe(version + 1);
+  });
+
+  test("restoring a revision discards the pending address change", async () => {
+    const { page, revision } = await createPublished("/about");
+    const version = await contentVersion();
+    await saveSettings(page.id, "/studio", revision.id);
+    expect((await getPageById(page.id))?.draftUrl).toBe("/studio");
+
+    const restored = await restorePageRevision({
+      pageId: page.id,
+      revisionId: revision.id,
+      actorId: null,
+    });
+    expect(restored.ok).toBe(true);
+
+    const stored = await getPageById(page.id);
+    expect(stored?.url).toBe("/about");
+    expect(stored?.draftUrl).toBeNull();
+    expect(await listRedirects()).toEqual([]);
+    expect(await contentVersion()).toBe(version);
+  });
+
+  test("a publish refuses when the drafted address was taken after the save", async () => {
+    const { page, revision } = await createPublished(
+      "/about",
+      "About Northwind",
+    );
+    await saveSettings(page.id, "/studio", revision.id, "About Northwind");
+
+    // The race the save-time check can't close: another page gets the address
+    // before the first page is published.
+    const other = await createPage({
+      pageType: "landing",
+      url: "/other",
+      title: "Other",
+    });
+    if (!other.ok) throw new Error("create failed");
+    await db`UPDATE cms_pages SET url = '/studio' WHERE id = ${other.page.id}`;
+    const version = await contentVersion();
+
+    const published = await publishPage({ pageId: page.id });
+    expect(published.ok).toBe(false);
+    if (published.ok || published.reason !== "duplicate") return;
+    expect(published.issue.message).toBe("Other already uses /studio.");
+
+    // Nothing was applied: the address, redirects and version are as they were,
+    // and the revision did not go live.
+    const stored = await getPageById(page.id);
+    expect(stored?.url).toBe("/about");
+    expect(stored?.draftUrl).toBe("/studio");
+    expect(stored?.publishedRevisionId).toBe(revision.id);
+    expect(await listRedirects()).toEqual([]);
+    expect(await contentVersion()).toBe(version);
   });
 });
 
