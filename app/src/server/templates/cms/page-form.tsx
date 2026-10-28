@@ -59,8 +59,6 @@ export interface PageFormProps {
   publishedRevisionId: string | null;
   /** When the live revision was saved, for the status line. */
   publishedRevisionAt: Date | null;
-  /** Old paths that redirect to this page, so Publish can say so. */
-  oldUrls?: string[];
   pages: PageOption[];
   /** The uploads an `image` field's picker offers, rendered once for the form. */
   media: MediaOption[];
@@ -239,7 +237,6 @@ export const PageForm = ({
   latestRevisionAt,
   publishedRevisionId,
   publishedRevisionAt,
-  oldUrls,
   pages,
   media,
   pickerCapped,
@@ -254,7 +251,8 @@ export const PageForm = ({
 }: PageFormProps) => {
   const settings = values ?? {
     pageType: page.pageType,
-    url: page.url,
+    // A saved address change waits for Publish, so the field shows the draft.
+    url: page.draftUrl ?? page.url,
     title: page.title,
     seoDescription: page.seoDescription,
     socialImage: page.socialImage,
@@ -272,10 +270,11 @@ export const PageForm = ({
   const publishWhy = publishReason(hasDraft, upToDate);
   const previewWhy = previewReason(hasDraft, upToDate);
 
-  const redirected = oldUrls ?? [];
+  // Only a saved draft URL that differs from the live one will redirect on
+  // Publish. Earlier moves' redirects are already live and are not mentioned.
   const publishMessage = `The site picks it up within seconds.${
-    redirected.length > 0
-      ? ` The old address ${redirected.join(", ")} will redirect to ${page.url}.`
+    page.draftUrl !== null && page.draftUrl !== page.url
+      ? ` The old address ${page.url} will redirect to ${page.draftUrl}.`
       : ""
   }`;
 

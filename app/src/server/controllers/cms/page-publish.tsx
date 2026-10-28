@@ -137,8 +137,13 @@ export const pagePublish = {
       return redirect(`/cms/pages/${pageId}?publish=empty`);
     }
 
+    // Only a publish moves the address, so only its redirect carries the old
+    // path for the banner. The redirect is written in the same transaction.
+    const moved = result.moved
+      ? `&moved=${encodeURIComponent(result.moved.from)}`
+      : "";
     return redirect(
-      `/cms/pages/${pageId}?published=1${warningsParam(
+      `/cms/pages/${pageId}?published=1${moved}${warningsParam(
         result.warnings.length,
       )}`,
     );
