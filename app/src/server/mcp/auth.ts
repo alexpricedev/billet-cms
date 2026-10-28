@@ -140,8 +140,8 @@ export const authenticateMcpRequest = async (
   }
 
   // The development credential, deliberately not accepted in production even if
-  // one is configured. `validateEnv` also refuses to boot with MCP enabled in
-  // production during this phase; this is the second lock on the same door.
+  // one is configured. `validateEnv` only warns about it there, so this check is
+  // the lock.
   const devToken = mcpDevToken();
   if (
     devToken &&
