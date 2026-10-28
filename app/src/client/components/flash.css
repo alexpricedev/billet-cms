@@ -1,71 +1,131 @@
-/* Inline notices. Three tones, one shape: a soft surface with a hairline and a
-   short accent bar. The text stays in the page's normal colour so a notice is
-   readable rather than a coloured wall; the tone is carried by the bar, the
-   border and the label. */
+/* Banners. One shape, four tones: success, info, warning and error. The tone
+   is carried by the tint, the hairline and the icon — whose shape differs too,
+   so the states do not rely on colour. Text stays on --text / --text-secondary
+   so it reads the same on every tint. */
 
-.flash-success,
-.flash-error,
-.flash-warning {
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--text-muted);
-  border-radius: var(--radius-sm);
+.flash {
+  --flash-bg: var(--banner-info-bg);
+  --flash-border: var(--banner-info-border);
+  --flash-icon: var(--banner-info-icon);
+
+  align-items: flex-start;
+  background: var(--flash-bg);
+  border: 1px solid var(--flash-border);
+  border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
+  display: flex;
+  font-size: 14px;
+  gap: var(--space-3);
+  line-height: 20px;
   margin: 0 0 var(--space-4);
-  padding: var(--space-3) var(--space-4);
+  padding: 12px 4px 12px 14px;
+}
 
-  > :last-child,
-  p:last-child {
-    margin-bottom: 0;
-  }
+.flash[data-tone="success"] {
+  --flash-bg: var(--banner-success-bg);
+  --flash-border: var(--banner-success-border);
+  --flash-icon: var(--banner-success-icon);
+}
 
-  ul {
-    margin: var(--space-2) 0 0;
-    padding-left: var(--space-4);
+.flash[data-tone="warning"] {
+  --flash-bg: var(--banner-warning-bg);
+  --flash-border: var(--banner-warning-border);
+  --flash-icon: var(--banner-warning-icon);
+}
+
+.flash[data-tone="error"] {
+  --flash-bg: var(--banner-error-bg);
+  --flash-border: var(--banner-error-border);
+  --flash-icon: var(--banner-error-icon);
+}
+
+/* A banner with only a title sits 2px tighter at the bottom. */
+.flash:has(> .flash-body > :not(.flash-title)) {
+  padding-bottom: 14px;
+}
+
+.flash-icon {
+  color: var(--flash-icon);
+  flex: 0 0 auto;
+  height: 20px;
+  width: 20px;
+}
+
+.flash-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  > * {
+    margin: 0;
   }
+}
+
+.flash-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.flash-detail {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.flash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 8px 0 0;
+
+  a {
+    color: var(--text);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
+.flash-fields {
+  margin: 8px 0 0;
+  padding-left: 18px;
 
   li + li {
-    margin-top: var(--space-1);
+    margin-top: 4px;
   }
 
   a {
+    color: var(--text);
     font-weight: 500;
-  }
-
-  code {
-    background: var(--surface);
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 }
 
-.flash-success {
-  background: var(--success-soft);
-  border-color: var(--success-border);
-  border-left-color: var(--success);
+.flash-dismiss {
+  align-items: center;
+  background: none;
+  border: 0;
   color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  flex: 0 0 auto;
+  height: 44px;
+  justify-content: center;
+  margin: -12px 0;
+  padding: 0;
+  width: 44px;
 
-  strong {
-    color: var(--success);
+  /* Hidden until the dismiss script runs; the author `display: flex` above
+     would otherwise beat the user agent's [hidden] rule. */
+  &[hidden] {
+    display: none;
   }
-}
 
-.flash-warning {
-  background: var(--warning-soft);
-  border-color: var(--warning-border);
-  border-left-color: var(--warning);
-
-  strong {
-    color: var(--warning);
-  }
-}
-
-.flash-error {
-  background: var(--danger-soft);
-  border-color: var(--danger-border);
-  border-left-color: var(--danger);
-
-  strong {
-    color: var(--danger);
+  svg {
+    display: block;
+    height: 16px;
+    width: 16px;
   }
 }
