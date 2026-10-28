@@ -27,11 +27,24 @@ export const account = {
       createCsrfToken(ctx.sessionId, "POST", "/account/theme"),
     ]);
 
+    // The theme form redirects back here; the flag says how it went.
+    const saved = new URL(req.url).searchParams.get("theme");
+    const notice =
+      saved === "saved"
+        ? { type: "success" as const, message: "Theme saved." }
+        : saved === "invalid"
+          ? {
+              type: "warning" as const,
+              message: "Choose Light, Dark or System.",
+            }
+          : null;
+
     return render(
       <Account
         user={ctx.user}
         csrfToken={csrfToken}
         themeCsrfToken={themeCsrfToken}
+        notice={notice}
       />,
     );
   },

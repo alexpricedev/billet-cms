@@ -59,8 +59,8 @@ import { account } from "./account";
 
 const ORIGIN = process.env.APP_URL as string;
 
-const getAccount = (sessionId?: string) =>
-  createBunRequest(`${ORIGIN}/account`, {
+const getAccount = (sessionId?: string, path = "/account") =>
+  createBunRequest(`${ORIGIN}${path}`, {
     method: "GET",
     ...(sessionId ? { headers: { cookie: `cms_session=${sessionId}` } } : {}),
   });
@@ -127,6 +127,65 @@ describe("Account Controller", () => {
       const html = await (await account.index(getAccount(sessionId))).text();
 
       expect(html).toMatch(/name="_csrf" value="[^"]+"/);
+    });
+
+    test("shows the Theme card with the saved theme checked", async () => {
+      const user = await seedIdentity(db, "theme-dark@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+      await db`
+        INSERT INTO cms_user_preferences (user_id, theme)
+        VALUES (${user.id}, 'dark')
+      `;
+
+      const html = await (await account.index(getAccount(sessionId))).text();
+
+      expect(html).toContain('action="/account/theme"');
+      expect(html).toMatch(/name="theme" value="light"/);
+      expect(html).toMatch(/name="theme" value="dark" checked/);
+      expect(html).toMatch(/name="theme" value="system"/);
+      expect(html).not.toMatch(/value="light" checked/);
+      expect(html).not.toMatch(/value="system" checked/);
+    });
+
+    test("checks System when the editor has no saved theme", async () => {
+      const user = await seedIdentity(db, "theme-default@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+      const html = await (await account.index(getAccount(sessionId))).text();
+
+      expect(html).toMatch(/value="system" checked/);
+      expect(html).not.toMatch(/value="light" checked/);
+      expect(html).not.toMatch(/value="dark" checked/);
+    });
+
+    test("gives the Theme form its own CSRF token", async () => {
+      const user = await seedIdentity(db, "theme-token@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+      const html = await (await account.index(getAccount(sessionId))).text();
+
+      // The nav's sign-out form and the Theme card each carry one.
+      expect(html.match(/name="_csrf"/g)).toHaveLength(2);
+    });
+
+    test("says the theme was saved", async () => {
+      const user = await seedIdentity(db, "theme-saved@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+      const html = await (
+        await account.index(getAccount(sessionId, "/account?theme=saved"))
+      ).text();
+
+      expect(html).toContain("Theme saved.");
+      expect(html).toContain('class="flash-success"');
+    });
+
+    test("asks for a valid theme after a bad save", async () => {
+      const user = await seedIdentity(db, "theme-invalid@example.com");
+      const sessionId = await createAuthenticatedSession(user.id);
+      const html = await (
+        await account.index(getAccount(sessionId, "/account?theme=invalid"))
+      ).text();
+
+      expect(html).toContain("Choose Light, Dark or System.");
+      expect(html).toContain('class="flash-warning"');
     });
 
     test("reads the session once, not once per guard", async () => {
