@@ -228,9 +228,10 @@ describe("FieldControl image picker", () => {
     expect(html).not.toContain("Showing the newest");
   });
 
-  // A current image with no stored alt override used to render its raw id as the
-  // option's label (review round 1, item 2).
-  test("labels a current image with no stored alt as 'Current image'", () => {
+  // A current image the form does not know — deleted, or older than the reuse
+  // list — has no alt of its own to show, so it keeps the phrase rather than
+  // displaying a raw id.
+  test("labels a current image the form doesn't know as 'Current image'", () => {
     const html = renderToString(
       <FieldControl
         pickerCapped={false}
@@ -247,6 +248,63 @@ describe("FieldControl image picker", () => {
     expect(html).not.toContain(
       `<option value="${unlisted}" selected>${unlisted}</option>`,
     );
+  });
+
+  // Part 10: the picker's label describes the image it holds rather than always
+  // saying "Current image", so an editor can see which picture is in the field
+  // (and how big it is) before opening the picker.
+  test("labels a current image the form knows with its alt and dimensions", () => {
+    const html = renderToString(
+      <FieldControl
+        pickerCapped={false}
+        field={image}
+        media={media}
+        value={{ mediaId: media[1].id }}
+        idBase="cms-field-photo"
+        hasMedia
+      />,
+    );
+
+    expect(html).toContain(
+      `<option value="${media[1].id}" selected data-media-width="1200">B photo (1200×600)</option>`,
+    );
+    expect(html).not.toContain("Current image");
+  });
+
+  // A per-use alt still wins as the label, but the width the field needs for its
+  // own warning comes from the upload either way.
+  test("keeps the per-use alt on a known upload, and still carries its width", () => {
+    const html = renderToString(
+      <FieldControl
+        pickerCapped={false}
+        field={image}
+        media={media}
+        value={{ mediaId: media[0].id, alt: "Stored alt" }}
+        idBase="cms-field-photo"
+        hasMedia
+      />,
+    );
+
+    expect(html).toContain(
+      `<option value="${media[0].id}" selected data-media-keep-label data-media-width="800">Stored alt</option>`,
+    );
+  });
+
+  test("renders the warning slot and the field's minimum width", () => {
+    const html = renderToString(
+      <FieldControl
+        pickerCapped={false}
+        field={{ ...image, image: { minWidth: 1600 } }}
+        media={media}
+        value={{ mediaId: media[0].id }}
+        idBase="cms-field-photo"
+        hasMedia
+      />,
+    );
+
+    expect(html).toContain('data-image-min-width="1600"');
+    expect(html).toContain("data-image-warning");
+    expect(html).toContain("Needs at least 1600px wide");
   });
 
   // The per-use alt is what the site renders for this use; the marker tells the

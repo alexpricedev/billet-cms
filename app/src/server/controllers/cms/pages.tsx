@@ -1,3 +1,4 @@
+import { narrowImagesSentence } from "@shared/image-guidance";
 import type { BunRequest } from "bun";
 import type { FieldError } from "../../components/cms/field-control";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
@@ -45,6 +46,8 @@ import {
   nonEmpty,
   parseContent,
   UUID_PATTERN,
+  warningsFrom,
+  warningsParam,
 } from "./params";
 import { previewRedirect } from "./preview";
 
@@ -109,14 +112,25 @@ const droppedSentence = (types: string[]): string | null => {
 };
 
 export const pageNotice = (params: URLSearchParams): Notice | null => {
+  // As on a slot: a save or publish that carried a narrow-image warning says
+  // both what happened and what wants the editor's eye (part 10).
+  const narrow = warningsFrom(params);
   if (params.get("saved") === "1") {
-    return { kind: "success", message: "Draft saved." };
+    return narrow > 0
+      ? {
+          kind: "warning",
+          message: `Draft saved. ${narrowImagesSentence(narrow)}`,
+        }
+      : { kind: "success", message: "Draft saved." };
   }
   if (params.get("published") === "1") {
-    return {
-      kind: "success",
-      message: "Published. The site picks the change up within seconds.",
-    };
+    const message = "Published. The site picks the change up within seconds.";
+    return narrow > 0
+      ? {
+          kind: "warning",
+          message: `${message} ${narrowImagesSentence(narrow)}`,
+        }
+      : { kind: "success", message };
   }
   if (params.get("restored") === "1") {
     return {
@@ -696,7 +710,11 @@ export const pages = {
       });
     }
 
-    return redirect(`/cms/pages/${page.id}?saved=1${moved}${droppedParam}`);
+    return redirect(
+      `/cms/pages/${page.id}?saved=1${moved}${droppedParam}${warningsParam(
+        result.warnings.length,
+      )}`,
+    );
   },
 
   /** The confirm step before a page is deleted. */

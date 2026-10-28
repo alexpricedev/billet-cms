@@ -417,6 +417,7 @@ export const PageForm = ({
                   pages={pages}
                   hasMedia={media.length > 0}
                   pickerCapped={pickerCapped}
+                  media={media}
                 />
               ) : (
                 <p className="cms-blocks-empty">

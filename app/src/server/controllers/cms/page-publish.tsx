@@ -15,7 +15,7 @@ import { PageHistory } from "../../templates/cms/page-history";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
 import { renderPageForm } from "./pages";
-import { nonEmpty, UUID_PATTERN } from "./params";
+import { nonEmpty, UUID_PATTERN, warningsParam } from "./params";
 import { previewRedirect } from "./preview";
 
 /**
@@ -120,7 +120,11 @@ export const pagePublish = {
       return redirect(`/cms/pages/${pageId}?publish=empty`);
     }
 
-    return redirect(`/cms/pages/${pageId}?published=1`);
+    return redirect(
+      `/cms/pages/${pageId}?published=1${warningsParam(
+        result.warnings.length,
+      )}`,
+    );
   },
 
   /** Copy a historical revision into a new draft. */

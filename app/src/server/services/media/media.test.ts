@@ -642,7 +642,7 @@ describe("image guidance", () => {
     await cleanupTestData(db);
   });
 
-  test("refuses a save whose image is smaller than the field wants", async () => {
+  test("saves a too-narrow image and returns the warning", async () => {
     await seedBlockType(db, guidedBlock);
     const slotId = await seedSlot(db, {
       name: "home.banner",
@@ -658,15 +658,18 @@ describe("image guidance", () => {
     });
     if (!small.ok) throw new Error("upload failed");
 
-    const refused = await saveSlotDraft({
+    const saved = await saveSlotDraft({
       slotId,
       content: { heading: "Hi", photo: { mediaId: small.media.id } },
       baseRevisionId: null,
       actorId: null,
     });
-    expect(refused.ok).toBe(false);
-    if (refused.ok || refused.reason !== "invalid") return;
-    expect(refused.issues[0]?.message).toMatch(/1600px/);
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.warnings).toHaveLength(1);
+    expect(saved.warnings[0]?.path).toBe("photo.mediaId");
+    expect(saved.warnings[0]?.message).toMatch(/800px/);
+    expect(saved.warnings[0]?.message).toMatch(/1600px/);
 
     const big = await createMedia({
       bytes: await makeJpeg(2000, 1000),
@@ -676,16 +679,18 @@ describe("image guidance", () => {
     });
     if (!big.ok) throw new Error("upload failed");
 
-    const saved = await saveSlotDraft({
+    const clean = await saveSlotDraft({
       slotId,
       content: { heading: "Hi", photo: { mediaId: big.media.id } },
-      baseRevisionId: null,
+      baseRevisionId: saved.revision.id,
       actorId: null,
     });
-    expect(saved.ok).toBe(true);
+    expect(clean.ok).toBe(true);
+    if (!clean.ok) return;
+    expect(clean.warnings).toEqual([]);
   });
 
-  test("enforces guidance on the page save path too", async () => {
+  test("a page save returns the warning rather than refusing too", async () => {
     await seedBlockType(db, guidedBlock);
     await seedPageType(
       db,
@@ -706,7 +711,7 @@ describe("image guidance", () => {
     });
     if (!small.ok) throw new Error("upload failed");
 
-    const refused = await savePageDraft({
+    const saved = await savePageDraft({
       pageId: created.page.id,
       content: {
         blocks: [
@@ -716,10 +721,11 @@ describe("image guidance", () => {
       baseRevisionId: null,
       actorId: null,
     });
-    expect(refused.ok).toBe(false);
-    if (refused.ok || refused.reason !== "invalid") return;
-    expect(refused.issues[0]?.path).toBe("blocks.0.photo.mediaId");
-    expect(refused.issues[0]?.message).toMatch(/1600px/);
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.warnings).toHaveLength(1);
+    expect(saved.warnings[0]?.path).toBe("blocks.0.photo.mediaId");
+    expect(saved.warnings[0]?.message).toMatch(/1600px/);
   });
 
   test("refuses a save whose image is the wrong aspect, and accepts the right one", async () => {

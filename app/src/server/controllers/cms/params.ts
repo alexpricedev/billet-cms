@@ -64,3 +64,27 @@ export const contentParseMessage = (reason: ContentParseFailure): string =>
   reason === "too-large"
     ? "That content is too large to save — keep the draft under 1 MB."
     : "The submitted content could not be read.";
+
+/**
+ * The query parameter a save or publish adds when it carried narrow-image
+ * warnings, or an empty string when it carried none.
+ *
+ * A redirect can't re-render the form's own warning slots, so the count rides
+ * in the URL and the GET turns it back into a banner sentence. Saving with
+ * nothing wrong keeps the redirect it always had.
+ */
+export const warningsParam = (count: number): string =>
+  count > 0 ? `&warn=${count}` : "";
+
+/**
+ * The warning count from `warningsParam`, or 0 for absent or malformed input.
+ *
+ * The parameter is untrusted: the notice it produces is prose about a save that
+ * may not have happened, so anything but a small positive integer is ignored.
+ */
+export const warningsFrom = (params: URLSearchParams): number => {
+  const raw = params.get("warn");
+  if (raw === null || !/^\d{1,3}$/.test(raw)) return 0;
+  const count = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(count) && count > 0 ? count : 0;
+};

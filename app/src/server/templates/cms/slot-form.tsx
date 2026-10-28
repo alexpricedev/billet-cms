@@ -267,6 +267,7 @@ export const SlotForm = ({
           errorsByField={errorsByField}
           hasMedia={media.length > 0}
           pickerCapped={pickerCapped}
+          media={media}
         />
       </form>
 

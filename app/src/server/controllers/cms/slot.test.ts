@@ -56,6 +56,13 @@ const hero = block(
 // then has to carry.
 const photoHero = block("photoHero", { photo: image() }, () => null);
 
+// Part 10: a field with a minimum width. A narrower image warns but saves.
+const narrowHero = block(
+  "narrowHero",
+  { photo: image({ minWidth: 1600 }) },
+  () => null,
+);
+
 const document: RichTextDocument = {
   type: "doc",
   content: [{ type: "paragraph", content: [{ type: "text", text: "Body" }] }],
@@ -792,6 +799,78 @@ describe("Slot form controller", () => {
         SELECT content FROM cms_revisions ORDER BY created_at DESC LIMIT 1
       `;
       expect(latest[0].content.heading).toBe("Mine");
+    });
+
+    // Part 10: a narrow image used to refuse the save. It saves, and the
+    // editor is told on the page the redirect lands on.
+    test("saves a too-narrow image and says so on the way back", async () => {
+      await seedBlockType(db, narrowHero);
+      const narrowSlotId = await seedSlot(db, {
+        name: "home.narrow",
+        blockName: "narrowHero",
+        page: "home",
+      });
+      const small = await createMedia({
+        bytes: await makeJpeg(800, 400),
+        alt: "Too small",
+        actorId: null,
+        storage: createMemoryStorage(),
+      });
+      if (!small.ok) throw new Error("upload failed");
+
+      const formData = new FormData();
+      formData.append(
+        "_csrf",
+        await createCsrfToken(sessionId, "POST", path(narrowSlotId)),
+      );
+      formData.append(
+        "content",
+        JSON.stringify({ photo: { mediaId: small.media.id } }),
+      );
+      formData.append("base_revision", "");
+
+      const res = await slotForm.create(
+        createBunRequest(
+          `${ORIGIN}${path(narrowSlotId)}`,
+          {
+            method: "POST",
+            headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+            body: formData,
+          },
+          { id: narrowSlotId },
+        ),
+      );
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `${path(narrowSlotId)}?saved=1&warn=1`,
+      );
+      // It really is saved, not merely not-refused.
+      expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
+
+      const html = await (
+        await slotForm.index(
+          createBunRequest(
+            `${ORIGIN}${path(narrowSlotId)}?saved=1&warn=1`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: narrowSlotId },
+          ),
+        )
+      ).text();
+      expect(html).toContain("flash-warning");
+      expect(html).toContain("Draft saved.");
+      expect(html).toContain("narrower than its field wants");
+    });
+
+    test("a clean save says nothing about images", async () => {
+      const res = await slotForm.create(
+        await post({
+          content: JSON.stringify(validContent),
+          base_revision: "",
+        }),
+      );
+
+      expect(res.headers.get("location")).toBe(`${path(slotId)}?saved=1`);
     });
   });
 

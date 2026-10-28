@@ -17,6 +17,8 @@
  * `fetch`, no navigation. Keep it that way.
  */
 
+import { narrowImageWarning } from "@shared/image-guidance";
+
 interface RichTextMark {
   type: "bold" | "italic" | "link";
   attrs?: { href?: string; target?: string };
@@ -613,6 +615,48 @@ const fillPickerFromOptions = (
 };
 
 /**
+ * Show or clear an image field's too-narrow warning for the picked upload.
+ *
+ * Two numbers the server already rendered — the fieldset's `data-image-min-width`
+ * and the option's `data-media-width` — are compared and a fixed sentence is
+ * written into the slot beside the field. Nothing is fetched, parsed or built:
+ * with JavaScript off the warning simply isn't shown while picking, and the
+ * save's own notice (server-rendered after the redirect) still says it.
+ */
+const updateImageWarning = (
+  field: Element,
+  picker: HTMLSelectElement,
+): void => {
+  const warning = field.querySelector<HTMLElement>("[data-image-warning]");
+  if (!warning) return;
+  const minWidth = Number.parseInt(
+    field.getAttribute("data-image-min-width") ?? "",
+    10,
+  );
+  // `selectedOptions` rather than `value`, because an option's own width is what
+  // matters and the picker's value can be an id the list no longer holds (a
+  // hand-typed one, a deleted upload) with no option behind it.
+  const option = Array.from(picker.options).find(
+    (candidate) => candidate.value === picker.value,
+  );
+  const width = Number.parseInt(
+    option?.getAttribute("data-media-width") ?? "",
+    10,
+  );
+  if (
+    !Number.isSafeInteger(minWidth) ||
+    !Number.isSafeInteger(width) ||
+    width >= minWidth
+  ) {
+    warning.hidden = true;
+    warning.textContent = "";
+    return;
+  }
+  warning.textContent = narrowImageWarning(width, minWidth);
+  warning.hidden = false;
+};
+
+/**
  * Wire the rich text toolbars and the repeatable lists through one delegated
  * listener on the form.
  *
@@ -651,10 +695,27 @@ const wireControls = (form: HTMLFormElement): void => {
     if (!(target instanceof Element)) return;
     const picker = target.closest("[data-image-picker]");
     if (!(picker instanceof HTMLSelectElement)) return;
-    const input = picker
-      .closest("[data-field]")
-      ?.querySelector<HTMLInputElement>("[data-image-id]");
+    const field = picker.closest("[data-field]");
+    if (!field) return;
+    const input = field.querySelector<HTMLInputElement>("[data-image-id]");
     if (input) input.value = picker.value;
+    updateImageWarning(field, picker);
+  });
+
+  // A hand-typed id carries no width, so whatever the picker said about the
+  // image it had no longer describes the field. Clearing it is the honest
+  // state; the save's own check still runs on the id that was typed.
+  form.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const input = target.closest("[data-image-id]");
+    if (!(input instanceof HTMLInputElement)) return;
+    const field = input.closest("[data-field]");
+    const warning = field?.querySelector<HTMLElement>("[data-image-warning]");
+    if (warning) {
+      warning.hidden = true;
+      warning.textContent = "";
+    }
   });
 
   form.addEventListener("click", (event) => {

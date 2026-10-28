@@ -8,6 +8,7 @@ import type {
   UnavailableBlock,
 } from "../../services/content";
 import type { PageOption } from "../../services/content/pages";
+import type { MediaOption } from "../../services/media";
 
 export interface PageBlocksProps {
   pageType: PageTypeRecord;
@@ -32,6 +33,11 @@ export interface PageBlocksProps {
   hasMedia: boolean;
   /** Whether that picker's reuse list was capped. */
   pickerCapped: boolean;
+  /**
+   * The uploads the picker offers, so an image field can label and measure the
+   * image it already holds (part 10).
+   */
+  media?: MediaOption[];
 }
 
 /** The block types a page of this type may add, in the allowed order. */
@@ -142,6 +148,7 @@ const EditableBlock = ({
   pages,
   hasMedia,
   pickerCapped,
+  media,
 }: {
   blockType: BlockTypeRecord;
   block: PageBlock;
@@ -151,6 +158,7 @@ const EditableBlock = ({
   pages?: PageOption[];
   hasMedia: boolean;
   pickerCapped: boolean;
+  media?: MediaOption[];
 }) => (
   <fieldset
     className={alert ? "cms-block cms-block-alert" : "cms-block"}
@@ -177,6 +185,7 @@ const EditableBlock = ({
       pages={pages}
       hasMedia={hasMedia}
       pickerCapped={pickerCapped}
+      media={media}
       idPrefix={`cms-block-${index}-${blockType.name}`}
     />
   </fieldset>
@@ -205,6 +214,7 @@ export const PageBlocks = ({
   pages,
   hasMedia,
   pickerCapped,
+  media,
 }: PageBlocksProps) => {
   const byName = new Map(blockTypes.map((block) => [block.name, block]));
   const unavailableByIndex = new Map(
@@ -252,6 +262,7 @@ export const PageBlocks = ({
               pages={pages}
               hasMedia={hasMedia}
               pickerCapped={pickerCapped}
+              media={media}
             />
           );
         })}
@@ -283,6 +294,7 @@ export const PageBlocks = ({
             pages={pages}
             hasMedia={hasMedia}
             pickerCapped={pickerCapped}
+            media={media}
           />
         </template>
       ))}

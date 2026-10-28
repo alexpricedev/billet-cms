@@ -249,6 +249,17 @@ h1 {
   padding-left: var(--space-4);
 }
 
+/* A narrow image doesn't refuse the save (part 10), so its line is the warning
+   colour rather than the error red the field errors wear. `hidden` is set by the
+   client, and the colour/size rules here must not give it a `display` that
+   would beat the user agent's `[hidden]`. */
+.cms-field-warning {
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 /* A long upload label is ellipsised rather than widening the image picker. */
 .cms-field select[data-image-picker] {
   text-overflow: ellipsis;
