@@ -73,6 +73,65 @@ describe("base.css theme scopes", () => {
   });
 });
 
+describe("base.css banner tokens", () => {
+  // One tint per tone, defined in every theme scope. A tone missing from one
+  // scope falls back to whatever the unqualified `:root` declared — light
+  // colours on a dark page — so each scope carries all twelve.
+  const light = {
+    "--banner-success-bg": "#f0faf3",
+    "--banner-success-border": "#bfe3cb",
+    "--banner-success-icon": "#15803d",
+    "--banner-info-bg": "#f2f6fd",
+    "--banner-info-border": "#c9d7f2",
+    "--banner-info-icon": "#1d4ed8",
+    "--banner-warning-bg": "#fff8eb",
+    "--banner-warning-border": "#f0d9a8",
+    "--banner-warning-icon": "#b45309",
+    "--banner-error-bg": "#fef3f2",
+    "--banner-error-border": "#f3c4c0",
+    "--banner-error-icon": "#b91c1c",
+  };
+  const dark = {
+    "--banner-success-bg": "#0d231a",
+    "--banner-success-border": "#1d4b37",
+    "--banner-success-icon": "#3dd68c",
+    "--banner-info-bg": "#0e1a2e",
+    "--banner-info-border": "#1e3a66",
+    "--banner-info-icon": "#6ea8fe",
+    "--banner-warning-bg": "#241a08",
+    "--banner-warning-border": "#4d3a12",
+    "--banner-warning-icon": "#f5b544",
+    "--banner-error-bg": "#2a1110",
+    "--banner-error-border": "#5a2320",
+    "--banner-error-icon": "#ff6b6b",
+  };
+
+  function expectTokens(block: string | undefined, tokens: object) {
+    expect(block).toBeDefined();
+    for (const [token, value] of Object.entries(tokens)) {
+      expect(block).toContain(`${token}: ${value}`);
+    }
+  }
+
+  test("defines all four tones in the light :root", () => {
+    expectTokens(/:root\s*\{([^}]*)\}/.exec(css)?.[1], light);
+  });
+
+  test('defines all four tones under [data-theme="dark"]', () => {
+    expectTokens(
+      /:root\[data-theme="dark"\]\s*\{([^}]*)\}/.exec(css)?.[1],
+      dark,
+    );
+  });
+
+  test("defines all four tones in the System media query", () => {
+    expectTokens(
+      /:root:not\(\[data-theme\]\)\s*\{([^}]*)\}/.exec(css)?.[1],
+      dark,
+    );
+  });
+});
+
 describe("base.css choice rows", () => {
   // The alignment wart: a radio on the inline baseline and carrying the
   // browser's default margin sits high and indented from the card's edge.
