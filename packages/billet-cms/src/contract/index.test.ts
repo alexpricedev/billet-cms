@@ -57,6 +57,7 @@ describe("TABLES", () => {
       sessions: "cms_sessions",
       userTokens: "cms_user_tokens",
       identities: "cms_identities",
+      userPreferences: "cms_user_preferences",
       blockTypes: "cms_block_types",
       pageTypes: "cms_page_types",
       slots: "cms_slots",

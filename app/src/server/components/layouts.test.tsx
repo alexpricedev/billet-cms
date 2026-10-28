@@ -1,6 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
-import { Layout } from "./layouts";
+import type { Theme } from "../services/preferences";
+import { BaseLayout, ErrorLayout, Layout } from "./layouts";
+
+const editor = (theme?: Theme) => ({
+  id: "00000000-0000-0000-0000-000000000001",
+  email: "editor@example.com",
+  role: "admin",
+  ...(theme ? { theme } : {}),
+});
+
+const render = (theme: Theme) =>
+  renderToString(
+    <Layout title="Account" name="account" user={editor(theme)}>
+      <p>body</p>
+    </Layout>,
+  );
 
 /**
  * The full layout's `<head>` and `<body>` scripts.
@@ -57,5 +72,74 @@ describe("Layout", () => {
   test("opens no cross-origin connection", () => {
     expect(html).not.toContain("preconnect");
     expect(html).not.toContain("dns-prefetch");
+  });
+});
+
+/**
+ * The editor's theme is written into the page, not applied by a script, so
+ * there is no flash of the wrong colours. System is the old behaviour and the
+ * only one a signed-out page can get.
+ */
+describe("Layout theme", () => {
+  test("light marks the document and pins the light chrome", () => {
+    const html = render("light");
+
+    expect(html).toContain('data-theme="light"');
+    expect(html).toMatch(/<html[^>]*style="color-scheme:light;"/);
+    expect(html).toMatch(/name="color-scheme" content="light"/);
+    // One theme-color, the light one, with no media query: the editor's
+    // choice wins over the operating system.
+    expect(html.match(/name="theme-color"/g)).toHaveLength(1);
+    expect(html).toMatch(/name="theme-color" content="#fafafa"/);
+    expect(html).not.toContain("prefers-color-scheme");
+  });
+
+  test("dark marks the document and pins the dark chrome", () => {
+    const html = render("dark");
+
+    expect(html).toContain('data-theme="dark"');
+    expect(html).toMatch(/<html[^>]*style="color-scheme:dark;"/);
+    expect(html).toMatch(/name="color-scheme" content="dark"/);
+    expect(html.match(/name="theme-color"/g)).toHaveLength(1);
+    expect(html).toMatch(/name="theme-color" content="#090909"/);
+    expect(html).not.toContain("prefers-color-scheme");
+  });
+
+  test("system leaves the document unmarked and follows the OS", () => {
+    const html = render("system");
+
+    expect(html).not.toContain("data-theme");
+    expect(html).toMatch(/<html[^>]*style="color-scheme:light dark;"/);
+    expect(html).toMatch(/name="color-scheme" content="light dark"/);
+    expect(html.match(/name="theme-color"/g)).toHaveLength(2);
+    expect(html).toMatch(
+      /name="theme-color" content="#fafafa" media="\(prefers-color-scheme: light\)"/,
+    );
+    expect(html).toMatch(
+      /name="theme-color" content="#090909" media="\(prefers-color-scheme: dark\)"/,
+    );
+  });
+
+  test("a signed-out page gets none", () => {
+    const html = renderToString(
+      <Layout title="Home" name="home" user={null}>
+        <p>body</p>
+      </Layout>,
+    );
+
+    expect(html).not.toContain("data-theme");
+    expect(html).toMatch(/name="color-scheme" content="light dark"/);
+    expect(html.match(/name="theme-color"/g)).toHaveLength(2);
+  });
+
+  test("ErrorLayout and BaseLayout always render System", () => {
+    for (const layout of [
+      renderToString(<ErrorLayout title="Not found">body</ErrorLayout>),
+      renderToString(<BaseLayout title="Not found">body</BaseLayout>),
+    ]) {
+      expect(layout).not.toContain("data-theme");
+      expect(layout).toMatch(/name="color-scheme" content="light dark"/);
+      expect(layout.match(/name="theme-color"/g)).toHaveLength(2);
+    }
   });
 });
