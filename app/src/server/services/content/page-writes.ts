@@ -460,6 +460,7 @@ const writePage = async (
         page.id,
         settings,
         pageType.name,
+        "draft",
       );
 
       const carried = await carryUnavailableBlocks(
