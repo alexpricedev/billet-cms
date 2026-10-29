@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import {
   block,
+  group,
   image,
   link,
   list,
@@ -118,6 +119,57 @@ describe("content write layer", () => {
       { path: "cta.label", message: "Button text is required." },
     ]);
     expect(await getLatestRevision("slot", slotId)).toBeNull();
+  });
+
+  // A link the site declares text:false has no visible words of its own, so the
+  // save must not refuse it for a missing label.
+  test("saves a filled link declared text:false with no button text", async () => {
+    const silent = block("silent", { cta: link({ text: false }) }, () => null);
+    await seedBlockType(db, silent);
+    const silentSlot = await seedSlot(db, {
+      name: "home.silent",
+      blockName: "silent",
+      page: "home",
+    });
+
+    const result = await saveSlotDraft({
+      slotId: silentSlot,
+      content: { cta: { type: "url", url: "https://example.com" } },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  // The older shape of the same idea: a link beside a text field in its own
+  // group takes its words from that field and is not asked for a label.
+  test("saves a group link with a sibling text field and no label", async () => {
+    const banner = block(
+      "banner",
+      { banner: group({ heading: text(), cta: link() }) },
+      () => null,
+    );
+    await seedBlockType(db, banner);
+    const bannerSlot = await seedSlot(db, {
+      name: "home.banner",
+      blockName: "banner",
+      page: "home",
+    });
+
+    const result = await saveSlotDraft({
+      slotId: bannerSlot,
+      content: {
+        banner: {
+          heading: "Read this",
+          cta: { type: "url", url: "https://example.com" },
+        },
+      },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(true);
   });
 
   // Q4: the value is re-attached from the revision the editor loaded, so the

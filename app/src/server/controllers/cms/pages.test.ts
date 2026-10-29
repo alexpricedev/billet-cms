@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   block,
+  group,
   image,
   link,
   MAX_RICH_TEXT_LIST_DEPTH,
@@ -829,6 +830,109 @@ describe("Pages controller", () => {
     expect(html).toContain('href="#cms-block-0-hero-cta"');
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
+  // Button text is an editor rule the page save shares with the slot save, so
+  // a plain link with no words is refused here too, with the editor's message.
+  test("refuses a page whose plain link has no button text", async () => {
+    const plain = block("plain", { cta: link() }, () => null);
+    await seedBlockType(db, plain);
+    await seedPageType(db, pageType("plains", { allowedBlocks: [plain] }));
+
+    const created = await createPage({
+      pageType: "plains",
+      url: "/plain",
+      title: "Plain",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "plains",
+          url: "/plain",
+          title: "Plain",
+          content: JSON.stringify({
+            blocks: [
+              {
+                type: "plain",
+                cta: { type: "url", url: "https://example.com" },
+              },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Button text is required.");
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
+  // The two exemptions the site can declare: a link with `text: false`, and a
+  // text-on link beside a text field in the same group. Both save and publish.
+  test("saves and publishes a page whose links get their text elsewhere", async () => {
+    const banner = block(
+      "banner",
+      {
+        banner: group({ heading: text(), cta: link() }),
+        silent: link({ text: false }),
+      },
+      () => null,
+    );
+    await seedBlockType(db, banner);
+    await seedPageType(db, pageType("banners", { allowedBlocks: [banner] }));
+
+    const created = await createPage({
+      pageType: "banners",
+      url: "/banner",
+      title: "Banner",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const save = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "banners",
+          url: "/banner",
+          title: "Banner",
+          content: JSON.stringify({
+            blocks: [
+              {
+                type: "banner",
+                banner: {
+                  heading: "Read this",
+                  cta: { type: "url", url: "https://example.com" },
+                },
+                silent: { type: "url", url: "https://example.com" },
+              },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+    expect(save.status).toBe(303);
+
+    const published = await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    expect(published.status).toBe(303);
+    expect((await getPageById(pageId))?.publishedRevisionId).not.toBeNull();
   });
 
   // The banner's "Fix these N fields" line counts real fields only: a

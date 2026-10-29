@@ -245,14 +245,25 @@ const hasLinkDestination = (value: Record<string, unknown>): boolean =>
  * chosen yet is what the client keeps so a failed save does not lose the mode.
  * Complaining about its button text as well would bury the one thing the person
  * still has to do.
+ *
+ * Two links are exempt. One whose metadata says `text: false` has no visible
+ * text of its own by the site's design, so there is nothing to require. A
+ * text-on link declared beside a text field in the same `group` is the older
+ * shape of the same idea: the group's text field carries the words, and asking
+ * for them twice blocks a save the site meant to work. `siblings` is that
+ * group's children and is passed only by the group walk, so a link at the top
+ * level of a block or standing alone in a list item still follows the rule.
  */
 const walkLinkLabels = (
   field: FieldMetadata,
   value: unknown,
   path: (string | number)[],
   issues: FieldIssue[],
+  siblings?: FieldMetadata[],
 ): void => {
   if (field.kind === "link") {
+    if (field.text === false) return;
+    if (siblings?.some((sibling) => sibling.kind === "text")) return;
     if (!isLinkValue(value) || !hasLinkDestination(value)) return;
     const label = value.label;
     if (typeof label !== "string" || label.trim() === "") {
@@ -276,7 +287,13 @@ const walkLinkLabels = (
     if (!field.fields || typeof value !== "object" || value === null) return;
     const record = value as Record<string, unknown>;
     for (const child of field.fields) {
-      walkLinkLabels(child, record[child.name], [...path, child.name], issues);
+      walkLinkLabels(
+        child,
+        record[child.name],
+        [...path, child.name],
+        issues,
+        field.fields,
+      );
     }
   }
 };

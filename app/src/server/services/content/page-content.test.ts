@@ -531,6 +531,83 @@ describe("formatIssues", () => {
       { path: "cta.url.label", message: "Button text is required." },
     ]);
   });
+
+  // A link that declares it has no text of its own never asks for any, in a
+  // group, at the top level, or in a list.
+  test("does not ask for button text on a link declared text:false", () => {
+    const silent = block(
+      "silent",
+      {
+        banner: group({ heading: text(), cta: link({ text: false }) }),
+        cta: link({ text: false }),
+        links: list(link({ text: false })),
+      },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(silent).fields, {
+        banner: { heading: "Hi", cta: { type: "url", url: "https://a.test" } },
+        cta: { type: "url", url: "https://b.test" },
+        links: [{ type: "url", url: "https://c.test" }],
+      }),
+    ).toEqual([]);
+  });
+
+  // The older shape of the same idea: a link beside its own text field. The
+  // group's text carries the words, so a label-less link is not refused.
+  test("does not ask for button text on a group link with a sibling text field", () => {
+    const banner = block(
+      "banner",
+      { banner: group({ heading: text(), cta: link() }) },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(banner).fields, {
+        banner: {
+          heading: "Read this",
+          cta: { type: "url", url: "https://example.com" },
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  test("still asks when the group's only sibling is not a text field", () => {
+    const banner = block(
+      "banner",
+      { banner: group({ body: richText(), cta: link() }) },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(banner).fields, {
+        banner: {
+          body: { type: "doc", content: [] },
+          cta: { type: "url", url: "https://example.com" },
+        },
+      }),
+    ).toEqual([
+      { path: "banner.cta.label", message: "Button text is required." },
+    ]);
+  });
+
+  // A text field elsewhere in the block is not a sibling: only a group's own
+  // children exempt its links, which keeps the quote's optional link refused.
+  test("does not exempt a top-level or list link for a top-level text field", () => {
+    const quote = block(
+      "quote",
+      { heading: text(), cta: link(), links: list(link()) },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(quote).fields, {
+        heading: "Words",
+        cta: { type: "url", url: "https://example.com" },
+        links: [{ type: "url", url: "https://example.com" }],
+      }),
+    ).toEqual([
+      { path: "cta.label", message: "Button text is required." },
+      { path: "links.0.label", message: "Button text is required." },
+    ]);
+  });
 });
 
 describe("mergeUnavailableBlocks", () => {
