@@ -189,31 +189,48 @@ const FieldLabelText = ({
  * filling it in, it has become a link that must be complete, so the asterisk
  * takes the place of "Optional". Both are rendered and the stylesheet swaps
  * them, because "in use" is what CSS reads from the inputs themselves.
+ *
+ * `text` is the field's own name, or the list's name when the row overrides it.
+ * The marker belongs to the control, not the word, so an overridden heading
+ * carries it too — otherwise a required link in a list row has no marker
+ * anywhere, since its sub-labels never render one.
  */
-const GroupLabelText = ({
+const HeadingText = ({
+  text,
   field,
   inGroup = false,
 }: {
+  text: string;
   field: FieldMetadata;
   inGroup?: boolean;
 }): JSX.Element => {
-  if (inGroup) return <>{fieldName(field)}</>;
+  if (inGroup) return <>{text}</>;
   if (field.required) {
     return (
       <>
-        {fieldName(field)}
+        {text}
         <span className="cms-required"> *</span>
       </>
     );
   }
   return (
     <>
-      {fieldName(field)}
+      {text}
       {field.kind === "link" && <span className="cms-required"> *</span>}
       <span className="cms-field-optional"> Optional</span>
     </>
   );
 };
+
+const GroupLabelText = ({
+  field,
+  inGroup = false,
+}: {
+  field: FieldMetadata;
+  inGroup?: boolean;
+}): JSX.Element => (
+  <HeadingText text={fieldName(field)} field={field} inGroup={inGroup} />
+);
 
 const FieldHelp = ({
   help,
@@ -815,7 +832,13 @@ export const FieldControl = ({
           aria-label={labelOverride}
         >
           {labelOverride ? (
-            <span className="cms-field-label">{labelOverride}</span>
+            <span className="cms-field-label">
+              <HeadingText
+                text={labelOverride}
+                field={field}
+                inGroup={inGroup}
+              />
+            </span>
           ) : (
             <legend className="cms-field-label">
               <GroupLabelText field={field} inGroup={inGroup} />
@@ -1033,7 +1056,13 @@ export const FieldControl = ({
           aria-label={labelOverride}
         >
           {labelOverride ? (
-            <span className="cms-field-label">{labelOverride}</span>
+            <span className="cms-field-label">
+              <HeadingText
+                text={labelOverride}
+                field={field}
+                inGroup={inGroup}
+              />
+            </span>
           ) : (
             <legend className="cms-field-label">
               <GroupLabelText field={field} inGroup={inGroup} />

@@ -625,6 +625,33 @@ describe("FieldControl link", () => {
     }
   });
 
+  // A list row's heading is the list's name, not the link's, but the marker
+  // belongs to the link control the row renders. Its sub-labels carry none, so
+  // without the heading's star a required link in a list shows no marker at all.
+  test("a required link in a list row carries its marker on the row heading", () => {
+    const links: FieldMetadata = {
+      name: "links",
+      kind: "list",
+      required: false,
+      of: { name: "link", kind: "link", required: true },
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={links}
+        idBase="cms-field-links"
+        value={[{ type: "url", url: "https://a.example", label: "A" }]}
+      />,
+    );
+
+    expect(html).toContain(
+      '<span class="cms-field-label">links<span class="cms-required"> *</span></span>',
+    );
+    expect(html).not.toContain("Button text<span");
+    expect(html).not.toContain(">Goes to<span");
+  });
+
   // A URL-rendered link has no page picker, so an error keyed `pageId` has no
   // control of its own. It is still an issue the editor was refused over, so it
   // goes on the container rather than being dropped as "known".
