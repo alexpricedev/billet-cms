@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### A link can carry hover text
+
+A link value gains an optional `title`: the words a browser shows when someone
+hovers the link. `label` keeps its meaning — the link's visible text — so the
+two are separate, and a link written before `title` existed still validates
+unchanged.
+
+The contract version is now `0.9.0`. Both link branches are strict objects, so
+an older CMS or site rejects a link that carries `title`; deploy the CMS before
+the site, as always. A site's link component needs to render `title` as the
+`title` attribute to show it.
+
 ## 0.2.0
 
 `group()` is the headline: a block can declare a repeated pair instead of two

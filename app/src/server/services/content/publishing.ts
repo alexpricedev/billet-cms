@@ -24,7 +24,7 @@ import {
   referencedMediaIds,
 } from "../media/guidance";
 import { type BlockTypeRecord, getBlockTypeByName } from "./definitions";
-import { type FieldIssue, formatIssues } from "./drafts";
+import { type FieldIssue, formatIssues, linkLabelIssues } from "./drafts";
 import {
   createRevision,
   getLatestRevision,
@@ -169,12 +169,17 @@ export const publishSlot = async (
     const validation = validateContent(blockType.jsonSchema, revision.content, {
       allowAdditionalFields: true,
     });
-    if (!validation.success) {
-      return {
-        ok: false as const,
-        reason: "invalid" as const,
-        issues: formatIssues(validation.issues, revision.content),
-      };
+    // Button text is not a schema rule (see `linkLabelIssues`), so it is
+    // checked whether or not the validator found something else.
+    const labelIssues = linkLabelIssues(blockType.fields, revision.content);
+    if (!validation.success || labelIssues.length > 0) {
+      const issues = validation.success
+        ? labelIssues
+        : [
+            ...formatIssues(validation.issues, revision.content),
+            ...labelIssues,
+          ];
+      return { ok: false as const, reason: "invalid" as const, issues };
     }
 
     if (locked[0].published_revision_id === revision.id) {
