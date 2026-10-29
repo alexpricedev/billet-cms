@@ -11,6 +11,17 @@ const layoutCss = await Bun.file(
 ).text();
 const baseCss = await Bun.file(new URL("../base.css", import.meta.url)).text();
 
+// `[selector, body]` for every rule in a stylesheet. Comments are stripped
+// first: prose that names a selector would otherwise be captured as part of the
+// next rule's selector, and `[^{}]` stops at a nested block the way a real
+// parser would, so a rule inside `@media` is matched on its own.
+const rules = (source: string): [string, string][] =>
+  [
+    ...source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .matchAll(/([^{}]*)\{([^{}]*)\}/g),
+  ].map((match) => [match[1] ?? "", match[2] ?? ""]);
+
 describe("cms.css layout", () => {
   // A long slot name or page type name is one unbroken token; without this it
   // pushes the layout wider than a phone's viewport.
@@ -165,16 +176,23 @@ describe("cms.css action bar", () => {
   // help line floated 136px above the bar at 1280 and 200px at 390. The form
   // takes no bottom padding of its own, and the one gap it does leave is the
   // bar's `margin-top` — the normal section spacing.
+  //
+  // Every rule naming either form is checked, at every breakpoint, rather than
+  // one anchored at the selector's start: a scoped rule like
+  // `.cms-page-form:not(.cms-new-page-form) { padding-bottom: … }` put the
+  // doubled gap back while passing an anchored match, and so did any literal.
   test("leaves only the bar's own flow space below the form", () => {
-    expect(css).not.toMatch(/\.cms-slot-form[^{]*\{[^}]*padding-bottom/);
+    const formRules = rules(css).filter(([selector]) =>
+      /\.cms-(?:slot|page)-form\b/.test(selector),
+    );
+    expect(formRules.length).toBeGreaterThan(0);
+    for (const [, body] of formRules) {
+      expect(body).not.toContain("padding-bottom");
+    }
+
     expect(css).toMatch(
       /\.cms-actions\s*\{[^}]*margin-top:\s*var\(--space-6\)/,
     );
-
-    const mobile = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
-      css,
-    )?.[1];
-    expect(mobile).not.toContain("176px");
   });
 
   // The shadow is a token in every theme block, so light, dark and System all
@@ -195,16 +213,23 @@ describe("cms.css action bar", () => {
 
   // The legacy `.cms-*` button classes are styled through the `.btn` variants;
   // no rule of their own may reintroduce a background the variant cannot see.
+  // Every `.cms-save` rule is checked, not just a bare one: `.cms-save` sits on
+  // both Save draft and Publish, and page CSS loads after base.css, so a fill
+  // in any rule that names it beats `btn-secondary` and leaves two filled
+  // buttons in the bar. One primary per bar means the variant decides.
   test("styles the legacy buttons through the variants", () => {
     expect(css).not.toMatch(/\.cms-publish-button\s*\{/);
     expect(css).not.toMatch(/\.cms-preview-button\s*\{/);
-    // `.cms-save` sits on both Save draft and Publish, and page CSS loads after
-    // base.css, so a fill here beats `btn-secondary` and leaves two filled
-    // buttons in the bar. One primary per bar means the variant decides.
-    const save = /^\.cms-save\s*\{([^}]*)\}/m.exec(css)?.[1];
-    expect(save).not.toContain("background");
-    expect(save).not.toContain("border");
-    expect(save).not.toContain("color");
+
+    const saveRules = rules(css).filter(([selector]) =>
+      selector.includes(".cms-save"),
+    );
+    expect(saveRules.length).toBeGreaterThan(0);
+    for (const [, body] of saveRules) {
+      expect(body).not.toContain("background");
+      expect(body).not.toContain("border");
+      expect(body).not.toContain("color");
+    }
   });
 
   test("stacks the bar into two columns on a phone", () => {

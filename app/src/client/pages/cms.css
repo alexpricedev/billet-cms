@@ -425,13 +425,10 @@ h1 {
 
 /* ---- Save and publishing ---------------------------------------------- */
 
-/* `.cms-save` carries no fill of its own: the editor bar decides between
-   `btn-primary` and `btn-secondary` per state, and a page form's only action
-   says so in its own `btn btn-primary`. A style here would outrank the variant
+/* `.cms-save` is a hook for the layout rules below, not a style of its own: it
+   carries no fill and no cursor, so the variant classes alone decide the look
+   and `.btn` alone decides the pointer. A style here would outrank the variant
    (page CSS loads after base.css) and make every Save look primary. */
-.cms-save {
-  cursor: pointer;
-}
 
 /* The action bar: what is live, what is draft, and the buttons that change it.
    It sticks to the bottom of the viewport so Publish is in reach on a phone
