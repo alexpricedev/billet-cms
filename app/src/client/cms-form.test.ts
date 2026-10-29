@@ -1830,6 +1830,20 @@ describe("long text fields", () => {
     expect(textarea().hasAttribute("aria-invalid")).toBe(false);
   });
 
+  test("counts a pasted line break as the single space it saves", () => {
+    mount(MARKUP);
+    const count = document.querySelector("[data-char-count]") as HTMLElement;
+    const over = document.querySelector("[data-char-over]") as HTMLElement;
+
+    // Twelve raw characters, nine saved: "abcdefgh" + one space.
+    textarea().value = "abcdefgh\r\n\r\n";
+    textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(count.textContent).toBe("9 / 10");
+    expect(over.hidden).toBe(true);
+    expect(textarea().hasAttribute("aria-invalid")).toBe(false);
+    expect(buildContent(form()).quote).toBe("abcdefgh ");
+  });
+
   test("refuses Enter in a textarea and leaves other keys alone", () => {
     mount(MARKUP);
     const enter = new KeyboardEvent("keydown", {
@@ -1871,6 +1885,69 @@ describe("long text fields", () => {
     area.value = "abcdef";
     area.dispatchEvent(new Event("input", { bubbles: true }));
     expect(area.style.height).toBe("12px");
+  });
+
+  test("leaves a textarea with no layout box un-grown", () => {
+    document.body.innerHTML = `<div style="display:none">${MARKUP}</div>`;
+    const area = textarea();
+    // happy-dom lays nothing out, so stand in for a browser's display:none box:
+    // it has no client rects until the section is shown.
+    area.getClientRects = () => [] as unknown as DOMRectList;
+
+    init();
+    expect(area.classList.contains("cms-textarea-grown")).toBe(false);
+    expect(area.style.height).toBe("");
+  });
+
+  test("grows again when the box changes width", () => {
+    let callback: ResizeObserverCallback | undefined;
+    class FakeResizeObserver {
+      constructor(fn: ResizeObserverCallback) {
+        callback = fn;
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    const original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver =
+      FakeResizeObserver as unknown as typeof ResizeObserver;
+
+    try {
+      document.body.innerHTML = MARKUP;
+      const area = textarea();
+      Object.defineProperty(area, "clientWidth", {
+        configurable: true,
+        value: 600,
+      });
+      // Narrower column, more wrapped lines: the box has to get taller.
+      Object.defineProperty(area, "scrollHeight", {
+        configurable: true,
+        get: () => (area.clientWidth < 300 ? 60 : 20),
+      });
+      init();
+      expect(area.style.height).toBe("20px");
+
+      Object.defineProperty(area, "clientWidth", {
+        configurable: true,
+        value: 200,
+      });
+      callback?.(
+        [{ target: area } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+      expect(area.style.height).toBe("60px");
+
+      // A notification caused by the new height alone is not a re-grow.
+      area.style.height = "999px";
+      callback?.(
+        [{ target: area } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+      expect(area.style.height).toBe("999px");
+    } finally {
+      globalThis.ResizeObserver = original;
+    }
   });
 
   test("grows a textarea in a list row cloned after load", () => {

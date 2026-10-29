@@ -194,15 +194,17 @@ export const serializeRichText = (root: Element): Record<string, unknown> => ({
   content: blockNodes(root),
 });
 
+// A long field's textarea accepts a pasted line break, but the stored value is
+// one plain line: each run of breaks becomes a single space. Saving and the
+// live counter read the same string, so they never disagree at the limit.
+const singleLine = (value: string): string => value.replace(/[\r\n]+/g, " ");
+
 const textValue = (control: Element): string | undefined => {
   const input = control.querySelector<HTMLInputElement | HTMLTextAreaElement>(
     "[data-text-input]",
   );
   const raw = input?.value ?? "";
-  // A long field's textarea accepts a pasted line break, but the stored value
-  // is one plain line: each run of breaks becomes a single space on the way out.
-  const value =
-    input instanceof HTMLTextAreaElement ? raw.replace(/[\r\n]+/g, " ") : raw;
+  const value = input instanceof HTMLTextAreaElement ? singleLine(raw) : raw;
   return value === "" ? undefined : value;
 };
 
@@ -1026,6 +1028,12 @@ const wireUrlMove = (form: HTMLFormElement): void => {
   update();
 };
 
+/** The width each grown box was measured at, so a height change alone is ignored. */
+const grownWidths = new WeakMap<HTMLTextAreaElement, number>();
+
+/** One resize observer per form, so a box cloned into it is watched too. */
+const areaObservers = new WeakMap<Element, ResizeObserver>();
+
 /**
  * Size a long text field's box to the text in it.
  *
@@ -1035,6 +1043,12 @@ const wireUrlMove = (form: HTMLFormElement): void => {
  * textarea keeps its scrollbar, so stored long text is never clipped.
  */
 const growTextArea = (area: HTMLTextAreaElement): void => {
+  // A box in a hidden section (a collapsed <details>, a hidden panel) has no
+  // layout box, so every measurement is zero: growing it there would pin it to
+  // no height with no scrollbar. Leave it alone; the resize observer below
+  // grows it once it is shown and gets a width.
+  if (area.getClientRects().length === 0) return;
+  grownWidths.set(area, area.clientWidth);
   area.classList.add("cms-textarea-grown");
   area.style.height = "auto";
   // The controls are `box-sizing: border-box`, and `scrollHeight` excludes the
@@ -1045,18 +1059,38 @@ const growTextArea = (area: HTMLTextAreaElement): void => {
 /** Grow every long text field in a subtree, e.g. a row or block just cloned. */
 const growTextAreasIn = (root: ParentNode | null): void => {
   if (!root) return;
+  const form = root instanceof Element ? root.closest("form") : null;
+  const observer = form === null ? undefined : areaObservers.get(form);
   for (const area of Array.from(
     root.querySelectorAll<HTMLTextAreaElement>("textarea[data-text-input]"),
   )) {
     growTextArea(area);
+    observer?.observe(area);
   }
 };
 
 /**
  * Wire the long text fields: grow on first paint and while typing, and keep
  * Enter from adding a break — the field stores one plain line.
+ *
+ * The box is sized in pixels, and text re-wraps to more lines when its column
+ * narrows (the window resized, a phone rotated, a web font loaded), so the
+ * observer re-grows it whenever its width changes. A width change is also what
+ * a `<details>` opening produces, which is how a box that arrived with no
+ * layout box gets grown.
  */
 const wireTextAreas = (form: HTMLFormElement): void => {
+  if (typeof ResizeObserver !== "undefined") {
+    areaObservers.set(
+      form,
+      new ResizeObserver((entries) => {
+        for (const { target } of entries) {
+          const area = target as HTMLTextAreaElement;
+          if (area.clientWidth !== grownWidths.get(area)) growTextArea(area);
+        }
+      }),
+    );
+  }
   growTextAreasIn(form);
 
   form.addEventListener("input", (event) => {
@@ -1104,7 +1138,13 @@ const wireCharCount = (form: HTMLFormElement): void => {
     const count = field?.querySelector<HTMLElement>("[data-char-count]");
     if (!field || !count) return;
     const max = Number(count.dataset.charMax);
-    const length = input.value.length;
+    // Count what the save will store, not the raw box: a pasted run of breaks
+    // is one space there, so the live over-limit state agrees with the server.
+    const length = (
+      input instanceof HTMLTextAreaElement
+        ? singleLine(input.value)
+        : input.value
+    ).length;
     count.textContent = `${length} / ${max}`;
     count.classList.toggle("cms-char-count-over", length > max);
     const over = field.querySelector<HTMLElement>("[data-char-over]");
