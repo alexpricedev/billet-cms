@@ -432,3 +432,53 @@ describe("cms.css media layout", () => {
     );
   });
 });
+
+describe("cms.css block headers", () => {
+  // "Block N" has to follow the block's place in the list, not an index the
+  // server wrote: a CSS counter over the rendered cards renumbers them after an
+  // add, a move or a remove, with no script and nothing to go stale. The reset
+  // sits on the list so a second page content area counts from one again.
+  test("numbers blocks with a counter over the list", () => {
+    expect(css).toMatch(/\.cms-blocks\s*\{[^}]*counter-reset:\s*cms-block/);
+    expect(css).toMatch(/\.cms-block\s*\{[^}]*counter-increment:\s*cms-block/);
+
+    const prefix = /\.cms-block-legend::before\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(prefix).toContain('content: "Block " counter(cms-block) " · "');
+  });
+
+  // Variant A: the card keeps its stronger border and tinted header band, and
+  // has no left rail. The band is what makes the number readable at a glance;
+  // losing either would be a design change, not a tidy-up.
+  test("keeps the stronger border and header band, with no left rail", () => {
+    const block = /\.cms-block\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(block).toContain("border: 1px solid var(--border-strong)");
+    expect(block).not.toContain("border-left");
+
+    const legend = /\.cms-block-legend\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(legend).toContain("background: var(--surface-subtle)");
+    expect(legend).toContain("border-bottom: 1px solid var(--border)");
+  });
+});
+
+describe("cms.css optional link fields", () => {
+  // An optional link is not an error while it is empty, so its asterisks only
+  // appear once the group is in use. Both arms matter: typing into any
+  // destination input and picking a page are the two ways the box is filled,
+  // and the label/title inputs get blank placeholders for `:placeholder-shown`
+  // to read. Hiding with `visibility` keeps the label from shifting.
+  test("hides an optional link's asterisks until it is in use", () => {
+    const rule = rules(css).find(
+      ([selector]) =>
+        selector.includes(".cms-field-link-optional") &&
+        selector.includes(".cms-required"),
+    );
+    expect(rule).toBeDefined();
+
+    const selector = (rule?.[0] ?? "").replace(/\s+/g, " ");
+    expect(selector).toContain(
+      ":has(input[placeholder]:not(:placeholder-shown))",
+    );
+    expect(selector).toContain(':has(select option:checked:not([value=""]))');
+    expect(rule?.[1]).toContain("visibility: hidden");
+  });
+});

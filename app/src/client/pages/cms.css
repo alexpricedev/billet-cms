@@ -309,6 +309,19 @@ h1 {
   font-weight: 400;
 }
 
+/* An optional link is not in error while it is empty, so its asterisks wait
+   until the box is in use. `:placeholder-shown` reads an input left blank
+   (the Button text and Hover text inputs carry a blank placeholder precisely
+   so they can be read this way), and the select half covers a page chosen with
+   nothing typed. A required link never gets `.cms-field-link-optional`, so it
+   keeps its asterisks from the start. */
+.cms-field-link-optional:not(
+    :has(input[placeholder]:not(:placeholder-shown))
+  ):not(:has(select option:checked:not([value=""])))
+  .cms-required {
+  visibility: hidden;
+}
+
 .cms-link-text input,
 .cms-link-destination input,
 .cms-link-destination select,
@@ -824,10 +837,20 @@ h1 {
 /* A block is a card so a long page stays scannable and the Remove button sits
    with the block it removes. The stronger border and the wider gap between
    blocks do the separating when one block ends and the next begins. */
+.cms-blocks {
+  /* "Block N" is a counter over the rendered list, not an index from the
+     server: adding, moving or removing a block with the client renumbers the
+     cards with no extra state and no stale number. Each `.cms-block` below
+     increments it, flagged blocks included, so the count matches what the
+     editor sees. */
+  counter-reset: cms-block;
+}
+
 .cms-block {
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
+  counter-increment: cms-block;
   margin: 0 0 var(--space-4);
   min-inline-size: 0;
   padding: calc(44px + var(--space-4)) var(--space-4) var(--space-4);
@@ -871,6 +894,15 @@ h1 {
   font-size: 12.5px;
   font-weight: 500;
   padding: 0;
+}
+
+/* The number is generated content, so it renumbers with the DOM and works
+   with JavaScript off. The name beside it is the humanised one the server
+   renders; the number alone is not in the legend's accessible name. */
+.cms-block-legend::before {
+  color: var(--text-muted);
+  content: "Block " counter(cms-block) " · ";
+  font-weight: 500;
 }
 
 /* The controls ride in the block's header band, on the name's baseline. */
