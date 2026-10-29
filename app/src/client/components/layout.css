@@ -50,9 +50,54 @@ body[data-shell="app"] > .app-main:has(.cms-actions) {
   container-type: inline-size;
 }
 
+/* On a slot editor the flow ends with the action bar, so the pane's own bottom
+   padding would leave a strip between the bar and the footer at full scroll.
+   Only where the bar is last, though: a page editor follows it with the Delete
+   section, and that section keeps the pane's usual bottom padding so its
+   button is a section's width clear of the footer's hairline rather than
+   sitting on it. */
+body[data-shell="app"] > .app-main:has(.cms-actions):not(:has(.cms-danger)) {
+  padding-bottom: 0;
+}
+
 .app-content {
   margin-inline: auto;
   max-width: var(--content-max);
+}
+
+/* The grid above is `1fr auto`, so a pane shorter than the window is stretched
+   to fill it and the footer sits at the bottom — but that spare height lands
+   *below* the content column, a band of page between the bar and the footer
+   even with the padding gone. The column fills the pane instead and the form
+   takes the slack, so the flow's last element closes on the footer at every
+   scroll position (the bar on a slot editor; on a page editor, the Delete
+   section that follows it, one pane's padding above the footer). A long form
+   has no slack: it stays its natural height and the bar keeps its own
+   `margin-top` above it.
+
+   Only above the breakpoint: `min-height: 100%` needs `.app-main` to have a
+   definite height, which it has as a stretched grid item. At 900px and below
+   the shell is `display: block`, the footer follows the content instead of the
+   window, and there is no spare row for the band to occupy — so the percentage
+   would resolve against `auto` and do nothing at best. `901px`, not `> 900px`:
+   the last width the block shell owns is 900. */
+@media (width >= 901px) {
+  body[data-shell="app"] > .app-main:has(.cms-actions) > .app-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+
+  body[data-shell="app"]
+    > .app-main:has(.cms-actions)
+    > .app-content
+    > .cms-slot-form,
+  body[data-shell="app"]
+    > .app-main:has(.cms-actions)
+    > .app-content
+    > .cms-page-form {
+    flex: 1;
+  }
 }
 
 [data-component="layout"] > footer {

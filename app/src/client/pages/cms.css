@@ -996,6 +996,11 @@ h1 {
   background: var(--surface-subtle);
 }
 
+/* The Delete section is last in flow on a page editor. It carries no bottom
+   padding of its own: the pane keeps its usual bottom padding on that page
+   (see the `:not(:has(.cms-danger))` rule in layout.css), which is the
+   clearance the Delete button needs above the footer. A padding here would
+   stack on top of it. */
 .cms-danger {
   border-top: 1px solid var(--border);
   margin-top: var(--space-10);
