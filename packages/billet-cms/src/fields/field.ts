@@ -113,16 +113,14 @@ export interface ListOptions extends FieldOptions {
   max?: number;
 }
 
-export interface LinkOptions extends FieldOptions {
-  /**
-   * Whether the link carries its own visible text.
-   *
-   * Defaults to `true`: the editor shows a "Button text" input and stores it in
-   * the value's `label`. A site that models the words as a separate field
-   * declares `text: false`, and the editor then asks only where the link goes.
-   */
-  text?: boolean;
-}
+/**
+ * The options a link accepts: the shared field options and nothing more.
+ *
+ * A link always carries its own visible text in the value's `label`; a site
+ * that models the button's words as a separate field drops that field instead.
+ * Kept as a named alias because it is part of the published vocabulary.
+ */
+export type LinkOptions = FieldOptions;
 
 /** A reference to a `cms_media` row, with an optional per-use alt override. */
 export interface ImageValue {
@@ -285,13 +283,7 @@ export const link = <O extends LinkOptions = DefaultOptions>(
   kind: "link",
   required: options.required !== false,
   schema: optional(linkValue, options),
-  metadata: (name) => {
-    const metadata = baseMetadata(name, "link", options);
-    // Emitted only when off: a link declared without the option keeps the
-    // metadata — and so the published schema hash — it had before the option.
-    if (options.text === false) metadata.text = false;
-    return metadata;
-  },
+  metadata: (name) => baseMetadata(name, "link", options),
 });
 
 /**

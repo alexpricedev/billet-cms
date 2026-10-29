@@ -115,22 +115,14 @@ export const REVISIONS: readonly FixtureRevision[] = [
           text: "They shipped on time and the site has never gone down.",
           attribution: "A happy harbourmaster",
         },
-        // The two link models side by side: `banner`'s link carries no text of
-        // its own (`text: false`), so the group's text field is the button.
-        // `banner-plain`'s link has text on and no label — valid only through
-        // the sibling-text fallback, which is the case this fixture pins.
+        // A banner whose button text lives in the link itself: one Button text
+        // inside the link group, and no separate text field to fill in twice.
         {
           type: "banner",
-          callToAction: {
-            text: "Start a project",
-            link: { type: "page", pageId: PAGE_IDS.work },
-          },
-        },
-        {
-          type: "banner-plain",
-          callToAction: {
-            text: "Read our story",
-            link: { type: "page", pageId: PAGE_IDS.work },
+          link: {
+            type: "page",
+            pageId: PAGE_IDS.work,
+            label: "Start a project",
           },
         },
         {

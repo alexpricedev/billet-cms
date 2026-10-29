@@ -121,30 +121,9 @@ describe("content write layer", () => {
     expect(await getLatestRevision("slot", slotId)).toBeNull();
   });
 
-  // A link the site declares text:false has no visible words of its own, so the
-  // save must not refuse it for a missing label.
-  test("saves a filled link declared text:false with no button text", async () => {
-    const silent = block("silent", { cta: link({ text: false }) }, () => null);
-    await seedBlockType(db, silent);
-    const silentSlot = await seedSlot(db, {
-      name: "home.silent",
-      blockName: "silent",
-      page: "home",
-    });
-
-    const result = await saveSlotDraft({
-      slotId: silentSlot,
-      content: { cta: { type: "url", url: "https://example.com" } },
-      baseRevisionId: null,
-      actorId: editorId,
-    });
-
-    expect(result.ok).toBe(true);
-  });
-
-  // The older shape of the same idea: a link beside a text field in its own
-  // group takes its words from that field and is not asked for a label.
-  test("saves a group link with a sibling text field and no label", async () => {
+  // Every link owes its own words, wherever it sits: a text field beside it in
+  // the same group is a separate control, not the link's Button text.
+  test("refuses a group link with a sibling text field and no label", async () => {
     const banner = block(
       "banner",
       { banner: group({ heading: text(), cta: link() }) },
@@ -169,7 +148,11 @@ describe("content write layer", () => {
       actorId: editorId,
     });
 
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    expect(result.issues).toEqual([
+      { path: "banner.cta.label", message: "Button text is required." },
+    ]);
   });
 
   // Q4: the value is re-attached from the revision the editor loaded, so the

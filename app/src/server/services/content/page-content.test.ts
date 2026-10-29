@@ -553,33 +553,16 @@ describe("formatIssues", () => {
     ]);
   });
 
-  // A link that declares it has no text of its own never asks for any, in a
-  // group, at the top level, or in a list.
-  test("does not ask for button text on a link declared text:false", () => {
-    const silent = block(
-      "silent",
-      {
-        banner: group({ heading: text(), cta: link({ text: false }) }),
-        cta: link({ text: false }),
-        links: list(link({ text: false })),
-      },
-      () => null,
-    );
-    expect(
-      linkLabelIssues(blockStoredSchema(silent).fields, {
-        banner: { heading: "Hi", cta: { type: "url", url: "https://a.test" } },
-        cta: { type: "url", url: "https://b.test" },
-        links: [{ type: "url", url: "https://c.test" }],
-      }),
-    ).toEqual([]);
-  });
-
-  // The older shape of the same idea: a link beside its own text field. The
-  // group's text carries the words, so a label-less link is not refused.
-  test("does not ask for button text on a group link with a sibling text field", () => {
+  // Every link with a destination owes its own words, in a group, at the top
+  // level, or in a list: there is no option and no sibling-text exemption.
+  test("asks for button text on every link with a destination", () => {
     const banner = block(
       "banner",
-      { banner: group({ heading: text(), cta: link() }) },
+      {
+        banner: group({ heading: text(), cta: link() }),
+        cta: link(),
+        links: list(link()),
+      },
       () => null,
     );
     expect(
@@ -588,8 +571,14 @@ describe("formatIssues", () => {
           heading: "Read this",
           cta: { type: "url", url: "https://example.com" },
         },
+        cta: { type: "url", url: "https://b.test" },
+        links: [{ type: "url", url: "https://c.test" }],
       }),
-    ).toEqual([]);
+    ).toEqual([
+      { path: "banner.cta.label", message: "Button text is required." },
+      { path: "cta.label", message: "Button text is required." },
+      { path: "links.0.label", message: "Button text is required." },
+    ]);
   });
 
   test("still asks when the group's only sibling is not a text field", () => {

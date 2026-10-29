@@ -465,63 +465,22 @@ describe("FieldControl link", () => {
       "Shown as a tooltip when someone hovers over the link.",
     );
 
-    // Both sub-labels carry their asterisk: with text on, the link has its own
-    // visible words, so button text is part of the field.
+    // One required marker for the whole group, on its heading: the sub-labels
+    // inside it carry none, or they read as a second label for Button text.
+    expect(html).toMatch(
+      /<legend class="cms-field-label">Primary button<span class="cms-required"> \*<\/span><\/legend>/,
+    );
+    expect(count(html, 'class="cms-required"')).toBe(1);
     expect(html).toContain("Button text");
-    expect(html).toContain(">Goes to<span");
-    // A required link's asterisks do not wait to be used.
+    expect(html).not.toContain("Button text<span");
+    expect(html).not.toContain(">Goes to<span");
+    // A required link's asterisk does not wait to be used.
     expect(html).not.toContain("cms-field-link-optional");
   });
 
-  // A site can model the button's words as a separate text field beside a link
-  // that only says where it goes: `link({ text: false })`. The link then has no
-  // Button text of its own, and the box is named by the field's own label.
-  test("a text:false link has no button text and no inner Goes to label", () => {
-    const html = renderToString(
-      <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
-        field={{ ...link, text: false, label: "Goes to", required: true }}
-        value={{ type: "url", url: "https://example.com" }}
-        idBase="cms-field-goes"
-      />,
-    );
-
-    expect(html).toContain('<legend class="cms-field-label">Goes to');
-    expect(html).not.toContain("data-link-label");
-    expect(html).not.toContain("Button text");
-    // The field's own label is the only "Goes to" on the box; there is no
-    // second, inner one.
-    expect(count(html, "Goes to")).toBe(1);
-    // The destination switch, its input and hover text are still there.
-    expect(html).toContain('role="radiogroup"');
-    expect(html).toContain("data-link-url");
-    expect(html).toContain("data-link-title");
-  });
-
-  // A text:false link produces no `label` control, so an error on that path has
-  // nowhere to sit. Dropping it would hide the refusal entirely; it belongs on
-  // the container with the whole-link errors.
-  test("keeps a label error on a text:false link's container", () => {
-    const html = renderToString(
-      <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
-        field={{ ...link, text: false }}
-        value={{ type: "url", url: "https://example.com" }}
-        idBase="cms-field-cta"
-        errors={[{ path: "cta.label", message: "Button text is required." }]}
-      />,
-    );
-
-    expect(html).toContain('id="cms-field-cta-error"');
-    expect(html).toContain("Button text is required.");
-  });
-
-  // The older shape of the same idea: a group holds a text field beside a link
-  // that only says where it goes. The write paths ask no Button text of it
-  // (`linkNeedsText`), so the form must not show a box for it either.
-  test("a link beside a group text field has no button text", () => {
+  // Every link with a destination renders its own Button text, wherever it
+  // sits: a text field beside it in the same group is a different control.
+  test("renders Button text on a link inside a group", () => {
     const group: FieldMetadata = {
       name: "cta",
       kind: "group",
@@ -529,7 +488,7 @@ describe("FieldControl link", () => {
       required: true,
       fields: [
         { name: "text", kind: "text", required: true },
-        { name: "link", kind: "link", required: false },
+        { name: "link", kind: "link", required: true },
       ],
     };
     const html = renderToString(
@@ -545,14 +504,70 @@ describe("FieldControl link", () => {
       />,
     );
 
-    expect(html).toContain("data-link-url");
-    expect(html).not.toContain("data-link-label");
-    expect(html).not.toContain("Button text");
+    expect(html).toContain("data-link-label");
+    expect(html).toContain("Button text");
   });
 
-  // An optional link is optional as a whole, so its parts only look required
-  // once it is in use. The rule is CSS: mark the field and give the text inputs
-  // a placeholder, so `:placeholder-shown` can tell empty from typed.
+  // A group's heading owns its one marker. Its children never repeat it: two
+  // asterisks stacked over the first control read as two labels for one input.
+  test("a group's heading carries the only required marker", () => {
+    const group: FieldMetadata = {
+      name: "cta",
+      kind: "group",
+      label: "Call to action",
+      required: true,
+      fields: [
+        { name: "heading", kind: "text", required: true },
+        { name: "link", kind: "link", required: true },
+      ],
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={group}
+        value={{ heading: "Hi", link: { type: "url", url: "https://a.test" } }}
+        idBase="cms-field-cta"
+      />,
+    );
+
+    // The heading's star, and none on "Heading" or the link's "Goes to".
+    expect(count(html, 'class="cms-required"')).toBe(1);
+    expect(html).toMatch(
+      /<legend class="cms-field-label">Call to action<span class="cms-required"> \*<\/span><\/legend>/,
+    );
+    expect(html).toContain(">heading<");
+  });
+
+  // An optional group says so on its heading, and nothing on its parts.
+  test("an optional group heading says Optional with no asterisk", () => {
+    const group: FieldMetadata = {
+      name: "cta",
+      kind: "group",
+      label: "Call to action",
+      required: false,
+      fields: [{ name: "heading", kind: "text", required: true }],
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={group}
+        value={{ heading: "Hi" }}
+        idBase="cms-field-cta"
+      />,
+    );
+
+    expect(html).toMatch(
+      /Call to action<span class="cms-field-optional"> Optional<\/span>/,
+    );
+    expect(count(html, 'class="cms-required"')).toBe(0);
+  });
+
+  // An optional link is optional as a whole, so its heading says "Optional"
+  // until the box is in use and only then carries the asterisk. The swap is
+  // CSS: mark the field and give the text inputs a placeholder, so
+  // `:placeholder-shown` can tell empty from typed.
   test("marks an optional link and its text inputs for the in-use rule", () => {
     const html = renderToString(
       <FieldControl
@@ -567,6 +582,12 @@ describe("FieldControl link", () => {
     expect(html).toContain("cms-field-link-optional");
     expect(html).toMatch(/data-link-label[^>]*placeholder=" "/);
     expect(html).toMatch(/data-link-title[^>]*placeholder=" "/);
+    // The heading owns both markers; the parts carry none.
+    expect(html).toMatch(
+      /Primary button<span class="cms-required"> \*<\/span><span class="cms-field-optional"> Optional<\/span>/,
+    );
+    expect(html).not.toContain("Button text<span");
+    expect(html).not.toContain(">Goes to<span");
   });
 
   // Each row is its own link. Sharing a radio `name` would make choosing a type

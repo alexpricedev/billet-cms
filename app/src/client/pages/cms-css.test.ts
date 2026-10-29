@@ -458,6 +458,40 @@ describe("cms.css block headers", () => {
     expect(legend).toContain("background: var(--surface-subtle)");
     expect(legend).toContain("border-bottom: 1px solid var(--border)");
   });
+
+  // "Block 6 · Banner" is one heading: the number and the name share a type
+  // family and size, rather than a sans prefix followed by a monospace name.
+  test("sets Block N and the block name in the same type", () => {
+    const code = /\.cms-block-legend code\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(code).toContain("font-family: inherit");
+    expect(code).toContain("font-size: inherit");
+    expect(code).not.toContain("--font-mono");
+  });
+});
+
+describe("cms.css group headings", () => {
+  // A group heading names the container and is set heavier than the sub-labels
+  // it introduces. Two labels at the same weight, one directly above the other,
+  // read as two labels for the same control.
+  test("sets group headings heavier than their sub-labels", () => {
+    const rule = rules(css).find(
+      ([selector]) =>
+        selector.includes(".cms-field-link > .cms-field-label") &&
+        selector.includes(".cms-field-group > .cms-field-label"),
+    );
+    expect(rule?.[1]).toContain("font-weight: 600");
+  });
+
+  // `--space-3` of air below the heading is what stops the first sub-label
+  // reading as a continuation of it. The link box reserves it in its top
+  // padding (the legend is out of flow), the group in its grid gap.
+  test("keeps at least --space-3 below a group heading", () => {
+    const group = /\.cms-field-group\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(group).toContain("gap: var(--space-3)");
+
+    const link = /\.cms-field-link\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(link).toMatch(/padding:\s*calc\(14px \+ 18px \+ var\(--space-3\)\)/);
+  });
 });
 
 describe("cms.css optional link fields", () => {

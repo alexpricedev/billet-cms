@@ -303,9 +303,9 @@ describe("cms form editor", () => {
     });
   });
 
-  // A site can model the button's words as a separate field, so the link control
-  // renders no `[data-link-label]` at all (`link({ text: false })`). The
-  // serialiser must leave `label` out rather than inventing an empty one.
+  // A link always renders its own Button text now, but the serialiser still
+  // reads the control rather than assuming it: a form from an older CMS has no
+  // `[data-link-label]`, and the stored value must keep no invented label.
   test("writes no label for a link with no button-text control", () => {
     mount(linkMarkup("url"));
     input("[data-link-url]").value = "https://example.com";

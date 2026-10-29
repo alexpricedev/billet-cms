@@ -214,9 +214,27 @@ h1 {
   font-size: 12px;
 }
 
+/* A group's heading is a title over its children, so the first child gets
+   `--space-3` of air below it — enough that the two never read as one stacked
+   label — and the children themselves are spaced apart. */
+.cms-field-group {
+  gap: var(--space-3);
+}
+
+.cms-field-group [data-group-fields] {
+  display: grid;
+  gap: var(--space-3);
+}
+
 .cms-required {
   color: var(--danger);
   font-weight: 500;
+}
+
+.cms-field-optional {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .cms-field-help {
@@ -270,14 +288,23 @@ h1 {
 /* One box per link: button text, where it goes, then hover text. The field's
    own name heads the box. A fieldset draws its legend in the top border, so the
    name is positioned into reserved padding instead; the border stays a clean
-   rounded rectangle. */
+   rounded rectangle. The padding reserves the heading's line plus
+   `--space-3`, so the first sub-label never sits directly under the heading. */
 .cms-field-link {
   background: var(--surface-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   gap: var(--space-3);
-  padding: 40px 14px 16px;
+  padding: calc(14px + 18px + var(--space-3)) 14px 16px;
   position: relative;
+}
+
+/* A group heading is the container's title, not a second label: it is set
+   heavier than the sub-labels it introduces, and the gap below it is at least
+   `--space-3` whether the group is a link box or a plain group. */
+.cms-field-link > .cms-field-label,
+.cms-field-group > .cms-field-label {
+  font-weight: 600;
 }
 
 .cms-field-link > .cms-field-label {
@@ -295,7 +322,8 @@ h1 {
 
 /* The two sub-labels ("Button text", "Goes to") sit at the ticket's 13/18,
    weight 500, in the secondary text colour. Only link sub-controls use this
-   class, so the shared rule can carry it. */
+   class, so the shared rule can carry it. Neither carries a required marker:
+   the group heading owns the one marker for the whole link. */
 .cms-field-link .cms-field-sublabel {
   color: var(--text-secondary);
   font-size: 13px;
@@ -303,23 +331,28 @@ h1 {
   line-height: 18px;
 }
 
-.cms-field-link .cms-field-optional {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-/* An optional link is not in error while it is empty, so its asterisks wait
-   until the box is in use. `:placeholder-shown` reads an input left blank
-   (the Button text and Hover text inputs carry a blank placeholder precisely
-   so they can be read this way), and the select half covers a page chosen with
-   nothing typed. A required link never gets `.cms-field-link-optional`, so it
-   keeps its asterisks from the start. */
+/* An optional link is not in error while it is empty, so its heading says
+   "Optional" instead of carrying the group's asterisk. `:placeholder-shown`
+   reads an input left blank (the Button text and Hover text inputs carry a
+   blank placeholder precisely so they can be read this way), and the select
+   half covers a page chosen with nothing typed. A required link never gets
+   `.cms-field-link-optional`, so it keeps its asterisk from the start. */
 .cms-field-link-optional:not(
     :has(input[placeholder]:not(:placeholder-shown))
   ):not(:has(select option:checked:not([value=""])))
   .cms-required {
   visibility: hidden;
+}
+
+/* Once the box is in use, "Optional" gives way to that asterisk: a half-filled
+   link is one the editor has to finish, not one they may leave empty. */
+.cms-field-link-optional:has(input[placeholder]:not(:placeholder-shown))
+  > .cms-field-label
+  .cms-field-optional,
+.cms-field-link-optional:has(select option:checked:not([value=""]))
+  > .cms-field-label
+  .cms-field-optional {
+  display: none;
 }
 
 .cms-link-text input,
@@ -886,12 +919,14 @@ h1 {
   top: 0;
 }
 
+/* The block's name is set in the same type as the "Block N · " prefix beside
+   it: one heading, not a sans number followed by a monospace name. */
 .cms-block-legend code {
   background: none;
   border: 0;
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-family: inherit;
+  font-size: inherit;
   font-weight: 500;
   padding: 0;
 }

@@ -2,10 +2,7 @@ import {
   type FieldMetadata,
   MAX_ALT_LENGTH,
 } from "@alexpricedev/billet-cms/contract";
-import {
-  linkNeedsText,
-  type RichTextDocument,
-} from "@alexpricedev/billet-cms/fields";
+import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
 import type { MediaOption } from "../../services/media";
@@ -85,11 +82,14 @@ export interface FieldControlProps {
    */
   nameScope?: string;
   /**
-   * The other children of the `group` this control is declared in, when it is
-   * one. A link beside a sibling text field owes no Button text of its own; the
-   * same metadata the write paths read is what decides, here and there.
+   * Whether this control is a direct child of a `group`.
+   *
+   * A group heading owns the group's one required marker, so a child never
+   * repeats it: two asterisks stacked over one column read as two labels for
+   * the same thing. The child is still `aria-required`; only the visible
+   * marker is the group's to show.
    */
-  siblings?: FieldMetadata[];
+  inGroup?: boolean;
   /** The CMS pages a `link` field may point at, for the internal-link picker. */
   pages?: PageOption[];
   /**
@@ -163,12 +163,57 @@ const listHelp = (field: FieldMetadata): string | undefined => {
   return field.help ?? limit ?? undefined;
 };
 
-const FieldLabelText = ({ field }: { field: FieldMetadata }): JSX.Element => (
+const FieldLabelText = ({
+  field,
+  inGroup = false,
+}: {
+  field: FieldMetadata;
+  inGroup?: boolean;
+}): JSX.Element => (
   <>
     {fieldName(field)}
-    {field.required && <span className="cms-required"> *</span>}
+    {!inGroup && field.required && <span className="cms-required"> *</span>}
   </>
 );
+
+/**
+ * A group heading: the container's title, never a second label.
+ *
+ * A group owns exactly one required marker, and it sits here. A required group
+ * carries the asterisk; an optional one says "Optional" beside its name, and
+ * its parts carry no marker of their own — inside a group they are required (or
+ * not) by the group's own state, so a second asterisk would read as a second
+ * label for the same control.
+ *
+ * An optional link is optional only while it is empty: once the editor starts
+ * filling it in, it has become a link that must be complete, so the asterisk
+ * takes the place of "Optional". Both are rendered and the stylesheet swaps
+ * them, because "in use" is what CSS reads from the inputs themselves.
+ */
+const GroupLabelText = ({
+  field,
+  inGroup = false,
+}: {
+  field: FieldMetadata;
+  inGroup?: boolean;
+}): JSX.Element => {
+  if (inGroup) return <>{fieldName(field)}</>;
+  if (field.required) {
+    return (
+      <>
+        {fieldName(field)}
+        <span className="cms-required"> *</span>
+      </>
+    );
+  }
+  return (
+    <>
+      {fieldName(field)}
+      {field.kind === "link" && <span className="cms-required"> *</span>}
+      <span className="cms-field-optional"> Optional</span>
+    </>
+  );
+};
 
 const FieldHelp = ({
   help,
@@ -454,7 +499,7 @@ export const FieldControl = ({
   errors,
   labelOverride,
   nameScope,
-  siblings,
+  inGroup = false,
   pages,
   hasMedia,
   pickerCapped,
@@ -488,7 +533,7 @@ export const FieldControl = ({
             <span className="cms-field-label">{labelOverride}</span>
           ) : (
             <label className="cms-field-label" htmlFor={controlId}>
-              <FieldLabelText field={field} />
+              <FieldLabelText field={field} inGroup={inGroup} />
             </label>
           )}
           <input
@@ -548,7 +593,7 @@ export const FieldControl = ({
             </span>
           ) : (
             <legend className="cms-field-label" id={labelId}>
-              <FieldLabelText field={field} />
+              <FieldLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           <RichTextToolbar editorId={controlId} />
@@ -603,7 +648,7 @@ export const FieldControl = ({
             <span className="cms-field-label">{labelOverride}</span>
           ) : (
             <legend className="cms-field-label">
-              <FieldLabelText field={field} />
+              <FieldLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           <FieldHelp help={field.help} id={helpId} />
@@ -700,12 +745,6 @@ export const FieldControl = ({
 
     case "link": {
       const link = asRecord(value);
-      // A link owes its own Button text unless the site says otherwise: either
-      // `text: false`, or a sibling text field in the same group that carries
-      // the words. `linkNeedsText` is the same predicate the write paths use,
-      // so the form cannot ask for a label the server will not require (or
-      // drop the control for one it will).
-      const carriesText = linkNeedsText(field, siblings);
       // Email and Phone have no stored type of their own: both are url-mode
       // links whose scheme is what the editor recognises them by.
       const storedUrl = asString(link.url);
@@ -736,13 +775,7 @@ export const FieldControl = ({
       // and falls through to the container rather than disappearing.
       const activeDestination = type === "page" ? "pageId" : "url";
       const destinationErrors = forControl(activeDestination);
-      // `label` similarly only has a control to carry its errors when the link
-      // has its own text.
-      const known = new Set([
-        ...(carriesText ? ["label"] : []),
-        "title",
-        activeDestination,
-      ]);
+      const known = new Set(["label", "title", activeDestination]);
       const groupErrors = (errors ?? []).filter(
         (error) =>
           !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
@@ -785,42 +818,36 @@ export const FieldControl = ({
             <span className="cms-field-label">{labelOverride}</span>
           ) : (
             <legend className="cms-field-label">
-              <FieldLabelText field={field} />
+              <GroupLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           <FieldHelp help={field.help} id={helpId} />
 
-          {carriesText && (
-            <div className="cms-link-text">
-              <SubControlLabel htmlFor={idFor("label")}>
-                Button text<span className="cms-required"> *</span>
-              </SubControlLabel>
-              {/* A blank placeholder is what lets the optional-link rule hide
-                  the asterisks until the editor starts filling the box in: CSS
-                  reads `:placeholder-shown` on the group's inputs, and an input
-                  with no placeholder attribute never matches it. */}
-              <input
-                type="text"
-                id={idFor("label")}
-                data-link-label
-                placeholder=" "
-                aria-label={controlId ? undefined : "Button text"}
-                value={asString(link.label)}
-                aria-invalid={labelErrors.length > 0 ? "true" : undefined}
-                aria-describedby={
-                  labelErrors.length > 0 ? labelErrorId : undefined
-                }
-              />
-              <FieldErrors errors={labelErrors} id={labelErrorId} />
-            </div>
-          )}
+          <div className="cms-link-text">
+            <SubControlLabel htmlFor={idFor("label")}>
+              Button text
+            </SubControlLabel>
+            {/* A blank placeholder is what lets the optional-link rule swap
+                "Optional" for the heading's asterisk once the box is in use:
+                CSS reads `:placeholder-shown` on the group's inputs, and an
+                input with no placeholder attribute never matches it. */}
+            <input
+              type="text"
+              id={idFor("label")}
+              data-link-label
+              placeholder=" "
+              aria-label={controlId ? undefined : "Button text"}
+              value={asString(link.label)}
+              aria-invalid={labelErrors.length > 0 ? "true" : undefined}
+              aria-describedby={
+                labelErrors.length > 0 ? labelErrorId : undefined
+              }
+            />
+            <FieldErrors errors={labelErrors} id={labelErrorId} />
+          </div>
 
           <div className="cms-link-destination-group">
-            {carriesText && (
-              <span className="cms-field-sublabel">
-                Goes to<span className="cms-required"> *</span>
-              </span>
-            )}
+            <span className="cms-field-sublabel">Goes to</span>
             <div
               className="cms-link-types"
               role="radiogroup"
@@ -1009,7 +1036,7 @@ export const FieldControl = ({
             <span className="cms-field-label">{labelOverride}</span>
           ) : (
             <legend className="cms-field-label">
-              <FieldLabelText field={field} />
+              <GroupLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           {/* Scoped, so the client reads these as the group's own fields and
@@ -1025,7 +1052,7 @@ export const FieldControl = ({
                 // than inheriting the row's — "Title", not "Steps".
                 idBase={controlId ? `${controlId}-${child.name}` : undefined}
                 labelOverride={controlId ? undefined : fieldName(child)}
-                siblings={children}
+                inGroup
                 nameScope={
                   nameScope
                     ? `${nameScope}-${child.name}`
@@ -1096,7 +1123,7 @@ export const FieldControl = ({
             <span className="cms-field-label">{labelOverride}</span>
           ) : (
             <legend className="cms-field-label">
-              <FieldLabelText field={field} />
+              <FieldLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           <div data-list-items>

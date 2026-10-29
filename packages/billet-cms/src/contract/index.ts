@@ -43,10 +43,7 @@ import { createHash } from "node:crypto";
  * to render it with, and an older site reading content written against one
  * cannot validate the nesting. This version adds an optional `title` to a link
  * value, the hover text an editor sees as "Hover text": both link branches are
- * strict, so an older CMS or site rejects a link that carries one. It also adds
- * `FieldMetadata.text`, emitted as `false` for `link({ text: false })` and
- * omitted otherwise, so a CMS that predates the key keeps reading the metadata
- * of a plain link unchanged.
+ * strict, so an older CMS or site rejects a link that carries one.
  */
 export const CONTRACT_VERSION = "0.9.0";
 
@@ -330,13 +327,6 @@ export interface FieldMetadata {
   min?: number;
   /** Present for image fields: the upload guidance. */
   image?: ImageGuidance;
-  /**
-   * Present for link fields that carry no visible text of their own: `false`.
-   *
-   * Left out otherwise, so the metadata published by a site that does not use
-   * `link({ text: false })` stays byte-for-byte what it was.
-   */
-  text?: boolean;
   /** Present for list fields: the metadata of the repeated item. */
   of?: FieldMetadata;
   /** Present for group fields: the metadata of each child, in declared order. */

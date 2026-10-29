@@ -874,15 +874,12 @@ describe("Pages controller", () => {
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
-  // The two exemptions the site can declare: a link with `text: false`, and a
-  // text-on link beside a text field in the same group. Both save and publish.
-  test("saves and publishes a page whose links get their text elsewhere", async () => {
+  // A text field beside the link in the same group is a separate control, not
+  // the link's Button text: the page save asks every link for its own words.
+  test("refuses a page whose group link has a sibling text field and no button text", async () => {
     const banner = block(
       "banner",
-      {
-        banner: group({ heading: text(), cta: link() }),
-        silent: link({ text: false }),
-      },
+      { banner: group({ heading: text(), cta: link() }) },
       () => null,
     );
     await seedBlockType(db, banner);
@@ -911,7 +908,6 @@ describe("Pages controller", () => {
                   heading: "Read this",
                   cta: { type: "url", url: "https://example.com" },
                 },
-                silent: { type: "url", url: "https://example.com" },
               },
             ],
           }),
@@ -921,18 +917,9 @@ describe("Pages controller", () => {
         { id: pageId },
       ),
     );
-    expect(save.status).toBe(303);
-
-    const published = await pagePublish.publish(
-      await post(
-        `/cms/pages/${pageId}/publish`,
-        { revision: "" },
-        `/cms/pages/${pageId}/publish`,
-        { id: pageId },
-      ),
-    );
-    expect(published.status).toBe(303);
-    expect((await getPageById(pageId))?.publishedRevisionId).not.toBeNull();
+    expect(save.status).toBe(200);
+    expect(await save.text()).toContain("Button text is required.");
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
   // The banner's "Fix these N fields" line counts real fields only: a
