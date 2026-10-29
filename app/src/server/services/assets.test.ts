@@ -114,6 +114,25 @@ describe("assets (production)", () => {
     expect(response?.headers.get("Content-Type")).toBe("text/css");
   });
 
+  // The regression: every assertion above happened to use `main`, so a pattern
+  // that couldn't match a hyphen passed the suite while `cms-form.js` 404'd on
+  // every deploy — taking the whole slot and page editor with it, because the
+  // form posts its content from that script.
+  test("handleAssetRequest serves a bundle whose name has a hyphen", () => {
+    const hashedUrl = getAssetUrl("/assets/cms-form.js");
+    expect(hashedUrl).not.toBe("/assets/cms-form.js");
+
+    const response = handleAssetRequest(
+      new URL(`http://localhost${hashedUrl}`),
+    );
+
+    expect(response).not.toBeNull();
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("Content-Type")).toBe(
+      "application/javascript",
+    );
+  });
+
   test("handleAssetRequest returns 404 for wrong hash", () => {
     const url = new URL("http://localhost/assets/main.00000000.js");
     const response = handleAssetRequest(url);
