@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+Links carry hover text, and the contract version moves to `0.9.0` with it, so
+deploy the CMS before the site, as always.
 
 ### A link can carry hover text
 
