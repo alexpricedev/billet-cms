@@ -43,7 +43,10 @@ import { createHash } from "node:crypto";
  * to render it with, and an older site reading content written against one
  * cannot validate the nesting. This version adds an optional `title` to a link
  * value, the hover text an editor sees as "Hover text": both link branches are
- * strict, so an older CMS or site rejects a link that carries one.
+ * strict, so an older CMS or site rejects a link that carries one. It also adds
+ * `FieldMetadata.text`, emitted as `false` for `link({ text: false })` and
+ * omitted otherwise, so a CMS that predates the key keeps reading the metadata
+ * of a plain link unchanged.
  */
 export const CONTRACT_VERSION = "0.9.0";
 
