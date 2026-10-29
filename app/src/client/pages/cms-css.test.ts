@@ -211,13 +211,29 @@ describe("cms.css action bar", () => {
   // footer whether the form is long or short. Remove any of the three and the
   // band comes back at some window height.
   test("fills the editor column so the bar lands on the footer", () => {
+    // The percentage needs a definite height: only the grid shell gives
+    // `.app-main` one, by stretching its `1fr` row. Below 900px the shell is
+    // `display: block` and the footer follows the content instead of the
+    // window, so there is no spare row for a band to sit in — but the
+    // percentage would resolve against `auto` and do nothing. Pin the scope,
+    // or a later width change silently brings the band back.
+    const desktop = /@media\s*\(width >= 901px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(desktop).toBeDefined();
+
     const column =
       /\.app-main:has\(\.cms-actions\) > \.app-content\s*\{([^}]*)\}/.exec(
-        layoutCss,
+        desktop ?? "",
       )?.[1];
     expect(column).toContain("display: flex");
     expect(column).toContain("flex-direction: column");
     expect(column).toContain("min-height: 100%");
+
+    const at900 = /@media\s*\(width <= 900px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(at900).toContain("display: block");
 
     const grow = rules(layoutCss).filter(
       ([selector, body]) =>
@@ -232,6 +248,25 @@ describe("cms.css action bar", () => {
     expect(grow[0]?.[0]).toContain(".app-main:has(.cms-actions)");
     expect(grow[0]?.[0]).toMatch(/\.app-content\s*>\s*\.cms-slot-form/);
     expect(grow[0]?.[0]).toMatch(/\.app-content\s*>\s*\.cms-page-form/);
+  });
+
+  // The page editor renders the action bar and then the Delete section, so the
+  // bar cannot be the last thing in the pane and it is the Delete section that
+  // meets the footer once the pane's padding is gone. With no bottom padding
+  // of its own its button ended flush on the footer's hairline. Only pages
+  // carrying the bar get the clearance: the delete confirmation page has no
+  // bar and keeps the base rule.
+  test("keeps the page editor's Delete button off the footer", () => {
+    const scoped = rules(css).filter(
+      ([selector]) =>
+        /\.cms-danger\b/.test(selector) &&
+        /\.app-main:has\(\.cms-actions\)/.test(selector),
+    );
+    expect(scoped).toHaveLength(1);
+    expect(scoped[0]?.[1]).toContain("padding-bottom: var(--space-4)");
+
+    const base = /^\.cms-danger\s*\{([^}]*)\}/m.exec(css)?.[1];
+    expect(base).not.toContain("padding-bottom");
   });
 
   // The bar sticks over the form while it scrolls, but it is also the flow's
