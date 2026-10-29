@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### A link can say it has no text of its own
+
+`link({ text: false })` declares a link whose words are a separate field — a
+button modelled as a text field plus a destination. The editor then leaves out
+Button text inside the link group, and no write path asks for one. `text`
+defaults to `true`; the key is published in the field metadata only when it is
+`false`, so a site that does not use the option publishes exactly the metadata
+it did before. The contract version stays `0.9.0`.
+
 ### A link can carry hover text
 
 A link value gains an optional `title`: the words a browser shows when someone

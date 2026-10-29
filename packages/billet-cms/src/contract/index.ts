@@ -327,6 +327,13 @@ export interface FieldMetadata {
   min?: number;
   /** Present for image fields: the upload guidance. */
   image?: ImageGuidance;
+  /**
+   * Present for link fields that carry no visible text of their own: `false`.
+   *
+   * Left out otherwise, so the metadata published by a site that does not use
+   * `link({ text: false })` stays byte-for-byte what it was.
+   */
+  text?: boolean;
   /** Present for list fields: the metadata of the repeated item. */
   of?: FieldMetadata;
   /** Present for group fields: the metadata of each child, in declared order. */

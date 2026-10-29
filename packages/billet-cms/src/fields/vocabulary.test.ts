@@ -524,6 +524,37 @@ describe("link", () => {
     });
   });
 
+  test("carries text:false in metadata only when the link has no own text", () => {
+    expect(link({ text: false }).metadata("goesTo")).toEqual({
+      name: "goesTo",
+      kind: "link",
+      required: true,
+      text: false,
+    });
+    // Absent — not `true` — so a link declared without the option publishes
+    // exactly the metadata (and so the schema hash) it did before it existed.
+    expect(link().metadata("target")).toEqual({
+      name: "target",
+      kind: "link",
+      required: true,
+    });
+    expect(link({ text: true }).metadata("target")).toEqual({
+      name: "target",
+      kind: "link",
+      required: true,
+    });
+  });
+
+  test("text:false is metadata only and leaves the stored JSON Schema alone", () => {
+    const withText = blockStoredSchema(
+      block("cta", { target: link() }, () => null),
+    );
+    const withoutText = blockStoredSchema(
+      block("cta", { target: link({ text: false }) }, () => null),
+    );
+    expect(withoutText.jsonSchema).toEqual(withText.jsonSchema);
+  });
+
   test("accepts http(s), mailto, tel, a relative path and a fragment", () => {
     const field = link();
     for (const url of [
