@@ -30,8 +30,8 @@ const NETWORK_AND_MARKUP_ALLOWED = new Set([`${CLIENT}/reactive/request.ts`]);
 // on the client that belongs on the server.
 const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 
-// Minified bytes for the block editor, `cms-form.ts`. It is 13,863 bytes
-// (13.54 KiB) at the time of writing. This is the one recorded exception to "the
+// Minified bytes for the block editor, `cms-form.ts`. It is 14,133 bytes
+// (13.80 KiB) at the time of writing. This is the one recorded exception to "the
 // client is presentation only" (AGENTS.md): a contenteditable rich-text field,
 // repeatable rows and the media focal picker need client JS, and the script is
 // kept to walking the server-rendered DOM back into the hidden `content` field.
@@ -49,7 +49,15 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // radios in a cloned list row so two rows are not one browser radio group. It
 // measured 13,863, so the old budget had no room for this. Raise it again only
 // with the same arithmetic written down.
-const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_000;
+//
+// This rise, 14,000 → 14,300, is the long text field: a `max` over 120 renders
+// a textarea, and the client collapses pasted line breaks to single spaces on
+// save, counts it like the input, grows it on first paint and as the editor
+// types (including in cloned list rows and blocks), and keeps Enter from adding
+// a break. It measures 14,133, so the old budget had no room for this either.
+// 14,300 keeps a few lines' headroom for the same feature; the number moving is
+// still the signal, so raise it again only with the same arithmetic written down.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_300;
 
 const sources = (root: string): string[] =>
   Array.from(new Glob("**/*.{ts,tsx}").scanSync(root))
