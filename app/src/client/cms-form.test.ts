@@ -246,8 +246,9 @@ describe("cms form editor", () => {
     });
   });
 
-  // The placeholder is written with spaces, but the `tel:` allowlist refuses
-  // whitespace — so the suggested format is accepted and saved compacted.
+  // The placeholder is written with spaces. The allowlist accepts that form too
+  // (MCP and imports send it), and the editor still saves the canonical compact
+  // one so both routes end up with the same stored value.
   test("reads a Phone destination as a tel: url without whitespace", () => {
     mount(linkMarkup("phone"));
     input("[data-link-phone]").value = "+44 20 7946 0000";
@@ -316,9 +317,10 @@ describe("cms form editor", () => {
     });
   });
 
-  // A destination typed for one type does not make sense for another, so
-  // switching the type must not carry it into the newly selected input.
-  test("clears the other destinations when the link type changes", () => {
+  // Each type keeps its own destination input, and only the checked one is
+  // read. Switching the type must not wipe a value: a mis-click on the radio
+  // used to lose a typed URL, and switching back left it empty.
+  test("keeps every destination when the link type changes", () => {
     mount(linkMarkup("url"));
     input("[data-link-url]").value = "https://example.com";
     input("[data-link-page]").value = MEDIA_ID;
@@ -332,11 +334,26 @@ describe("cms form editor", () => {
     email.checked = true;
     email.dispatchEvent(new Event("change", { bubbles: true }));
 
-    expect(input("[data-link-url]").value).toBe("");
-    expect(input("[data-link-page]").value).toBe("");
-    expect(input("[data-link-phone]").value).toBe("");
-    // The selected type's own input is left as the editor typed it.
-    expect(input("[data-link-email]").value).toBe("hello@example.com");
+    // Nothing was cleared, and the stored value is the selected type's own.
+    expect(input("[data-link-url]").value).toBe("https://example.com");
+    expect(input("[data-link-page]").value).toBe(MEDIA_ID);
+    expect(input("[data-link-phone]").value).toBe("+44 20 7946 0000");
+    expect(buildContent(form()).cta).toEqual({
+      type: "url",
+      url: "mailto:hello@example.com",
+    });
+
+    // Switching back reads the URL that was there all along.
+    const url = form().querySelector<HTMLInputElement>(
+      '[data-link-type][value="url"]',
+    );
+    if (!url) throw new Error("no url radio");
+    url.checked = true;
+    url.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(buildContent(form()).cta).toEqual({
+      type: "url",
+      url: "https://example.com",
+    });
   });
 
   test("writes the rebuilt document into the hidden field on submit", () => {

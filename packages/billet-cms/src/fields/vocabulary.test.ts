@@ -311,6 +311,9 @@ describe("richText", () => {
       "HTTPS://EXAMPLE.COM",
       "mailto:hello@example.com",
       "tel:+441234567890",
+      // The editor shows a phone number with spaces; MCP and imports send it
+      // that way too, so the allowlist takes it.
+      "tel:+44 20 7946 0000",
       "/about/team",
       "#section",
     ]) {
@@ -563,6 +566,9 @@ describe("link", () => {
       "HTTPS://EXAMPLE.COM",
       "mailto:hello@example.com",
       "tel:+441234567890",
+      // The editor shows a phone number with spaces; MCP and imports send it
+      // that way too, so the allowlist takes it.
+      "tel:+44 20 7946 0000",
       "/about/team",
       "#section",
     ]) {

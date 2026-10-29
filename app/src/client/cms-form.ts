@@ -265,9 +265,9 @@ const linkValue = (control: Element): unknown => {
         ? "[data-link-phone]"
         : "[data-link-url]",
   );
-  // The phone placeholder is written with spaces (`+44 20 7946 0000`), but the
-  // stored `tel:` allowlist refuses whitespace, so accept the format the field
-  // itself suggests and save it compacted.
+  // The phone placeholder is written with spaces (`+44 20 7946 0000`); save the
+  // canonical compact form so a number typed in the editor and one sent by MCP
+  // or an import end up the same. The server accepts either.
   const stored =
     type === "phone" ? destination.replace(/\s+/g, "") : destination;
   if (stored === "") return undefined;
@@ -278,33 +278,6 @@ const linkValue = (control: Element): unknown => {
     ...(title ? { title } : {}),
     ...(newTab ? { newTab } : {}),
   };
-};
-
-/**
- * Drop every destination value the editor is not using when the link type
- * changes.
- *
- * A value typed for one type does not make sense for another — a path is not an
- * email — so carrying it into the newly selected input would save a destination
- * the editor never chose. The inputs are all server-rendered; this only clears
- * the ones the stylesheet is about to hide.
- */
-const clearLinkDestinations = (field: Element, keep: string): void => {
-  for (const destination of Array.from(
-    field.querySelectorAll("[data-link-destination]"),
-  )) {
-    if (destination.getAttribute("data-link-destination") === keep) continue;
-    const control = destination.querySelector<
-      HTMLInputElement | HTMLSelectElement
-    >("input, select");
-    if (control) control.value = "";
-  }
-  // Email and Phone have no New tab row, so a tick left over from URL or Page
-  // would keep the checkbox true behind a hidden row.
-  if (keep === "email" || keep === "phone") {
-    const newTab = field.querySelector<HTMLInputElement>("[data-link-newtab]");
-    if (newTab) newTab.checked = false;
-  }
 };
 
 /**
@@ -776,16 +749,9 @@ const wireControls = (form: HTMLFormElement): void => {
     const target = event.target;
     if (!(target instanceof Element)) return;
 
-    // Switching a link's type drops the destination it is leaving behind. The
-    // radio group is a real one, so this is the only place a type change needs
-    // handling: the markup for every type is already on the page.
-    const type = target.closest("[data-link-type]");
-    if (type instanceof HTMLInputElement) {
-      const field = type.closest("[data-field]");
-      if (field) clearLinkDestinations(field, type.value);
-      return;
-    }
-
+    // Switching a link's type needs no handling: every type's input is already
+    // on the page, each keeps its own value, and only the checked one is read.
+    // Clearing the others would lose what a mis-click switched away from.
     const picker = target.closest("[data-image-picker]");
     if (!(picker instanceof HTMLSelectElement)) return;
     const field = picker.closest("[data-field]");
