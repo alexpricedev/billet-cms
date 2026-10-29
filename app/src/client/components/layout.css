@@ -34,8 +34,20 @@ body[data-shell="app"] > footer {
 }
 
 .app-main {
+  /* The horizontal padding is a token of its own because the action bar's
+     full-pane backdrop is sized from it, and the two disagreeing by a pixel
+     would leave a strip beside the bar. */
+  --app-main-pad-x: var(--space-10);
   min-width: 0;
-  padding: var(--space-8) var(--space-10) var(--space-16);
+  padding: var(--space-8) var(--app-main-pad-x) var(--space-16);
+}
+
+/* Only an editor page carries the action bar whose backdrop is measured in
+   container units, so only there does the pane need to be a query container.
+   Scoped with `:has()`, not set on every `.app-main`: inline-size containment
+   on a box whose width is not otherwise definite would collapse it. */
+body[data-shell="app"] > .app-main:has(.cms-actions) {
+  container-type: inline-size;
 }
 
 .app-content {
@@ -70,7 +82,8 @@ body[data-shell="app"] > footer {
   }
 
   .app-main {
-    padding: var(--space-6) var(--space-5) var(--space-12);
+    --app-main-pad-x: var(--space-5);
+    padding: var(--space-6) var(--app-main-pad-x) var(--space-12);
   }
 
   [data-component="layout"] > footer {
@@ -80,7 +93,8 @@ body[data-shell="app"] > footer {
 
 @media (width <= 640px) {
   .app-main {
-    padding: var(--space-5) var(--space-4) var(--space-10);
+    --app-main-pad-x: var(--space-4);
+    padding: var(--space-5) var(--app-main-pad-x) var(--space-10);
   }
 
   [data-component="layout"] > footer {

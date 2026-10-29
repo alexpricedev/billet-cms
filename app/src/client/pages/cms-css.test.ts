@@ -6,6 +6,10 @@ import { describe, expect, test } from "bun:test";
 // `scripts/browser-smoke.test.ts` or an eye on the page; what fails here is a
 // rule quietly disappearing.
 const css = await Bun.file(new URL("./cms.css", import.meta.url)).text();
+const layoutCss = await Bun.file(
+  new URL("../components/layout.css", import.meta.url),
+).text();
+const baseCss = await Bun.file(new URL("../base.css", import.meta.url)).text();
 
 describe("cms.css layout", () => {
   // A long slot name or page type name is one unbroken token; without this it
@@ -88,6 +92,102 @@ describe("cms.css action bar", () => {
     expect(rule).toContain("border-top: 1px solid var(--border)");
     expect(rule).not.toContain("border-radius");
     expect(rule).not.toContain("max-width");
+  });
+
+  // The bar's own box is the form column, and `.app-content` is centred under
+  // `--content-max`, so at a wide window that box ends well inside the pane
+  // however far its padding is bled. The backdrop is a pseudo-element measured
+  // in container units off `.app-main` instead: half the bar minus half the
+  // pane cancels the column's centring at any width, and subtracting the pane's
+  // padding token reaches the sidebar and the viewport edge. `vw` would count
+  // the scrollbar's gutter and overhang the pane.
+  test("paints the bar's surface across the whole main pane", () => {
+    const bar = /\.cms-actions\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(bar).toContain("background: var(--surface)");
+
+    const rule = /\.cms-actions::before\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(rule).toContain('content: ""');
+    expect(rule).toContain("position: absolute");
+    expect(rule).toContain("background: var(--surface)");
+    expect(rule).toContain("border-top: 1px solid var(--border)");
+    expect(rule).toContain("box-shadow: var(--shadow-bar)");
+    expect(rule).toMatch(
+      /left:\s*calc\(50% - 50cqw - var\(--app-main-pad-x\)\)/,
+    );
+    expect(rule).toMatch(
+      /right:\s*calc\(50% - 50cqw - var\(--app-main-pad-x\)\)/,
+    );
+    expect(rule).not.toContain("100vw");
+    // Tokens only: the new rule introduces no colour literal.
+    expect(rule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
+  // The backdrop above is only full-pane at any width if the pane is a size
+  // container whose horizontal padding is the same token the backdrop cancels.
+  // Scoped with `:has()` so a page without the bar never pays for containment.
+  test("sizes the backdrop from the pane, not the content column", () => {
+    const main = /^\.app-main\s*\{([^}]*)\}/m.exec(layoutCss)?.[1];
+    expect(main).toContain("--app-main-pad-x: var(--space-10)");
+    expect(main).toContain(
+      "padding: var(--space-8) var(--app-main-pad-x) var(--space-16)",
+    );
+    // Containment is scoped to the editor, not paid for by every page.
+    expect(main).not.toContain("container-type");
+    const scoped = /\.app-main:has\(\.cms-actions\)\s*\{([^}]*)\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(scoped).toContain("container-type: inline-size");
+
+    // The wide-window premise: the content column is centred under a max-width,
+    // so its own box stops short of the pane however far padding is bled.
+    const content = /\.app-content\s*\{([^}]*)\}/.exec(layoutCss)?.[1];
+    expect(content).toContain("max-width: var(--content-max)");
+    expect(content).toContain("margin-inline: auto");
+
+    // Both narrower breakpoints redefine the padding the backdrop uses, so the
+    // two stay in step at 900px and 640px.
+    const at900 = /@media\s*\(width <= 900px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(at900).toContain("--app-main-pad-x: var(--space-5)");
+    const at640 = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(at640).toContain("--app-main-pad-x: var(--space-4)");
+  });
+
+  // The bar sticks over the end of the form, so the form carries bottom space
+  // equal to the bar's measured height: without it the last field and its help
+  // text rest against the bar's top edge. A bar-less form must not get it.
+  test("leaves the bar's height below the form so the last field clears it", () => {
+    const desktop =
+      /\.cms-slot-form,\s*\.cms-page-form:not\(\.cms-new-page-form\)\s*\{([^}]*)\}/.exec(
+        css,
+      )?.[1];
+    expect(desktop).toContain("padding-bottom: 112px");
+
+    const mobile = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
+      css,
+    )?.[1];
+    expect(mobile).toContain(
+      "padding-bottom: calc(176px + env(safe-area-inset-bottom, 0px))",
+    );
+  });
+
+  // The shadow is a token in every theme block, so light, dark and System all
+  // draw the same soft upward edge rather than a bare border.
+  test("defines the bar shadow in both themes and System", () => {
+    const light = /:root\s*\{([\s\S]*?)\n\}/.exec(baseCss)?.[1];
+    expect(light).toContain("--shadow-bar:");
+    const dark = /:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/.exec(
+      baseCss,
+    )?.[1];
+    expect(dark).toContain("--shadow-bar:");
+    const system =
+      /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{([\s\S]*?)\n\}/.exec(
+        baseCss,
+      )?.[1];
+    expect(system).toContain("--shadow-bar:");
   });
 
   // The legacy `.cms-*` button classes are styled through the `.btn` variants;

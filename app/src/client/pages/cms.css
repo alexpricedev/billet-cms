@@ -468,6 +468,36 @@ h1 {
   z-index: 10;
 }
 
+/* The bar's box is the form column, so on its own its white ends mid-air
+   beside the off-white page — and further from the edges the wider the window,
+   because `.app-content` is centred under a max-width. This pseudo-element
+   paints the same strip across the whole main pane instead: `50cqw` is half
+   of `.app-main`'s content box, so the offset cancels its padding and the
+   column's centring at every width. Container units rather than `vw`, which
+   counts the scrollbar's gutter and would overhang the pane. */
+.cms-actions::before {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: var(--shadow-bar);
+  content: "";
+  inset-block: 0;
+  left: calc(50% - 50cqw - var(--app-main-pad-x));
+  position: absolute;
+  right: calc(50% - 50cqw - var(--app-main-pad-x));
+  z-index: -1;
+}
+
+/* The bar sticks over the end of the form, so the form leaves the bar's own
+   height below its last field; without it the last label and its help text can
+   never be scrolled clear of the bar. Measured in the browser against the
+   taller page form, whose bar also carries the disabled-button reason line
+   (~110px in one row, ~168px stacked), with a little to spare; the new-page
+   form has no bar. */
+.cms-slot-form,
+.cms-page-form:not(.cms-new-page-form) {
+  padding-bottom: 112px;
+}
+
 .cms-publish-status {
   color: var(--text-secondary);
   font-size: 12.5px;
@@ -1116,6 +1146,11 @@ h1 {
   .cms-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .cms-slot-form,
+  .cms-page-form:not(.cms-new-page-form) {
+    padding-bottom: calc(176px + env(safe-area-inset-bottom, 0px));
   }
 
   .cms-publish-status,
