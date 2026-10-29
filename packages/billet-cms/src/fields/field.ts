@@ -283,7 +283,7 @@ const fieldDepths = new WeakMap<Field, number>();
 const deepestOf = (fields: Field[]): number =>
   fields.reduce((deepest, field) => {
     const depth = fieldDepths.get(field) ?? 0;
-    return depth > deepest ? depth : deepest;
+    return Math.max(depth, deepest);
   }, 0);
 
 /** A repeatable list of another field. */

@@ -12,6 +12,18 @@
   min-height: 100dvh;
 }
 
+.app-main {
+  /* The horizontal padding is a token of its own because the action bar's
+     full-pane backdrop is sized from it, and the two disagreeing by a pixel
+     would leave a strip beside the bar. */
+  --app-main-pad-x: var(--space-10);
+  min-width: 0;
+  padding: var(--space-8) var(--app-main-pad-x) var(--space-16);
+}
+
+/* The shell-specific rules follow the base ones so no selector here is less
+   specific than one written above it, which biome's cascade check insists on.
+   They share no property with the base rules, so the cascade is unchanged. */
 body[data-shell="app"][data-component="layout"] {
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
@@ -26,20 +38,6 @@ body[data-shell="app"] > [data-component="nav"] {
 body[data-shell="app"] > .app-main {
   grid-column: 2;
   grid-row: 1;
-}
-
-body[data-shell="app"] > footer {
-  grid-column: 2;
-  grid-row: 2;
-}
-
-.app-main {
-  /* The horizontal padding is a token of its own because the action bar's
-     full-pane backdrop is sized from it, and the two disagreeing by a pixel
-     would leave a strip beside the bar. */
-  --app-main-pad-x: var(--space-10);
-  min-width: 0;
-  padding: var(--space-8) var(--app-main-pad-x) var(--space-16);
 }
 
 /* Only an editor page carries the action bar whose backdrop is measured in
@@ -110,6 +108,14 @@ body[data-shell="app"] > .app-main:has(.cms-actions):not(:has(.cms-danger)) {
   gap: var(--space-2) var(--space-4);
   justify-content: flex-start;
   padding: var(--space-4) var(--space-10);
+}
+
+/* The footer takes the content row of the app shell's grid; in the block shell
+   it follows the content instead. Declared after the base rule above so the
+   specificity climbs, not falls. */
+body[data-shell="app"] > footer {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 [data-component="layout"] > footer a {

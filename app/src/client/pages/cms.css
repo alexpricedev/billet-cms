@@ -268,7 +268,7 @@ h1 {
 /* The link field offers a URL and a page id; only the one the select names is
    shown. `:has` reads the chosen option, so this needs no script. */
 .cms-field-link:has([data-link-type] option[value="page"]:checked)
-.cms-link-url,
+  .cms-link-url,
 .cms-field-link:has([data-link-type] option[value="url"]:checked)
   .cms-link-page {
   display: none;
