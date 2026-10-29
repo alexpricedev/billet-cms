@@ -996,21 +996,15 @@ h1 {
   background: var(--surface-subtle);
 }
 
+/* The Delete section is last in flow on a page editor. It carries no bottom
+   padding of its own: the pane keeps its usual bottom padding on that page
+   (see the `:not(:has(.cms-danger))` rule in layout.css), which is the
+   clearance the Delete button needs above the footer. A padding here would
+   stack on top of it. */
 .cms-danger {
   border-top: 1px solid var(--border);
   margin-top: var(--space-10);
   padding-top: var(--space-4);
-}
-
-/* On a page editor the Delete section follows the action bar, so the section —
-   not the bar — is the last thing in the pane, and it is what meets the footer
-   once the pane's bottom padding is gone. Without a bottom padding of its own
-   the `Delete page` button sits with its edge on the footer's hairline; this
-   gives it the same kind of clearance the bar's own padding gives its buttons.
-   Scoped to pages carrying the bar: the delete confirmation page has no bar and
-   keeps the base rule. */
-body[data-shell="app"] > .app-main:has(.cms-actions) .cms-danger {
-  padding-bottom: var(--space-4);
 }
 
 /* The delete control is a link to the confirm step on the editor, and a

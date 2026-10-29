@@ -170,13 +170,14 @@ describe("cms.css action bar", () => {
     expect(at640).toContain("--app-main-pad-x: var(--space-4)");
   });
 
-  // The bar is the flow's last element and sticks to the window, so the pane's
-  // own bottom padding would sit under it at full scroll: a strip of page
-  // between the bar's bottom edge and the footer. Only the pane carrying the
-  // bar drops it — scoped with `:has()`, so every other page keeps the
-  // breathing room `.app-main` gives it, including at the narrower breakpoints
-  // that redefine its padding.
-  test("drops the pane's bottom padding on the editor only", () => {
+  // On a slot editor the bar is the flow's last element and sticks to the
+  // window, so the pane's own bottom padding would sit under it at full scroll:
+  // a strip of page between the bar's bottom edge and the footer. Only the
+  // pane carrying the bar *and nothing after it* drops it — scoped with
+  // `:has()`, so every other page keeps the breathing room `.app-main` gives
+  // it, including at the narrower breakpoints that redefine its padding, and a
+  // page editor (whose Delete section follows the bar) keeps it too.
+  test("drops the pane's bottom padding only where the bar is last", () => {
     const main = /^\.app-main\s*\{([^}]*)\}/m.exec(layoutCss)?.[1];
     expect(main).toContain(
       "padding: var(--space-8) var(--app-main-pad-x) var(--space-16)",
@@ -186,9 +187,25 @@ describe("cms.css action bar", () => {
       /\.app-main[^{]*:has\(\.cms-actions\)/.test(selector),
     );
     expect(editorRules.length).toBeGreaterThan(0);
-    // The rule that zeroes it is scoped to the editor; a page without the bar
-    // never matches, so the base padding above stays in force there.
-    expect(editorRules[0]?.[1]).toContain("padding-bottom: 0");
+
+    // The pane is a size container on every editor page — the bar's backdrop is
+    // measured in `cqw` — whatever the flow ends with.
+    const containers = editorRules.filter(([, body]) =>
+      /container-type:\s*inline-size/.test(body),
+    );
+    expect(containers).toHaveLength(1);
+    expect(containers[0]?.[0]).not.toMatch(/:not\(/);
+
+    // The zero is scoped away from the Delete section: on a page editor the
+    // section, not the bar, is last, and it needs the pane's usual padding
+    // under it so the button is not left sitting on the footer's hairline.
+    const zeroed = editorRules.filter(([, body]) =>
+      /padding-bottom\s*:\s*0/.test(body),
+    );
+    expect(zeroed).toHaveLength(1);
+    expect(zeroed[0]?.[0]).toMatch(
+      /\.app-main:has\(\.cms-actions\):not\(:has\(\.cms-danger\)\)/,
+    );
 
     // Every other rule naming the editor pane may only repeat the zero: a
     // media block that re-adds a bottom padding (or a `padding` shorthand with
@@ -207,9 +224,10 @@ describe("cms.css action bar", () => {
   // `1fr`, so a pane shorter than the window is stretched to fill it and the
   // footer sits at the bottom — with the spare height *below* the content
   // column, a band between the bar and the footer again. The column has to
-  // fill the pane, and the form has to take the slack, so the bar ends on the
-  // footer whether the form is long or short. Remove any of the three and the
-  // band comes back at some window height.
+  // fill the pane, and the form has to take the slack, so the flow's last
+  // element (the bar on a slot editor; the Delete section on a page editor)
+  // ends on the footer's edge whether the form is long or short. Remove any of
+  // the three and the band comes back at some window height.
   test("fills the editor column so the bar lands on the footer", () => {
     // The percentage needs a definite height: only the grid shell gives
     // `.app-main` one, by stretching its `1fr` row. Below 900px the shell is
@@ -251,22 +269,19 @@ describe("cms.css action bar", () => {
   });
 
   // The page editor renders the action bar and then the Delete section, so the
-  // bar cannot be the last thing in the pane and it is the Delete section that
-  // meets the footer once the pane's padding is gone. With no bottom padding
-  // of its own its button ended flush on the footer's hairline. Only pages
-  // carrying the bar get the clearance: the delete confirmation page has no
-  // bar and keeps the base rule.
+  // bar cannot be the last thing in the pane. The pane therefore keeps its
+  // usual bottom padding there (the zero rule above is scoped with
+  // `:not(:has(.cms-danger))`), and the Delete button ends a pane's padding
+  // above the footer rather than on its hairline. `.cms-danger` itself must
+  // stay unpadded: a bottom padding here would stack on the pane's own.
   test("keeps the page editor's Delete button off the footer", () => {
-    const scoped = rules(css).filter(
-      ([selector]) =>
-        /\.cms-danger\b/.test(selector) &&
-        /\.app-main:has\(\.cms-actions\)/.test(selector),
+    const dangerRules = rules(css).filter(([selector]) =>
+      /\.cms-danger\b/.test(selector),
     );
-    expect(scoped).toHaveLength(1);
-    expect(scoped[0]?.[1]).toContain("padding-bottom: var(--space-4)");
-
-    const base = /^\.cms-danger\s*\{([^}]*)\}/m.exec(css)?.[1];
-    expect(base).not.toContain("padding-bottom");
+    expect(dangerRules.length).toBeGreaterThan(0);
+    for (const [, body] of dangerRules) {
+      expect(body).not.toContain("padding-bottom");
+    }
   });
 
   // The bar sticks over the form while it scrolls, but it is also the flow's
