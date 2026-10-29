@@ -24,9 +24,8 @@
  * saved or published again (review round 2). A save additionally tolerates a
  * removed *field*, the same way it tolerates a removed block.
  */
-import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
-import { type FieldIssue, formatIssues, linkLabelIssues } from "./drafts";
+import { blockContentIssues, type FieldIssue } from "./drafts";
 
 /** One block in a page's stored content: its fields plus the `type`. */
 export interface PageBlock {
@@ -157,6 +156,12 @@ export interface ValidatePageOptions {
    * and a publish both allow it (review round 2).
    */
   allowNotAllowedBlocks?: boolean;
+  /**
+   * Leave the Button-text rule out. A publish re-validates a stored revision
+   * that a save already gated, so re-running the authoring rule would refuse
+   * content written before the rule existed. Saves keep it on.
+   */
+  skipLinkText?: boolean;
 }
 
 export type ValidatePageResult =
@@ -207,22 +212,15 @@ export const validatePageContent = (
     // `type` is the discriminator, not a field, so it is removed before the
     // block's own schema sees it.
     const { type: _type, ...fields } = block;
-    const validation = validateContent(blockType.jsonSchema, fields, {
-      allowAdditionalFields: true,
-    });
     // The schema is compiled by Zod, whose messages name the validator
     // ("Too big: expected string to have <=80 characters", "Invalid input")
-    // rather than the problem. A slot's fields go through `formatIssues` so
-    // their messages read as something an editor can fix; a page's blocks
-    // take the same rewrite, so the two editors speak the same language
-    // (review follow-up).
-    //
-    // Button text is not in the schema, so its check runs on a valid block too
-    // — otherwise a link with a destination and no words is stored silently.
-    const fieldIssues = [
-      ...(validation.success ? [] : formatIssues(validation.issues, fields)),
-      ...linkLabelIssues(blockType.fields, fields),
-    ];
+    // rather than the problem. `blockContentIssues` rewrites them the way a
+    // slot's editor sees them and adds the Button-text rule, so a page and a
+    // slot speak the same language (review follow-up).
+    const fieldIssues = blockContentIssues(blockType, fields, {
+      allowAdditionalFields: true,
+      skipLinkText: options.skipLinkText,
+    });
     for (const issue of fieldIssues) {
       // A whole-block issue (`validateContent`'s rich text nesting bound) has
       // no field path, so it points at the block itself rather than at a

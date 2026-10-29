@@ -4,6 +4,7 @@ import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import {
   block,
   image,
+  link,
   list,
   richText,
   text,
@@ -199,6 +200,31 @@ describe("publishing", () => {
     expect(slot?.publishedRevisionId).toBeNull();
     expect(await contentVersion()).toBe(before);
     expect(invalid.id).toBeTruthy();
+  });
+
+  // Button text is an authoring rule, and a revision written before the rule
+  // existed can carry a filled link with no label. A save would refuse it now,
+  // but re-running the rule at publish would strand content the site already
+  // renders — so publish checks the schema only.
+  test("publishes stored content written before the button-text rule", async () => {
+    const legacy = block("legacy-cta", { cta: link() }, () => null);
+    await seedBlockType(db, legacy);
+    const legacySlot = await seedSlot(db, {
+      name: "home.legacy-cta",
+      blockName: "legacy-cta",
+      page: "home",
+    });
+    const revision = await createRevision({
+      targetType: "slot",
+      targetId: legacySlot,
+      content: { cta: { type: "url", url: "https://example.com" } },
+      createdBy: editorId,
+    });
+
+    const result = await publishSlot({ slotId: legacySlot });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.revisionId).toBe(revision.id);
   });
 
   test("refuses to publish a slot whose block type was removed", async () => {

@@ -113,6 +113,27 @@ describe("validatePageContent", () => {
     ]);
   });
 
+  // A publish re-checks a revision a save already gated. Button text is an
+  // authoring rule, so re-running it at publish would refuse content written
+  // before the rule existed; publishing asks for the schema only.
+  test("tolerates a stored link with no button text when publishing", () => {
+    const result = validatePageContent(
+      pageTypeRecord(landing),
+      registry,
+      {
+        blocks: [
+          {
+            type: "hero",
+            heading: "Hi",
+            cta: { type: "url", url: "https://example.com" },
+          },
+        ],
+      },
+      { skipLinkText: true },
+    );
+    expect(result.ok).toBe(true);
+  });
+
   test("refuses a block the page type doesn't allow", () => {
     const result = validatePageContent(
       pageTypeRecord(pageType("landing", { allowedBlocks: [prose] })),
