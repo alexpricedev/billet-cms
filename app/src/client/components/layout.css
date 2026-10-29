@@ -48,6 +48,10 @@ body[data-shell="app"] > footer {
    on a box whose width is not otherwise definite would collapse it. */
 body[data-shell="app"] > .app-main:has(.cms-actions) {
   container-type: inline-size;
+  /* The action bar is the last thing in the pane and sticks to the window;
+     the pane's own bottom padding would otherwise leave a strip between the
+     bar's bottom edge and the footer at full scroll. */
+  padding-bottom: 0;
 }
 
 .app-content {
