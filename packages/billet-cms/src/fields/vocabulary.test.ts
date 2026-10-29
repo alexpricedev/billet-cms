@@ -452,6 +452,41 @@ describe("link", () => {
     ).toBe(true);
   });
 
+  test("accepts optional hover text on either branch", () => {
+    const field = link();
+    expect(
+      field.schema.safeParse({
+        type: "page",
+        pageId: UUID,
+        label: "Read more",
+        title: "About our team",
+      }).success,
+    ).toBe(true);
+    expect(
+      field.schema.safeParse({
+        type: "url",
+        url: "https://example.com",
+        title: "About our team",
+      }).success,
+    ).toBe(true);
+  });
+
+  test("publishes title as an optional string on both branches", () => {
+    const stored = blockStoredSchema(
+      block("cta", { target: link() }, () => null),
+    );
+    const target = properties(stored).target as {
+      oneOf: Array<{
+        properties?: Record<string, { type?: string }>;
+        required?: string[];
+      }>;
+    };
+    for (const branch of target.oneOf) {
+      expect(branch.properties?.title).toEqual({ type: "string" });
+      expect(branch.required ?? []).not.toContain("title");
+    }
+  });
+
   test("rejects an empty or untyped value", () => {
     const field = link();
     expect(field.schema.safeParse({}).success).toBe(false);
