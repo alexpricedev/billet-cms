@@ -425,40 +425,21 @@ h1 {
 
 /* ---- Save and publishing ---------------------------------------------- */
 
+/* `.cms-save` carries no fill of its own: the editor bar decides between
+   `btn-primary` and `btn-secondary` per state, and a page form's only action
+   says so in its own `btn btn-primary`. A style here would outrank the variant
+   (page CSS loads after base.css) and make every Save look primary. */
 .cms-save {
-  background: var(--button-primary-bg);
-  border: 1px solid var(--button-primary-bg);
-  border-radius: var(--radius-sm);
-  color: var(--button-primary-fg);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 0 var(--space-4);
-  transition: background-color 120ms ease;
-
-  &:hover,
-  &:focus {
-    background: var(--button-primary-bg-hover);
-    border-color: var(--button-primary-bg-hover);
-    color: var(--button-primary-fg);
-  }
-
-  &:disabled {
-    background: var(--surface-subtle);
-    border-color: var(--border);
-    color: var(--text-disabled);
-    cursor: default;
-  }
 }
 
 /* The action bar: what is live, what is draft, and the buttons that change it.
    It sticks to the bottom of the viewport so Publish is in reach on a phone
-   without scrolling past a long form. A strip rather than a card: a top
-   hairline separates it from the fields, and the page's own surface behind it
-   means nothing shows through as the form scrolls under. */
+   without scrolling past a long form. A strip rather than a card: the backdrop
+   below carries the single top hairline, and the page's own surface means
+   nothing shows through as the form scrolls under. */
 .cms-actions {
   background: var(--surface);
-  border-top: 1px solid var(--border);
   bottom: 0;
   display: grid;
   gap: var(--space-2);
@@ -487,16 +468,13 @@ h1 {
   z-index: -1;
 }
 
-/* The bar sticks over the end of the form, so the form leaves the bar's own
-   height below its last field; without it the last label and its help text can
-   never be scrolled clear of the bar. Measured in the browser against the
-   taller page form, whose bar also carries the disabled-button reason line
-   (~110px in one row, ~168px stacked), with a little to spare; the new-page
-   form has no bar. */
-.cms-slot-form,
-.cms-page-form:not(.cms-new-page-form) {
-  padding-bottom: 112px;
-}
+/* The bar sticks over the form while it scrolls, but it is also the last thing
+   in the flow, so it already reserves its own height below the last field. The
+   only clearance the form needs is that flow space and the bar's `margin-top`
+   (`--space-6`): at full scroll the last field and its help text sit one normal
+   section gap above the bar, and no scroll position can hide them under it.
+   Padding the form by the bar's height would put a second, empty stack between
+   the two. */
 
 .cms-publish-status {
   color: var(--text-secondary);
@@ -1142,15 +1120,13 @@ h1 {
   }
 
   /* At a phone's width the bar stacks into two columns with the status across
-     the top: four buttons in one row would each be too narrow to read. */
+     the top: four buttons in one row would each be too narrow to read. It is
+     taller stacked, but it is still the flow's last element, so it reserves
+     that height itself and the form needs no extra bottom padding. The
+     safe-area inset belongs on the bar, below its last row. */
   .cms-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
-  }
-
-  .cms-slot-form,
-  .cms-page-form:not(.cms-new-page-form) {
-    padding-bottom: calc(176px + env(safe-area-inset-bottom, 0px));
   }
 
   .cms-publish-status,

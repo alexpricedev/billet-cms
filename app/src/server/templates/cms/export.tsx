@@ -159,7 +159,7 @@ export const ExportPage = ({
             Only so you can tell tokens apart in this list.
           </p>
         </div>
-        <button type="submit" className="cms-save">
+        <button type="submit" className="cms-save btn btn-primary">
           Create token
         </button>
       </form>

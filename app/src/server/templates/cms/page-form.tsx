@@ -820,7 +820,7 @@ export const NewPageForm = ({
             value={values.socialImage}
             errors={errorsByField.get("socialImage")}
           />
-          <button type="submit" className="cms-save">
+          <button type="submit" className="cms-save btn btn-primary">
             Create page
           </button>
         </form>

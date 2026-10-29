@@ -87,9 +87,12 @@ describe("cms.css action bar", () => {
 
   // A bar that is a card with a max-width reads as a panel in the form rather
   // than the page's own action strip; this is the full-width hairline version.
-  test("keeps the bar full width with a hairline, not a card", () => {
+  // The hairline lives on the backdrop, not on the bar's own box: a border
+  // here would draw a second line over the form column, a pixel above the
+  // full-pane one, which is the clipped look the ticket started from.
+  test("keeps the bar full width with one hairline, not a card", () => {
     const rule = /\.cms-actions\s*\{([^}]*)\}/.exec(css)?.[1];
-    expect(rule).toContain("border-top: 1px solid var(--border)");
+    expect(rule).not.toContain("border-top");
     expect(rule).not.toContain("border-radius");
     expect(rule).not.toContain("max-width");
   });
@@ -156,22 +159,22 @@ describe("cms.css action bar", () => {
     expect(at640).toContain("--app-main-pad-x: var(--space-4)");
   });
 
-  // The bar sticks over the end of the form, so the form carries bottom space
-  // equal to the bar's measured height: without it the last field and its help
-  // text rest against the bar's top edge. A bar-less form must not get it.
-  test("leaves the bar's height below the form so the last field clears it", () => {
-    const desktop =
-      /\.cms-slot-form,\s*\.cms-page-form:not\(\.cms-new-page-form\)\s*\{([^}]*)\}/.exec(
-        css,
-      )?.[1];
-    expect(desktop).toContain("padding-bottom: 112px");
+  // The bar sticks over the form while it scrolls, but it is also the flow's
+  // last element, so it already reserves its own height at the end. A second
+  // stack of padding on the form doubles that gap: at full scroll the last
+  // help line floated 136px above the bar at 1280 and 200px at 390. The form
+  // takes no bottom padding of its own, and the one gap it does leave is the
+  // bar's `margin-top` — the normal section spacing.
+  test("leaves only the bar's own flow space below the form", () => {
+    expect(css).not.toMatch(/\.cms-slot-form[^{]*\{[^}]*padding-bottom/);
+    expect(css).toMatch(
+      /\.cms-actions\s*\{[^}]*margin-top:\s*var\(--space-6\)/,
+    );
 
     const mobile = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
       css,
     )?.[1];
-    expect(mobile).toContain(
-      "padding-bottom: calc(176px + env(safe-area-inset-bottom, 0px))",
-    );
+    expect(mobile).not.toContain("176px");
   });
 
   // The shadow is a token in every theme block, so light, dark and System all
@@ -195,6 +198,13 @@ describe("cms.css action bar", () => {
   test("styles the legacy buttons through the variants", () => {
     expect(css).not.toMatch(/\.cms-publish-button\s*\{/);
     expect(css).not.toMatch(/\.cms-preview-button\s*\{/);
+    // `.cms-save` sits on both Save draft and Publish, and page CSS loads after
+    // base.css, so a fill here beats `btn-secondary` and leaves two filled
+    // buttons in the bar. One primary per bar means the variant decides.
+    const save = /^\.cms-save\s*\{([^}]*)\}/m.exec(css)?.[1];
+    expect(save).not.toContain("background");
+    expect(save).not.toContain("border");
+    expect(save).not.toContain("color");
   });
 
   test("stacks the bar into two columns on a phone", () => {
@@ -206,6 +216,8 @@ describe("cms.css action bar", () => {
     );
     // The status line spans both columns so it is not squeezed into half of one.
     expect(mobile).toContain("grid-column: 1 / -1");
+    // The bar's last row clears a phone's home indicator.
+    expect(mobile).toContain("env(safe-area-inset-bottom, 0px)");
   });
 });
 
