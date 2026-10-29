@@ -538,7 +538,14 @@ export const FieldControl = ({
   const countId = idFor("count");
 
   switch (field.kind) {
-    case "text":
+    case "text": {
+      // A field that allows more than a long line is still one plain string, so
+      // the control is picked from `max` alone — there is no field option. A
+      // three-row textarea (the client grows it as the editor types) gives them
+      // room to see the words; at 120 or under, an input keeps its one line.
+      const multiline = field.max !== undefined && field.max > 120;
+      const textDescribedBy =
+        field.max === undefined ? described : describedBy(described, countId);
       return (
         <div
           className="cms-field"
@@ -553,20 +560,30 @@ export const FieldControl = ({
               <FieldLabelText field={field} inGroup={inGroup} />
             </label>
           )}
-          <input
-            type="text"
-            id={controlId}
-            data-text-input
-            value={asString(value)}
-            aria-label={labelOverride}
-            aria-required={required ? "true" : undefined}
-            aria-invalid={invalid ? "true" : undefined}
-            aria-describedby={
-              field.max === undefined
-                ? described
-                : describedBy(described, countId)
-            }
-          />
+          {multiline ? (
+            <textarea
+              id={controlId}
+              data-text-input
+              rows={3}
+              aria-label={labelOverride}
+              aria-required={required ? "true" : undefined}
+              aria-invalid={invalid ? "true" : undefined}
+              aria-describedby={textDescribedBy}
+            >
+              {asString(value)}
+            </textarea>
+          ) : (
+            <input
+              type="text"
+              id={controlId}
+              data-text-input
+              value={asString(value)}
+              aria-label={labelOverride}
+              aria-required={required ? "true" : undefined}
+              aria-invalid={invalid ? "true" : undefined}
+              aria-describedby={textDescribedBy}
+            />
+          )}
           {field.max !== undefined && (
             <>
               <p
@@ -589,6 +606,7 @@ export const FieldControl = ({
           <FieldHelp help={field.help} id={helpId} />
         </div>
       );
+    }
 
     case "richText": {
       // The editor carries the id, not the fieldset: two elements sharing one
