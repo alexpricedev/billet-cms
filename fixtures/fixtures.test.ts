@@ -247,6 +247,65 @@ describe("fixtures and personas", () => {
     }
   });
 
+  test("the banner pair publishes both link shapes and lands on /about", async () => {
+    const blockTypes = (await sql`
+      SELECT name, fields FROM cms_block_types
+      WHERE name IN ('banner', 'banner-plain')
+    `) as {
+      name: string;
+      fields: {
+        name: string;
+        kind: string;
+        label?: string;
+        text?: boolean;
+        fields?: {
+          name: string;
+          kind: string;
+          label?: string;
+          text?: boolean;
+        }[];
+      }[];
+    }[];
+
+    /** The link field inside a banner's `callToAction` group. */
+    const linkOf = (blockName: string) => {
+      const block = blockTypes.find(
+        (candidate) => candidate.name === blockName,
+      );
+      const group = block?.fields.find(
+        (field) => field.name === "callToAction" && field.kind === "group",
+      );
+      return group?.fields?.find((field) => field.name === "link");
+    };
+
+    // `banner` declares the option, so the published metadata carries it;
+    // `banner-plain` leaves it off, and a plain link publishes no `text` key.
+    expect(linkOf("banner")?.kind).toBe("link");
+    expect(linkOf("banner")?.label).toBe("Goes to");
+    expect(linkOf("banner")?.text).toBe(false);
+    expect(linkOf("banner-plain")?.label).toBe("Goes to");
+    expect(linkOf("banner-plain")?.text).toBeUndefined();
+
+    // The landing page type (what /about uses) allows both blocks.
+    const landing = (await sql`
+      SELECT allowed_blocks FROM cms_page_types WHERE name = 'landing'
+    `) as { allowed_blocks: string[] }[];
+    expect(landing[0].allowed_blocks).toEqual(
+      expect.arrayContaining(["banner", "banner-plain"]),
+    );
+
+    // /about's published revision holds one of each, in the stored shape the
+    // editor reads back.
+    const published = (await sql`
+      SELECT r.content FROM cms_revisions r
+      JOIN cms_pages p ON p.id = r.target_id
+      WHERE p.url = '/about' AND r.id = p.published_revision_id
+    `) as { content: { blocks: { type: string }[] } }[];
+    const types = published[0].content.blocks.map((block) => block.type);
+    expect(types.filter((type) => type === "banner")).toHaveLength(1);
+    expect(types.filter((type) => type === "banner-plain")).toHaveLength(1);
+  });
+
   test("the site serves the published content and the local media", async () => {
     const about = await fetch(`${siteUrl}/about`);
     expect(about.status).toBe(200);

@@ -97,9 +97,45 @@ export const steps = block("steps", {
   ),
 });
 
+/**
+ * Two banners in one shape, to put both link models side by side in the editor.
+ * `banner` says its link carries no text of its own (`text: false`), so the
+ * editor shows the group's text field once and no Button text inside the link.
+ * `banner-plain` leaves the option off: the link keeps its own Button text, and
+ * only the sibling-text fallback lets the fixture save without a label.
+ */
+export const banner = block("banner", {
+  callToAction: group(
+    {
+      text: text({ max: 120, label: "Button text" }),
+      link: link({ text: false, label: "Goes to" }),
+    },
+    { label: "Call to action" },
+  ),
+});
+
+export const bannerPlain = block("banner-plain", {
+  callToAction: group(
+    {
+      text: text({ max: 120, label: "Button text" }),
+      link: link({ label: "Goes to" }),
+    },
+    { label: "Call to action" },
+  ),
+});
+
 export const landing = pageType("landing", {
   label: "Landing",
-  allowedBlocks: [hero, textBlock, gallery, quote, cta, steps],
+  allowedBlocks: [
+    hero,
+    textBlock,
+    gallery,
+    quote,
+    cta,
+    steps,
+    banner,
+    bannerPlain,
+  ],
   requiredBlocks: [],
   limits: { hero: { max: 1, position: "top" } },
 });
@@ -111,7 +147,7 @@ export const article = pageType("article", {
 });
 
 export const siteDefinitions = {
-  blocks: [hero, textBlock, gallery, quote, cta, steps],
+  blocks: [hero, textBlock, gallery, quote, cta, steps, banner, bannerPlain],
   slots: [homeHero, footerCta],
   pageTypes: [landing, article],
 };
