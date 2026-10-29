@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import type { FieldError } from "../../components/cms/field-control";
 import { MediaOptionsTemplate } from "../../components/cms/field-control";
+import { Flash, type FlashField } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import { getAssetUrl } from "../../services/assets";
@@ -20,6 +21,11 @@ import type { MediaOption } from "../../services/media";
 import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
+import {
+  previewReason,
+  publishReason,
+  publishStatusLine,
+} from "../../utils/publish-status";
 import { PageBlocks } from "./page-blocks";
 
 export interface PageFormProps {
@@ -47,10 +53,12 @@ export interface PageFormProps {
   removed?: number[];
   /** The newest revision, which is what Publish would make live. */
   latestRevisionId: string | null;
+  /** When that revision was saved, for the status line. */
+  latestRevisionAt: Date | null;
   /** The revision the site is currently rendering, when there is one. */
   publishedRevisionId: string | null;
-  /** Old paths that redirect to this page, so Publish can say so. */
-  oldUrls?: string[];
+  /** When the live revision was saved, for the status line. */
+  publishedRevisionAt: Date | null;
   pages: PageOption[];
   /** The uploads an `image` field's picker offers, rendered once for the form. */
   media: MediaOption[];
@@ -60,6 +68,12 @@ export interface PageFormProps {
   settingsErrors?: Map<string, FieldError[]>;
   /** Validation messages for a block's fields, keyed by the block's index. */
   blockErrors?: Map<number, Map<string, FieldError[]>>;
+  /**
+   * Whole-block messages (the hero-first rule, the rich-text nesting bound),
+   * keyed by the block's index. Shown on the block itself, and linked to from
+   * the banner's summary line.
+   */
+  blockAlerts?: Map<number, string>;
   /** Every content issue, shown as a list above the blocks. */
   contentIssues?: FieldIssue[];
   conflict?: RevisionConflict | null;
@@ -68,7 +82,12 @@ export interface PageFormProps {
    * banner names the action the editor took.
    */
   refusedPublish?: boolean;
-  notice?: { kind: "success" | "warning"; message: string } | null;
+  notice?: {
+    kind: "success" | "warning";
+    message: string;
+    /** A second line, e.g. how many empty blocks a save removed. */
+    detail?: string;
+  } | null;
   /**
    * The settings to show in the fields. Defaults to the page's stored settings;
    * a failed save passes what the editor typed so their input isn't discarded.
@@ -77,24 +96,41 @@ export interface PageFormProps {
 }
 
 /**
- * A whole-block issue's summary line, worded so the editor knows which block.
+ * One line in the error banner's list.
  *
  * An issue at `blocks.N` rather than `blocks.N.field` has no control to mark —
- * the rich text nesting bound is the one the editor can reach — so without a
- * block name on the summary line, a page with several blocks gives no clue
- * which one the message is about (review round 2). The block's type is named
- * too, since the block legends show the type and no number.
+ * the hero-first rule and the rich text nesting bound are the two that land
+ * there — so it names the block (position and type) and links to the block,
+ * which at 390 sits several screens below the banner (review round 2). A field
+ * issue links to the control the field renders, whose anchor is the block's id
+ * prefix plus the field name. Anything else, or a block that isn't on the page,
+ * has nothing to link to and stays plain text.
  */
-const blockSummaryMessage = (
+const contentIssueField = (
   issue: FieldIssue,
   blocks: PageBlock[],
-): string => {
-  const match = /^blocks\.(\d+)$/.exec(issue.path);
-  if (!match) return issue.message;
+  blockTypes: BlockTypeRecord[],
+): FlashField => {
+  const match = /^blocks\.(\d+)(?:\.(.+))?$/.exec(issue.path);
+  if (!match) return { label: issue.message };
   const index = Number(match[1]);
-  const type = blocks[index]?.type;
-  const name = typeof type === "string" && type !== "" ? ` (${type})` : "";
-  return `Block ${index + 1}${name}: ${issue.message}`;
+  const block = blocks[index];
+  const type = block?.type;
+  if (typeof type !== "string" || type === "") return { label: issue.message };
+  if (match[2] === undefined) {
+    const summary = `Block ${index + 1} (${type}): ${issue.message}`;
+    // A block the page type doesn't render as a card has no anchor to reach,
+    // so the line stays plain text rather than being a link to nowhere.
+    return index >= blocks.length
+      ? { label: summary }
+      : { id: `block-${index + 1}`, label: summary };
+  }
+  const field = match[2].split(".")[0];
+  const definition = blockTypes.find((candidate) => candidate.name === type);
+  const label =
+    definition?.fields.find((candidate) => candidate.name === field)?.label ??
+    field;
+  return { id: `cms-block-${index}-${type}-${field}`, label };
 };
 
 const SettingsControl = ({
@@ -178,10 +214,11 @@ const SettingsControl = ({
 /**
  * The page editor: the page's settings, its blocks, and publishing alongside.
  *
- * Settings are live columns (a URL, a title, an SEO description, a social
- * image); content is versioned in `cms_revisions`. One save writes both, so the
- * URL a redirect is written for is the one the editor can see, and the content
- * the site will render is the one they just looked at.
+ * Settings are live columns (a title, an SEO description, a social image) —
+ * except the URL, which is stored with the draft and moves on Publish, like the
+ * content in `cms_revisions`. One save writes both, so the URL a redirect is
+ * written for is the one the editor can see, and the content the site will
+ * render is the one they just looked at.
  */
 export const PageForm = ({
   user,
@@ -198,13 +235,15 @@ export const PageForm = ({
   baseRevisionId,
   removed,
   latestRevisionId,
+  latestRevisionAt,
   publishedRevisionId,
-  oldUrls,
+  publishedRevisionAt,
   pages,
   media,
   pickerCapped,
   settingsErrors,
   blockErrors,
+  blockAlerts,
   contentIssues,
   conflict,
   refusedPublish,
@@ -213,7 +252,8 @@ export const PageForm = ({
 }: PageFormProps) => {
   const settings = values ?? {
     pageType: page.pageType,
-    url: page.url,
+    // A saved address change waits for Publish, so the field shows the draft.
+    url: page.draftUrl ?? page.url,
     title: page.title,
     seoDescription: page.seoDescription,
     socialImage: page.socialImage,
@@ -221,31 +261,63 @@ export const PageForm = ({
   const hasDraft = latestRevisionId !== null;
   const upToDate =
     latestRevisionId !== null && latestRevisionId === publishedRevisionId;
-  const publishStatus = !hasDraft
-    ? "No draft saved yet."
-    : upToDate
-      ? "Published."
-      : publishedRevisionId
-        ? "Unpublished changes."
-        : "Not published yet.";
+  const canPublish = hasDraft && !upToDate;
+  const status = publishStatusLine({
+    latestRevisionAt,
+    upToDate,
+    published: publishedRevisionId !== null,
+    publishedRevisionAt,
+  });
+  const publishWhy = publishReason(hasDraft, upToDate);
+  const previewWhy = previewReason(hasDraft, upToDate);
 
-  const redirected = oldUrls ?? [];
+  // Only a saved draft URL that differs from the live one will redirect on
+  // Publish. Earlier moves' redirects are already live and are not mentioned.
   const publishMessage = `The site picks it up within seconds.${
-    redirected.length > 0
-      ? ` The old address ${redirected.join(", ")} will redirect to ${page.url}.`
+    page.draftUrl !== null && page.draftUrl !== page.url
+      ? ` The old address ${page.url} will redirect to ${page.draftUrl}.`
       : ""
   }`;
 
-  // The URL takes effect on save, not on publish: the stored row is the live
-  // address, and the redirect from it is written with the save.
+  // The field starts at the stored address — the draft if one is pending — and
+  // the warning compares what is typed with the *live* address, because that is
+  // what Publish would move.
   const typedUrl = normalisePageUrl(settings.url);
+  const storedUrl = page.draftUrl ?? page.url;
   const moving = typedUrl.ok ? typedUrl.url !== page.url : false;
+  const movingTo = typedUrl.ok ? typedUrl.url : settings.url;
+  // A saved draft URL sits in the breadcrumb beside the live one; anything
+  // typed on top of it is a second, unsaved value.
+  const draftPending = page.draftUrl !== null && page.draftUrl !== page.url;
+  const unsaved = typedUrl.ok
+    ? typedUrl.url !== storedUrl
+    : settings.url.trim() !== storedUrl;
 
   const uneditable = pageType === null;
-  // Whether a block below carries a field error. A limit issue (`blocks`) or an
-  // unreadable body (`(content)`) has no block to point at, so the banner must
-  // not tell the editor to look at blocks that aren't marked (review round 1).
-  const hasBlockErrors = (blockErrors?.size ?? 0) > 0;
+
+  // The error banner lists every issue: a field links to its control, a whole
+  // block links to the block, and an issue with neither (a page-limit rule, an
+  // unreadable body) keeps its own message. The "Fix these N fields" line only
+  // counts real fields — a whole-block issue has no field to fix, and telling
+  // the editor to check marked blocks that aren't marked was the review-round-1
+  // failure.
+  const issueFields: FlashField[] = [];
+  const seenIssueFields = new Set<string>();
+  for (const issue of contentIssues ?? []) {
+    const field = contentIssueField(issue, content, blockTypes);
+    if (field.id?.startsWith("cms-block-")) {
+      if (seenIssueFields.has(field.id)) continue;
+      seenIssueFields.add(field.id);
+    }
+    issueFields.push(field);
+  }
+  const fieldIssueCount = seenIssueFields.size;
+  const fixLine =
+    fieldIssueCount === 0
+      ? undefined
+      : fieldIssueCount === 1
+        ? "Fix this field and try again:"
+        : `Fix these ${fieldIssueCount} fields and try again:`;
 
   return (
     <Layout
@@ -262,7 +334,15 @@ export const PageForm = ({
           <>
             <a href="/cms">Content</a> / <a href="/cms/pages">Pages</a> /{" "}
             <span>{page.url}</span>
-            {moving && (
+            {draftPending && (
+              <>
+                {" "}
+                <span>
+                  <code>{page.draftUrl}</code> (not published)
+                </span>
+              </>
+            )}
+            {unsaved && (
               <>
                 {" "}
                 <span>(unsaved: {settings.url})</span>
@@ -274,59 +354,58 @@ export const PageForm = ({
       />
 
       {notice && (
-        <div
-          className={
-            notice.kind === "success" ? "flash-success" : "flash-warning"
-          }
-          role="status"
-        >
-          {notice.message}
-        </div>
+        <Flash
+          tone={notice.kind}
+          title={notice.message}
+          detail={notice.detail}
+        />
       )}
 
       {conflict && (
-        <div className="flash-warning" role="alert">
-          <p>
-            Someone saved a newer version while this form was open
-            {conflict.authorEmail ? ` (${conflict.authorEmail})` : ""}, at{" "}
-            {formatWhen(conflict.createdAt)} UTC.
-          </p>
-          <p>
-            Saving now will create another draft on top of theirs.{" "}
-            <a href={`/cms/pages/${page.id}`}>Load their version</a> instead to
-            start from what they saved.
-          </p>
-        </div>
+        <Flash
+          tone="warning"
+          title={
+            <>
+              Someone saved a newer version while this form was open
+              {conflict.authorEmail ? ` (${conflict.authorEmail})` : ""}, at{" "}
+              {formatWhen(conflict.createdAt)} UTC.
+            </>
+          }
+          detail={
+            <>
+              Saving now will create another draft on top of theirs.{" "}
+              <a href={`/cms/pages/${page.id}`}>Load their version</a> instead
+              to start from what they saved.
+            </>
+          }
+        />
       )}
 
       {uneditable && (
-        <div className="flash-warning" role="alert">
-          The page type <code>{page.pageType}</code> is no longer published, so
-          this page can't be edited until it is declared again. Its content is
-          kept.
-        </div>
+        <Flash
+          tone="warning"
+          title={
+            <>
+              The page type <code>{page.pageType}</code> is no longer published,
+              so this page can't be edited until it is declared again. Its
+              content is kept.
+            </>
+          }
+        />
       )}
 
       {contentIssues && contentIssues.length > 0 && (
-        <div className="flash-error" role="alert">
-          <p>
-            {refusedPublish
-              ? "This content can't be published."
-              : "This content can't be saved."}
-            {hasBlockErrors ? " Check the blocks marked below." : ""}
-          </p>
-          <ul>
-            {contentIssues.map((issue, index) => (
-              <li key={`${issue.path}:${index}`}>
-                {blockSummaryMessage(issue, content)}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <Flash
+          tone="error"
+          title={refusedPublish ? "Couldn't publish." : "Couldn't save draft."}
+          detail={fixLine}
+          fields={issueFields}
+        />
       )}
 
       {!uneditable && (
         <form
+          id="cms-page-form"
           method="POST"
           action={`/cms/pages/${page.id}`}
           className="cms-page-form"
@@ -387,9 +466,11 @@ export const PageForm = ({
                   blocks={content}
                   unavailable={unavailable}
                   errorsByBlock={blockErrors}
+                  alertsByBlock={blockAlerts}
                   pages={pages}
                   hasMedia={media.length > 0}
                   pickerCapped={pickerCapped}
+                  media={media}
                 />
               ) : (
                 <p className="cms-blocks-empty">
@@ -452,7 +533,7 @@ export const PageForm = ({
               <SettingsControl
                 name="url"
                 label="URL"
-                help="The path the page is served at, e.g. /about."
+                help="The path the page is served at, e.g. /company."
                 value={settings.url}
                 errors={settingsErrors?.get("url")}
                 required
@@ -466,9 +547,22 @@ export const PageForm = ({
                       data-url-move
                       hidden={!moving}
                     >
-                      <span aria-hidden="true">⚠ </span>Saving moves this page:{" "}
-                      <code>{page.url}</code> will redirect to the new URL as
-                      soon as you save, even before you publish.
+                      <span aria-hidden="true">⚠ </span>
+                      {publishedRevisionId !== null ? (
+                        <>
+                          Publishing moves this page: <code>{page.url}</code>{" "}
+                          will redirect to{" "}
+                          <code data-url-move-to>{movingTo}</code>.
+                        </>
+                      ) : (
+                        // A page that has never been published has nothing live
+                        // to protect, so its address moves on Save — no
+                        // redirect, and no waiting for Publish.
+                        <>
+                          Saving moves this page to{" "}
+                          <code data-url-move-to>{movingTo}</code>.
+                        </>
+                      )}
                     </p>
                   ),
                 }}
@@ -497,60 +591,89 @@ export const PageForm = ({
               />
             </section>
           </div>
-
-          <button type="submit" className="cms-save">
-            {conflict ? "Overwrite and save" : "Save draft"}
-          </button>
         </form>
       )}
 
+      {/* The status line and the disabled-button reasons are the bar's own
+          persistent state and help text, not event notices: they render on
+          every load and are never dismissible, so they stay out of Flash. */}
       <section className="cms-actions" aria-label="Publishing">
         <p className="cms-publish-status" role="status">
-          {publishStatus}
+          {status}
         </p>
-        <form
-          method="POST"
-          action={`/cms/pages/${page.id}/publish`}
-          data-confirm={publishMessage}
-          data-confirm-title={`Publish '${page.title}'?`}
-          data-confirm-label="Publish"
-          data-confirm-danger="false"
-        >
-          <input type="hidden" name="_csrf" value={publishCsrfToken} />
-          <input type="hidden" name="revision" value={latestRevisionId ?? ""} />
-          <button
-            type="submit"
-            className="cms-publish-button"
-            disabled={!hasDraft || upToDate}
+        <div className="cms-action-buttons">
+          {/* Outside the save form so the bar can be sticky and hold every
+              action, but still a submit of it: `form` is what keeps Enter in a
+              field saving, and the preview guard's `requestSubmit` working. */}
+          {!uneditable && (
+            <button
+              type="submit"
+              form="cms-page-form"
+              className={`cms-save btn ${canPublish ? "btn-secondary" : "btn-primary"}`}
+            >
+              {conflict ? "Overwrite and save" : "Save draft"}
+            </button>
+          )}
+          <form
+            method="POST"
+            action={`/cms/pages/${page.id}/publish`}
+            data-confirm={publishMessage}
+            data-confirm-title={`Publish '${page.title}'?`}
+            data-confirm-label="Publish"
+            data-confirm-danger="false"
           >
-            Publish
-          </button>
-        </form>
-        {/* Preview mints a short-lived token and opens the site in a new tab
-            with it, so the editor sees the draft without leaving the CMS.
-            Disabled with no draft, and when the draft is already the live
-            revision: there is no unpublished change to preview. Matches
-            Publish, which is disabled in the same two cases. */}
-        <form
-          method="POST"
-          action={`/cms/pages/${page.id}/preview`}
-          target="_blank"
-          rel="noopener"
-        >
-          <input type="hidden" name="_csrf" value={previewCsrfToken} />
-          <button
-            type="submit"
-            className="cms-preview-button"
-            disabled={!hasDraft || upToDate}
-            data-preview-submit
+            <input type="hidden" name="_csrf" value={publishCsrfToken} />
+            <input
+              type="hidden"
+              name="revision"
+              value={latestRevisionId ?? ""}
+            />
+            <button
+              type="submit"
+              className={`cms-publish-button btn ${canPublish ? "btn-primary" : "btn-secondary"}`}
+              disabled={!canPublish}
+              aria-describedby={publishWhy ? "publish-reason" : undefined}
+            >
+              Publish
+            </button>
+          </form>
+          {/* Preview mints a short-lived token and opens the site in a new tab
+              with it, so the editor sees the draft without leaving the CMS.
+              Disabled with no draft, and when the draft is already the live
+              revision: there is no unpublished change to preview. Matches
+              Publish, which is disabled in the same two cases. */}
+          <form
+            method="POST"
+            action={`/cms/pages/${page.id}/preview`}
+            target="_blank"
+            rel="noopener"
           >
-            Preview draft <span aria-hidden="true">↗</span>
-            <span className="sr-only">(opens in a new tab)</span>
-          </button>
-        </form>
-        <a className="cms-history-link" href={`/cms/pages/${page.id}/history`}>
-          History
-        </a>
+            <input type="hidden" name="_csrf" value={previewCsrfToken} />
+            <button
+              type="submit"
+              className="cms-preview-button btn btn-secondary"
+              disabled={!canPublish}
+              aria-describedby={previewWhy ? "preview-reason" : undefined}
+              data-preview-submit
+            >
+              Preview draft <span aria-hidden="true">↗</span>
+              <span className="sr-only">(opens in a new tab)</span>
+            </button>
+          </form>
+          <a
+            className="cms-history-link btn btn-ghost"
+            href={`/cms/pages/${page.id}/history`}
+          >
+            History
+          </a>
+        </div>
+        {(publishWhy || previewWhy) && (
+          <p className="cms-action-reason">
+            {publishWhy && <span id="publish-reason">{publishWhy}</span>}
+            {publishWhy && previewWhy && " "}
+            {previewWhy && <span id="preview-reason">{previewWhy}</span>}
+          </p>
+        )}
       </section>
 
       <section className="cms-danger" aria-label="Delete">
@@ -622,10 +745,11 @@ export const NewPageForm = ({
       />
 
       {pageTypes.length === 0 ? (
-        <div className="flash-warning" role="status">
-          No page types are published yet. Deploy the site, or check that its
-          publish step ran against this database.
-        </div>
+        <Flash
+          tone="warning"
+          title="No page types are published yet."
+          detail="Deploy the site, or check that its publish step ran against this database."
+        />
       ) : (
         <form
           method="POST"
@@ -669,7 +793,7 @@ export const NewPageForm = ({
           <SettingsControl
             name="url"
             label="URL"
-            help="The path the page is served at, e.g. /about."
+            help="The path the page is served at, e.g. /company."
             value={values.url}
             errors={errorsByField.get("url")}
             required
@@ -696,7 +820,7 @@ export const NewPageForm = ({
             value={values.socialImage}
             errors={errorsByField.get("socialImage")}
           />
-          <button type="submit" className="cms-save">
+          <button type="submit" className="cms-save btn btn-primary">
             Create page
           </button>
         </form>
@@ -734,9 +858,15 @@ export const PageUnavailable = ({
       }
       title={page.title}
     />
-    <div className="flash-warning" role="alert">
-      The page type <code>{page.pageType}</code> is no longer published. This
-      page's content is kept but cannot be edited until it is declared again.
-    </div>
+    <Flash
+      tone="warning"
+      title={
+        <>
+          The page type <code>{page.pageType}</code> is no longer published.
+          This page's content is kept but cannot be edited until it is declared
+          again.
+        </>
+      }
+    />
   </Layout>
 );

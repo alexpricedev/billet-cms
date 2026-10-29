@@ -1,9 +1,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { block, text } from "@alexpricedev/billet-cms/fields";
+import { block, image, text } from "@alexpricedev/billet-cms/fields";
+import { createMemoryStorage } from "@alexpricedev/billet-storage";
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
+import { makeJpeg } from "../../test-utils/images";
 import { jsonbValue } from "../../utils/sql";
 
 const connection = testDatabase();
@@ -24,6 +26,7 @@ import {
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
+import { createMedia } from "../../services/media";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { createBunRequest } from "../../test-utils/bun-request";
 import { slotHistory } from "./history";
@@ -147,6 +150,52 @@ describe("slot publish and history controllers", () => {
       expect(slot?.publishedRevisionId).toBe(revision.id);
     });
 
+    // Part 10: a narrow image is a site guideline, not a refusal. Publishing
+    // goes ahead and the redirect says what is worth a second look.
+    test("publishes a too-narrow image and says so", async () => {
+      const narrow = block(
+        "narrowHero",
+        { photo: image({ minWidth: 1600 }) },
+        () => null,
+      );
+      await seedBlockType(db, narrow);
+      const narrowSlotId = await seedSlot(db, {
+        name: "home.narrow",
+        blockName: "narrowHero",
+        page: "home",
+      });
+      const small = await createMedia({
+        bytes: await makeJpeg(800, 400),
+        alt: "Too small",
+        actorId: null,
+        storage: createMemoryStorage(),
+      });
+      if (!small.ok) throw new Error("upload failed");
+      const saved = await saveSlotDraft({
+        slotId: narrowSlotId,
+        content: { photo: { mediaId: small.media.id } },
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+
+      const res = await slotPublish.publish(
+        await postForm(
+          publishPath(narrowSlotId),
+          narrowSlotId,
+          { revision: saved.revision.id },
+          sessionId,
+        ),
+      );
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `/cms/slots/${narrowSlotId}?published=1&warn=1`,
+      );
+      const slot = await getSlotById(narrowSlotId);
+      expect(slot?.publishedRevisionId).toBe(saved.revision.id);
+    });
+
     // The form posts the revision it rendered. If a colleague saved after that,
     // publishing now would put work the editor never saw live, so it stops.
     test("warns instead of publishing a newer draft than the one shown", async () => {
@@ -228,7 +277,7 @@ describe("slot publish and history controllers", () => {
       const html = await res.text();
       // The save form's own banner and per-field error state, not `?publish=`,
       // and the banner names the action that was refused: a publish.
-      expect(html).toContain("This content can't be published");
+      expect(html).toContain("Couldn't publish.");
       expect(html).toContain('aria-invalid="true"');
       expect(html).toContain('href="#cms-field-heading"');
 
@@ -380,6 +429,58 @@ describe("slot publish and history controllers", () => {
       expect(older).toContain(`value="${first.id}"`);
     });
 
+    // Part 5, end to end: save, restore an older revision, publish the copy.
+    // The row the copy came from must not keep saying "Current draft", and the
+    // copy is a revision of its own — not a second row for the same thing.
+    test("drops the Current draft label from every row once a restore is published", async () => {
+      const first = await draft("First");
+      await draft("Second");
+
+      await slotPublish.restore(
+        await postForm(
+          restorePath(slotId),
+          slotId,
+          { revision: first.id },
+          sessionId,
+        ),
+      );
+      const restored = await getLatestRevision("slot", slotId);
+      if (!restored) throw new Error("restore did not write a revision");
+
+      await slotPublish.publish(
+        await postForm(
+          publishPath(slotId),
+          slotId,
+          { revision: restored.id },
+          sessionId,
+        ),
+      );
+
+      const rows = historyRows(
+        await (
+          await slotHistory.index(
+            request(historyPath(slotId), slotId, {
+              method: "GET",
+              headers: { cookie: `cms_session=${sessionId}` },
+            }),
+          )
+        ).text(),
+      );
+
+      expect(rows).toHaveLength(3);
+      expect(rows[0]).toContain("Published");
+      expect(rows[0]).not.toContain("Current draft");
+      expect(rows.filter((row) => row.includes("Current draft"))).toHaveLength(
+        0,
+      );
+      // One row per revision: the restored copy and its source both remain, and
+      // each revision id appears once.
+      const ids = rows.flatMap((row) => [
+        ...row.matchAll(/name="revision" value="([^"]+)"/g),
+      ]);
+      expect(new Set(ids.map((match) => match[1])).size).toBe(ids.length);
+    });
+
     test("shows a neutral empty state before anything is saved", async () => {
       const res = await slotHistory.index(
         request(historyPath(slotId), slotId, {
@@ -393,7 +494,7 @@ describe("slot publish and history controllers", () => {
       expect(html).toContain("no saved revisions yet");
       expect(html).toContain("cms-history-empty");
       // A static empty state, not a live-region warning.
-      expect(html).not.toContain("flash-warning");
+      expect(html).not.toContain('class="flash"');
       expect(html).not.toContain("Show older");
     });
 

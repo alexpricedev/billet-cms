@@ -61,27 +61,23 @@
   text-align: center;
 }
 
-.login-card .flash-success p:first-child {
+/* The banner in the narrow sign-in card takes the card's smaller type. The
+   shared component ships the full 14px anatomy; only the title and detail are
+   toned down here. */
+.login-card .flash[data-tone="success"] .flash-title {
   color: var(--text);
   font-weight: 500;
   margin: 0;
 }
 
-.login-card .flash-success p:nth-child(2) {
+.login-card .flash[data-tone="success"] .flash-detail {
   color: var(--text-secondary);
   font-size: 13px;
   margin-top: var(--space-1);
   margin-bottom: 0;
 }
 
-.login-card .flash-success p:last-child {
-  color: var(--text-muted);
-  font-size: 12px;
-  margin-top: var(--space-2);
-  margin-bottom: 0;
-}
-
-.login-card .flash-error span {
+.login-card .flash[data-tone="error"] .flash-title {
   color: var(--text-secondary);
   font-size: 13px;
 }

@@ -56,6 +56,13 @@ const hero = block(
 // then has to carry.
 const photoHero = block("photoHero", { photo: image() }, () => null);
 
+// Part 10: a field with a minimum width. A narrower image warns but saves.
+const narrowHero = block(
+  "narrowHero",
+  { photo: image({ minWidth: 1600 }) },
+  () => null,
+);
+
 const document: RichTextDocument = {
   type: "doc",
   content: [{ type: "paragraph", content: [{ type: "text", text: "Body" }] }],
@@ -83,7 +90,7 @@ const saveFormCsrf = (html: string): string | undefined =>
 
 /** Whether the Preview draft button rendered disabled. */
 const previewDisabled = (html: string): boolean =>
-  /<button[^>]*class="cms-preview-button"[^>]*disabled/.test(html);
+  /<button[^>]*class="[^"]*cms-preview-button[^"]*"[^>]*disabled/.test(html);
 
 /** The contents of the form's one options template, or "" when it has none. */
 const mediaOptionsTemplate = (html: string): string =>
@@ -355,6 +362,124 @@ describe("Slot form controller", () => {
     });
   });
 
+  // Parts 1-3: the bar says what is live and what is draft, Publish is the
+  // primary button when it would do something, and a disabled button says why.
+  describe("action bar", () => {
+    const statusOf = (html: string): string =>
+      html.match(/class="cms-publish-status"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+
+    const publishButton = (html: string): string =>
+      html.match(
+        /<button[^>]*class="[^"]*cms-publish-button[^"]*"[^>]*>/,
+      )?.[0] ?? "";
+
+    const saveButton = (html: string): string =>
+      html.match(/<button[^>]*class="[^"]*cms-save[^"]*"[^>]*>/)?.[0] ?? "";
+
+    test("says no draft is saved and why both buttons are off", async () => {
+      const html = await (await slotForm.index(get())).text();
+
+      expect(statusOf(html)).toBe("No draft saved yet.");
+      expect(html).toContain("Nothing to publish: no draft saved yet.");
+      expect(html).toContain("No draft to preview.");
+      expect(publishButton(html)).toContain("disabled");
+      expect(publishButton(html)).toContain(
+        'aria-describedby="publish-reason"',
+      );
+      expect(previewDisabled(html)).toBe(true);
+    });
+
+    test("says what the saved draft is when nothing is live", async () => {
+      const saved = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+
+      const html = await (await slotForm.index(get())).text();
+
+      expect(statusOf(html)).toMatch(
+        /^Not published yet\. Draft saved \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\.$/,
+      );
+      // Unpublished changes: Publish is the filled action, Save draft the quiet
+      // one beside it.
+      expect(publishButton(html)).toContain("btn-primary");
+      expect(publishButton(html)).not.toContain("disabled");
+      expect(saveButton(html)).toContain("btn-secondary");
+      expect(html).not.toContain("Nothing to publish");
+    });
+
+    test("says what is live once the draft is published", async () => {
+      const saved = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+      await publishSlot({ slotId, revisionId: saved.revision.id });
+
+      const html = await (await slotForm.index(get())).text();
+
+      expect(statusOf(html)).toMatch(
+        /^Live since \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\. No unpublished changes\.$/,
+      );
+      expect(html).toContain("Nothing to publish: no unpublished changes.");
+      expect(html).toContain("Nothing to preview: no unpublished changes.");
+      expect(publishButton(html)).toContain("disabled");
+      expect(publishButton(html)).toContain("btn-secondary");
+      // With nothing to publish, saving is the action that does something.
+      expect(saveButton(html)).toContain("btn-primary");
+    });
+
+    test("names both times when a newer draft sits on a published one", async () => {
+      const first = await saveSlotDraft({
+        slotId,
+        content: validContent,
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!first.ok) throw new Error("first save failed");
+      await publishSlot({ slotId, revisionId: first.revision.id });
+      const second = await saveSlotDraft({
+        slotId,
+        content: { ...validContent, heading: "Newer" },
+        baseRevisionId: first.revision.id,
+        actorId: editorId,
+      });
+      if (!second.ok) throw new Error("second save failed");
+
+      const html = await (await slotForm.index(get())).text();
+
+      expect(statusOf(html)).toMatch(
+        /^Live since \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\. Draft saved \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC, not published yet\.$/,
+      );
+      expect(publishButton(html)).toContain("btn-primary");
+    });
+
+    // Moving Save draft out of the form must not orphan it: `form` is what
+    // keeps it a submit of the form whose content the client serialises.
+    test("keeps Save draft a submit of the content form", async () => {
+      const html = await (await slotForm.index(get())).text();
+
+      expect(saveButton(html)).toContain('form="cms-slot-form"');
+      expect(html).toContain('id="cms-slot-form"');
+    });
+
+    // The form carries no bottom padding of its own: the clearance under its
+    // last field is the sticky bar's in-flow space plus its `margin-top`. That
+    // only holds while the bar stays after every field in the flow, so pin it.
+    test("keeps the action bar after every field in the form", async () => {
+      const html = await (await slotForm.index(get())).text();
+
+      const bar = html.indexOf('aria-label="Publishing"');
+      expect(bar).toBeGreaterThan(-1);
+      expect(html.slice(bar)).not.toContain('class="cms-field"');
+    });
+  });
+
   describe("POST", () => {
     test("saves a valid draft and redirects back to the form", async () => {
       const res = await slotForm.create(
@@ -431,7 +556,7 @@ describe("Slot form controller", () => {
 
       expect(res.status).toBe(200);
       const html = await res.text();
-      expect(html).toMatch(/can.{0,5}t be saved/);
+      expect(html).toContain("Couldn't save draft.");
       // The field's own label, not its machine name.
       expect(html).toContain("Heading");
       expect(html).toContain('aria-invalid="true"');
@@ -541,7 +666,7 @@ describe("Slot form controller", () => {
       );
       expect(invalid.status).toBe(200);
       const invalidHtml = await invalid.text();
-      expect(invalidHtml).toContain("This content can't be saved");
+      expect(invalidHtml).toContain("Couldn't save draft.");
       expect(invalidHtml).toContain("droppedField");
 
       // The client no longer sends removed fields; the server carries them
@@ -685,6 +810,78 @@ describe("Slot form controller", () => {
         SELECT content FROM cms_revisions ORDER BY created_at DESC LIMIT 1
       `;
       expect(latest[0].content.heading).toBe("Mine");
+    });
+
+    // Part 10: a narrow image used to refuse the save. It saves, and the
+    // editor is told on the page the redirect lands on.
+    test("saves a too-narrow image and says so on the way back", async () => {
+      await seedBlockType(db, narrowHero);
+      const narrowSlotId = await seedSlot(db, {
+        name: "home.narrow",
+        blockName: "narrowHero",
+        page: "home",
+      });
+      const small = await createMedia({
+        bytes: await makeJpeg(800, 400),
+        alt: "Too small",
+        actorId: null,
+        storage: createMemoryStorage(),
+      });
+      if (!small.ok) throw new Error("upload failed");
+
+      const formData = new FormData();
+      formData.append(
+        "_csrf",
+        await createCsrfToken(sessionId, "POST", path(narrowSlotId)),
+      );
+      formData.append(
+        "content",
+        JSON.stringify({ photo: { mediaId: small.media.id } }),
+      );
+      formData.append("base_revision", "");
+
+      const res = await slotForm.create(
+        createBunRequest(
+          `${ORIGIN}${path(narrowSlotId)}`,
+          {
+            method: "POST",
+            headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+            body: formData,
+          },
+          { id: narrowSlotId },
+        ),
+      );
+
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe(
+        `${path(narrowSlotId)}?saved=1&warn=1`,
+      );
+      // It really is saved, not merely not-refused.
+      expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
+
+      const html = await (
+        await slotForm.index(
+          createBunRequest(
+            `${ORIGIN}${path(narrowSlotId)}?saved=1&warn=1`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: narrowSlotId },
+          ),
+        )
+      ).text();
+      expect(html).toContain('data-tone="warning"');
+      expect(html).toContain("Draft saved.");
+      expect(html).toContain("narrower than its field wants");
+    });
+
+    test("a clean save says nothing about images", async () => {
+      const res = await slotForm.create(
+        await post({
+          content: JSON.stringify(validContent),
+          base_revision: "",
+        }),
+      );
+
+      expect(res.headers.get("location")).toBe(`${path(slotId)}?saved=1`);
     });
   });
 

@@ -86,6 +86,12 @@ export interface FieldControlProps {
    * then; at exactly the cap nothing is older to go looking for.
    */
   pickerCapped: boolean;
+  /**
+   * The uploads the picker offers, for the one thing a field needs from them:
+   * the chosen image's own label and width. The options themselves are rendered
+   * once per form by `MediaOptionsTemplate`.
+   */
+  media?: MediaOption[];
 }
 
 /**
@@ -104,7 +110,11 @@ export const MediaOptionsTemplate = ({
   media && media.length > 0 ? (
     <template data-media-options>
       {media.map((option) => (
-        <option key={option.id} value={option.id}>
+        <option
+          key={option.id}
+          value={option.id}
+          data-media-width={option.width}
+        >
           {option.alt} ({option.width}×{option.height})
         </option>
       ))}
@@ -282,6 +292,7 @@ const ListItemControl = ({
   pages,
   hasMedia,
   pickerCapped,
+  media,
 }: {
   field: FieldMetadata;
   value: unknown;
@@ -290,6 +301,7 @@ const ListItemControl = ({
   pages?: PageOption[];
   hasMedia: boolean;
   pickerCapped: boolean;
+  media?: MediaOption[];
 }): JSX.Element => (
   <div className="cms-list-item" data-list-item>
     <FieldControl
@@ -299,6 +311,7 @@ const ListItemControl = ({
       pages={pages}
       hasMedia={hasMedia}
       pickerCapped={pickerCapped}
+      media={media}
     />
     <button
       type="button"
@@ -320,6 +333,7 @@ export const FieldControl = ({
   pages,
   hasMedia,
   pickerCapped,
+  media,
 }: FieldControlProps): JSX.Element => {
   const required = field.required;
   const invalid = errors && errors.length > 0;
@@ -438,12 +452,25 @@ export const FieldControl = ({
 
     case "image": {
       const image = asRecord(value);
+      const mediaId = asString(image.mediaId);
+      // The picks the form already knows about, so a current image is labelled
+      // with its own alt and dimensions rather than a bare "Current image". The
+      // media list includes every image the content references (see
+      // `listPickerMedia`), so the common case is found; a deleted or unlisted
+      // id falls back to the old label rather than showing a raw id.
+      const current = mediaId
+        ? media?.find((option) => option.id === mediaId)
+        : undefined;
+      const currentLabel = current
+        ? `${current.alt} (${current.width}×${current.height})`
+        : "Current image";
       return (
         <fieldset
           className="cms-field"
           data-field
           data-field-kind="image"
           data-field-name={field.name}
+          data-image-min-width={field.image?.minWidth}
           id={controlId}
           aria-label={labelOverride}
         >
@@ -473,16 +500,19 @@ export const FieldControl = ({
                     the client fills the rest from the form's one options
                     template when the picker is first focused, relabelling this
                     option when the current image is one of them unless it
-                    carries a per-use alt the editor typed. The label falls back
-                    to "Current image" when the stored alt override is empty, so
-                    a raw id is never shown as a label. */}
+                    carries a per-use alt the editor typed. Its label is the
+                    upload's own alt and dimensions when the field knows them
+                    (part 10: it used to say only "Current image"), and falls
+                    back to that phrase for a deleted or unlisted id so a raw id
+                    is never shown as a label. */}
                 {image.mediaId && (
                   <option
-                    value={asString(image.mediaId)}
+                    value={mediaId}
                     selected
                     data-media-keep-label={asString(image.alt) ? "" : undefined}
+                    data-media-width={current?.width}
                   >
-                    {asString(image.alt) || "Current image"}
+                    {asString(image.alt) || currentLabel}
                   </option>
                 )}
               </select>
@@ -527,6 +557,18 @@ export const FieldControl = ({
               Needs at least {field.image.minWidth}px wide
             </span>
           )}
+          {/* A too-narrow image is a warning, not a refusal (part 10), so the
+              server has no field error to put here. `cms-form.ts` fills it when
+              the picker changes, from the chosen option's `data-media-width` and
+              this fieldset's `data-image-min-width` — two numbers the server
+              already rendered, so nothing is built from data. After a save the
+              notice above the form carries the same warning. */}
+          <p
+            className="cms-field-warning"
+            role="status"
+            data-image-warning
+            hidden
+          />
         </fieldset>
       );
     }
@@ -613,7 +655,7 @@ export const FieldControl = ({
             aria-label={controlId ? undefined : "Label"}
             value={asString(link.label)}
           />
-          <label className="cms-field-checkbox">
+          <label>
             <input
               type="checkbox"
               id={idFor("newtab")}
@@ -679,6 +721,7 @@ export const FieldControl = ({
                 pages={pages}
                 hasMedia={hasMedia}
                 pickerCapped={pickerCapped}
+                media={media}
               />
             ))}
           </div>
@@ -748,6 +791,7 @@ export const FieldControl = ({
                 pages={pages}
                 hasMedia={hasMedia}
                 pickerCapped={pickerCapped}
+                media={media}
               />
             ))}
           </div>
@@ -761,6 +805,7 @@ export const FieldControl = ({
               pages={pages}
               hasMedia={hasMedia}
               pickerCapped={pickerCapped}
+              media={media}
             />
           </template>
           <button

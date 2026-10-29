@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 
 import { getAssetUrl } from "../services/assets";
+import type { Theme } from "../services/preferences";
 import {
   absolute,
   indexingAllowed,
@@ -13,11 +14,16 @@ import type { User } from "../services/users";
 import { Logo } from "./logo";
 import { Nav } from "./nav";
 
-// The CMS follows the operating system theme (see the `prefers-color-scheme`
-// block in base.css), so the browser chrome gets a matching colour and the
-// in-page controls use the same scheme.
+// The CMS renders the editor's chosen theme (see the `[data-theme]` blocks in
+// base.css), so the browser chrome gets a matching colour and the in-page
+// controls use the same scheme. `system` is today's behaviour: follow the
+// operating system, which is what a signed-out page still does.
 const THEME_COLOR_LIGHT = "#fafafa";
 const THEME_COLOR_DARK = "#090909";
+
+/** The `color-scheme` value for a theme: System means both, as before. */
+const colorScheme = (theme: Theme): string =>
+  theme === "system" ? "light dark" : theme;
 
 const canonicalUrl = (path?: string): string =>
   path ? absolute(path) : siteUrl();
@@ -35,6 +41,7 @@ interface HeadMetaProps {
   description: string;
   canonicalPath?: string;
   noindex?: boolean;
+  theme?: Theme;
 }
 
 // Shared <head> essentials for both Layout and BaseLayout, so the two can't
@@ -44,6 +51,7 @@ function HeadMeta({
   description,
   canonicalPath,
   noindex,
+  theme = "system",
 }: HeadMetaProps) {
   return (
     <>
@@ -57,17 +65,26 @@ function HeadMeta({
       {blocksIndexing(noindex) && (
         <meta name="robots" content="noindex, nofollow" />
       )}
-      <meta name="color-scheme" content="light dark" />
-      <meta
-        name="theme-color"
-        content={THEME_COLOR_LIGHT}
-        media="(prefers-color-scheme: light)"
-      />
-      <meta
-        name="theme-color"
-        content={THEME_COLOR_DARK}
-        media="(prefers-color-scheme: dark)"
-      />
+      <meta name="color-scheme" content={colorScheme(theme)} />
+      {theme === "system" ? (
+        <>
+          <meta
+            name="theme-color"
+            content={THEME_COLOR_LIGHT}
+            media="(prefers-color-scheme: light)"
+          />
+          <meta
+            name="theme-color"
+            content={THEME_COLOR_DARK}
+            media="(prefers-color-scheme: dark)"
+          />
+        </>
+      ) : (
+        <meta
+          name="theme-color"
+          content={theme === "dark" ? THEME_COLOR_DARK : THEME_COLOR_LIGHT}
+        />
+      )}
       <link rel="canonical" href={canonicalUrl(canonicalPath)} />
       <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
       <link
@@ -114,14 +131,23 @@ export function Layout({
   canonicalPath,
   noindex,
 }: LayoutProps) {
+  // Absent means System: signed-out pages and a User built from an identity
+  // alone have no saved theme.
+  const theme: Theme = user?.theme ?? "system";
+
   return (
-    <html lang="en" style={{ colorScheme: "light dark" }}>
+    <html
+      lang="en"
+      data-theme={theme === "system" ? undefined : theme}
+      style={{ colorScheme: colorScheme(theme) }}
+    >
       <head>
         <HeadMeta
           title={title}
           description={description}
           canonicalPath={canonicalPath}
           noindex={noindex}
+          theme={theme}
         />
         <meta property="og:title" content={title} />
         <meta property="og:description" content={description} />

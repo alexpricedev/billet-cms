@@ -1,3 +1,4 @@
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type {
@@ -51,11 +52,7 @@ export const PagesList = ({
       }
     />
 
-    {notice && (
-      <div className="flash-success" role="status">
-        {notice}
-      </div>
-    )}
+    {notice && <Flash tone="success" title={notice} />}
 
     {pages.length === 0 ? (
       <div className="cms-empty-card" role="status">

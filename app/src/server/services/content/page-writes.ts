@@ -24,7 +24,8 @@ import { findUserById } from "../auth";
 import { db } from "../database";
 import {
   findDeletedImageIssues,
-  findImageGuidanceIssues,
+  findImageGuidance,
+  type ImageGuidance,
   loadMediaSizes,
   lockReferencedMedia,
   referencedMediaIds,
@@ -43,7 +44,10 @@ import {
   validatePageContent,
 } from "./page-content";
 import {
+  applyDraftUrl,
   applyPageSettings,
+  type DraftUrlMove,
+  duplicateUrlMessage,
   type FieldSettingIssue,
   getPageById,
   type PageRecord,
@@ -69,16 +73,20 @@ const blockTypesByName = async (): Promise<Map<string, BlockTypeRecord>> =>
 /**
  * Enforce every block's image guidance across a page's content.
  *
- * Each block is checked against its own metadata tree, and an issue is reported
+ * Each block is checked against its own metadata tree, and a finding is reported
  * with the block's own index so the form points the message at the right
  * control, exactly as the schema issues are. The referenced ids are gathered
  * across every block first and loaded in one query, rather than one `cms_media`
  * read per block (review r1-11).
+ *
+ * A wrong aspect is an issue the save is refused on; a short width comes back
+ * as a warning beside it (part 10).
  */
 const blockImageGuidance = async (
   blockTypes: Map<string, BlockTypeRecord>,
   content: PageContent,
-): Promise<FieldIssue[]> => {
+  sql?: SQL,
+): Promise<ImageGuidance> => {
   const blocks: {
     index: number;
     fields: BlockTypeRecord["fields"];
@@ -97,21 +105,25 @@ const blockImageGuidance = async (
     }
   }
 
-  const sizes = await loadMediaSizes([...ids]);
+  const sizes = await loadMediaSizes([...ids], sql);
   const issues: FieldIssue[] = [];
+  const warnings: FieldIssue[] = [];
   for (const block of blocks) {
-    for (const issue of findImageGuidanceIssues(
-      block.fields,
-      block.content,
-      sizes,
-    )) {
+    const guidance = findImageGuidance(block.fields, block.content, sizes);
+    for (const issue of guidance.issues) {
       issues.push({
         path: `blocks.${block.index}.${issue.path}`,
         message: issue.message,
       });
     }
+    for (const warning of guidance.warnings) {
+      warnings.push({
+        path: `blocks.${block.index}.${warning.path}`,
+        message: warning.message,
+      });
+    }
   }
-  return issues;
+  return { issues, warnings };
 };
 
 /**
@@ -149,7 +161,12 @@ const blockDeletedImageIssues = (
 };
 
 export type SavePageDraftResult =
-  | { ok: true; revision: RevisionRecord }
+  | {
+      ok: true;
+      revision: RevisionRecord;
+      /** Guidance the save went ahead over — currently a narrow image. */
+      warnings: FieldIssue[];
+    }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
   | { ok: false; reason: "conflict"; newer: RevisionConflict };
 
@@ -260,8 +277,8 @@ export const savePageDraft = async (
   }
 
   const guidance = await blockImageGuidance(blockTypes, input.content);
-  if (guidance.length > 0) {
-    return { ok: false, reason: "invalid", issues: guidance };
+  if (guidance.issues.length > 0) {
+    return { ok: false, reason: "invalid", issues: guidance.issues };
   }
 
   const outcome = await db.begin(async (tx) => {
@@ -310,11 +327,17 @@ export const savePageDraft = async (
     };
   }
 
-  return { ok: true, revision: outcome.revision };
+  return { ok: true, revision: outcome.revision, warnings: guidance.warnings };
 };
 
 export type SavePageResult =
-  | { ok: true; revision: RevisionRecord; page: PageRecord }
+  | {
+      ok: true;
+      revision: RevisionRecord;
+      page: PageRecord;
+      /** Guidance the save went ahead over — currently a narrow image. */
+      warnings: FieldIssue[];
+    }
   | { ok: false; reason: "settings"; issues: FieldSettingIssue[] }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
   | { ok: false; reason: "conflict"; newer: RevisionConflict };
@@ -374,8 +397,8 @@ export const savePage = async (
   }
 
   const guidance = await blockImageGuidance(blockTypes, input.content);
-  if (guidance.length > 0) {
-    return { ok: false, reason: "invalid", issues: guidance };
+  if (guidance.issues.length > 0) {
+    return { ok: false, reason: "invalid", issues: guidance.issues };
   }
 
   const outcome = await writePage(page, pageType, blockTypes, settings, input);
@@ -392,7 +415,12 @@ export const savePage = async (
     };
   }
 
-  return { ok: true, revision: outcome.revision, page: outcome.page };
+  return {
+    ok: true,
+    revision: outcome.revision,
+    page: outcome.page,
+    warnings: guidance.warnings,
+  };
 };
 
 type PageWriteOutcome =
@@ -434,6 +462,7 @@ const writePage = async (
         page.id,
         settings,
         pageType.name,
+        "draft",
       );
 
       const carried = await carryUnavailableBlocks(
@@ -459,27 +488,29 @@ const writePage = async (
       return { kind: "saved" as const, revision, page: applied.page };
     });
   } catch (error) {
-    const duplicate = duplicatePageUrl(error);
-    if (duplicate) return { kind: "duplicate", issue: duplicate };
+    // Outside the rolled-back transaction: the owner of the URL is a committed
+    // row, so this names the page the editor collided with (part 9).
+    const message = await duplicateUrlMessage(error, settings.url);
+    if (message) return { kind: "duplicate", issue: { path: "url", message } };
     throw error;
   }
 };
 
-/** A unique violation on `cms_pages.url`, as an editor-facing issue. */
-const duplicatePageUrl = (error: unknown): FieldSettingIssue | null => {
-  if (typeof error !== "object" || error === null) return null;
-  const code = (error as { errno?: unknown }).errno;
-  const constraint = (error as { constraint?: unknown }).constraint;
-  if (code === "23505" && constraint === "cms_pages_url_idx") {
-    return { path: "url", message: "Another page already uses this URL." };
-  }
-  return null;
-};
-
 export type PublishPageResult =
-  | { ok: true; revisionId: string; contentVersion: number; changed: boolean }
+  | {
+      ok: true;
+      revisionId: string;
+      contentVersion: number;
+      changed: boolean;
+      /** The address change this publish applied, for the editor's banner. */
+      moved: DraftUrlMove | null;
+      /** Guidance the publish went ahead over — currently a narrow image. */
+      warnings: FieldIssue[];
+    }
   | { ok: false; reason: "no-draft" }
   | { ok: false; reason: "invalid"; issues: FieldIssue[] }
+  /** A pending URL change lost its address to another page after it was saved. */
+  | { ok: false; reason: "duplicate"; issue: FieldSettingIssue }
   | { ok: false; reason: "stale"; latestRevisionId: string };
 
 export interface PublishPageInput {
@@ -511,89 +542,149 @@ export const publishPage = async (
   const pageType = await pageTypeForWrite(page);
   const blockTypes = await blockTypesByName();
 
-  return await db.begin(async (tx) => {
-    const locked = (await tx`
-      SELECT published_revision_id FROM cms_pages
-      WHERE id = ${page.id} FOR UPDATE
-    `) as { published_revision_id: string | null }[];
-    if (locked.length === 0) throw new Error(`Page ${page.id} not found`);
+  try {
+    return await db.begin(async (tx) => {
+      const locked = (await tx`
+        SELECT published_revision_id, draft_url FROM cms_pages
+        WHERE id = ${page.id} FOR UPDATE
+      `) as {
+        published_revision_id: string | null;
+        draft_url: string | null;
+      }[];
+      if (locked.length === 0) throw new Error(`Page ${page.id} not found`);
 
-    const revision = input.revisionId
-      ? await getRevisionById(input.revisionId, tx)
-      : await getLatestRevision("page", page.id, tx);
-
-    if (revision?.targetType !== "page" || revision.targetId !== page.id) {
-      return { ok: false as const, reason: "no-draft" as const };
-    }
-
-    if (input.requireLatest) {
       const latest = await getLatestRevision("page", page.id, tx);
-      if (latest && latest.id !== revision.id) {
+      const revision = input.revisionId
+        ? await getRevisionById(input.revisionId, tx)
+        : latest;
+
+      if (revision?.targetType !== "page" || revision.targetId !== page.id) {
+        return { ok: false as const, reason: "no-draft" as const };
+      }
+
+      if (input.requireLatest && latest && latest.id !== revision.id) {
         return {
           ok: false as const,
           reason: "stale" as const,
           latestRevisionId: latest.id,
         };
       }
-    }
 
-    const validation = validatePageContent(
-      pageType,
-      blockTypes,
-      asPageContent(revision.content),
-      { allowNotAllowedBlocks: true },
-    );
-    if (!validation.ok) {
-      return {
-        ok: false as const,
-        reason: "invalid" as const,
-        issues: validation.issues,
-      };
-    }
+      // The queued address change belongs to the newest revision: publishing an
+      // older one leaves it alone, because the draft that carried it is not what
+      // goes live.
+      const applyingDraftUrl =
+        latest !== null &&
+        latest.id === revision.id &&
+        locked[0].draft_url !== null;
 
-    if (locked[0].published_revision_id === revision.id) {
+      // The revision is already live, so only a pending address change can be
+      // applied (ticket #66: a URL-only save leaves the pointer alone). The
+      // content is not changing, so the content checks below are skipped — a
+      // queued move must not be refused for a block the live page already has.
+      if (locked[0].published_revision_id === revision.id) {
+        if (!applyingDraftUrl) {
+          return {
+            ok: true as const,
+            revisionId: revision.id,
+            contentVersion: await readContentVersion(tx),
+            changed: false,
+            moved: null,
+            warnings: [],
+          };
+        }
+        const moved = await applyDraftUrl(tx, page.id);
+        return {
+          ok: true as const,
+          revisionId: revision.id,
+          contentVersion: await bumpContentVersion(tx),
+          changed: true,
+          moved,
+          warnings: [],
+        };
+      }
+
+      const validation = validatePageContent(
+        pageType,
+        blockTypes,
+        asPageContent(revision.content),
+        { allowNotAllowedBlocks: true },
+      );
+      if (!validation.ok) {
+        return {
+          ok: false as const,
+          reason: "invalid" as const,
+          issues: validation.issues,
+        };
+      }
+
+      // Hold the images this revision references for the length of the write, so
+      // a concurrent delete can't remove one between here and the pointer write
+      // (review r1-4). The same read answers the deleted-image check (Q1): an
+      // image deleted while this revision sat as a draft has no row here, so the
+      // publish is refused with a message on the block and nothing goes live.
+      // Saving the same draft stayed legal, so the editor can still choose another.
+      const existingMedia = await lockReferencedMedia(tx, revision.content);
+      const deletedImages = blockDeletedImageIssues(
+        blockTypes,
+        asPageContent(revision.content),
+        existingMedia,
+      );
+      if (deletedImages.length > 0) {
+        return {
+          ok: false as const,
+          reason: "invalid" as const,
+          issues: deletedImages,
+        };
+      }
+
+      // A narrow image does not refuse the publish (part 10): the width is a
+      // fidelity guideline, and blocking here would put back the refusal the save
+      // just stopped making. The warning rides back so the editor is told what is
+      // live. The read joins the transaction that already holds the rows.
+      const guidance = await blockImageGuidance(
+        blockTypes,
+        asPageContent(revision.content),
+        tx,
+      );
+
+      // The address moves with the publish, in this transaction: `url` is set,
+      // the old address redirects here and `draft_url` clears, then the one
+      // version bump tells the site both the content and the address changed.
+      // `applyDraftUrl` re-checks the address under the same lock, so a page
+      // that took it after the save refuses the whole publish.
+      const moved = applyingDraftUrl ? await applyDraftUrl(tx, page.id) : null;
+
+      await tx`
+        UPDATE cms_pages
+        SET published_revision_id = ${revision.id}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${page.id}
+      `;
+      const contentVersion = await bumpContentVersion(tx);
+
       return {
         ok: true as const,
         revisionId: revision.id,
-        contentVersion: await readContentVersion(tx),
-        changed: false,
+        contentVersion,
+        changed: true,
+        moved,
+        warnings: guidance.warnings,
       };
-    }
-
-    // Hold the images this revision references for the length of the write, so
-    // a concurrent delete can't remove one between here and the pointer write
-    // (review r1-4). The same read answers the deleted-image check (Q1): an
-    // image deleted while this revision sat as a draft has no row here, so the
-    // publish is refused with a message on the block and nothing goes live.
-    // Saving the same draft stayed legal, so the editor can still choose another.
-    const existingMedia = await lockReferencedMedia(tx, revision.content);
-    const deletedImages = blockDeletedImageIssues(
-      blockTypes,
-      asPageContent(revision.content),
-      existingMedia,
-    );
-    if (deletedImages.length > 0) {
+    });
+  } catch (error) {
+    // The address was checked when it was saved, but another page may have taken
+    // it since. The transaction rolled back whole, so nothing is applied; the
+    // editor gets the same message a save gives.
+    const message = await duplicateUrlMessage(error, page.draftUrl ?? page.url);
+    if (message) {
       return {
-        ok: false as const,
-        reason: "invalid" as const,
-        issues: deletedImages,
+        ok: false,
+        reason: "duplicate",
+        issue: { path: "url", message },
       };
     }
-
-    await tx`
-      UPDATE cms_pages
-      SET published_revision_id = ${revision.id}, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${page.id}
-    `;
-    const contentVersion = await bumpContentVersion(tx);
-
-    return {
-      ok: true as const,
-      revisionId: revision.id,
-      contentVersion,
-      changed: true,
-    };
-  });
+    throw error;
+  }
 };
 
 export interface PageRevisionSummary {
@@ -602,6 +693,8 @@ export interface PageRevisionSummary {
   authorEmail: string | null;
   isPublished: boolean;
   isLatest: boolean;
+  /** The draft: the newest revision and not the published one. See the slot's. */
+  isDraft: boolean;
   /** When the revision this one restored was saved; null if not a restore. */
   restoredFromAt: Date | null;
 }
@@ -624,18 +717,28 @@ export const listPageHistory = async (
     restored_from_at: Date | null;
   }[];
 
-  return rows.map((row, index) => ({
-    id: row.id,
-    createdAt: row.created_at,
-    authorEmail: row.author_email,
-    isPublished: row.id === page.publishedRevisionId,
-    isLatest: index === 0,
-    restoredFromAt: row.restored_from_at,
-  }));
+  return rows.map((row, index) => {
+    const isPublished = row.id === page.publishedRevisionId;
+    const isLatest = index === 0;
+    return {
+      id: row.id,
+      createdAt: row.created_at,
+      authorEmail: row.author_email,
+      isPublished,
+      isLatest,
+      isDraft: isLatest && !isPublished,
+      restoredFromAt: row.restored_from_at,
+    };
+  });
 };
 
 export type RestorePageResult =
-  | { ok: true; revision: RevisionRecord }
+  | {
+      ok: true;
+      revision: RevisionRecord;
+      /** The address change the restore dropped, for the editor's notice. */
+      droppedUrl: string | null;
+    }
   | { ok: false; reason: "not-found" };
 
 export interface RestorePageInput {
@@ -645,7 +748,15 @@ export interface RestorePageInput {
   actorId: string | null;
 }
 
-/** Restore an old page revision by copying it into a new draft. */
+/**
+ * Restore an old page revision by copying it into a new draft.
+ *
+ * Restoring is the editor's way to discard a draft (there is no separate
+ * discard action), so a pending address change goes with it: the revision and
+ * `draft_url = NULL` are written in one transaction under the page's row lock.
+ * Nothing live changes — the page keeps its address and redirects until
+ * Publish.
+ */
 export const restorePageRevision = async (
   input: RestorePageInput,
 ): Promise<RestorePageResult> => {
@@ -657,13 +768,28 @@ export const restorePageRevision = async (
     return { ok: false, reason: "not-found" };
   }
 
-  const revision = await createRevision({
-    targetType: "page",
-    targetId: page.id,
-    content: source.content,
-    createdBy: input.actorId,
-    restoredFrom: source.id,
+  const restored = await db.begin(async (tx) => {
+    const locked = (await tx`
+      SELECT draft_url FROM cms_pages WHERE id = ${page.id} FOR UPDATE
+    `) as { draft_url: string | null }[];
+    if (locked.length === 0) {
+      throw new Error(`Page ${page.id} not found`);
+    }
+
+    const revision = await createRevision(
+      {
+        targetType: "page",
+        targetId: page.id,
+        content: source.content,
+        createdBy: input.actorId,
+        restoredFrom: source.id,
+      },
+      tx,
+    );
+
+    await tx`UPDATE cms_pages SET draft_url = NULL WHERE id = ${page.id}`;
+    return { revision, droppedUrl: locked[0].draft_url };
   });
 
-  return { ok: true, revision };
+  return { ok: true, ...restored };
 };

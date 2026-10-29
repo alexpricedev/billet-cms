@@ -17,6 +17,8 @@
  * `fetch`, no navigation. Keep it that way.
  */
 
+import { narrowImageWarning } from "@shared/image-guidance";
+
 interface RichTextMark {
   type: "bold" | "italic" | "link";
   attrs?: { href?: string; target?: string };
@@ -506,7 +508,9 @@ const syncListsIn = (root: Element | null): void => {
  *
  * The server counts every stored block, so the count here is every
  * `[data-cms-block]` of the type except one marked removed. The hint is
- * rendered by the server and only toggled with `hidden`.
+ * rendered by the server and only toggled with `hidden`. The "no blocks yet"
+ * line follows the list the same way, so a block added in this tab hides it
+ * before anything is saved.
  */
 const syncBlockAdds = (container: Element | null): void => {
   const list = container?.querySelector(":scope > [data-cms-blocks]");
@@ -514,6 +518,8 @@ const syncBlockAdds = (container: Element | null): void => {
   const blocks = Array.from(
     list.querySelectorAll(":scope > [data-cms-block]"),
   ).filter((block) => !block.hasAttribute("data-block-removed"));
+  const empty = container.querySelector<HTMLElement>("[data-cms-blocks-empty]");
+  if (empty) empty.hidden = blocks.length > 0;
   for (const button of Array.from(
     container.querySelectorAll("[data-block-add][data-block-max]"),
   )) {
@@ -609,6 +615,48 @@ const fillPickerFromOptions = (
 };
 
 /**
+ * Show or clear an image field's too-narrow warning for the picked upload.
+ *
+ * Two numbers the server already rendered — the fieldset's `data-image-min-width`
+ * and the option's `data-media-width` — are compared and a fixed sentence is
+ * written into the slot beside the field. Nothing is fetched, parsed or built:
+ * with JavaScript off the warning simply isn't shown while picking, and the
+ * save's own notice (server-rendered after the redirect) still says it.
+ */
+const updateImageWarning = (
+  field: Element,
+  picker: HTMLSelectElement,
+): void => {
+  const warning = field.querySelector<HTMLElement>("[data-image-warning]");
+  if (!warning) return;
+  const minWidth = Number.parseInt(
+    field.getAttribute("data-image-min-width") ?? "",
+    10,
+  );
+  // `selectedOptions` rather than `value`, because an option's own width is what
+  // matters and the picker's value can be an id the list no longer holds (a
+  // hand-typed one, a deleted upload) with no option behind it.
+  const option = Array.from(picker.options).find(
+    (candidate) => candidate.value === picker.value,
+  );
+  const width = Number.parseInt(
+    option?.getAttribute("data-media-width") ?? "",
+    10,
+  );
+  if (
+    !Number.isSafeInteger(minWidth) ||
+    !Number.isSafeInteger(width) ||
+    width >= minWidth
+  ) {
+    warning.hidden = true;
+    warning.textContent = "";
+    return;
+  }
+  warning.textContent = narrowImageWarning(width, minWidth);
+  warning.hidden = false;
+};
+
+/**
  * Wire the rich text toolbars and the repeatable lists through one delegated
  * listener on the form.
  *
@@ -647,10 +695,27 @@ const wireControls = (form: HTMLFormElement): void => {
     if (!(target instanceof Element)) return;
     const picker = target.closest("[data-image-picker]");
     if (!(picker instanceof HTMLSelectElement)) return;
-    const input = picker
-      .closest("[data-field]")
-      ?.querySelector<HTMLInputElement>("[data-image-id]");
+    const field = picker.closest("[data-field]");
+    if (!field) return;
+    const input = field.querySelector<HTMLInputElement>("[data-image-id]");
     if (input) input.value = picker.value;
+    updateImageWarning(field, picker);
+  });
+
+  // A hand-typed id carries no width, so whatever the picker said about the
+  // image it had no longer describes the field. Clearing it is the honest
+  // state; the save's own check still runs on the id that was typed.
+  form.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const input = target.closest("[data-image-id]");
+    if (!(input instanceof HTMLInputElement)) return;
+    const field = input.closest("[data-field]");
+    const warning = field?.querySelector<HTMLElement>("[data-image-warning]");
+    if (warning) {
+      warning.hidden = true;
+      warning.textContent = "";
+    }
   });
 
   form.addEventListener("click", (event) => {
@@ -866,16 +931,25 @@ const wireFocalPoint = (form: HTMLFormElement): void => {
   });
 };
 
-/** Shows the "this page moves" line while the URL input differs from the stored one. */
+/**
+ * Shows the "Publishing moves this page" line while the URL input differs from
+ * the live one, and names the typed URL in it as the editor types.
+ */
 const wireUrlMove = (form: HTMLFormElement): void => {
   const input = form.querySelector<HTMLInputElement>("[data-url-live]");
   const line = form.querySelector<HTMLElement>("[data-url-move]");
   if (!input || !line) return;
+  const to = form.querySelector<HTMLElement>("[data-url-move-to]");
   // The server's own spelling of a path (leading slash, no doubled or trailing
   // slashes), so `/about/` doesn't claim a move the save won't make.
   const update = (): void => {
-    const typed = `/${input.value.trim()}`.replace(/\/{2,}/g, "/");
-    line.hidden = (typed.replace(/\/$/, "") || "/") === input.dataset.urlLive;
+    const value = input.value.trim();
+    const typed = `/${value}`.replace(/\/{2,}/g, "/");
+    const url = typed.replace(/\/$/, "") || "/";
+    // An emptied field is not a move to the root: the server refuses "" before
+    // it ever gets that far, so the line stays hidden.
+    line.hidden = value === "" || url === input.dataset.urlLive;
+    if (to) to.textContent = url;
   };
   input.addEventListener("input", update);
   update();

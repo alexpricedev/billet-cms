@@ -16,8 +16,16 @@
  * it the same way, and refusing the save would lose the editor's draft. A
  * publish refuses it instead — see `findDeletedImageIssues` — because a live
  * page must not point at a file that is gone.
+ *
+ * The two guidelines are not equally hard. `aspect` is a shape the site's layout
+ * relies on, so a save that breaks it is refused. `minWidth` is a fidelity
+ * guideline: a narrow hero looks soft but still renders, and refusing the save
+ * only moved the argument to the moment the editor picked the picture (#53 f9,
+ * #57 f5, #60 f43, #67 f6). So a short width is a *warning* — returned beside
+ * the refusing issues so the save goes ahead and the editor is told.
  */
 import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
+import { narrowImageWarning } from "@shared/image-guidance";
 import type { SQL } from "bun";
 import { inList } from "../../utils/sql";
 import type { FieldIssue } from "../content/drafts";
@@ -106,13 +114,20 @@ export const referencedMediaIds = (
   return [...new Set(references.map((reference) => reference.mediaId))];
 };
 
-/** The sizes of the media rows named, or an empty map when there are none. */
+/**
+ * The sizes of the media rows named, or an empty map when there are none.
+ *
+ * `sql` is the transaction when the caller already holds one — a publish locks
+ * the rows and reads their sizes through the same connection rather than a
+ * second one.
+ */
 export const loadMediaSizes = async (
   ids: readonly string[],
+  sql: SQL = db,
 ): Promise<Map<string, MediaSize>> => {
   if (ids.length === 0) return new Map();
 
-  const rows = (await db`
+  const rows = (await sql`
     SELECT id, width, height FROM cms_media WHERE id IN ${inList(ids)}
   `) as { id: string; width: number; height: number }[];
 
@@ -172,32 +187,41 @@ export const lockReferencedMedia = async (
 
 const ratio = (width: number, height: number): number => width / height;
 
+/** The two kinds of guidance finding: what refuses a save, and what only warns. */
+export interface ImageGuidance {
+  issues: FieldIssue[];
+  warnings: FieldIssue[];
+}
+
 /**
- * The guidance issues for one block's content.
+ * The guidance findings for one block's content.
  *
  * Called by both write paths after the content schema has passed, so a block
  * that doesn't even validate is reported once, by the schema, and never here.
+ * An `aspect` mismatch is an issue the caller refuses the save on; a `minWidth`
+ * shortfall is a warning the caller saves through, and shows. The two are split
+ * here rather than by the callers so every write path treats them the same.
  */
-export const findImageGuidanceIssues = (
+export const findImageGuidance = (
   fields: FieldMetadata[],
   content: Record<string, unknown>,
   sizes: Map<string, MediaSize>,
-): FieldIssue[] => {
+): ImageGuidance => {
   const references: Reference[] = [];
   collectReferences(fields, content, "", references);
 
   const issues: FieldIssue[] = [];
+  const warnings: FieldIssue[] = [];
   for (const reference of references) {
     const size = sizes.get(reference.mediaId);
     if (!size) continue;
 
     const { minWidth, aspect } = reference.guidance;
     if (minWidth !== undefined && size.width < minWidth) {
-      issues.push({
+      warnings.push({
         path: `${reference.path}.mediaId`,
-        message: `This image is ${size.width}px wide. Choose one at least ${minWidth}px wide.`,
+        message: narrowImageWarning(size.width, minWidth),
       });
-      continue;
     }
 
     if (aspect !== undefined) {
@@ -215,8 +239,20 @@ export const findImageGuidanceIssues = (
     }
   }
 
-  return issues;
+  return { issues, warnings };
 };
+
+/**
+ * The refusing issues alone, for a caller that has no use for the warnings.
+ *
+ * Kept as its own name because "does this block pass" reads better at a call
+ * site than destructuring a result and ignoring half of it.
+ */
+export const findImageGuidanceIssues = (
+  fields: FieldMetadata[],
+  content: Record<string, unknown>,
+  sizes: Map<string, MediaSize>,
+): FieldIssue[] => findImageGuidance(fields, content, sizes).issues;
 
 /** The message a publish shows for a reference whose `cms_media` row is gone. */
 export const DELETED_IMAGE_MESSAGE = "This image was deleted. Choose another.";
@@ -260,9 +296,9 @@ export const findDeletedImageIssues = (
 export const checkImageGuidance = async (
   fields: FieldMetadata[],
   content: Record<string, unknown>,
-): Promise<FieldIssue[]> => {
+): Promise<ImageGuidance> => {
   const ids = referencedMediaIds(fields, content);
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { issues: [], warnings: [] };
   const sizes = await loadMediaSizes(ids);
-  return findImageGuidanceIssues(fields, content, sizes);
+  return findImageGuidance(fields, content, sizes);
 };

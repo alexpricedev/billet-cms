@@ -30,8 +30,13 @@ export interface PageRecord {
   id: string;
   /** The page type's name, a loose reference to `cms_page_types.name`. */
   pageType: string;
-  /** The canonical path, e.g. `/about`. */
+  /** The canonical path the site serves, e.g. `/about`. */
   url: string;
+  /**
+   * A new address saved with the draft and waiting for Publish. `null` when the
+   * live address is the only one; never equal to `url`.
+   */
+  draftUrl: string | null;
   title: string;
   seoDescription: string | null;
   socialImage: string | null;
@@ -44,6 +49,7 @@ interface PageRow {
   id: string;
   page_type: string;
   url: string;
+  draft_url: string | null;
   title: string;
   seo_description: string | null;
   social_image: string | null;
@@ -56,6 +62,7 @@ const toPage = (row: PageRow): PageRecord => ({
   id: row.id,
   pageType: row.page_type,
   url: row.url,
+  draftUrl: row.draft_url,
   title: row.title,
   seoDescription: row.seo_description,
   socialImage: row.social_image,
@@ -263,7 +270,7 @@ export type PageResult =
 
 export const listPages = async (): Promise<PageRecord[]> => {
   const rows = (await db`
-    SELECT id, page_type, url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     ORDER BY url
@@ -322,7 +329,7 @@ export const listPageStates = async (): Promise<Map<string, PageState>> => {
 
 export const getPageById = async (id: string): Promise<PageRecord | null> => {
   const rows = (await db`
-    SELECT id, page_type, url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     WHERE id = ${id}
@@ -332,7 +339,7 @@ export const getPageById = async (id: string): Promise<PageRecord | null> => {
 
 export const getPageByUrl = async (url: string): Promise<PageRecord | null> => {
   const rows = (await db`
-    SELECT id, page_type, url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     WHERE url = ${url}
@@ -363,19 +370,25 @@ export const createPage = async (
 
   try {
     const page = await db.begin(async (tx) => {
+      const id = randomUUID();
+      // A published page can hold a path as a *pending* address change, which
+      // no unique index covers, so the new page would otherwise take it and the
+      // owner's Publish would fail later with a conflict. Refuse it here.
+      const owner = await findPageHoldingUrl(tx, settings.url, id);
+      if (owner) throw new PageUrlConflictError(settings.url, owner.title);
       await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
       const rows = (await tx`
         INSERT INTO cms_pages
           (id, page_type, url, title, seo_description, social_image)
         VALUES (
-          ${randomUUID()},
+          ${id},
           ${input.pageType},
           ${settings.url},
           ${settings.title},
           ${settings.seoDescription},
           ${settings.socialImage}
         )
-        RETURNING id, page_type, url, title, seo_description, social_image,
+        RETURNING id, page_type, url, draft_url, title, seo_description, social_image,
                   published_revision_id, created_at, updated_at
       `) as PageRow[];
       // The site caches pages, redirects and links against `content_version`.
@@ -386,22 +399,69 @@ export const createPage = async (
     });
     return { ok: true, page };
   } catch (error) {
-    const message = duplicateUrlMessage(error);
+    const message = await duplicateUrlMessage(error, settings.url);
     if (message) return { ok: false, issues: [{ path: "url", message }] };
     throw error;
   }
 };
 
-/** A unique violation on the URL, as an editor-facing message. */
-const duplicateUrlMessage = (error: unknown): string | null => {
+/**
+ * A URL another page already holds, found by the in-transaction pre-check.
+ *
+ * `draft_url` deliberately has no unique index (migration 019), so a pending
+ * address change can only be refused in code; the same check also covers a live
+ * address, which does have one. The owner's title travels in the error because
+ * the message is built before the transaction rolls back — and `getPageByUrl`
+ * would not find a page that only holds the URL as a draft.
+ */
+export class PageUrlConflictError extends Error {
+  constructor(
+    readonly url: string,
+    readonly ownerTitle: string | null,
+  ) {
+    super(
+      ownerTitle
+        ? `${ownerTitle} already uses ${url}.`
+        : "Another page already uses this URL.",
+    );
+    this.name = "PageUrlConflictError";
+  }
+}
+
+/**
+ * A URL collision on a page write, as an editor-facing message.
+ *
+ * The pre-check's error carries the owner's title. A unique-index violation on
+ * the live URL is the fallback (and the cross-page race the pre-check can't
+ * close): the lookup runs after the failed transaction, so it only ever reads a
+ * committed row; if it finds nothing (the owner was renamed or deleted in
+ * between) the message falls back to the old wording rather than naming nobody.
+ */
+export const duplicateUrlMessage = async (
+  error: unknown,
+  url: string,
+): Promise<string | null> => {
+  if (error instanceof PageUrlConflictError) return error.message;
   if (typeof error !== "object" || error === null) return null;
   const code = (error as { errno?: unknown }).errno;
   const constraint = (error as { constraint?: unknown }).constraint;
-  if (code === "23505" && constraint === "cms_pages_url_idx") {
-    return "Another page already uses this URL.";
-  }
-  return null;
+  if (code !== "23505" || constraint !== "cms_pages_url_idx") return null;
+  const owner = await getPageByUrl(url);
+  return owner
+    ? `${owner.title} already uses ${url}.`
+    : "Another page already uses this URL.";
 };
+
+/**
+ * How a settings save treats a changed URL.
+ *
+ * `"draft"` is an editor's save: when the page has a published revision the new
+ * address waits in `draft_url` until Publish, because the live address and its
+ * redirect must not move under the site. A page with no published revision has
+ * nothing live to protect, so its URL is written immediately even in this mode.
+ * `"immediate"` is the old behaviour for a caller that means the address now.
+ */
+export type PageSettingsMode = "draft" | "immediate";
 
 export interface UpdatePageSettingsInput extends PageSettingsInput {
   pageId: string;
@@ -411,19 +471,49 @@ export interface UpdatePageSettingsInput extends PageSettingsInput {
 export interface AppliedSettings {
   /** The page as it now stands (the stored row when nothing changed). */
   page: PageRecord;
-  /** Whether the settings write (and the version bump) happened. */
+  /**
+   * Whether the settings row changed. A pending URL change alone writes the row
+   * but does not bump `content_version`, so it is invisible to the site.
+   */
   changed: boolean;
 }
 
 /**
- * Write a page's settings inside a transaction, writing the 301 a URL change
- * leaves behind.
+ * The page other than `exceptPageId` holding `url`, live or as a pending draft.
  *
- * One transaction, one row lock, so two renames can't leave `cms_redirects`
- * describing a URL no page answers. The `UPDATE` and the `cms_meta.content_version`
- * bump are skipped when nothing changed (review round 1): a title saved back
- * unchanged shouldn't churn every site's cache. A URL change always writes the
- * redirect and bumps the version, because the site's routing changed.
+ * Runs under the saving page's row lock. It cannot stop two different pages
+ * taking the same URL at once — no unique index spans `url` and `draft_url` —
+ * which is why `applyDraftUrl` checks again inside the publish transaction.
+ */
+const findPageHoldingUrl = async (
+  tx: SQL,
+  url: string,
+  exceptPageId: string,
+): Promise<PageRecord | null> => {
+  const rows = (await tx`
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+           published_revision_id, created_at, updated_at
+    FROM cms_pages
+    WHERE (url = ${url} OR draft_url = ${url})
+      AND id <> ${exceptPageId}
+    LIMIT 1
+  `) as PageRow[];
+  return rows.length > 0 ? toPage(rows[0]) : null;
+};
+
+/**
+ * Write a page's settings inside a transaction.
+ *
+ * One transaction, one row lock, so two saves can't leave `cms_redirects`
+ * describing a URL no page answers. The `UPDATE` and the
+ * `cms_meta.content_version` bump are skipped when nothing changed (review
+ * round 1): a title saved back unchanged shouldn't churn every site's cache.
+ *
+ * On a published page a URL change is stored in `draft_url`, not applied: `url`,
+ * `cms_redirects` and `content_version` stay as they are until Publish calls
+ * `applyDraftUrl` (ticket #66). A never-published page has no live address, so
+ * its rename is applied straight away, exactly as before. Title, SEO and social
+ * image still go live on save, because only the address is drafted.
  *
  * Shared by `updatePageSettings` and the atomic page save, so the two can't
  * disagree about what a rename means.
@@ -433,9 +523,10 @@ export const applyPageSettings = async (
   pageId: string,
   settings: PageSettingsValues,
   pageType: string,
+  mode: PageSettingsMode,
 ): Promise<AppliedSettings> => {
   const locked = (await tx`
-    SELECT id, page_type, url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
            published_revision_id, created_at, updated_at
     FROM cms_pages WHERE id = ${pageId} FOR UPDATE
   `) as PageRow[];
@@ -443,7 +534,25 @@ export const applyPageSettings = async (
   const previous = toPage(locked[0]);
 
   const urlChanged = previous.url !== settings.url;
-  if (urlChanged) {
+  // Only a page with a published revision has a live address to keep.
+  const draftUrlChange =
+    mode === "draft" && previous.publishedRevisionId !== null;
+
+  let nextUrl = previous.url;
+  let nextDraftUrl = previous.draftUrl;
+
+  if (draftUrlChange) {
+    // Typing the live address back abandons a pending move; any other address
+    // waits for Publish.
+    nextDraftUrl = urlChanged ? settings.url : null;
+    if (nextDraftUrl !== null) {
+      const owner = await findPageHoldingUrl(tx, nextDraftUrl, pageId);
+      if (owner) throw new PageUrlConflictError(nextDraftUrl, owner.title);
+    }
+  } else if (urlChanged) {
+    const owner = await findPageHoldingUrl(tx, settings.url, pageId);
+    if (owner) throw new PageUrlConflictError(settings.url, owner.title);
+    nextUrl = settings.url;
     // A page now owns the new path, so any redirect from it goes: the catch-all
     // checks redirects first, and a stale one would shadow the page.
     await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
@@ -455,32 +564,88 @@ export const applyPageSettings = async (
     `;
   }
 
-  const changed =
-    urlChanged ||
+  // The site's cache only knows what is live. A pending address change moves
+  // nothing it can see, so it alone doesn't bump the version; title and SEO
+  // still do, because they go live with the save.
+  const liveChanged =
+    (!draftUrlChange && urlChanged) ||
     previous.pageType !== pageType ||
     previous.title !== settings.title ||
     previous.seoDescription !== settings.seoDescription ||
     previous.socialImage !== settings.socialImage;
+  const draftChanged = nextDraftUrl !== previous.draftUrl;
 
-  if (!changed) return { page: previous, changed: false };
+  if (!liveChanged && !draftChanged) {
+    return { page: previous, changed: false };
+  }
 
   const rows = (await tx`
     UPDATE cms_pages
     SET page_type = ${pageType},
-        url = ${settings.url},
+        url = ${nextUrl},
+        draft_url = ${nextDraftUrl},
         title = ${settings.title},
         seo_description = ${settings.seoDescription},
         social_image = ${settings.socialImage},
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ${pageId}
-    RETURNING id, page_type, url, title, seo_description, social_image,
+    RETURNING id, page_type, url, draft_url, title, seo_description, social_image,
               published_revision_id, created_at, updated_at
   `) as PageRow[];
-  // Settings are cached by the site too (a title, a description, a redirect from
-  // the old URL), so a settings change moves the version and the site's cache
-  // drops within a second.
-  await bumpContentVersion(tx);
+  if (liveChanged) await bumpContentVersion(tx);
   return { page: toPage(rows[0]), changed: true };
+};
+
+/** The move a pending URL change applies, for the editor's Published banner. */
+export interface DraftUrlMove {
+  from: string;
+  to: string;
+}
+
+/**
+ * Apply a page's pending address change: the old address redirects here, the
+ * page moves to the drafted one, and `draft_url` is cleared.
+ *
+ * Runs inside the publish transaction, before the version bump, so the address,
+ * the redirect and the publish land together. The address was checked when it
+ * was saved, but another page may have taken it since (#66), so it is checked
+ * again under the page's row lock; a taken address refuses the publish with the
+ * same message a save gives, and the caller's transaction rolls back whole.
+ */
+export const applyDraftUrl = async (
+  tx: SQL,
+  pageId: string,
+): Promise<DraftUrlMove | null> => {
+  const rows = (await tx`
+    SELECT url, draft_url FROM cms_pages WHERE id = ${pageId} FOR UPDATE
+  `) as { url: string; draft_url: string | null }[];
+  if (rows.length === 0) throw new Error(`Page ${pageId} not found`);
+
+  const from = rows[0].url;
+  const to = rows[0].draft_url;
+  if (to === null) return null;
+  if (to === from) {
+    // A no-op draft should never be stored; clear one if it is.
+    await tx`UPDATE cms_pages SET draft_url = NULL WHERE id = ${pageId}`;
+    return null;
+  }
+
+  const owner = await findPageHoldingUrl(tx, to, pageId);
+  if (owner) throw new PageUrlConflictError(to, owner.title);
+
+  await tx`DELETE FROM cms_redirects WHERE from_path = ${to}`;
+  await tx`
+    INSERT INTO cms_redirects (id, from_path, to_page_id)
+    VALUES (${randomUUID()}, ${from}, ${pageId})
+    ON CONFLICT (from_path) DO UPDATE
+      SET to_page_id = EXCLUDED.to_page_id
+  `;
+  await tx`
+    UPDATE cms_pages
+    SET url = ${to}, draft_url = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ${pageId}
+  `;
+  return { from, to };
 };
 
 /**
@@ -500,11 +665,11 @@ export const updatePageSettings = async (
 
   try {
     const page = await db.begin(async (tx) =>
-      applyPageSettings(tx, input.pageId, settings, input.pageType),
+      applyPageSettings(tx, input.pageId, settings, input.pageType, "draft"),
     );
     return { ok: true, page: page.page };
   } catch (error) {
-    const message = duplicateUrlMessage(error);
+    const message = await duplicateUrlMessage(error, settings.url);
     if (message) return { ok: false, issues: [{ path: "url", message }] };
     throw error;
   }

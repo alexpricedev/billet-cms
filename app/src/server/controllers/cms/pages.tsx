@@ -1,3 +1,4 @@
+import { narrowImagesSentence } from "@shared/image-guidance";
 import type { BunRequest } from "bun";
 import type { FieldError } from "../../components/cms/field-control";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
@@ -45,6 +46,8 @@ import {
   nonEmpty,
   parseContent,
   UUID_PATTERN,
+  warningsFrom,
+  warningsParam,
 } from "./params";
 import { previewRedirect } from "./preview";
 
@@ -56,31 +59,36 @@ import { previewRedirect } from "./preview";
 export interface Notice {
   kind: "success" | "warning";
   message: string;
+  /** A second line, e.g. how many empty blocks the save removed. */
+  detail?: string;
 }
 
 /**
- * The notice for a page GET: `pageNotice`, with the redirect a URL change left
- * behind when `moved` names a path that really redirects to this page. The
- * param is untrusted, so anything else is the plain notice.
+ * The notice for a page GET, with the redirect a Publish left behind when
+ * `moved` names a path that really redirects to this page. Only a publish
+ * applies an address change, so a save never carries the sentence. The param is
+ * untrusted, so anything else is the plain notice.
  */
 export const savedNotice = async (
   params: URLSearchParams,
   pageId: string,
 ): Promise<Notice | null> => {
   const notice = pageNotice(params);
-  if (params.get("saved") !== "1" || !notice) return notice;
+  if (!notice) return notice;
   const moved = params.get("moved");
-  let message = notice.message;
-  if (
+  const redirectsHere =
     moved &&
     /^\/[^/]/.test(moved) &&
     (await listPageRedirects(pageId)).includes(moved)
-  ) {
-    message += ` ${moved} now redirects here.`;
+      ? moved
+      : null;
+  if (params.get("published") === "1" && redirectsHere) {
+    return { ...notice, detail: `${redirectsHere} now redirects here.` };
   }
+  // The removed-blocks sentence belongs to a save, not to any other notice.
+  if (params.get("saved") !== "1") return notice;
   const dropped = droppedSentence(droppedBlocksFrom(params.get("dropped")));
-  if (dropped) message += ` ${dropped}`;
-  return { ...notice, message };
+  return dropped ? { ...notice, detail: dropped } : notice;
 };
 
 const BLOCK_TYPE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -109,19 +117,36 @@ const droppedSentence = (types: string[]): string | null => {
 };
 
 export const pageNotice = (params: URLSearchParams): Notice | null => {
+  // As on a slot: a save or publish that carried a narrow-image warning says
+  // both what happened and what wants the editor's eye (part 10).
+  const narrow = warningsFrom(params);
   if (params.get("saved") === "1") {
-    return { kind: "success", message: "Draft saved." };
+    return narrow > 0
+      ? {
+          kind: "warning",
+          message: `Draft saved. ${narrowImagesSentence(narrow)}`,
+        }
+      : { kind: "success", message: "Draft saved." };
   }
   if (params.get("published") === "1") {
-    return {
-      kind: "success",
-      message: "Published. The site picks the change up within seconds.",
-    };
+    const message = "Page published.";
+    return narrow > 0
+      ? {
+          kind: "warning",
+          message: `${message} ${narrowImagesSentence(narrow)}`,
+        }
+      : { kind: "success", message };
   }
   if (params.get("restored") === "1") {
+    // Untrusted, like `moved`: only a path this app could have stored is named.
+    const dropped = params.get("dropped");
+    const droppedUrl = dropped && /^\/[^/]/.test(dropped) ? dropped : null;
     return {
       kind: "success",
       message: "Restored as a new draft. Publish to make it live.",
+      ...(droppedUrl
+        ? { detail: `The pending URL change to ${droppedUrl} was discarded.` }
+        : {}),
     };
   }
   if (params.get("deleted") === "1") {
@@ -164,11 +189,25 @@ const blockTypeMap = (
 /** Split content issues into a per-block map and a flat list for the summary. */
 const blockErrors = (
   issues: FieldIssue[],
-): { byBlock: Map<number, Map<string, FieldError[]>>; list: FieldIssue[] } => {
+): {
+  byBlock: Map<number, Map<string, FieldError[]>>;
+  alerts: Map<number, string>;
+  list: FieldIssue[];
+} => {
   const byBlock = new Map<number, Map<string, FieldError[]>>();
+  const alerts = new Map<number, string>();
   const list: FieldIssue[] = [];
 
   for (const issue of issues) {
+    const whole = /^blocks\.(\d+)$/.exec(issue.path);
+    if (whole) {
+      // A whole-block issue (the hero-first rule, the rich-text nesting bound)
+      // has no field to mark, so it goes on the block itself as an alert. The
+      // banner still lists it, and links to the block (review round 2, #67 f11).
+      alerts.set(Number(whole[1]), issue.message);
+      list.push(issue);
+      continue;
+    }
     const match = /^blocks\.(\d+)\.(.+)$/.exec(issue.path);
     if (!match) {
       // A limit issue's path is just `blocks`; it belongs in the summary.
@@ -189,7 +228,7 @@ const blockErrors = (
     list.push(issue);
   }
 
-  return { byBlock, list };
+  return { byBlock, alerts, list };
 };
 
 interface FormExtras {
@@ -230,15 +269,19 @@ export const renderPageForm = async (
   const sessionId = ctx.sessionId as string;
   const user = ctx.user as NonNullable<SessionContext["user"]>;
 
-  const [blockTypes, pageTypes, pages, picker, latest, oldUrls] =
-    await Promise.all([
-      listBlockTypes(),
-      listPageTypes(),
-      listPageOptions(),
-      listPickerMedia(content),
-      getLatestRevision("page", page.id),
-      page.publishedRevisionId ? listPageRedirects(page.id) : [],
-    ]);
+  const [blockTypes, pageTypes, pages, picker, latest] = await Promise.all([
+    listBlockTypes(),
+    listPageTypes(),
+    listPageOptions(),
+    listPickerMedia(content),
+    getLatestRevision("page", page.id),
+  ]);
+
+  // The status line says when the live revision was saved. A publish moves
+  // `published_revision_id`, so the time has to be read from the revision.
+  const published = page.publishedRevisionId
+    ? await getRevisionById(page.publishedRevisionId)
+    : null;
 
   const navCsrfToken = await createCsrfToken(sessionId, "POST", "/auth/logout");
 
@@ -263,7 +306,7 @@ export const renderPageForm = async (
   const contentIssues = issues.filter(
     (issue) => !SETTINGS_FIELDS.has(issue.path),
   );
-  const { byBlock, list } = blockErrors(contentIssues);
+  const { byBlock, alerts, list } = blockErrors(contentIssues);
 
   const settingsErrors = new Map<string, FieldError[]>();
   for (const issue of settingsIssues) {
@@ -292,13 +335,15 @@ export const renderPageForm = async (
       baseRevisionId={baseRevisionId}
       removed={extras.removed ?? []}
       latestRevisionId={latest?.id ?? null}
+      latestRevisionAt={latest?.createdAt ?? null}
       publishedRevisionId={page.publishedRevisionId}
-      oldUrls={oldUrls}
+      publishedRevisionAt={published?.createdAt ?? null}
       pages={pages}
       media={picker.media}
       pickerCapped={picker.capped}
       settingsErrors={settingsErrors}
       blockErrors={byBlock}
+      blockAlerts={alerts}
       contentIssues={list}
       conflict={extras.conflict ?? null}
       refusedPublish={extras.refusedPublish ?? false}
@@ -641,10 +686,6 @@ export const pages = {
       });
     }
 
-    const moved =
-      page.url !== result.page.url
-        ? `&moved=${encodeURIComponent(page.url)}`
-        : "";
     const dropped = droppedBlocksFrom(formData.get("dropped_blocks"));
     const droppedParam =
       dropped.length > 0
@@ -657,23 +698,25 @@ export const pages = {
     // browser blocks the tab it would open. The banner's "Back to the editor"
     // is the way back, and nothing is lost going there — the draft is saved.
     //
-    // A URL change or dropped blocks are reported on the editor page, which
-    // this skips past, so they keep the ordinary save path.
-    if (
-      nonEmpty(formData.get("after")) === "preview" &&
-      moved === "" &&
-      droppedParam === ""
-    ) {
+    // Preview opens the live address: a URL change saved with the draft waits
+    // for Publish, and a never-published page's save has already made its new
+    // address the live one. Dropped blocks are reported on the editor page,
+    // which this skips past, so they keep the ordinary save path.
+    if (nonEmpty(formData.get("after")) === "preview" && droppedParam === "") {
       return previewRedirect({
         subjectType: "page",
         subjectId: page.id,
-        path: page.url,
+        path: result.page.url,
         createdBy: ctx.user.id,
         returnTo: `/cms/pages/${page.id}`,
       });
     }
 
-    return redirect(`/cms/pages/${page.id}?saved=1${moved}${droppedParam}`);
+    return redirect(
+      `/cms/pages/${page.id}?saved=1${droppedParam}${warningsParam(
+        result.warnings.length,
+      )}`,
+    );
   },
 
   /** The confirm step before a page is deleted. */

@@ -1,13 +1,22 @@
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
-import type { SlotRecord, SlotRevisionSummary } from "../../services/content";
+import type {
+  BlockTypeRecord,
+  SlotRecord,
+  SlotRevisionSummary,
+} from "../../services/content";
 import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatDay, formatDayShort, formatWhen } from "../../utils/format";
+import { humanise } from "../../utils/humanise";
+import { slotTitle } from "../../utils/slot-title";
 
 export interface SlotHistoryProps {
   user: User;
   slot: SlotRecord;
+  /** The slot's block type, for the muted key line; null once a deploy removed it. */
+  blockType?: BlockTypeRecord | null;
   revisions: SlotRevisionSummary[];
   /** Where "Show older" points, when older revisions remain; null on the last page. */
   olderHref?: string | null;
@@ -29,6 +38,7 @@ export interface SlotHistoryProps {
 export const SlotHistory = ({
   user,
   slot,
+  blockType,
   revisions,
   olderHref,
   restoreCsrfToken,
@@ -36,7 +46,7 @@ export const SlotHistory = ({
   notice,
 }: SlotHistoryProps) => (
   <Layout
-    title={`${slot.label ?? slot.name} history - ${SITE_NAME}`}
+    title={`${slotTitle(slot)} history - ${SITE_NAME}`}
     name="cms"
     description="A slot's revision history."
     canonicalPath={`/cms/slots/${slot.id}/history`}
@@ -47,24 +57,25 @@ export const SlotHistory = ({
     <PageHeader
       breadcrumb={
         <>
-          <a href="/cms">Content</a> /{" "}
-          <a href={`/cms/slots/${slot.id}`}>{slot.label ?? slot.name}</a> /{" "}
+          <a href="/cms">Content</a> / <span>{humanise(slot.page)}</span> /{" "}
+          <a href={`/cms/slots/${slot.id}`}>{slotTitle(slot)}</a> /{" "}
           <span>History</span>
         </>
       }
       title="History"
       after={
         <p className="cms-slot-meta">
-          Slot <code>{slot.name}</code>
+          <code>{slot.name}</code>
+          {blockType && (
+            <>
+              {" · "}block <code>{blockType.name}</code>
+            </>
+          )}
         </p>
       }
     />
 
-    {notice && (
-      <div className="flash-warning" role="status">
-        {notice}
-      </div>
-    )}
+    {notice && <Flash tone="warning" title={notice} />}
 
     {revisions.length === 0 ? (
       <p className="cms-history-empty">
@@ -93,7 +104,7 @@ export const SlotHistory = ({
                   Restored from {formatDay(revision.restoredFromAt)}
                 </span>
               )}
-              {revision.isLatest && (
+              {revision.isDraft && (
                 <span className="cms-history-badge cms-history-draft">
                   Current draft
                 </span>

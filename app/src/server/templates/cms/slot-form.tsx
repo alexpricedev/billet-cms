@@ -3,6 +3,7 @@ import {
   type FieldError,
   MediaOptionsTemplate,
 } from "../../components/cms/field-control";
+import { Flash, type FlashField } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import { getAssetUrl } from "../../services/assets";
@@ -17,10 +18,12 @@ import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
 import { humanise } from "../../utils/humanise";
-
-/** A slot in an editor's words: its label, else its key humanised. */
-const slotTitle = (slot: { label: string | null; name: string }) =>
-  slot.label ?? humanise(slot.name);
+import {
+  previewReason,
+  publishReason,
+  publishStatusLine,
+} from "../../utils/publish-status";
+import { slotTitle } from "../../utils/slot-title";
 
 export interface SlotFormProps {
   user: User;
@@ -39,8 +42,12 @@ export interface SlotFormProps {
   baseRevisionId: string | null;
   /** The newest revision, which is what Publish would make live. */
   latestRevisionId: string | null;
+  /** When that revision was saved, for the status line. */
+  latestRevisionAt: Date | null;
   /** The revision the site is currently rendering, when there is one. */
   publishedRevisionId: string | null;
+  /** When the live revision was saved, for the status line. */
+  publishedRevisionAt: Date | null;
   /** Fields present in the saved content but no longer published (Q4). */
   removedFieldNames: string[];
   /** The uploads an `image` field's picker offers, rendered once for the form. */
@@ -72,7 +79,9 @@ export const SlotForm = ({
   content,
   baseRevisionId,
   latestRevisionId,
+  latestRevisionAt,
   publishedRevisionId,
+  publishedRevisionAt,
   removedFieldNames,
   media,
   pickerCapped,
@@ -92,13 +101,17 @@ export const SlotForm = ({
   const hasDraft = latestRevisionId !== null;
   const upToDate =
     latestRevisionId !== null && latestRevisionId === publishedRevisionId;
-  const publishStatus = !hasDraft
-    ? "No draft saved yet."
-    : upToDate
-      ? "Published."
-      : publishedRevisionId
-        ? "Unpublished changes."
-        : "Not published yet.";
+  // Publish is the committing action only when it would actually do something;
+  // otherwise it is a greyed secondary button with a reason beside it.
+  const canPublish = hasDraft && !upToDate;
+  const status = publishStatusLine({
+    latestRevisionAt,
+    upToDate,
+    published: publishedRevisionId !== null,
+    publishedRevisionAt,
+  });
+  const publishWhy = publishReason(hasDraft, upToDate);
+  const previewWhy = previewReason(hasDraft, upToDate);
 
   const errorsByField = new Map<string, FieldError[]>();
   for (const issue of errors ?? []) {
@@ -107,6 +120,30 @@ export const SlotForm = ({
     list.push({ path: issue.path, message: issue.message });
     errorsByField.set(name, list);
   }
+
+  // The error banner links each invalid field once, to the control it belongs
+  // to. An issue outside the block's fields (`(content)`, `(form)`) has no
+  // control to reach, so it keeps its own message as plain text.
+  const issueFields: FlashField[] = [];
+  const seenIssueFields = new Set<string>();
+  for (const issue of errors ?? []) {
+    const name = topLevelField(issue.path);
+    if (!blockType.fields.some((candidate) => candidate.name === name)) {
+      issueFields.push({ label: issue.message });
+      continue;
+    }
+    const id = `cms-field-${name}`;
+    if (seenIssueFields.has(id)) continue;
+    seenIssueFields.add(id);
+    issueFields.push({ id, label: labelFor(name) });
+  }
+  const fieldIssueCount = seenIssueFields.size;
+  const fixLine =
+    fieldIssueCount === 0
+      ? undefined
+      : fieldIssueCount === 1
+        ? "Fix this field and try again:"
+        : `Fix these ${fieldIssueCount} fields and try again:`;
 
   return (
     <Layout
@@ -134,84 +171,61 @@ export const SlotForm = ({
       />
 
       {slot.removedAt && (
-        <div className="flash-warning" role="status">
-          This slot is no longer declared in the site's templates. Its saved
-          content is kept and can still be edited, but a deploy no longer
-          renders it.
-        </div>
+        <Flash
+          tone="warning"
+          title="This slot is no longer declared in the site's templates. Its saved content is kept and can still be edited, but a deploy no longer renders it."
+        />
       )}
 
-      {notice && (
-        <div
-          className={
-            notice.kind === "success" ? "flash-success" : "flash-warning"
-          }
-          role="status"
-        >
-          {notice.message}
-        </div>
-      )}
+      {notice && <Flash tone={notice.kind} title={notice.message} />}
 
       {conflict && (
-        <div className="flash-warning" role="alert">
-          <p>
-            Someone saved a newer version while this form was open
-            {conflict.authorEmail ? ` (${conflict.authorEmail})` : ""}, at{" "}
-            {formatWhen(conflict.createdAt)} UTC.
-          </p>
-          <p>
-            Saving now will create another draft on top of theirs.{" "}
-            <a href={`/cms/slots/${slot.id}`}>Load their version</a> instead to
-            start from what they saved.
-          </p>
-        </div>
+        <Flash
+          tone="warning"
+          title={
+            <>
+              Someone saved a newer version while this form was open
+              {conflict.authorEmail ? ` (${conflict.authorEmail})` : ""}, at{" "}
+              {formatWhen(conflict.createdAt)} UTC.
+            </>
+          }
+          detail={
+            <>
+              Saving now will create another draft on top of theirs.{" "}
+              <a href={`/cms/slots/${slot.id}`}>Load their version</a> instead
+              to start from what they saved.
+            </>
+          }
+        />
       )}
 
       {errors && errors.length > 0 && (
-        <div className="flash-error" role="alert">
-          <p>
-            {refusedPublish
-              ? "This content can't be published. Check the fields marked below."
-              : "This content can't be saved. Check the fields marked below."}
-          </p>
-          <ul>
-            {errors.map((issue, index) => {
-              const name = topLevelField(issue.path);
-              const isField = blockType.fields.some(
-                (candidate) => candidate.name === name,
-              );
-              return (
-                <li key={`${issue.path}:${index}`}>
-                  {isField && (
-                    <>
-                      <a href={`#cms-field-${name}`}>{labelFor(name)}</a>{" "}
-                    </>
-                  )}
-                  {issue.message}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        <Flash
+          tone="error"
+          title={refusedPublish ? "Couldn't publish." : "Couldn't save draft."}
+          detail={fixLine}
+          fields={issueFields}
+        />
       )}
 
       {removedFieldNames.length > 0 && (
-        <div className="flash-warning" role="status">
-          <p>
-            These fields are no longer defined in code. Their saved values are
-            kept as they are and cannot be edited here:
-          </p>
-          <ul>
+        <Flash
+          tone="warning"
+          title="These fields are no longer defined in code."
+          detail="Their saved values are kept as they are and cannot be edited here:"
+        >
+          <ul className="flash-fields">
             {removedFieldNames.map((name) => (
               <li key={name}>
                 <code>{name}</code>
               </li>
             ))}
           </ul>
-        </div>
+        </Flash>
       )}
 
       <form
+        id="cms-slot-form"
         method="POST"
         action={`/cms/slots/${slot.id}`}
         className="cms-slot-form"
@@ -255,63 +269,91 @@ export const SlotForm = ({
           errorsByField={errorsByField}
           hasMedia={media.length > 0}
           pickerCapped={pickerCapped}
+          media={media}
         />
-
-        <button type="submit" className="cms-save">
-          {conflict ? "Overwrite and save" : "Save draft"}
-        </button>
       </form>
 
+      {/* The status line and the disabled-button reasons are the bar's own
+          persistent state and help text, not event notices: they render on
+          every load and are never dismissible, so they stay out of Flash. */}
       <section className="cms-actions" aria-label="Publishing">
         <p className="cms-publish-status" role="status">
-          {publishStatus}
+          {status}
         </p>
-        <form
-          method="POST"
-          action={`/cms/slots/${slot.id}/publish`}
-          data-confirm="The site picks it up within seconds."
-          data-confirm-title={`Publish '${slotTitle(slot)}'?`}
-          data-confirm-label="Publish"
-          data-confirm-danger="false"
-        >
-          <input type="hidden" name="_csrf" value={publishCsrfToken} />
-          {/* The revision this form rendered. Publishing it — rather than the
-              newest at submit time — is what makes a stale click a warning
-              instead of someone else's draft going live unseen. */}
-          <input type="hidden" name="revision" value={latestRevisionId ?? ""} />
+        <div className="cms-action-buttons">
+          {/* Outside the save form so the bar can be sticky and hold every
+              action, but still a submit of it: `form` is what keeps Enter in a
+              field saving, and the preview guard's `requestSubmit` working. */}
           <button
             type="submit"
-            className="cms-publish-button"
-            disabled={!hasDraft || upToDate}
+            form="cms-slot-form"
+            className={`cms-save btn ${canPublish ? "btn-secondary" : "btn-primary"}`}
           >
-            Publish
+            {conflict ? "Overwrite and save" : "Save draft"}
           </button>
-        </form>
-        {/* Preview mints a short-lived token and opens the slot's declared
-            page on the site in a new tab, so the editor sees the draft inside
-            the real page. Disabled with no draft, and when the draft is
-            already the live revision: there is no unpublished change to
-            preview. Matches Publish, which is disabled in the same two cases. */}
-        <form
-          method="POST"
-          action={`/cms/slots/${slot.id}/preview`}
-          target="_blank"
-          rel="noopener"
-        >
-          <input type="hidden" name="_csrf" value={previewCsrfToken} />
-          <button
-            type="submit"
-            className="cms-preview-button"
-            disabled={!hasDraft || upToDate}
-            data-preview-submit
+          <form
+            method="POST"
+            action={`/cms/slots/${slot.id}/publish`}
+            data-confirm="The site picks it up within seconds."
+            data-confirm-title={`Publish '${slotTitle(slot)}'?`}
+            data-confirm-label="Publish"
+            data-confirm-danger="false"
           >
-            Preview draft <span aria-hidden="true">↗</span>
-            <span className="sr-only">(opens in a new tab)</span>
-          </button>
-        </form>
-        <a className="cms-history-link" href={`/cms/slots/${slot.id}/history`}>
-          History
-        </a>
+            <input type="hidden" name="_csrf" value={publishCsrfToken} />
+            {/* The revision this form rendered. Publishing it — rather than the
+                newest at submit time — is what makes a stale click a warning
+                instead of someone else's draft going live unseen. */}
+            <input
+              type="hidden"
+              name="revision"
+              value={latestRevisionId ?? ""}
+            />
+            <button
+              type="submit"
+              className={`cms-publish-button btn ${canPublish ? "btn-primary" : "btn-secondary"}`}
+              disabled={!canPublish}
+              aria-describedby={publishWhy ? "publish-reason" : undefined}
+            >
+              Publish
+            </button>
+          </form>
+          {/* Preview mints a short-lived token and opens the slot's declared
+              page on the site in a new tab, so the editor sees the draft inside
+              the real page. Disabled with no draft, and when the draft is
+              already the live revision: there is no unpublished change to
+              preview. Matches Publish, which is disabled in the same two cases. */}
+          <form
+            method="POST"
+            action={`/cms/slots/${slot.id}/preview`}
+            target="_blank"
+            rel="noopener"
+          >
+            <input type="hidden" name="_csrf" value={previewCsrfToken} />
+            <button
+              type="submit"
+              className="cms-preview-button btn btn-secondary"
+              disabled={!canPublish}
+              aria-describedby={previewWhy ? "preview-reason" : undefined}
+              data-preview-submit
+            >
+              Preview draft <span aria-hidden="true">↗</span>
+              <span className="sr-only">(opens in a new tab)</span>
+            </button>
+          </form>
+          <a
+            className="cms-history-link btn btn-ghost"
+            href={`/cms/slots/${slot.id}/history`}
+          >
+            History
+          </a>
+        </div>
+        {(publishWhy || previewWhy) && (
+          <p className="cms-action-reason">
+            {publishWhy && <span id="publish-reason">{publishWhy}</span>}
+            {publishWhy && previewWhy && " "}
+            {previewWhy && <span id="preview-reason">{previewWhy}</span>}
+          </p>
+        )}
       </section>
 
       <script type="module" src={getAssetUrl("/assets/cms-form.js")} />
@@ -343,10 +385,15 @@ export const SlotUnavailable = ({
       <span>{slotTitle(slot)}</span>
     </p>
     <h1>{slotTitle(slot)}</h1>
-    <div className="flash-warning" role="alert">
-      The block type <code>{slot.blockName}</code> for this slot is no longer
-      published. Its saved content is kept but cannot be edited until it is
-      declared again.
-    </div>
+    <Flash
+      tone="warning"
+      title={
+        <>
+          The block type <code>{slot.blockName}</code> for this slot is no
+          longer published. Its saved content is kept but cannot be edited until
+          it is declared again.
+        </>
+      }
+    />
   </Layout>
 );

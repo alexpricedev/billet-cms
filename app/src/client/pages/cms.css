@@ -249,6 +249,17 @@ h1 {
   padding-left: var(--space-4);
 }
 
+/* A narrow image doesn't refuse the save (part 10), so its line is the warning
+   colour rather than the error red the field errors wear. `hidden` is set by the
+   client, and the colour/size rules here must not give it a `display` that
+   would beat the user agent's `[hidden]`. */
+.cms-field-warning {
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 /* A long upload label is ellipsised rather than widening the image picker. */
 .cms-field select[data-image-picker] {
   text-overflow: ellipsis;
@@ -261,16 +272,6 @@ h1 {
 .cms-field-link:has([data-link-type] option[value="url"]:checked)
   .cms-link-page {
   display: none;
-}
-
-.cms-field-checkbox {
-  align-items: center;
-  display: flex;
-  gap: var(--space-2);
-}
-
-.cms-field-checkbox input[type="checkbox"] {
-  margin: 0;
 }
 
 .cms-noscript {
@@ -424,118 +425,81 @@ h1 {
 
 /* ---- Save and publishing ---------------------------------------------- */
 
-.cms-save {
-  background: var(--button-primary-bg);
-  border: 1px solid var(--button-primary-bg);
-  border-radius: var(--radius-sm);
-  color: var(--button-primary-fg);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  height: 36px;
-  padding: 0 var(--space-4);
-  transition: background-color 120ms ease;
+/* `.cms-save` is a hook for the layout rules below, not a style of its own: it
+   carries no fill and no cursor, so the variant classes alone decide the look
+   and `.btn` alone decides the pointer. A style here would outrank the variant
+   (page CSS loads after base.css) and make every Save look primary. */
 
-  &:hover,
-  &:focus {
-    background: var(--button-primary-bg-hover);
-    border-color: var(--button-primary-bg-hover);
-    color: var(--button-primary-fg);
-  }
-
-  &:disabled {
-    background: var(--surface-subtle);
-    border-color: var(--border);
-    color: var(--text-disabled);
-    cursor: default;
-  }
+/* The action bar: what is live, what is draft, and the buttons that change it.
+   It sticks to the bottom of the viewport so Publish is in reach on a phone
+   without scrolling past a long form. A strip rather than a card: the backdrop
+   below carries the single top hairline, and the page's own surface means
+   nothing shows through as the form scrolls under.
+   Being sticky, it is also the last thing in the flow, so it reserves its own
+   height below the last field; the only clearance the form needs is that plus
+   this rule's `margin-top` (`--space-6`). At full scroll the last field and its
+   help text sit one normal section gap above the bar. Padding the form by the
+   bar's height as well would put a second, empty stack between the two. */
+.cms-actions {
+  background: var(--surface);
+  bottom: 0;
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+  padding: var(--space-3) 0;
+  position: sticky;
+  z-index: 10;
 }
 
-/* The publish row sits beside the save form: a status line, the publish
-   button and a link into the history. */
-.cms-actions {
-  align-items: center;
+/* The bar's box is the form column, so on its own its white ends mid-air
+   beside the off-white page — and further from the edges the wider the window,
+   because `.app-content` is centred under a max-width. This pseudo-element
+   paints the same strip across the whole main pane instead: `50cqw` is half
+   of `.app-main`'s content box, so the offset cancels its padding and the
+   column's centring at every width. Container units rather than `vw`, which
+   counts the scrollbar's gutter and would overhang the pane. */
+.cms-actions::before {
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
-  margin-top: var(--space-6);
-  max-width: 760px;
-  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  box-shadow: var(--shadow-bar);
+  content: "";
+  inset-block: 0;
+  left: calc(50% - 50cqw - var(--app-main-pad-x));
+  position: absolute;
+  right: calc(50% - 50cqw - var(--app-main-pad-x));
+  z-index: -1;
 }
 
 .cms-publish-status {
   color: var(--text-secondary);
   font-size: 12.5px;
-  margin: 0 var(--space-2) 0 0;
-  margin-right: auto;
+  margin: 0;
+}
+
+.cms-action-buttons {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .cms-actions form {
   margin: 0;
 }
 
-.cms-publish-button,
-.cms-preview-button {
-  align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  cursor: pointer;
-  display: inline-flex;
-  font-size: 13px;
-  font-weight: 500;
-  gap: var(--space-1);
-  height: var(--control-height);
-  padding: 0 var(--space-3);
-}
-
-/* A mouse press or a tap only sets `:focus`, so these states keep the neutral
-   surface and make the change read through the border rather than a colour
-   fill that would drop the label's contrast. */
-.cms-publish-button:hover,
-.cms-publish-button:focus,
-.cms-preview-button:hover,
-.cms-preview-button:focus {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-
-/* Publish is the committing action in its bar, so it carries the filled
-   treatment; Preview stays secondary beside it. */
-.cms-publish-button {
-  background: var(--button-primary-bg);
-  border-color: var(--button-primary-bg);
-  color: var(--button-primary-fg);
-}
-
-.cms-publish-button:hover,
-.cms-publish-button:focus {
-  background: var(--button-primary-bg-hover);
-  border-color: var(--button-primary-bg-hover);
-  color: var(--button-primary-fg);
-}
-
-.cms-publish-button:disabled,
-.cms-publish-button:disabled:hover,
-.cms-publish-button:disabled:focus,
-.cms-preview-button:disabled,
-.cms-preview-button:disabled:hover,
-.cms-preview-button:disabled:focus {
-  background: var(--surface-subtle);
-  border-color: var(--border);
-  color: var(--text-disabled);
-  cursor: default;
-  opacity: 0.7;
+/* The two disabled buttons share one sentence; it sits under them, in the
+   muted text a help line uses, so it reads as the bar's own note rather than
+   an error. */
+.cms-action-reason {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
 }
 
 .cms-history-link {
   font-size: 12.5px;
   font-weight: 500;
+  margin-left: auto;
 }
 
 /* ---- Revision history -------------------------------------------------- */
@@ -779,9 +743,19 @@ h1 {
   opacity: 0.6;
 }
 
+/* One Add control and its hint, kept on the same line: the hint names the
+   button ("Add hero is off: only one hero per page") and sits beside it, so it
+   cannot be read as a note about the next row. It wraps under its own button
+   on a narrow screen rather than pushing the button off the row. */
+.cms-block-add-row {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .cms-block-add-hint {
   color: var(--text-muted);
-  flex-basis: 100%;
   font-size: 12px;
 }
 
@@ -802,10 +776,34 @@ h1 {
   margin: 0;
 }
 
+.cms-blocks-empty[hidden] {
+  display: none;
+}
+
+/* A block whose own rule failed (the hero is not first): the message is on the
+   block, not only in the banner several screens above it at 390. */
+.cms-block-alert {
+  border-color: var(--danger-border);
+}
+
+.cms-block-alert-message {
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 13px;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+
 .cms-block-unavailable {
   background: var(--surface-subtle);
 }
 
+/* The Delete section is last in flow on a page editor. It carries no bottom
+   padding of its own: the pane keeps its usual bottom padding on that page
+   (see the `:not(:has(.cms-danger))` rule in layout.css), which is the
+   clearance the Delete button needs above the footer. A padding here would
+   stack on top of it. */
 .cms-danger {
   border-top: 1px solid var(--border);
   margin-top: var(--space-10);
@@ -1120,19 +1118,38 @@ h1 {
     justify-self: start;
   }
 
+  /* At a phone's width the bar stacks into two columns with the status across
+     the top: four buttons in one row would each be too narrow to read. It is
+     taller stacked, but it is still the flow's last element, so it reserves
+     that height itself and the form needs no extra bottom padding. The
+     safe-area inset belongs on the bar, below its last row. */
   .cms-actions {
-    align-items: stretch;
-    flex-direction: column;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .cms-publish-status,
+  .cms-action-reason {
+    grid-column: 1 / -1;
+  }
+
+  .cms-action-buttons {
+    display: contents;
   }
 
   .cms-actions form,
   .cms-actions .cms-publish-button,
-  .cms-actions .cms-preview-button {
+  .cms-actions .cms-preview-button,
+  .cms-actions .cms-save,
+  .cms-actions .cms-history-link {
     width: 100%;
   }
 
-  .cms-publish-status {
-    margin-right: 0;
+  /* Scoped like the rule above so biome's specificity check stays quiet: a bare
+     `.cms-history-link` here would be a descending selector after it. */
+  .cms-actions .cms-history-link {
+    justify-content: center;
+    margin-left: 0;
   }
 
   .cms-media-upload,

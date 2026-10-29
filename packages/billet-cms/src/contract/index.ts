@@ -172,6 +172,11 @@ export interface MediaVariant {
  * editor roles. Sign-in and every session read through it; there is no
  * `cms_users` table (Phase 3 dropped it).
  *
+ * `user_preferences` holds what an editor chose for themselves — today the
+ * `theme` (Light, Dark or System), saved on the account page and rendered into
+ * every signed-in page. One row per identity, created on the first save; no
+ * row means the `system` default.
+ *
  * `block_types`, `page_types` and `slots` hold what a site's deploy publishes:
  * the JSON Schema and field metadata the CMS builds its forms from, and the
  * page type rules (allowed blocks, required blocks, limits).
@@ -212,6 +217,7 @@ export const TABLES = {
   sessions: "cms_sessions",
   userTokens: "cms_user_tokens",
   identities: "cms_identities",
+  userPreferences: "cms_user_preferences",
   blockTypes: "cms_block_types",
   pageTypes: "cms_page_types",
   slots: "cms_slots",

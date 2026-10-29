@@ -1,6 +1,7 @@
 import { Fragment } from "preact";
 import { ContentFields } from "../../components/cms/content-fields";
 import type { FieldError } from "../../components/cms/field-control";
+import { Flash } from "../../components/flash";
 import type {
   BlockTypeRecord,
   PageBlock,
@@ -8,6 +9,7 @@ import type {
   UnavailableBlock,
 } from "../../services/content";
 import type { PageOption } from "../../services/content/pages";
+import type { MediaOption } from "../../services/media";
 
 export interface PageBlocksProps {
   pageType: PageTypeRecord;
@@ -19,12 +21,24 @@ export interface PageBlocksProps {
   unavailable: UnavailableBlock[];
   /** Validation messages for one block's fields, keyed by the block's index. */
   errorsByBlock?: Map<number, Map<string, FieldError[]>>;
+  /**
+   * Messages that belong to a whole block rather than a field — the hero-first
+   * rule and the rich-text nesting bound — keyed by the block's index. They are
+   * shown on the block itself as well as in the banner, because at 390 the
+   * banner is several screens above the block it is about.
+   */
+  alertsByBlock?: Map<number, string>;
   /** The CMS pages a `link` field's picker offers. */
   pages?: PageOption[];
   /** Whether a form's `image` fields get a media picker at all. */
   hasMedia: boolean;
   /** Whether that picker's reuse list was capped. */
   pickerCapped: boolean;
+  /**
+   * The uploads the picker offers, so an image field can label and measure the
+   * image it already holds (part 10).
+   */
+  media?: MediaOption[];
 }
 
 /** The block types a page of this type may add, in the allowed order. */
@@ -53,8 +67,8 @@ const blockMax = (
 
 const limitHint = (name: string, max: number): string =>
   max === 1
-    ? `Only one ${name} per page`
-    : `Only ${max} ${name} blocks per page`;
+    ? `Add ${name} is off: only one ${name} per page`
+    : `Add ${name} is off: only ${max} ${name} blocks per page`;
 
 /**
  * Why a block can't be edited, and what clears the flag.
@@ -131,28 +145,40 @@ const EditableBlock = ({
   block,
   index,
   errors,
+  alert,
   pages,
   hasMedia,
   pickerCapped,
+  media,
 }: {
   blockType: BlockTypeRecord;
   block: PageBlock;
   index: number;
   errors?: Map<string, FieldError[]>;
+  alert?: string;
   pages?: PageOption[];
   hasMedia: boolean;
   pickerCapped: boolean;
+  media?: MediaOption[];
 }) => (
   <fieldset
-    className="cms-block"
+    className={alert ? "cms-block cms-block-alert" : "cms-block"}
     data-cms-block
     data-block-type={blockType.name}
     data-block-index={index}
+    // The banner links here, so a whole-block message in it can be reached at
+    // 390 without scrolling past the rest of the form to find the block.
+    id={index >= 0 ? `block-${index + 1}` : undefined}
   >
     <legend className="cms-block-legend">
       <code>{blockType.name}</code>
     </legend>
     <BlockActions label={blockType.name} />
+    {alert && (
+      <p className="cms-block-alert-message" role="alert">
+        {alert}
+      </p>
+    )}
     <ContentFields
       fields={blockType.fields}
       content={block}
@@ -160,6 +186,7 @@ const EditableBlock = ({
       pages={pages}
       hasMedia={hasMedia}
       pickerCapped={pickerCapped}
+      media={media}
       idPrefix={`cms-block-${index}-${blockType.name}`}
     />
   </fieldset>
@@ -184,9 +211,11 @@ export const PageBlocks = ({
   blocks,
   unavailable,
   errorsByBlock,
+  alertsByBlock,
   pages,
   hasMedia,
   pickerCapped,
+  media,
 }: PageBlocksProps) => {
   const byName = new Map(blockTypes.map((block) => [block.name, block]));
   const unavailableByIndex = new Map(
@@ -210,15 +239,14 @@ export const PageBlocks = ({
                 data-block-unavailable
                 data-block-type={block.type}
                 data-block-index={index}
+                id={`block-${index + 1}`}
                 key={`${block.type}:${index}`}
               >
                 <legend className="cms-block-legend">
                   <code>{block.type}</code>
                 </legend>
                 <FlaggedBlockActions type={block.type} />
-                <p className="flash-warning" role="status">
-                  {unavailableMessage(reason)}
-                </p>
+                <Flash tone="warning" title={unavailableMessage(reason)} />
               </fieldset>
             );
           }
@@ -229,19 +257,26 @@ export const PageBlocks = ({
               block={block}
               index={index}
               errors={errorsByBlock?.get(index)}
+              alert={alertsByBlock?.get(index)}
               pages={pages}
               hasMedia={hasMedia}
               pickerCapped={pickerCapped}
+              media={media}
             />
           );
         })}
       </div>
 
-      {blocks.length === 0 && (
-        <p className="cms-blocks-empty">
-          This page has no blocks yet. Add one below.
-        </p>
-      )}
+      {/* Rendered even with blocks, so the client can bring it back when the
+          last one is removed. It is hidden from the start when a block is
+          already there, and `cms-form.ts` keeps it in step with the list. */}
+      <p
+        className="cms-blocks-empty"
+        data-cms-blocks-empty
+        hidden={blocks.length > 0}
+      >
+        This page has no blocks yet. Add one below.
+      </p>
 
       {/* One empty block per allowed type, cloned by the editor when Add is
           pressed. Never in the form's query scope, so it is not serialized. */}
@@ -258,6 +293,7 @@ export const PageBlocks = ({
             pages={pages}
             hasMedia={hasMedia}
             pickerCapped={pickerCapped}
+            media={media}
           />
         </template>
       ))}
@@ -279,25 +315,30 @@ export const PageBlocks = ({
             const hintId = `block-add-limit-${blockType.name.replace(/\s+/g, "-")}`;
             return (
               <Fragment key={blockType.name}>
-                <button
-                  type="button"
-                  className="cms-block-add-button"
-                  data-block-add={blockType.name}
-                  data-block-max={max}
-                  aria-disabled={full ? "true" : undefined}
-                  aria-describedby={max === undefined ? undefined : hintId}
-                >
-                  Add {blockType.name}
-                </button>
-                {max !== undefined && (
-                  <span
-                    className="cms-block-add-hint"
-                    id={hintId}
-                    hidden={!full}
+                {/* The hint is a sibling of its button in the same flex row, and
+                    names the button, so it reads as a note about this control
+                    rather than about the row below (#67 f11). */}
+                <span className="cms-block-add-row">
+                  <button
+                    type="button"
+                    className="cms-block-add-button"
+                    data-block-add={blockType.name}
+                    data-block-max={max}
+                    aria-disabled={full ? "true" : undefined}
+                    aria-describedby={max === undefined ? undefined : hintId}
                   >
-                    {limitHint(blockType.name, max)}
-                  </span>
-                )}
+                    Add {blockType.name}
+                  </button>
+                  {max !== undefined && (
+                    <span
+                      className="cms-block-add-hint"
+                      id={hintId}
+                      hidden={!full}
+                    >
+                      {limitHint(blockType.name, max)}
+                    </span>
+                  )}
+                </span>
               </Fragment>
             );
           })

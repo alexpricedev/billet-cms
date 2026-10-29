@@ -1,3 +1,4 @@
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { PageRecord, PageRevisionSummary } from "../../services/content";
@@ -47,16 +48,12 @@ export const PageHistory = ({
       title="History"
       after={
         <p className="cms-slot-meta">
-          Page <code>{page.url}</code>
+          <code>{page.url}</code>
         </p>
       }
     />
 
-    {notice && (
-      <div className="flash-warning" role="status">
-        {notice}
-      </div>
-    )}
+    {notice && <Flash tone="warning" title={notice} />}
 
     {revisions.length === 0 ? (
       <p className="cms-history-empty">This page has no saved revisions yet.</p>
@@ -81,7 +78,7 @@ export const PageHistory = ({
                   Restored from {formatDay(revision.restoredFromAt)}
                 </span>
               )}
-              {revision.isLatest && (
+              {revision.isDraft && (
                 <span className="cms-history-badge cms-history-draft">
                   Current draft
                 </span>

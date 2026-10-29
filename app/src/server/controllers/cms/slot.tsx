@@ -1,3 +1,4 @@
+import { narrowImagesSentence } from "@shared/image-guidance";
 import type { BunRequest } from "bun";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
 import { checkCsrf, isRecoverableCsrfFailure } from "../../middleware/csrf";
@@ -24,6 +25,8 @@ import {
   nonEmpty,
   parseContent,
   UUID_PATTERN,
+  warningsFrom,
+  warningsParam,
 } from "./params";
 import { previewRedirect } from "./preview";
 
@@ -39,14 +42,26 @@ export interface Notice {
 }
 
 export const formNotice = (params: URLSearchParams): Notice | null => {
+  // A save or publish that carried a narrow-image warning still says what it
+  // did, and adds why it wasn't quite clean. The banner turns yellow for it:
+  // the action happened, but something about the result wants the editor's eye.
+  const narrow = warningsFrom(params);
   if (params.get("saved") === "1") {
-    return { kind: "success", message: "Draft saved." };
+    return narrow > 0
+      ? {
+          kind: "warning",
+          message: `Draft saved. ${narrowImagesSentence(narrow)}`,
+        }
+      : { kind: "success", message: "Draft saved." };
   }
   if (params.get("published") === "1") {
-    return {
-      kind: "success",
-      message: "Published. The site picks the change up within seconds.",
-    };
+    const message = "Published. The site picks the change up within seconds.";
+    return narrow > 0
+      ? {
+          kind: "warning",
+          message: `${message} ${narrowImagesSentence(narrow)}`,
+        }
+      : { kind: "success", message };
   }
   if (params.get("restored") === "1") {
     return {
@@ -115,6 +130,13 @@ export const renderSlotForm = async (
   // and Publish button have to reflect what is actually newest.
   const latest = await getLatestRevision("slot", slot.id);
 
+  // The status line says when the live revision was saved, so the editor can
+  // tell whose words the site is serving. Read here rather than on the slot row:
+  // a publish moves the pointer, it does not copy the revision.
+  const published = slot.publishedRevisionId
+    ? await getRevisionById(slot.publishedRevisionId)
+    : null;
+
   // A re-render posts only the declared fields: the hidden `content` field the
   // form renders holds no removed ones, so a save's carried-through fields have
   // to be read back from the revision the editor loaded. Without that, the
@@ -166,7 +188,9 @@ export const renderSlotForm = async (
       content={declaredContent}
       baseRevisionId={baseRevisionId}
       latestRevisionId={latest?.id ?? null}
+      latestRevisionAt={latest?.createdAt ?? null}
       publishedRevisionId={slot.publishedRevisionId}
+      publishedRevisionAt={published?.createdAt ?? null}
       removedFieldNames={removed.names}
       media={picker.media}
       pickerCapped={picker.capped}
@@ -365,6 +389,10 @@ export const slotForm = {
       });
     }
 
-    return redirect(`/cms/slots/${slot.id}?saved=1`);
+    // A narrow image doesn't refuse the save (part 10), so the editor is sent
+    // back to the editor with the count, and the GET says it in the banner.
+    return redirect(
+      `/cms/slots/${slot.id}?saved=1${warningsParam(result.warnings.length)}`,
+    );
   },
 };

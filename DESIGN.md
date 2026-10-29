@@ -24,9 +24,8 @@ live in `app/src/client/base.css` and components consume them.
 ## Colour tokens
 
 Semantic tokens only. A component never introduces an arbitrary hex value.
-Both themes are defined; the CMS follows the operating system setting through
-`prefers-color-scheme` (there is no in-app toggle, so no control can drift from
-the rendered theme).
+Both themes are defined; the theme follows the user's setting, System (the OS)
+by default.
 
 | Token | Light | Dark | Meaning |
 |---|---|---|---|
@@ -148,6 +147,12 @@ outline that shifts layout. Placeholders use `--text-muted` and never replace a
 label. Invalid controls use `--danger` border and `aria-invalid`, with the
 message adjacent.
 
+A choice row — a radio or checkbox wrapped in its own `label` — is one flex
+row: `display: flex; align-items: center; gap: var(--space-2)`, with the
+control's margin removed, so the control centres on its text and the row shares
+the card's left edge. Group rows in a `.choice-group` fieldset, with one
+`--space-2` gap between them.
+
 ### Cards and panels
 
 `.panel` is a bordered surface for a group of controls. `.panel-header` carries
@@ -169,9 +174,28 @@ surface, hairline border, 11.5px medium. Pairs with text, never colour alone.
 
 ### Alerts
 
-Classes kept for compatibility: `.flash-success`, `.flash-warning`,
-`.flash-error`. Each is a soft surface with a matching border and text, a
-leading status label, and no shadow. They appear directly under the page header.
+One `.flash` banner, with `data-tone="success" | "info" | "warning" | "error"`.
+Each tone is a soft tinted surface with a matching hairline border and icon
+colour, built from the `--banner-<tone>-{bg,border,icon}` tokens (defined for
+light, dark and System), and its own 20px line icon — circle-check, circle-i,
+triangle-!, circle-! — so the four states are distinguishable without colour.
+Title and detail use `--text` and `--text-secondary` on every tint. The banner
+palette is separate from the badge's `--success-soft` and friends so the
+designed tints stay exact in both themes.
+
+A banner has a title (14/20, 600, ending in a full stop), and optionally a
+detail line, a wrapping row of underlined action links (`margin-top: 8px`,
+16px apart), and an error field list whose entries link to the invalid
+control. The × is an icon-only button with `aria-label="Dismiss"`, a 44×44 hit
+area and a negative block margin so it does not make the banner taller.
+
+Success, info and warning are `role="status"`; error is `role="alert"`. In the
+page and slot editors the banner sits inline below the title, above Blocks; on
+other pages it stays where that page's notice already sat. It stays until the
+× closes it — no auto-hide — and nothing is remembered across loads. The ×
+ships hidden and is revealed by the client script, so with JavaScript off the
+banner still renders unchanged, just without a close button. There is no
+shadow.
 
 ### Empty states
 

@@ -1,3 +1,4 @@
+import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { ExportTokenRecord } from "../../services/export";
@@ -65,22 +66,18 @@ export const ExportPage = ({
       }
     />
 
-    {notice && (
-      <div className="flash-success" role="status">
-        {notice}
-      </div>
-    )}
+    {notice && <Flash tone="success" title={notice} />}
 
     {newToken && (
-      <div className="flash-warning" role="status">
-        <p>
-          <strong>Copy this token now.</strong> It is shown once and only its
-          hash is stored, so it can't be shown again.
-        </p>
+      <Flash
+        tone="warning"
+        title="Copy this token now."
+        detail="It is shown once and only its hash is stored, so it can't be shown again."
+      >
         <p>
           <code data-export-token>{newToken}</code>
         </p>
-      </div>
+      </Flash>
     )}
 
     <section className="cms-page" aria-labelledby="export-tokens-heading">
@@ -140,11 +137,7 @@ export const ExportPage = ({
 
     <section className="cms-page" aria-labelledby="export-create-heading">
       <h2 id="export-create-heading">New token</h2>
-      {error && (
-        <div className="flash-error" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <Flash tone="error" title={error} />}
       <form
         method="POST"
         action="/cms/export"
@@ -166,7 +159,7 @@ export const ExportPage = ({
             Only so you can tell tokens apart in this list.
           </p>
         </div>
-        <button type="submit" className="cms-save">
+        <button type="submit" className="cms-save btn btn-primary">
           Create token
         </button>
       </form>

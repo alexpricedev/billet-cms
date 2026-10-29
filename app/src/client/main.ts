@@ -1,4 +1,5 @@
 import { Dialog } from "@alexpricedev/billet-dialog";
+import { init as initFlashDismiss } from "@client/components/flash-dismiss";
 import { init as initNavMenu } from "@client/components/nav-menu";
 import { init as initPreviewGuard } from "@client/components/preview-guard";
 import { initializePage } from "@client/page-lifecycle";
@@ -6,6 +7,9 @@ import * as ui from "@client/reactive";
 
 // The nav is on every page, so it runs outside the per-data-page registry.
 initNavMenu();
+
+// Flash banners ship their × hidden; reveal it and let it close the banner.
+initFlashDismiss();
 
 // A form carrying `data-confirm` asks before it posts; every other form, and
 // every form without JavaScript, posts as it always did.

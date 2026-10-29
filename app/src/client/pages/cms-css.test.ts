@@ -6,6 +6,21 @@ import { describe, expect, test } from "bun:test";
 // `scripts/browser-smoke.test.ts` or an eye on the page; what fails here is a
 // rule quietly disappearing.
 const css = await Bun.file(new URL("./cms.css", import.meta.url)).text();
+const layoutCss = await Bun.file(
+  new URL("../components/layout.css", import.meta.url),
+).text();
+const baseCss = await Bun.file(new URL("../base.css", import.meta.url)).text();
+
+// `[selector, body]` for every rule in a stylesheet. Comments are stripped
+// first: prose that names a selector would otherwise be captured as part of the
+// next rule's selector, and `[^{}]` stops at a nested block the way a real
+// parser would, so a rule inside `@media` is matched on its own.
+const rules = (source: string): [string, string][] =>
+  [
+    ...source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .matchAll(/([^{}]*)\{([^{}]*)\}/g),
+  ].map((match) => [match[1] ?? "", match[2] ?? ""]);
 
 describe("cms.css layout", () => {
   // A long slot name or page type name is one unbroken token; without this it
@@ -73,18 +88,282 @@ describe("cms.css history layout", () => {
   });
 });
 
+describe("cms.css action bar", () => {
+  // Publish has to be in reach on a phone without scrolling past a long form,
+  // so the bar sticks to the bottom of the viewport.
+  test("sticks the action bar to the bottom", () => {
+    expect(css).toMatch(/\.cms-actions\s*\{[^}]*position:\s*sticky/);
+    expect(css).toMatch(/\.cms-actions\s*\{[^}]*bottom:\s*0/);
+  });
+
+  // A bar that is a card with a max-width reads as a panel in the form rather
+  // than the page's own action strip; this is the full-width hairline version.
+  // The hairline lives on the backdrop, not on the bar's own box: a border
+  // here would draw a second line over the form column, a pixel above the
+  // full-pane one, which is the clipped look the ticket started from.
+  test("keeps the bar full width with one hairline, not a card", () => {
+    const rule = /\.cms-actions\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(rule).not.toContain("border-top");
+    expect(rule).not.toContain("border-radius");
+    expect(rule).not.toContain("max-width");
+  });
+
+  // The bar's own box is the form column, and `.app-content` is centred under
+  // `--content-max`, so at a wide window that box ends well inside the pane
+  // however far its padding is bled. The backdrop is a pseudo-element measured
+  // in container units off `.app-main` instead: half the bar minus half the
+  // pane cancels the column's centring at any width, and subtracting the pane's
+  // padding token reaches the sidebar and the viewport edge. `vw` would count
+  // the scrollbar's gutter and overhang the pane.
+  test("paints the bar's surface across the whole main pane", () => {
+    const bar = /\.cms-actions\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(bar).toContain("background: var(--surface)");
+
+    const rule = /\.cms-actions::before\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(rule).toContain('content: ""');
+    expect(rule).toContain("position: absolute");
+    expect(rule).toContain("background: var(--surface)");
+    expect(rule).toContain("border-top: 1px solid var(--border)");
+    expect(rule).toContain("box-shadow: var(--shadow-bar)");
+    expect(rule).toMatch(
+      /left:\s*calc\(50% - 50cqw - var\(--app-main-pad-x\)\)/,
+    );
+    expect(rule).toMatch(
+      /right:\s*calc\(50% - 50cqw - var\(--app-main-pad-x\)\)/,
+    );
+    expect(rule).not.toContain("100vw");
+    // Tokens only: the new rule introduces no colour literal.
+    expect(rule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
+  // The backdrop above is only full-pane at any width if the pane is a size
+  // container whose horizontal padding is the same token the backdrop cancels.
+  // Scoped with `:has()` so a page without the bar never pays for containment.
+  test("sizes the backdrop from the pane, not the content column", () => {
+    const main = /^\.app-main\s*\{([^}]*)\}/m.exec(layoutCss)?.[1];
+    expect(main).toContain("--app-main-pad-x: var(--space-10)");
+    expect(main).toContain(
+      "padding: var(--space-8) var(--app-main-pad-x) var(--space-16)",
+    );
+    // Containment is scoped to the editor, not paid for by every page.
+    expect(main).not.toContain("container-type");
+    const scoped = /\.app-main:has\(\.cms-actions\)\s*\{([^}]*)\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(scoped).toContain("container-type: inline-size");
+
+    // The wide-window premise: the content column is centred under a max-width,
+    // so its own box stops short of the pane however far padding is bled.
+    const content = /^\.app-content\s*\{([^}]*)\}/m.exec(layoutCss)?.[1];
+    expect(content).toContain("max-width: var(--content-max)");
+    expect(content).toContain("margin-inline: auto");
+
+    // Both narrower breakpoints redefine the padding the backdrop uses, so the
+    // two stay in step at 900px and 640px.
+    const at900 = /@media\s*\(width <= 900px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(at900).toContain("--app-main-pad-x: var(--space-5)");
+    const at640 = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(at640).toContain("--app-main-pad-x: var(--space-4)");
+  });
+
+  // On a slot editor the bar is the flow's last element and sticks to the
+  // window, so the pane's own bottom padding would sit under it at full scroll:
+  // a strip of page between the bar's bottom edge and the footer. Only the
+  // pane carrying the bar *and nothing after it* drops it — scoped with
+  // `:has()`, so every other page keeps the breathing room `.app-main` gives
+  // it, including at the narrower breakpoints that redefine its padding, and a
+  // page editor (whose Delete section follows the bar) keeps it too.
+  test("drops the pane's bottom padding only where the bar is last", () => {
+    const main = /^\.app-main\s*\{([^}]*)\}/m.exec(layoutCss)?.[1];
+    expect(main).toContain(
+      "padding: var(--space-8) var(--app-main-pad-x) var(--space-16)",
+    );
+
+    const editorRules = rules(layoutCss).filter(([selector]) =>
+      /\.app-main[^{]*:has\(\.cms-actions\)/.test(selector),
+    );
+    expect(editorRules.length).toBeGreaterThan(0);
+
+    // The pane is a size container on every editor page — the bar's backdrop is
+    // measured in `cqw` — whatever the flow ends with.
+    const containers = editorRules.filter(([, body]) =>
+      /container-type:\s*inline-size/.test(body),
+    );
+    expect(containers).toHaveLength(1);
+    expect(containers[0]?.[0]).not.toMatch(/:not\(/);
+
+    // The zero is scoped away from the Delete section: on a page editor the
+    // section, not the bar, is last, and it needs the pane's usual padding
+    // under it so the button is not left sitting on the footer's hairline.
+    const zeroed = editorRules.filter(([, body]) =>
+      /padding-bottom\s*:\s*0/.test(body),
+    );
+    expect(zeroed).toHaveLength(1);
+    expect(zeroed[0]?.[0]).toMatch(
+      /\.app-main:has\(\.cms-actions\):not\(:has\(\.cms-danger\)\)/,
+    );
+
+    // Every other rule naming the editor pane may only repeat the zero: a
+    // media block that re-adds a bottom padding (or a `padding` shorthand with
+    // one) puts the strip back at that width while passing the match above.
+    for (const [, body] of editorRules) {
+      for (const [, value] of body.matchAll(/padding-bottom\s*:\s*([^;]+)/g)) {
+        expect(value.trim()).toBe("0");
+      }
+      for (const [, value] of body.matchAll(/(?<!-)padding\s*:\s*([^;]+)/g)) {
+        expect(value.trim()).toBe("0");
+      }
+    }
+  });
+
+  // Dropping the padding was only half of it. The body grid's first row is
+  // `1fr`, so a pane shorter than the window is stretched to fill it and the
+  // footer sits at the bottom — with the spare height *below* the content
+  // column, a band between the bar and the footer again. The column has to
+  // fill the pane, and the form has to take the slack, so the flow's last
+  // element (the bar on a slot editor; the Delete section on a page editor)
+  // ends on the footer's edge whether the form is long or short. Remove any of
+  // the three and the band comes back at some window height.
+  test("fills the editor column so the bar lands on the footer", () => {
+    // The percentage needs a definite height: only the grid shell gives
+    // `.app-main` one, by stretching its `1fr` row. Below 900px the shell is
+    // `display: block` and the footer follows the content instead of the
+    // window, so there is no spare row for a band to sit in — but the
+    // percentage would resolve against `auto` and do nothing. Pin the scope,
+    // or a later width change silently brings the band back.
+    const desktop = /@media\s*\(width >= 901px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(desktop).toBeDefined();
+
+    const column =
+      /\.app-main:has\(\.cms-actions\) > \.app-content\s*\{([^}]*)\}/.exec(
+        desktop ?? "",
+      )?.[1];
+    expect(column).toContain("display: flex");
+    expect(column).toContain("flex-direction: column");
+    expect(column).toContain("min-height: 100%");
+
+    const at900 = /@media\s*\(width <= 900px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(at900).toContain("display: block");
+
+    const grow = rules(layoutCss).filter(
+      ([selector, body]) =>
+        /\.cms-slot-form\b/.test(selector) &&
+        /\.cms-page-form\b/.test(selector) &&
+        /flex:\s*1/.test(body),
+    );
+    expect(grow).toHaveLength(1);
+    // Editor-only, and it grows the form, not the bar: growing the bar would
+    // stretch its painted surface over the slack instead of leaving the page
+    // background there.
+    expect(grow[0]?.[0]).toContain(".app-main:has(.cms-actions)");
+    expect(grow[0]?.[0]).toMatch(/\.app-content\s*>\s*\.cms-slot-form/);
+    expect(grow[0]?.[0]).toMatch(/\.app-content\s*>\s*\.cms-page-form/);
+  });
+
+  // The page editor renders the action bar and then the Delete section, so the
+  // bar cannot be the last thing in the pane. The pane therefore keeps its
+  // usual bottom padding there (the zero rule above is scoped with
+  // `:not(:has(.cms-danger))`), and the Delete button ends a pane's padding
+  // above the footer rather than on its hairline. `.cms-danger` itself must
+  // stay unpadded: a bottom padding here would stack on the pane's own.
+  test("keeps the page editor's Delete button off the footer", () => {
+    const dangerRules = rules(css).filter(([selector]) =>
+      /\.cms-danger\b/.test(selector),
+    );
+    expect(dangerRules.length).toBeGreaterThan(0);
+    for (const [, body] of dangerRules) {
+      expect(body).not.toContain("padding-bottom");
+    }
+  });
+
+  // The bar sticks over the form while it scrolls, but it is also the flow's
+  // last element, so it already reserves its own height at the end. A second
+  // stack of padding on the form doubles that gap: at full scroll the last
+  // help line floated 136px above the bar at 1280 and 200px at 390. The form
+  // takes no bottom padding of its own, and the one gap it does leave is the
+  // bar's `margin-top` — the normal section spacing.
+  //
+  // Every rule naming either form is checked, at every breakpoint, rather than
+  // one anchored at the selector's start: a scoped rule like
+  // `.cms-page-form:not(.cms-new-page-form) { padding-bottom: … }` put the
+  // doubled gap back while passing an anchored match, and so did any literal.
+  test("leaves only the bar's own flow space below the form", () => {
+    const formRules = rules(css).filter(([selector]) =>
+      /\.cms-(?:slot|page)-form\b/.test(selector),
+    );
+    expect(formRules.length).toBeGreaterThan(0);
+    for (const [, body] of formRules) {
+      expect(body).not.toContain("padding-bottom");
+    }
+
+    expect(css).toMatch(
+      /\.cms-actions\s*\{[^}]*margin-top:\s*var\(--space-6\)/,
+    );
+  });
+
+  // The shadow is a token in every theme block, so light, dark and System all
+  // draw the same soft upward edge rather than a bare border.
+  test("defines the bar shadow in both themes and System", () => {
+    const light = /:root\s*\{([\s\S]*?)\n\}/.exec(baseCss)?.[1];
+    expect(light).toContain("--shadow-bar:");
+    const dark = /:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/.exec(
+      baseCss,
+    )?.[1];
+    expect(dark).toContain("--shadow-bar:");
+    const system =
+      /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{([\s\S]*?)\n\}/.exec(
+        baseCss,
+      )?.[1];
+    expect(system).toContain("--shadow-bar:");
+  });
+
+  // The legacy `.cms-*` button classes are styled through the `.btn` variants;
+  // no rule of their own may reintroduce a background the variant cannot see.
+  // Every `.cms-save` rule is checked, not just a bare one: `.cms-save` sits on
+  // both Save draft and Publish, and page CSS loads after base.css, so a fill
+  // in any rule that names it beats `btn-secondary` and leaves two filled
+  // buttons in the bar. One primary per bar means the variant decides.
+  test("styles the legacy buttons through the variants", () => {
+    expect(css).not.toMatch(/\.cms-publish-button\s*\{/);
+    expect(css).not.toMatch(/\.cms-preview-button\s*\{/);
+
+    const saveRules = rules(css).filter(([selector]) =>
+      selector.includes(".cms-save"),
+    );
+    expect(saveRules.length).toBeGreaterThan(0);
+    for (const [, body] of saveRules) {
+      expect(body).not.toContain("background");
+      expect(body).not.toContain("border");
+      expect(body).not.toContain("color");
+    }
+  });
+
+  test("stacks the bar into two columns on a phone", () => {
+    const mobile = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
+      css,
+    )?.[1];
+    expect(mobile).toContain(
+      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+    );
+    // The status line spans both columns so it is not squeezed into half of one.
+    expect(mobile).toContain("grid-column: 1 / -1");
+    // The bar's last row clears a phone's home indicator.
+    expect(mobile).toContain("env(safe-area-inset-bottom, 0px)");
+  });
+});
+
 describe("cms.css secondary button focus", () => {
   // The global `button:focus` turns the background purple, leaving the light
   // text at 2.25:1. A mouse press or a tap only sets `:focus`, not
   // `:focus-visible`, so the override has to match `:focus` as well.
-  test("keeps the publish button neutral on plain focus", () => {
-    const selector = /([^{}]*\.cms-publish-button:hover[^{}]*)\{/.exec(
-      css,
-    )?.[1];
-    expect(selector).toContain(".cms-publish-button:focus");
-    expect(selector).not.toContain(":focus-visible");
-  });
-
   test("keeps the restore button neutral on plain focus", () => {
     const selector = /([^{}]*\.cms-restore-button:hover[^{}]*)\{/.exec(
       css,

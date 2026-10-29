@@ -33,6 +33,7 @@ import {
   listRedirects,
   type PageBlock,
   publishPage,
+  restorePageRevision,
   savePageDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
@@ -87,7 +88,7 @@ const pageContent = (heading: string) => ({
 
 /** Whether the Preview draft button rendered disabled. */
 const previewDisabled = (html: string): boolean =>
-  /<button[^>]*class="cms-preview-button"[^>]*disabled/.test(html);
+  /<button[^>]*class="[^"]*cms-preview-button[^"]*"[^>]*disabled/.test(html);
 
 /** The contents of the form's one options template, or "" when it has none. */
 const mediaOptionsTemplate = (html: string): string =>
@@ -218,6 +219,29 @@ describe("Pages controller", () => {
     expect(html).toContain("Enter a URL");
   });
 
+  // Part 9: the form names the page that already has the URL rather than
+  // saying "another page".
+  test("says which page has a taken URL", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About Northwind",
+    });
+    if (!created.ok) throw new Error("create failed");
+
+    const res = await pages.create(
+      await post(
+        "/cms/pages/new",
+        { pageType: "landing", url: "about", title: "Team" },
+        "/cms/pages/new",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("About Northwind already uses /about.");
+  });
+
   test("builds the editor from the page type's blocks and the page's settings", async () => {
     const created = await createPage({
       pageType: "landing",
@@ -244,8 +268,43 @@ describe("Pages controller", () => {
     expect(html).toContain('name="title"');
     expect(html).toContain("data-cms-page-content");
     expect(html).toContain('data-block-add="hero"');
+    // The empty state is rendered and visible: the client toggles it with the
+    // list, so the hook is always there and only the attribute changes.
+    expect(html).toMatch(
+      /<p[^>]*data-cms-blocks-empty(="true")?[^>]*>This page has no blocks yet/,
+    );
     // The link picker's page list is threaded through to the controls.
     expect(html).toContain("data-cms-content");
+  });
+
+  test("the empty-state line is hidden once the page has a block", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const saved = await savePageDraft({
+      pageId: created.page.id,
+      content: pageContent("Hi"),
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+    if (!saved.ok) throw new Error("save failed");
+
+    const res = await pages.form(
+      createBunRequest(
+        `${ORIGIN}/cms/pages/${created.page.id}`,
+        { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+        { id: created.page.id },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toMatch(
+      /<p[^>]*data-cms-blocks-empty(="true")?[^>]*hidden[^>]*>This page has no blocks yet/,
+    );
   });
 
   describe("Add buttons and the page type's limits", () => {
@@ -314,7 +373,7 @@ describe("Pages controller", () => {
         'aria-describedby="block-add-limit-hero"',
       );
       expect(html).toMatch(
-        /<span[^>]*id="block-add-limit-hero"(?![^>]*hidden)[^>]*>Only one hero per page/,
+        /<span[^>]*id="block-add-limit-hero"(?![^>]*hidden)[^>]*>Add hero is off: only one hero per page/,
       );
     });
 
@@ -341,7 +400,7 @@ describe("Pages controller", () => {
         { type: "prose", body: document },
       ]);
       expect(addButton(one, "prose")).not.toContain("aria-disabled");
-      expect(one).toContain("Only 2 prose blocks per page");
+      expect(one).toContain("Add prose is off: only 2 prose blocks per page");
     });
 
     test("a max of two greys the button at two blocks", async () => {
@@ -570,6 +629,114 @@ describe("Pages controller", () => {
     expect(html).toContain("create a preview link");
   });
 
+  // Parts 1-3 on the page editor: the same bar, the same two-sided status.
+  describe("action bar", () => {
+    const statusOf = (html: string): string =>
+      html.match(/class="cms-publish-status"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+
+    const publishButton = (html: string): string =>
+      html.match(
+        /<button[^>]*class="[^"]*cms-publish-button[^"]*"[^>]*>/,
+      )?.[0] ?? "";
+
+    const saveButton = (html: string): string =>
+      html.match(/<button[^>]*class="[^"]*cms-save[^"]*"[^>]*>/)?.[0] ?? "";
+
+    const formHtml = async (pageId: string): Promise<string> =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+
+    const create = async (): Promise<string> => {
+      const created = await createPage({
+        pageType: "landing",
+        url: "/about",
+        title: "About us",
+      });
+      if (!created.ok) throw new Error("create failed");
+      return created.page.id;
+    };
+
+    test("says no draft is saved and why both buttons are off", async () => {
+      const pageId = await create();
+      const html = await formHtml(pageId);
+
+      expect(statusOf(html)).toBe("No draft saved yet.");
+      expect(html).toContain("Nothing to publish: no draft saved yet.");
+      expect(html).toContain("No draft to preview.");
+      expect(publishButton(html)).toContain("disabled");
+      expect(publishButton(html)).toContain("btn-secondary");
+      expect(saveButton(html)).toContain("btn-primary");
+    });
+
+    test("says what the saved draft is when nothing is live", async () => {
+      const pageId = await create();
+      const saved = await savePageDraft({
+        pageId,
+        content: pageContent("About us"),
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+
+      const html = await formHtml(pageId);
+
+      expect(statusOf(html)).toMatch(
+        /^Not published yet\. Draft saved \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\.$/,
+      );
+      expect(publishButton(html)).toContain("btn-primary");
+      expect(publishButton(html)).not.toContain("disabled");
+      expect(saveButton(html)).toContain("btn-secondary");
+    });
+
+    test("says what is live once the draft is published", async () => {
+      const pageId = await create();
+      const saved = await savePageDraft({
+        pageId,
+        content: pageContent("About us"),
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+      await publishPage({ pageId, revisionId: saved.revision.id });
+
+      const html = await formHtml(pageId);
+
+      expect(statusOf(html)).toMatch(
+        /^Live since \d{1,2} \w{3} \d{4}, \d\d:\d\d UTC\. No unpublished changes\.$/,
+      );
+      expect(html).toContain("Nothing to publish: no unpublished changes.");
+      expect(html).toContain("Nothing to preview: no unpublished changes.");
+      expect(publishButton(html)).toContain("disabled");
+    });
+
+    test("keeps Save draft a submit of the content form", async () => {
+      const pageId = await create();
+      const html = await formHtml(pageId);
+
+      expect(saveButton(html)).toContain('form="cms-page-form"');
+      expect(html).toContain('id="cms-page-form"');
+    });
+
+    // The form carries no bottom padding of its own: the clearance under its
+    // last field is the sticky bar's in-flow space plus its `margin-top`. That
+    // only holds while the bar stays after every field in the flow, so pin it.
+    test("keeps the action bar after every field in the form", async () => {
+      const pageId = await create();
+      const html = await formHtml(pageId);
+
+      const bar = html.indexOf('aria-label="Publishing"');
+      expect(bar).toBeGreaterThan(-1);
+      expect(html.slice(bar)).not.toContain('class="cms-field"');
+    });
+  });
+
   test("an invalid content save writes neither settings nor a redirect", async () => {
     const created = await createPage({
       pageType: "landing",
@@ -655,18 +822,20 @@ describe("Pages controller", () => {
     // The empty page picker names the field, not the id format.
     expect(html).toContain("Choose a page.");
     expect(html).not.toContain("Invalid UUID");
-    // The block carries field errors, so the summary points at the marked
-    // blocks (the other half of the whole-document-error behaviour).
-    expect(html).toContain("Check the blocks marked below.");
+    // The block carries two field errors, so the banner says how many fields
+    // want fixing and links each one to its control.
+    expect(html).toContain("Fix these 2 fields and try again:");
+    expect(html).toContain('href="#cms-block-0-hero-heading"');
+    expect(html).toContain('href="#cms-block-0-hero-cta"');
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
-  // The banner names the marked blocks only when a block really carries a field
-  // error: a page-limit issue (`blocks`) has no block to mark, so telling the
-  // editor to check marked blocks would send them looking for a highlight that
-  // isn't there (review round 2).
-  test("points the summary at marked blocks only when one carries a field error", async () => {
+  // The banner's "Fix these N fields" line counts real fields only: a
+  // page-limit issue (`blocks`) has no control to fix, so promising fields
+  // would send the editor looking for a highlight that isn't there (review
+  // round 2).
+  test("counts and links fields only when a block carries a field error", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -694,18 +863,29 @@ describe("Pages controller", () => {
       return res.text();
     };
 
-    // A block with a bad field: the block is marked, so the banner says so.
+    // A block with a bad field: the field is marked, so the banner counts it
+    // and links to it.
     const withFieldError = await save({
       blocks: [{ type: "hero", heading: "x".repeat(81), body: document }],
     });
-    expect(withFieldError).toContain("This content can't be saved.");
-    expect(withFieldError).toContain("Check the blocks marked below.");
+    expect(withFieldError).toContain("Couldn't save draft.");
+    // A failed save is the error tone: it interrupts, and it is closable.
+    expect(withFieldError).toContain(
+      'class="flash" data-tone="error" role="alert"',
+    );
+    expect(withFieldError).toMatch(
+      /class="flash-dismiss"[^>]*aria-label="Dismiss"/,
+    );
+    expect(withFieldError).toContain("Fix this field and try again:");
+    expect(withFieldError).toContain('href="#cms-block-0-hero-heading"');
 
-    // No hero at all: the page-limit issue has no block to mark, so the banner
-    // drops the sentence.
+    // No hero at all: the page-limit issue has no field to fix, so the banner
+    // keeps the message but drops the field count and link.
     const limitOnly = await save({ blocks: [] });
-    expect(limitOnly).toContain("This content can't be saved.");
-    expect(limitOnly).not.toContain("Check the blocks marked below.");
+    expect(limitOnly).toContain("Couldn't save draft.");
+    expect(limitOnly).not.toContain("Fix this field");
+    expect(limitOnly).not.toContain("Fix these");
+    expect(limitOnly).not.toContain('href="#cms-block-');
 
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
@@ -715,7 +895,8 @@ describe("Pages controller", () => {
   // so the summary names the block by position and type — otherwise a page
   // with several blocks gives no clue which one the rich text message is about
   // (review round 2). The bad block is second, so a summary that always named
-  // block 1 fails.
+  // block 1 fails. It also links to that block, and the block itself carries
+  // the message as an alert: at 390 the banner is several screens above it.
   test("names the block a whole-block issue belongs to", async () => {
     const created = await createPage({
       pageType: "landing",
@@ -769,10 +950,78 @@ describe("Pages controller", () => {
       `Block 2 (hero): Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.`,
     );
     expect(html).not.toContain("Block 1");
-    // The issue is whole-block, so no block is marked and the banner must not
-    // point at marked blocks that aren't there.
-    expect(html).not.toContain("Check the blocks marked below.");
+    // The banner line links to the block, and the block repeats the message.
+    expect(html).toContain(
+      `href="#block-2">Block 2 (hero): Rich text lists may nest at most ${MAX_RICH_TEXT_LIST_DEPTH} deep.</a>`,
+    );
+    expect(html).toMatch(
+      /id="block-2"[\s\S]{0,600}class="cms-block-alert-message" role="alert">Rich text lists may nest/,
+    );
+    // The issue is whole-block, so no field is marked and the banner must not
+    // promise fields to fix.
+    expect(html).not.toContain("Fix these");
+    expect(html).not.toContain('href="#cms-block-');
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
+  // Part 8: the hero-first refusal is shown on the hero itself and says which
+  // arrow fixes it; the banner links to the block rather than leaving the
+  // editor to find it several screens below at 390.
+  test("shows the hero-first refusal on the hero block", async () => {
+    await seedBlockType(db, prose);
+    // A type that takes both, so the hero can sit behind another block.
+    await seedPageType(
+      db,
+      pageType("mixed", {
+        allowedBlocks: [hero, prose],
+        requiredBlocks: [hero],
+        limits: { hero: { max: 1, position: "top" } },
+      }),
+    );
+    const created = await createPage({
+      pageType: "mixed",
+      url: "/landing",
+      title: "Landing",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "mixed",
+          url: "/landing",
+          title: "Landing",
+          content: JSON.stringify({
+            blocks: [
+              { type: "prose", body: document },
+              {
+                type: "hero",
+                heading: "Hi",
+                body: { type: "doc", content: [] },
+              },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(
+      'href="#block-2">Block 2 (hero): The hero block has to be first. Use the ↑ arrow to move it up.</a>',
+    );
+    expect(html).toMatch(
+      /id="block-2"[\s\S]{0,600}role="alert">The hero block has to be first. Use the ↑ arrow to move it up.</,
+    );
+    // The prose block first is fine on its own; only the hero is flagged.
+    expect(html).not.toMatch(
+      /id="block-1"[\s\S]{0,200}cms-block-alert-message/,
+    );
   });
 
   test("an over-size content save says so and keeps the base revision", async () => {
@@ -836,9 +1085,8 @@ describe("Pages controller", () => {
     expect(html).toContain("Kept description.");
     expect(html).toContain('value="https://example.com/og.png"');
     // No block carries a field error here — the body is over the size cap, not
-    // a field — so the banner must not point at blocks that aren't marked
-    // (review round 1).
-    expect(html).not.toContain("Check the blocks marked below.");
+    // a field — so the banner must not promise fields to fix (review round 1).
+    expect(html).not.toContain("Fix these");
     // Nothing was written.
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(1);
   });
@@ -996,7 +1244,7 @@ describe("Pages controller", () => {
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
-  test("writes a redirect when the URL changes", async () => {
+  test("moves a never-published page's URL on save", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -1020,9 +1268,9 @@ describe("Pages controller", () => {
       ),
     );
     expect(save.status).toBe(303);
-    expect(save.headers.get("location")).toBe(
-      `/cms/pages/${pageId}?saved=1&moved=%2Fabout`,
-    );
+    // Nothing was live to wait for, so the address moves now; the banner
+    // mentions no redirect because a save never applies one for a live page.
+    expect(save.headers.get("location")).toBe(`/cms/pages/${pageId}?saved=1`);
     expect(await getPageByUrl("/about-us")).not.toBeNull();
     expect(await getPageByUrl("/about")).toBeNull();
     const redirects = await listRedirects();
@@ -1094,7 +1342,242 @@ describe("Pages controller", () => {
     );
   });
 
-  test("says a URL change redirects, before and after the save", async () => {
+  test("a published page's URL change waits for Publish", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const save = async (url: string, base: string) =>
+      pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url,
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: base,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+    const view = async (query = "") =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}${query}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+    const publishLatest = async () => {
+      const latest = await getLatestRevision("page", pageId);
+      return pagePublish.publish(
+        await post(
+          `/cms/pages/${pageId}/publish`,
+          { revision: latest?.id ?? "" },
+          `/cms/pages/${pageId}/publish`,
+          { id: pageId },
+        ),
+      );
+    };
+
+    // Give the page a live address to move away from.
+    await save("/about", "");
+    const first = await getLatestRevision("page", pageId);
+    expect((await publishLatest()).status).toBe(303);
+
+    // The change is stored with the draft: nothing live moves, no redirect.
+    const draft = await save("/about-us", first?.id ?? "");
+    expect(draft.status).toBe(303);
+    expect(draft.headers.get("location")).toBe(`/cms/pages/${pageId}?saved=1`);
+    expect(await getPageByUrl("/about")).not.toBeNull();
+    expect(await getPageByUrl("/about-us")).toBeNull();
+    expect(await listRedirects()).toHaveLength(0);
+
+    // The editor shows the draft address and Publish names both addresses.
+    const editor = await view("?saved=1");
+    expect(editor).toContain('value="/about-us"');
+    expect(editor).toContain("<code>/about-us</code> (not published)");
+    expect(editor).toMatch(/<p[^>]*data-url-move(?![^>]*hidden)/);
+    expect(editor).toContain(
+      'Publishing moves this page: <code>/about</code> will redirect to <code data-url-move-to="true">/about-us</code>.',
+    );
+    expect(editor).toContain(
+      "The old address /about will redirect to /about-us.",
+    );
+
+    // Publish applies it and the banner names the redirect as the detail.
+    const published = await publishLatest();
+    expect(published.status).toBe(303);
+    expect(published.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?published=1&moved=%2Fabout`,
+    );
+    expect(await getPageByUrl("/about")).toBeNull();
+    expect(await getPageByUrl("/about-us")).not.toBeNull();
+    expect(
+      (await listRedirects()).map((redirect) => redirect.fromPath),
+    ).toContain("/about");
+
+    const banner = await view("?published=1&moved=%2Fabout");
+    expect(banner).toContain('<p class="flash-title">Page published.</p>');
+    expect(banner).toContain(
+      '<p class="flash-detail">/about now redirects here.</p>',
+    );
+  });
+
+  test("the publish dialog lists only the pending move, and a restore drops it", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const save = async (url: string, base: string) =>
+      pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url,
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: base,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+    const view = async () =>
+      (
+        await pages.form(
+          createBunRequest(
+            `${ORIGIN}/cms/pages/${pageId}`,
+            { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+            { id: pageId },
+          ),
+        )
+      ).text();
+
+    // Publish a first move, so an older redirect (/about) is already live.
+    await save("/about", "");
+    const first = await getLatestRevision("page", pageId);
+    await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: first?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    await save("/about-us", first?.id ?? "");
+    await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: (await getLatestRevision("page", pageId))?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+
+    // A second move is pending; the dialog names only the live address it
+    // moves away from, not the earlier /about redirect.
+    const publishedRevisionId = (await getPageById(pageId))
+      ?.publishedRevisionId;
+    await save("/studio", publishedRevisionId ?? "");
+    const pending = await view();
+    expect(pending).toContain(
+      "The old address /about-us will redirect to /studio.",
+    );
+    expect(pending).not.toContain("The old address /about will");
+
+    // Restoring the published revision discards the pending address, so the
+    // dialog stops mentioning a redirect (#60 f45).
+    const restored = await restorePageRevision({
+      pageId,
+      revisionId: publishedRevisionId ?? "",
+      actorId: editorId,
+    });
+    expect(restored.ok).toBe(true);
+    const afterRestore = await view();
+    expect(afterRestore).toContain('value="/about-us"');
+    expect(afterRestore).not.toContain("The old address");
+  });
+
+  test("a restore names the pending URL change it discarded", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+    const save = async (url: string, base: string) =>
+      pages.save(
+        await post(
+          `/cms/pages/${pageId}`,
+          {
+            pageType: "landing",
+            url,
+            title: "About us",
+            content: JSON.stringify(pageContent("Hello")),
+            base_revision: base,
+          },
+          `/cms/pages/${pageId}`,
+          { id: pageId },
+        ),
+      );
+
+    await save("/about", "");
+    const first = await getLatestRevision("page", pageId);
+    const published = await pagePublish.publish(
+      await post(
+        `/cms/pages/${pageId}/publish`,
+        { revision: first?.id ?? "" },
+        `/cms/pages/${pageId}/publish`,
+        { id: pageId },
+      ),
+    );
+    expect(published.status).toBe(303);
+    await save("/studio", first?.id ?? "");
+    expect((await getPageById(pageId))?.draftUrl).toBe("/studio");
+
+    const restored = await pagePublish.restore(
+      await post(
+        `/cms/pages/${pageId}/restore`,
+        { revision: first?.id ?? "" },
+        `/cms/pages/${pageId}/restore`,
+        { id: pageId },
+      ),
+    );
+    expect(restored.status).toBe(303);
+    expect(restored.headers.get("location")).toBe(
+      `/cms/pages/${pageId}?restored=1&dropped=%2Fstudio`,
+    );
+
+    // The notice says a queued move went with the restore, rather than
+    // dropping it silently.
+    const html = await (
+      await pages.form(
+        createBunRequest(
+          `${ORIGIN}/cms/pages/${pageId}?restored=1&dropped=%2Fstudio`,
+          { method: "GET", headers: { cookie: `cms_session=${sessionId}` } },
+          { id: pageId },
+        ),
+      )
+    ).text();
+    expect(html).toContain("The pending URL change to /studio was discarded.");
+    expect((await getPageById(pageId))?.draftUrl).toBeNull();
+  });
+
+  test("reports a URL change without claiming a redirect on save", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -1117,6 +1600,9 @@ describe("Pages controller", () => {
     const plain = await view();
     expect(plain).toMatch(/<p[^>]*data-url-move[^>]*hidden/);
     expect(plain).toContain('aria-describedby="url-help url-move"');
+    // The help text is a neutral example, not one that reads as the old URL.
+    expect(plain).toContain("The path the page is served at, e.g. /company.");
+    expect(plain).not.toContain("e.g. /about.");
 
     // A failed save with a new URL re-renders the line visible and the
     // breadcrumb names the unsaved URL.
@@ -1137,7 +1623,10 @@ describe("Pages controller", () => {
       )
     ).text();
     expect(failed).toMatch(/<p[^>]*data-url-move(?![^>]*hidden)/);
-    expect(failed).toContain("Saving moves this page");
+    // Never published: the address moves on Save, so the line must not promise
+    // a redirect that only a Publish would make.
+    expect(failed).toContain("Saving moves this page to");
+    expect(failed).not.toContain("Publishing moves this page");
     expect(failed).toContain("(unsaved: /studio)");
 
     const save = await pages.save(
@@ -1154,11 +1643,11 @@ describe("Pages controller", () => {
         { id: pageId },
       ),
     );
-    expect(save.headers.get("location")).toBe(
-      `/cms/pages/${pageId}?saved=1&moved=%2Fabout`,
-    );
-    expect(await view("?saved=1&moved=%2Fabout")).toContain(
-      "Draft saved. /about now redirects here.",
+    expect(save.headers.get("location")).toBe(`/cms/pages/${pageId}?saved=1`);
+    // A save never carries the redirect sentence; only Publish does.
+    expect(await view("?saved=1&moved=%2Fabout")).toContain("Draft saved.");
+    expect(await view("?saved=1&moved=%2Fabout")).not.toContain(
+      "now redirects here",
     );
     // A path that isn't one of this page's redirects, or isn't a path, is the
     // plain notice.
@@ -1172,7 +1661,8 @@ describe("Pages controller", () => {
       expect(html).not.toContain("now redirects here");
     }
 
-    // The banner after publishing is unchanged: the move was announced on save.
+    // This page had never been published, so its move was already live: the
+    // publish applies no address change and adds no redirect sentence.
     const latest = await getLatestRevision("page", pageId);
     const published = await pagePublish.publish(
       await post(
@@ -1229,23 +1719,33 @@ describe("Pages controller", () => {
     );
     const plain = await view("?saved=1");
     expect(plain).toContain("Draft saved.");
-    expect(plain).not.toContain("empty");
+    // The saved notice is the success banner: announced politely, and its ×
+    // ships hidden so the banner is not closable without the client script.
+    expect(plain).toContain('class="flash" data-tone="success" role="status"');
+    expect(plain).toMatch(/class="flash-dismiss"[^>]*aria-label="Dismiss"/);
+    expect(plain).toMatch(/data-flash-dismiss[^>]*hidden/);
+    // The page always renders its "no blocks yet" line (the client toggles it),
+    // so the assertion is on the banner's own sentence, not the word "empty".
+    expect(plain).not.toContain("was removed");
+    expect(plain).not.toContain("were removed");
 
     // One removed names its type.
     const one = await saveWith("hero");
     expect(one.headers.get("location")).toBe(
       `/cms/pages/${pageId}?saved=1&dropped=hero`,
     );
-    expect(await view("?saved=1&dropped=hero")).toContain(
-      "Draft saved. 1 empty hero block was removed.",
+    const oneHtml = await view("?saved=1&dropped=hero");
+    expect(oneHtml).toContain('<p class="flash-title">Draft saved.</p>');
+    expect(oneHtml).toContain(
+      '<p class="flash-detail">1 empty hero block was removed.</p>',
     );
 
     // Several of one type name it; several of mixed types count blocks.
     expect(await view("?saved=1&dropped=text%2Ctext")).toContain(
-      "Draft saved. 2 empty text blocks were removed.",
+      '<p class="flash-detail">2 empty text blocks were removed.</p>',
     );
     expect(await view("?saved=1&dropped=hero%2Ctext%2Ctext")).toContain(
-      "Draft saved. 3 empty blocks were removed.",
+      '<p class="flash-detail">3 empty blocks were removed.</p>',
     );
     expect((await saveWith("hero,text")).headers.get("location")).toBe(
       `/cms/pages/${pageId}?saved=1&dropped=hero%2Ctext`,
@@ -1254,15 +1754,18 @@ describe("Pages controller", () => {
     // Junk entries are ignored, and a value with none valid is the plain banner.
     const junk = await view("?saved=1&dropped=%3Cb%3E%2Chero%20x%2C");
     expect(junk).toContain("Draft saved.");
-    expect(junk).not.toContain("empty");
+    expect(junk).not.toContain("was removed");
+    expect(junk).not.toContain("were removed");
     expect((await saveWith("<b>")).headers.get("location")).toBe(
       `/cms/pages/${pageId}?saved=1`,
     );
     // The sentence only follows a save.
-    expect(await view("?published=1&dropped=hero")).not.toContain("empty");
+    expect(await view("?published=1&dropped=hero")).not.toMatch(
+      /empty (hero|text)? ?blocks? (was|were) removed/,
+    );
   });
 
-  test("the removed-blocks sentence follows the redirect sentence", async () => {
+  test("the removed-blocks line is the save banner's detail", async () => {
     const created = await createPage({
       pageType: "landing",
       url: "/about",
@@ -1296,10 +1799,12 @@ describe("Pages controller", () => {
       ),
     );
     expect(save.headers.get("location")).toBe(
-      `/cms/pages/${pageId}?saved=1&moved=%2Fabout&dropped=hero%2Chero`,
+      `/cms/pages/${pageId}?saved=1&dropped=hero%2Chero`,
     );
-    expect(await view("?saved=1&moved=%2Fabout&dropped=hero%2Chero")).toContain(
-      "Draft saved. /about now redirects here. 2 empty hero blocks were removed.",
+    const html = await view("?saved=1&dropped=hero%2Chero");
+    expect(html).toContain('<p class="flash-title">Draft saved.</p>');
+    expect(html).toContain(
+      '<p class="flash-detail">2 empty hero blocks were removed.</p>',
     );
   });
 

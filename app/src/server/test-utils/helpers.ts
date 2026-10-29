@@ -21,7 +21,7 @@ export const cleanupTestData = async (db: SQL): Promise<void> => {
       cms_media,
       cms_redirects, cms_pages,
       cms_preview_tokens, cms_handoff_tokens, cms_revisions,
-      cms_user_tokens, cms_sessions,
+      cms_user_tokens, cms_sessions, cms_user_preferences,
       cms_block_types, cms_page_types, cms_slots
     RESTART IDENTITY CASCADE
   `;

@@ -135,6 +135,8 @@ describe("the site reading a published page", () => {
       title: "About us",
     });
     expect(renamed.ok).toBe(true);
+    // The address waits for Publish (ticket #66); publishing applies it.
+    expect((await publishPage({ pageId })).ok).toBe(true);
     now += 1000;
 
     // The old path answers with the page's current URL...
@@ -182,6 +184,8 @@ describe("the site reading a published page", () => {
       url: "/company",
       title: "About us",
     });
+    // A published page's rename waits for Publish; publishing applies it.
+    expect((await publishPage({ pageId })).ok).toBe(true);
     now += 1000;
 
     const moved = await route(new Request("http://localhost/about"));

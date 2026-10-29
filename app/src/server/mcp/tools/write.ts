@@ -16,6 +16,7 @@ import * as z from "zod/v4";
 import {
   asPageContent,
   type BlockTypeRecord,
+  type FieldIssue,
   formatIssues,
   getBlockTypeByName,
   getLatestRevision,
@@ -34,7 +35,7 @@ import {
   saveSlotDraft,
   validatePageContent,
 } from "../../services/content";
-import { checkImageGuidance } from "../../services/media";
+import { checkImageGuidance, type ImageGuidance } from "../../services/media";
 import type { McpActor } from "../auth";
 import {
   errorResult,
@@ -60,29 +61,46 @@ const findPage = async (input: {
 const blockTypesByName = async (): Promise<Map<string, BlockTypeRecord>> =>
   new Map((await listBlockTypes()).map((block) => [block.name, block]));
 
-/** The field-level problems a page's image references have, by block index. */
-const pageImageIssues = async (
+/**
+ * The field-level findings a page's image references have, by block index.
+ *
+ * The two are kept apart for the same reason the write layer keeps them apart:
+ * an `aspect` mismatch refuses the save, a narrow image only warns, so a
+ * validate result can say which is which rather than making the model choose
+ * another picture for a save that would have gone through.
+ */
+const pageImageGuidance = async (
   blockTypes: Map<string, BlockTypeRecord>,
   blocks: PageBlock[],
-): Promise<{ path: string; message: string }[]> => {
-  const issues: { path: string; message: string }[] = [];
+): Promise<ImageGuidance> => {
+  const issues: FieldIssue[] = [];
+  const warnings: FieldIssue[] = [];
   for (const [index, block] of blocks.entries()) {
     const blockType = blockTypes.get(block.type);
     if (!blockType) continue;
     const { type: _type, ...fields } = block;
-    for (const issue of await checkImageGuidance(blockType.fields, fields)) {
+    const guidance = await checkImageGuidance(blockType.fields, fields);
+    for (const issue of guidance.issues) {
       issues.push({
         path: `blocks.${index}.${issue.path}`,
         message: issue.message,
       });
     }
+    for (const warning of guidance.warnings) {
+      warnings.push({
+        path: `blocks.${index}.${warning.path}`,
+        message: warning.message,
+      });
+    }
   }
-  return issues;
+  return { issues, warnings };
 };
 
 const summarizePage = (page: PageRecord) => ({
   id: page.id,
   url: page.url,
+  /** An address change waiting for Publish, when one is saved. */
+  draftUrl: page.draftUrl,
   title: page.title,
   pageType: page.pageType,
 });
@@ -106,6 +124,20 @@ const tooLargeResult = () =>
   issuesResult(TOO_LARGE_MESSAGE, "invalid", {
     issues: [{ path: "(content)", message: TOO_LARGE_MESSAGE }],
   });
+
+/**
+ * A successful write's payload, with any warnings beside it.
+ *
+ * A narrow image does not refuse a save or a publish (see
+ * `services/media/guidance`), so the only place a caller hears about it is
+ * here, on the result that went through — the same way the editor's banner
+ * names it after the redirect.
+ */
+const written = (
+  value: Record<string, unknown>,
+  warnings: readonly FieldIssue[],
+): Record<string, unknown> =>
+  warnings.length > 0 ? { ...value, warnings } : value;
 
 export const registerWriteTools = (
   server: McpServer,
@@ -155,15 +187,21 @@ export const registerWriteTools = (
         }
 
         const guidance = await checkImageGuidance(blockType.fields, content);
-        if (guidance.length > 0) {
+        if (guidance.issues.length > 0) {
           return issuesResult(
-            `The images do not meet the block's guidance: ${guidance.length} issue(s).`,
+            `The images do not meet the block's guidance: ${guidance.issues.length} issue(s).`,
             "invalid",
-            { issues: guidance },
+            { issues: guidance.issues },
           );
         }
 
-        return okResult({ ok: true, slot: slot.name });
+        return okResult({
+          ok: true,
+          slot: slot.name,
+          ...(guidance.warnings.length > 0
+            ? { warnings: guidance.warnings }
+            : {}),
+        });
       }),
   );
 
@@ -218,19 +256,25 @@ export const registerWriteTools = (
           );
         }
 
-        const guidance = await pageImageIssues(
+        const guidance = await pageImageGuidance(
           blockTypes,
           blocks as PageBlock[],
         );
-        if (guidance.length > 0) {
+        if (guidance.issues.length > 0) {
           return issuesResult(
-            `The images do not meet their guidance: ${guidance.length} issue(s).`,
+            `The images do not meet their guidance: ${guidance.issues.length} issue(s).`,
             "invalid",
-            { issues: guidance },
+            { issues: guidance.issues },
           );
         }
 
-        return okResult({ ok: true, page: summarizePage(page) });
+        return okResult({
+          ok: true,
+          page: summarizePage(page),
+          ...(guidance.warnings.length > 0
+            ? { warnings: guidance.warnings }
+            : {}),
+        });
       }),
   );
 
@@ -296,12 +340,17 @@ export const registerWriteTools = (
         });
 
         if (result.ok) {
-          return okResult({
-            ok: true,
-            revisionId: result.revision.id,
-            unchanged: false,
-            createdAt: result.revision.createdAt.toISOString(),
-          });
+          return okResult(
+            written(
+              {
+                ok: true,
+                revisionId: result.revision.id,
+                unchanged: false,
+                createdAt: result.revision.createdAt.toISOString(),
+              },
+              result.warnings,
+            ),
+          );
         }
 
         if (result.reason === "invalid") {
@@ -433,7 +482,9 @@ export const registerWriteTools = (
           page,
           settings: {
             pageType: settings?.pageType ?? page.pageType,
-            url: settings?.url ?? page.url,
+            // The saved draft address is what the editor shows, and passing the
+            // live one back would read as "revert the move" and clear it.
+            url: settings?.url ?? page.draftUrl ?? page.url,
             title: settings?.title ?? page.title,
             seoDescription:
               settings?.seoDescription !== undefined
@@ -450,13 +501,18 @@ export const registerWriteTools = (
         });
 
         if (result.ok) {
-          return okResult({
-            ok: true,
-            revisionId: result.revision.id,
-            unchanged: false,
-            createdAt: result.revision.createdAt.toISOString(),
-            page: summarizePage(result.page),
-          });
+          return okResult(
+            written(
+              {
+                ok: true,
+                revisionId: result.revision.id,
+                unchanged: false,
+                createdAt: result.revision.createdAt.toISOString(),
+                page: summarizePage(result.page),
+              },
+              result.warnings,
+            ),
+          );
         }
 
         if (result.reason === "settings") {
@@ -524,12 +580,17 @@ export const registerWriteTools = (
         });
 
         if (result.ok) {
-          return okResult({
-            ok: true,
-            revisionId: result.revisionId,
-            contentVersion: result.contentVersion,
-            changed: result.changed,
-          });
+          return okResult(
+            written(
+              {
+                ok: true,
+                revisionId: result.revisionId,
+                contentVersion: result.contentVersion,
+                changed: result.changed,
+              },
+              result.warnings,
+            ),
+          );
         }
         if (result.reason === "no-draft") {
           return issuesResult("There is no draft to publish.", "no-draft");
@@ -593,13 +654,18 @@ export const registerWriteTools = (
         });
 
         if (result.ok) {
-          return okResult({
-            ok: true,
-            revisionId: result.revisionId,
-            contentVersion: result.contentVersion,
-            changed: result.changed,
-            page: summarizePage(page),
-          });
+          return okResult(
+            written(
+              {
+                ok: true,
+                revisionId: result.revisionId,
+                contentVersion: result.contentVersion,
+                changed: result.changed,
+                page: summarizePage(page),
+              },
+              result.warnings,
+            ),
+          );
         }
         if (result.reason === "no-draft") {
           return issuesResult("There is no draft to publish.", "no-draft");
@@ -610,6 +676,11 @@ export const registerWriteTools = (
             "invalid",
             { issues: result.issues },
           );
+        }
+        if (result.reason === "duplicate") {
+          return issuesResult(result.issue.message, "invalid", {
+            issues: [result.issue],
+          });
         }
         return issuesResult(
           "A newer draft arrived while this one was being published, so nothing went live. Call get_page, review the newer draft, and publish it.",

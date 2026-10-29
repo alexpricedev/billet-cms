@@ -37,6 +37,11 @@ export const appRoutes = {
   // sign-in.tsx` and the plugin's `handleCmsSignIn`.
   "/sign-in": signIn.index,
   "/account": account.index,
+  // The account page's Theme card. Its own path so the CSRF token is bound to
+  // the form that minted it, and a save redirects back to the page.
+  "/account/theme": createRouteHandler({
+    POST: account.saveTheme,
+  }),
   // The CMS's own surface. /cms lists the pages and slots a site published;
   // /cms/slots/:id is the generated editor for one slot, with publish and
   // history alongside it. Each write is its own path so a refresh repeats a
