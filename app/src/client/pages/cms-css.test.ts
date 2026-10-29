@@ -154,7 +154,7 @@ describe("cms.css action bar", () => {
 
     // The wide-window premise: the content column is centred under a max-width,
     // so its own box stops short of the pane however far padding is bled.
-    const content = /\.app-content\s*\{([^}]*)\}/.exec(layoutCss)?.[1];
+    const content = /^\.app-content\s*\{([^}]*)\}/m.exec(layoutCss)?.[1];
     expect(content).toContain("max-width: var(--content-max)");
     expect(content).toContain("margin-inline: auto");
 
@@ -201,6 +201,37 @@ describe("cms.css action bar", () => {
         expect(value.trim()).toBe("0");
       }
     }
+  });
+
+  // Dropping the padding was only half of it. The body grid's first row is
+  // `1fr`, so a pane shorter than the window is stretched to fill it and the
+  // footer sits at the bottom — with the spare height *below* the content
+  // column, a band between the bar and the footer again. The column has to
+  // fill the pane, and the form has to take the slack, so the bar ends on the
+  // footer whether the form is long or short. Remove any of the three and the
+  // band comes back at some window height.
+  test("fills the editor column so the bar lands on the footer", () => {
+    const column =
+      /\.app-main:has\(\.cms-actions\) > \.app-content\s*\{([^}]*)\}/.exec(
+        layoutCss,
+      )?.[1];
+    expect(column).toContain("display: flex");
+    expect(column).toContain("flex-direction: column");
+    expect(column).toContain("min-height: 100%");
+
+    const grow = rules(layoutCss).filter(
+      ([selector, body]) =>
+        /\.cms-slot-form\b/.test(selector) &&
+        /\.cms-page-form\b/.test(selector) &&
+        /flex:\s*1/.test(body),
+    );
+    expect(grow).toHaveLength(1);
+    // Editor-only, and it grows the form, not the bar: growing the bar would
+    // stretch its painted surface over the slack instead of leaving the page
+    // background there.
+    expect(grow[0]?.[0]).toContain(".app-main:has(.cms-actions)");
+    expect(grow[0]?.[0]).toMatch(/\.app-content\s*>\s*\.cms-slot-form/);
+    expect(grow[0]?.[0]).toMatch(/\.app-content\s*>\s*\.cms-page-form/);
   });
 
   // The bar sticks over the form while it scrolls, but it is also the flow's

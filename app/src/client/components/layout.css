@@ -59,6 +59,31 @@ body[data-shell="app"] > .app-main:has(.cms-actions) {
   max-width: var(--content-max);
 }
 
+/* The grid above is `1fr auto`, so a pane shorter than the window is stretched
+   to fill it and the footer sits at the bottom — but that spare height lands
+   *below* the content column, a band of page between the bar and the footer
+   even with the padding gone. The column fills the pane instead and the form
+   takes the slack, so the flow's last element closes on the footer at every
+   scroll position (the bar on a slot editor; on a page editor, the Delete
+   section that follows it). A long form has no slack: it stays its natural
+   height and the bar keeps its own `margin-top` above it. */
+body[data-shell="app"] > .app-main:has(.cms-actions) > .app-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+body[data-shell="app"]
+  > .app-main:has(.cms-actions)
+  > .app-content
+  > .cms-slot-form,
+body[data-shell="app"]
+  > .app-main:has(.cms-actions)
+  > .app-content
+  > .cms-page-form {
+  flex: 1;
+}
+
 [data-component="layout"] > footer {
   align-items: center;
   border-top: 1px solid var(--border);
