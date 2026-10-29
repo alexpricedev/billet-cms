@@ -214,20 +214,29 @@ const imageValue = (control: Element): unknown => {
   return alt === "" ? { mediaId: id } : { mediaId: id, alt };
 };
 
+/**
+ * The stored value of a link control.
+ *
+ * Email and Phone are not types of their own in the stored shape: both are
+ * `type: "url"` links whose scheme is what the editor recognises them by, so
+ * the destination input holds the bare address and the prefix is added here
+ * (and stripped again when the field is rendered).
+ */
 const linkValue = (control: Element): unknown => {
   const type =
-    control.querySelector<HTMLSelectElement>("[data-link-type]")?.value;
-  const label =
-    control.querySelector<HTMLInputElement>("[data-link-label]")?.value ?? "";
+    control.querySelector<HTMLInputElement>("[data-link-type]:checked")
+      ?.value || "url";
+  const inputValue = (selector: string): string =>
+    control.querySelector<HTMLInputElement | HTMLSelectElement>(selector)
+      ?.value ?? "";
+  const label = inputValue("[data-link-label]");
+  const title = inputValue("[data-link-title]");
   const newTab =
     control.querySelector<HTMLInputElement>("[data-link-newtab]")?.checked ??
     false;
 
   if (type === "page") {
-    const pageId =
-      control.querySelector<HTMLInputElement | HTMLSelectElement>(
-        "[data-link-page]",
-      )?.value ?? "";
+    const pageId = inputValue("[data-link-page]");
     // Keep the page mode and label even with no page chosen yet, so a failed
     // save re-renders what the editor typed instead of resetting the field to a
     // URL link. A page-mode link that carries nothing at all is still dropped.
@@ -236,19 +245,48 @@ const linkValue = (control: Element): unknown => {
       type: "page",
       ...(pageId ? { pageId } : {}),
       ...(label ? { label } : {}),
+      ...(title ? { title } : {}),
       ...(newTab ? { newTab } : {}),
     };
   }
 
-  const url =
-    control.querySelector<HTMLInputElement>("[data-link-url]")?.value ?? "";
-  if (url === "") return undefined;
+  const scheme = type === "email" ? "mailto:" : type === "phone" ? "tel:" : "";
+  const destination = inputValue(
+    type === "email"
+      ? "[data-link-email]"
+      : type === "phone"
+        ? "[data-link-phone]"
+        : "[data-link-url]",
+  );
+  if (destination === "") return undefined;
   return {
     type: "url",
-    url,
+    url: `${scheme}${destination}`,
     ...(label ? { label } : {}),
+    ...(title ? { title } : {}),
     ...(newTab ? { newTab } : {}),
   };
+};
+
+/**
+ * Drop every destination value the editor is not using when the link type
+ * changes.
+ *
+ * A value typed for one type does not make sense for another — a path is not an
+ * email — so carrying it into the newly selected input would save a destination
+ * the editor never chose. The inputs are all server-rendered; this only clears
+ * the ones the stylesheet is about to hide.
+ */
+const clearLinkDestinations = (field: Element, keep: string): void => {
+  for (const destination of Array.from(
+    field.querySelectorAll("[data-link-destination]"),
+  )) {
+    if (destination.getAttribute("data-link-destination") === keep) continue;
+    const control = destination.querySelector<
+      HTMLInputElement | HTMLSelectElement
+    >("input, select");
+    if (control) control.value = "";
+  }
 };
 
 /**
@@ -693,6 +731,17 @@ const wireControls = (form: HTMLFormElement): void => {
   form.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+
+    // Switching a link's type drops the destination it is leaving behind. The
+    // radio group is a real one, so this is the only place a type change needs
+    // handling: the markup for every type is already on the page.
+    const type = target.closest("[data-link-type]");
+    if (type instanceof HTMLInputElement) {
+      const field = type.closest("[data-field]");
+      if (field) clearLinkDestinations(field, type.value);
+      return;
+    }
+
     const picker = target.closest("[data-image-picker]");
     if (!(picker instanceof HTMLSelectElement)) return;
     const field = picker.closest("[data-field]");

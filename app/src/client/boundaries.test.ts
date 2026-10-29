@@ -30,20 +30,26 @@ const NETWORK_AND_MARKUP_ALLOWED = new Set([`${CLIENT}/reactive/request.ts`]);
 // on the client that belongs on the server.
 const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 
-// Minified bytes for the block editor, `cms-form.ts`. It is 12,063 bytes
-// (11.78 KiB) at the time of writing. This is the one recorded exception to "the
+// Minified bytes for the block editor, `cms-form.ts`. It is 13,421 bytes
+// (13.11 KiB) at the time of writing. This is the one recorded exception to "the
 // client is presentation only" (AGENTS.md): a contenteditable rich-text field,
 // repeatable rows and the media focal picker need client JS, and the script is
 // kept to walking the server-rendered DOM back into the hidden `content` field.
-// 13,000 bytes leaves room for a small editor feature before a deliberate
+// 13,500 bytes leaves room for a small editor feature before a deliberate
 // decision is needed — the same arithmetic as the main bundle above, and the
 // number moving is the signal that the editor is growing into an application.
 // It was 12,000 when the bundle was 9,803; the editor has since added the page
 // block controls (move, remove, the Add-limit state) and the "no blocks yet"
 // toggle, which is the tier-3 work this budget is meant to accommodate rather
-// than the start of an application. Raise it again only with the same
-// arithmetic written down.
-const CMS_FORM_BUNDLE_BUDGET_BYTES = 13_000;
+// than the start of an application.
+//
+// The last rise, 13,000 → 13,500, is the link field's type switch: reading the
+// checked radio instead of one `<select>`, reading whichever of four
+// destination inputs is selected, prefixing Email and Phone with their scheme,
+// and clearing the destinations the editor left behind. It measured 12,940
+// against the old budget, so that budget had 60 bytes left and no room for
+// this. Raise it again only with the same arithmetic written down.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 13_500;
 
 const sources = (root: string): string[] =>
   Array.from(new Glob("**/*.{ts,tsx}").scanSync(root))
