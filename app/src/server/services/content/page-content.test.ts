@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   block,
   blockStoredSchema,
+  group,
   link,
+  list,
   MAX_RICH_TEXT_LIST_DEPTH,
   type PageTypeDefinition,
   pageType,
@@ -12,7 +14,7 @@ import {
   URL_PATTERN,
 } from "@alexpricedev/billet-cms/fields";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
-import { formatIssues } from "./drafts";
+import { formatIssues, linkLabelIssues } from "./drafts";
 import {
   asPageContent,
   checkPageLimits,
@@ -90,6 +92,25 @@ describe("validatePageContent", () => {
       blocks: [{ type: "hero", heading: "Hi" }],
     });
     expect(result.ok).toBe(true);
+  });
+
+  // Button text is an editor rule, not a schema one, so it has to fail here
+  // even though the schema accepted the link.
+  test("refuses a filled link with no button text", () => {
+    const result = validatePageContent(pageTypeRecord(landing), registry, {
+      blocks: [
+        {
+          type: "hero",
+          heading: "Hi",
+          cta: { type: "url", url: "https://example.com" },
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toEqual([
+      { path: "blocks.0.cta.label", message: "Button text is required." },
+    ]);
   });
 
   test("refuses a block the page type doesn't allow", () => {
@@ -467,17 +488,48 @@ describe("formatIssues", () => {
   });
 
   // Button text is not in the schema (label is optional), so the write layer
-  // adds it for a link that has a destination.
+  // checks it for a link that has a destination.
+  const heroFields = blockStoredSchema(hero).fields;
+
   test("adds a button-text message for a filled link with no label", () => {
     expect(
-      formatIssues([], {
+      linkLabelIssues(heroFields, {
         cta: { type: "url", url: "https://example.com" },
       }),
     ).toEqual([{ path: "cta.label", message: "Button text is required." }]);
   });
 
   test("does not ask for button text on an unfilled page link", () => {
-    expect(formatIssues([], { cta: { type: "page", pageId: "" } })).toEqual([]);
+    expect(
+      linkLabelIssues(heroFields, { cta: { type: "page", pageId: "" } }),
+    ).toEqual([]);
+  });
+
+  // A field a deploy removed has no control in the form, so a label-less link
+  // left in it must not make the block unpublishable.
+  test("ignores a link in a field the metadata no longer declares", () => {
+    expect(
+      linkLabelIssues(heroFields, {
+        removedCta: { type: "url", url: "https://example.com" },
+      }),
+    ).toEqual([]);
+  });
+
+  test("finds a link nested in a list and a group", () => {
+    const nested = block(
+      "nested",
+      { links: list(link()), cta: group({ url: link() }) },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(nested).fields, {
+        links: [{ type: "url", url: "https://example.com" }],
+        cta: { url: { type: "url", url: "https://example.com" } },
+      }),
+    ).toEqual([
+      { path: "links.0.label", message: "Button text is required." },
+      { path: "cta.url.label", message: "Button text is required." },
+    ]);
   });
 });
 

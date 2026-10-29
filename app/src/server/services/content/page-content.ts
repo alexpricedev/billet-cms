@@ -26,7 +26,7 @@
  */
 import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
-import { type FieldIssue, formatIssues } from "./drafts";
+import { type FieldIssue, formatIssues, linkLabelIssues } from "./drafts";
 
 /** One block in a page's stored content: its fields plus the `type`. */
 export interface PageBlock {
@@ -210,20 +210,25 @@ export const validatePageContent = (
     const validation = validateContent(blockType.jsonSchema, fields, {
       allowAdditionalFields: true,
     });
-    if (!validation.success) {
-      // The schema is compiled by Zod, whose messages name the validator
-      // ("Too big: expected string to have <=80 characters", "Invalid input")
-      // rather than the problem. A slot's fields go through `formatIssues` so
-      // their messages read as something an editor can fix; a page's blocks
-      // take the same rewrite, so the two editors speak the same language
-      // (review follow-up).
-      for (const issue of formatIssues(validation.issues, fields)) {
-        // A whole-block issue (`validateContent`'s rich text nesting bound) has
-        // no field path, so it points at the block itself rather than at a
-        // field literally named "(content)" (review round 1).
-        const path = issue.path === "(content)" ? at : `${at}.${issue.path}`;
-        issues.push({ path, message: issue.message });
-      }
+    // The schema is compiled by Zod, whose messages name the validator
+    // ("Too big: expected string to have <=80 characters", "Invalid input")
+    // rather than the problem. A slot's fields go through `formatIssues` so
+    // their messages read as something an editor can fix; a page's blocks
+    // take the same rewrite, so the two editors speak the same language
+    // (review follow-up).
+    //
+    // Button text is not in the schema, so its check runs on a valid block too
+    // — otherwise a link with a destination and no words is stored silently.
+    const fieldIssues = [
+      ...(validation.success ? [] : formatIssues(validation.issues, fields)),
+      ...linkLabelIssues(blockType.fields, fields),
+    ];
+    for (const issue of fieldIssues) {
+      // A whole-block issue (`validateContent`'s rich text nesting bound) has
+      // no field path, so it points at the block itself rather than at a
+      // field literally named "(content)" (review round 1).
+      const path = issue.path === "(content)" ? at : `${at}.${issue.path}`;
+      issues.push({ path, message: issue.message });
     }
   });
 

@@ -445,8 +445,10 @@ describe("FieldControl link", () => {
     }
 
     // All four destination controls render, each with its own type; CSS shows
-    // the one whose radio is checked.
-    expect(html).toContain('type="url"');
+    // the one whose radio is checked. The URL box is `type="text"` so a stored
+    // root-relative path or fragment isn't refused by native validation.
+    expect(html).toMatch(/type="text"[^>]*data-link-url/);
+    expect(html).not.toContain('type="url"');
     expect(html).toContain('placeholder="https://…"');
     expect(html).toContain("data-link-page");
     expect(html).toContain('type="email"');
@@ -462,6 +464,41 @@ describe("FieldControl link", () => {
     expect(html).toContain(
       "Shown as a tooltip when someone hovers over the link.",
     );
+  });
+
+  // Each row is its own link. Sharing a radio `name` would make choosing a type
+  // in one row uncheck it in the next, because the browser groups by name.
+  test("gives a link in each list row its own radio group name", () => {
+    const links: FieldMetadata = {
+      name: "links",
+      kind: "list",
+      required: false,
+      of: { name: "link", kind: "link", required: true },
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={links}
+        idBase="cms-field-links"
+        value={[
+          { type: "url", url: "https://a.example", label: "A" },
+          { type: "url", url: "https://b.example", label: "B" },
+        ]}
+      />,
+    );
+
+    const names = Array.from(
+      html.matchAll(/type="radio"[^>]*name="([^"]+)"/g),
+      (match) => match[1],
+    );
+    // Two real rows plus the template row the client clones: one name each,
+    // and every one of them used by its own four options.
+    const unique = Array.from(new Set(names));
+    expect(unique.filter((name) => !name.includes("template"))).toHaveLength(2);
+    for (const name of unique) {
+      expect(names.filter((candidate) => candidate === name)).toHaveLength(4);
+    }
   });
 
   test("checks the stored type, including mailto and tel", () => {

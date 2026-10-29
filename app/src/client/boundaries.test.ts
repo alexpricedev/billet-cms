@@ -30,12 +30,12 @@ const NETWORK_AND_MARKUP_ALLOWED = new Set([`${CLIENT}/reactive/request.ts`]);
 // on the client that belongs on the server.
 const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 
-// Minified bytes for the block editor, `cms-form.ts`. It is 13,421 bytes
-// (13.11 KiB) at the time of writing. This is the one recorded exception to "the
+// Minified bytes for the block editor, `cms-form.ts`. It is 13,863 bytes
+// (13.54 KiB) at the time of writing. This is the one recorded exception to "the
 // client is presentation only" (AGENTS.md): a contenteditable rich-text field,
 // repeatable rows and the media focal picker need client JS, and the script is
 // kept to walking the server-rendered DOM back into the hidden `content` field.
-// 13,500 bytes leaves room for a small editor feature before a deliberate
+// 14,000 bytes leaves room for a small editor feature before a deliberate
 // decision is needed — the same arithmetic as the main bundle above, and the
 // number moving is the signal that the editor is growing into an application.
 // It was 12,000 when the bundle was 9,803; the editor has since added the page
@@ -43,13 +43,13 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // toggle, which is the tier-3 work this budget is meant to accommodate rather
 // than the start of an application.
 //
-// The last rise, 13,000 → 13,500, is the link field's type switch: reading the
-// checked radio instead of one `<select>`, reading whichever of four
-// destination inputs is selected, prefixing Email and Phone with their scheme,
-// and clearing the destinations the editor left behind. It measured 12,940
-// against the old budget, so that budget had 60 bytes left and no room for
-// this. Raise it again only with the same arithmetic written down.
-const CMS_FORM_BUNDLE_BUDGET_BYTES = 13_500;
+// The last rise, 13,500 → 14,000, is the link field's fixes: dropping New tab
+// for Email and Phone, compacting the phone number's spaces to the `tel:`
+// allowlist, keeping a page link that has only hover text, and re-naming the
+// radios in a cloned list row so two rows are not one browser radio group. It
+// measured 13,863, so the old budget had no room for this. Raise it again only
+// with the same arithmetic written down.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_000;
 
 const sources = (root: string): string[] =>
   Array.from(new Glob("**/*.{ts,tsx}").scanSync(root))

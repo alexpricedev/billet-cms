@@ -15,6 +15,7 @@
  *    to show the editor, not a row. The check and the insert run in one
  *    transaction, under a row lock on the slot, so two saves can't both pass.
  */
+import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
 import {
   URL_PATTERN,
   URL_PATTERN_MESSAGE,
@@ -225,47 +226,78 @@ const isLinkValue = (value: unknown): value is Record<string, unknown> => {
   return false;
 };
 
+/** True when a link value names a destination, so its Button text is needed. */
+const hasLinkDestination = (value: Record<string, unknown>): boolean =>
+  value.type === "url"
+    ? typeof value.url === "string" && value.url.trim() !== ""
+    : typeof value.pageId === "string" && value.pageId !== "";
+
 /**
- * Button-text issues for every link in the content.
+ * Button-text issues for the links the block's own metadata declares.
  *
- * Walks values rather than field metadata: a link can sit at the top level, in a
- * group or inside a list, and the value is the same shape wherever it is. The
- * walk stops at a link rather than descending into it, because its own keys
- * (`type`, `url`, `label`) are not fields.
+ * Walks the field metadata tree rather than raw values on purpose. Content can
+ * still carry a field a deploy removed (see `carryRemovedFields`); it has no
+ * control in the form, so an editor could never add the missing button text and
+ * the whole block would be unpublishable. Following `list.of` and
+ * `group.fields` is what reaches a link nested in either.
+ *
+ * A link with no destination is not "filled in": a page-mode link with no page
+ * chosen yet is what the client keeps so a failed save does not lose the mode.
+ * Complaining about its button text as well would bury the one thing the person
+ * still has to do.
  */
-const missingLinkLabels = (content: unknown): FieldIssue[] => {
+const walkLinkLabels = (
+  field: FieldMetadata,
+  value: unknown,
+  path: (string | number)[],
+  issues: FieldIssue[],
+): void => {
+  if (field.kind === "link") {
+    if (!isLinkValue(value) || !hasLinkDestination(value)) return;
+    const label = value.label;
+    if (typeof label !== "string" || label.trim() === "") {
+      issues.push({
+        path: [...path, "label"].join("."),
+        message: "Button text is required.",
+      });
+    }
+    return;
+  }
+
+  if (field.kind === "list") {
+    if (!field.of || !Array.isArray(value)) return;
+    for (const [index, item] of value.entries()) {
+      walkLinkLabels(field.of, item, [...path, index], issues);
+    }
+    return;
+  }
+
+  if (field.kind === "group") {
+    if (!field.fields || typeof value !== "object" || value === null) return;
+    const record = value as Record<string, unknown>;
+    for (const child of field.fields) {
+      walkLinkLabels(child, record[child.name], [...path, child.name], issues);
+    }
+  }
+};
+
+/**
+ * Button-text issues for a block's content.
+ *
+ * Exported because the check is not in the schema (`label` is optional there):
+ * every write path has to run it itself, before it decides a save or publish
+ * is valid, or a link with no visible words is stored and never reported.
+ */
+export const linkLabelIssues = (
+  fields: FieldMetadata[],
+  content: unknown,
+): FieldIssue[] => {
   const issues: FieldIssue[] = [];
-  const walk = (value: unknown, path: (string | number)[]): void => {
-    if (Array.isArray(value)) {
-      for (const [index, item] of value.entries()) {
-        walk(item, [...path, index]);
-      }
-      return;
-    }
-    if (isLinkValue(value)) {
-      // Only a link with a destination is "filled in": a page-mode link with no
-      // page chosen yet is what the client keeps so a failed save does not lose
-      // the mode. Complaining about its button text as well would bury the one
-      // thing the person still has to do.
-      const destination =
-        value.type === "url"
-          ? typeof value.url === "string" && value.url.trim() !== ""
-          : typeof value.pageId === "string" && value.pageId !== "";
-      const label = value.label;
-      if (destination && (typeof label !== "string" || label.trim() === "")) {
-        issues.push({
-          path: [...path, "label"].join("."),
-          message: "Button text is required.",
-        });
-      }
-      return;
-    }
-    if (typeof value !== "object" || value === null) return;
-    for (const [key, child] of Object.entries(value)) {
-      walk(child, [...path, key]);
-    }
-  };
-  walk(content, []);
+  if (typeof content !== "object" || content === null) return issues;
+  const record = content as Record<string, unknown>;
+  for (const field of fields) {
+    walkLinkLabels(field, record[field.name], [field.name], issues);
+  }
   return issues;
 };
 
@@ -283,8 +315,8 @@ const missingLinkLabels = (content: unknown): FieldIssue[] => {
 export const formatIssues = (
   issues: ValidationIssue[],
   content: unknown,
-): FieldIssue[] => {
-  const formatted = issues.map((issue) => {
+): FieldIssue[] =>
+  issues.map((issue) => {
     const path = issue.path.length > 0 ? issue.path.join(".") : "(content)";
     const last = issue.path[issue.path.length - 1];
     const parent = valueAtPath(content, issue.path.slice(0, -1));
@@ -299,11 +331,6 @@ export const formatIssues = (
           : plainMessage(issue.message);
     return { path, message };
   });
-
-  // Button text required is not a schema rule (see `isLinkValue`), so it is
-  // added here, on the same dotted paths the schema issues use.
-  return [...formatted, ...missingLinkLabels(content)];
-};
 
 const describeConflict = async (
   revision: RevisionRecord,
@@ -387,12 +414,14 @@ export const saveSlotDraft = async (
   // Strict: a key the block doesn't declare is refused. Removed fields are
   // re-attached below from the base revision, so they never need to pass here.
   const validation = validateContent(blockType.jsonSchema, input.content);
-  if (!validation.success) {
-    return {
-      ok: false,
-      reason: "invalid",
-      issues: formatIssues(validation.issues, input.content),
-    };
+  // Button text is not in the schema, so it has to be checked on every save,
+  // not only when the validator already found something else wrong.
+  const labelIssues = linkLabelIssues(blockType.fields, input.content);
+  if (!validation.success || labelIssues.length > 0) {
+    const issues = validation.success
+      ? labelIssues
+      : [...formatIssues(validation.issues, input.content), ...labelIssues];
+    return { ok: false, reason: "invalid", issues };
   }
 
   // The schema can only say an image reference is a UUID; whether the picture

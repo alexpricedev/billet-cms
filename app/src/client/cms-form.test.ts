@@ -246,13 +246,41 @@ describe("cms form editor", () => {
     });
   });
 
-  test("reads a Phone destination as a tel: url", () => {
+  // The placeholder is written with spaces, but the `tel:` allowlist refuses
+  // whitespace — so the suggested format is accepted and saved compacted.
+  test("reads a Phone destination as a tel: url without whitespace", () => {
     mount(linkMarkup("phone"));
     input("[data-link-phone]").value = "+44 20 7946 0000";
 
     expect(buildContent(form()).cta).toEqual({
       type: "url",
-      url: "tel:+44 20 7946 0000",
+      url: "tel:+442079460000",
+    });
+  });
+
+  // The New tab row is hidden for Email and Phone, so a tick left over from URL
+  // must not be written onto a link that can't show it.
+  test("leaves new tab out of an Email or Phone link", () => {
+    mount(linkMarkup("email"));
+    input("[data-link-email]").value = "hello@example.com";
+    const newTab = form().querySelector<HTMLInputElement>("[data-link-newtab]");
+    if (newTab) newTab.checked = true;
+
+    expect(buildContent(form()).cta).toEqual({
+      type: "url",
+      url: "mailto:hello@example.com",
+    });
+  });
+
+  // Hover text alone is enough to keep page mode, so a failed save doesn't
+  // throw away what the editor typed.
+  test("keeps a page-mode link that has only hover text", () => {
+    mount(linkMarkup("page"));
+    input("[data-link-title]").value = "Read more";
+
+    expect(buildContent(form()).cta).toEqual({
+      type: "page",
+      title: "Read more",
     });
   });
 
@@ -712,6 +740,67 @@ describe("nested lists", () => {
         ":scope > [data-list-items] > [data-list-item]",
       ).length,
     ).toBe(1);
+  });
+
+  // The template's radios all carry one name. Copies must not keep it, or the
+  // browser treats every row's switch as the same four-way group.
+  test("gives a cloned link row a radio group of its own", () => {
+    const radios = (name: string): string =>
+      ["url", "page", "email", "phone"]
+        .map(
+          (kind, index) =>
+            `<input type="radio" name="${name}" value="${kind}" data-link-type${
+              index === 0 ? " checked" : ""
+            }>`,
+        )
+        .join("");
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <div data-field data-field-kind="list" data-field-name="links" data-list>
+          <div data-list-items>
+            <div data-list-item>
+              <div data-field data-field-kind="link" data-field-name="link">
+                ${radios("links-row-0")}
+              </div>
+            </div>
+          </div>
+          <template data-list-template>
+            <div data-list-item>
+              <div data-field data-field-kind="link" data-field-name="link">
+                ${radios("links-template")}
+              </div>
+            </div>
+          </template>
+          <button type="button" data-list-add>Add item</button>
+        </div>
+      </form>
+    `);
+
+    const list = form().querySelector(
+      '[data-field-name="links"]',
+    ) as HTMLElement;
+    const add = list.querySelector(
+      ":scope > [data-list-add]",
+    ) as HTMLButtonElement;
+    add.click();
+    add.click();
+
+    const rows = Array.from(
+      list.querySelectorAll(":scope > [data-list-items] > [data-list-item]"),
+    );
+    const names = rows.map(
+      (row) =>
+        new Set(
+          Array.from(
+            row.querySelectorAll<HTMLInputElement>("[data-link-type]"),
+            (radio) => radio.name,
+          ),
+        ),
+    );
+    // Four options per row share one name; no two rows share it.
+    for (const name of names) expect(name.size).toBe(1);
+    expect(new Set(names.map((name) => [...name][0])).size).toBe(rows.length);
   });
 });
 
