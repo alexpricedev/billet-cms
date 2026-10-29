@@ -265,189 +265,13 @@ h1 {
   text-overflow: ellipsis;
 }
 
-/* ---- The link field ------------------------------------------------------ */
-
-/* One box per link: button text, where it goes, then hover text. The field's
-   own name heads the box. A fieldset draws its legend in the top border, so the
-   name is positioned into reserved padding instead; the border stays a clean
-   rounded rectangle. */
-.cms-field-link {
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  gap: var(--space-3);
-  padding: 40px 14px 16px;
-  position: relative;
-}
-
-.cms-field-link > .cms-field-label {
-  left: 14px;
-  position: absolute;
-  right: 14px;
-  top: 14px;
-}
-
-.cms-link-text,
-.cms-link-title {
-  display: grid;
-  gap: 6px;
-}
-
-/* The two sub-labels ("Button text", "Goes to") sit at the ticket's 13/18,
-   weight 500, in the secondary text colour. Only link sub-controls use this
-   class, so the shared rule can carry it. */
-.cms-field-link .cms-field-sublabel {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 18px;
-}
-
-.cms-field-link .cms-field-optional {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.cms-link-text input,
-.cms-link-destination input,
-.cms-link-destination select,
-.cms-link-title input {
-  height: 44px;
-}
-
-.cms-link-destination-group {
-  display: grid;
-  gap: var(--space-2);
-}
-
-/* The type switch: a real radio group, so it submits without JavaScript and
-   `:has(input:checked)` alone decides which destination is on screen. */
-.cms-link-types {
-  background: var(--surface-selected);
-  border-radius: var(--radius);
-  display: grid;
-  gap: 2px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding: 3px;
-}
-
-.cms-link-types .cms-link-type {
-  align-items: center;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  font-size: 13px;
-  font-weight: 500;
-  gap: 6px;
-  height: 38px;
-  justify-content: center;
-  line-height: 1;
-  padding: 0 4px;
-  white-space: nowrap;
-}
-
-.cms-link-type:hover {
-  color: var(--text);
-}
-
-.cms-link-type:has(input:checked) {
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-  color: var(--text);
-  font-weight: 600;
-}
-
-/* The radio itself is visually hidden, so the ring has to be drawn on its
-   label to stay visible to a keyboard user. */
-.cms-link-type:has(input:focus-visible) {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.cms-link-type svg {
-  flex: 0 0 auto;
-}
-
-/* At 320 an option is about 54px wide and the icon plus a five-letter word no
-   longer fits; the words still name each option, so the icons go. */
-@media (max-width: 380px) {
-  .cms-link-types .cms-link-type svg {
-    display: none;
-  }
-}
-
-/* All four destinations are in the DOM; only the checked type's is shown. */
-.cms-link-destination {
+/* The link field offers a URL and a page id; only the one the select names is
+   shown. `:has` reads the chosen option, so this needs no script. */
+.cms-field-link:has([data-link-type] option[value="page"]:checked)
+.cms-link-url,
+.cms-field-link:has([data-link-type] option[value="url"]:checked)
+  .cms-link-page {
   display: none;
-  gap: 6px;
-  position: relative;
-}
-
-.cms-field-link
-  .cms-link-types:has(input[value="url"]:checked)
-  ~ .cms-link-destination[data-link-destination="url"],
-.cms-field-link
-  .cms-link-types:has(input[value="page"]:checked)
-  ~ .cms-link-destination[data-link-destination="page"],
-.cms-field-link
-  .cms-link-types:has(input[value="email"]:checked)
-  ~ .cms-link-destination[data-link-destination="email"],
-.cms-field-link
-  .cms-link-types:has(input[value="phone"]:checked)
-  ~ .cms-link-destination[data-link-destination="phone"] {
-  display: grid;
-}
-
-.cms-link-destination input,
-.cms-link-destination select {
-  padding-left: 38px;
-}
-
-/* The type icon sits inside the control, vertically centred on its 44px
-   height; it never takes a click meant for the input. */
-.cms-link-icon {
-  align-items: center;
-  color: var(--text-muted);
-  display: flex;
-  height: 44px;
-  left: 12px;
-  pointer-events: none;
-  position: absolute;
-  top: 0;
-}
-
-.cms-link-icon svg {
-  height: 16px;
-  width: 16px;
-}
-
-.cms-link-newtab {
-  color: var(--text-secondary);
-  font-size: 13px;
-  margin-top: 2px;
-}
-
-/* New tab is part of "where it goes" for a URL or a page; an email address and
-   a phone number have nowhere to open. */
-.cms-field-link:has(.cms-link-types input[value="email"]:checked)
-.cms-link-newtab,
-.cms-field-link:has(.cms-link-types input[value="phone"]:checked)
-  .cms-link-newtab {
-  display: none;
-}
-
-.cms-link-divider {
-  border: 0;
-  border-top: 1px solid var(--border);
-  margin: 0;
-  width: 100%;
-}
-
-.cms-field-link .cms-field-help {
-  font-size: 12px;
-  margin: 0;
 }
 
 .cms-noscript {
@@ -822,16 +646,14 @@ h1 {
 }
 
 /* A block is a card so a long page stays scannable and the Remove button sits
-   with the block it removes. The stronger border and the wider gap between
-   blocks do the separating when one block ends and the next begins. */
+   with the block it removes. */
 .cms-block {
   background: var(--surface);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-3);
   min-inline-size: 0;
-  padding: calc(44px + var(--space-4)) var(--space-4) var(--space-4);
-  position: relative;
+  padding: var(--space-4);
 }
 
 /* The block already spaces its own controls; the shared field list's margin
@@ -840,27 +662,13 @@ h1 {
   margin: 0;
 }
 
-/* The block's name and its move/remove controls share a tinted band across the
-   top of the card. The fieldset would otherwise draw its legend in the top
-   border, so it is taken out of flow into the band's reserved padding; the
-   card's border stays one clean rounded rectangle. */
 .cms-block-legend {
   align-items: center;
-  background: var(--surface-subtle);
-  border-bottom: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
   color: var(--text);
   display: flex;
   font-size: 13.5px;
   font-weight: 600;
   gap: var(--space-2);
-  left: 0;
-  min-height: 44px;
-  padding: var(--space-2) var(--space-4);
-  padding-right: 136px;
-  position: absolute;
-  right: 0;
-  top: 0;
 }
 
 .cms-block-legend code {
@@ -873,16 +681,11 @@ h1 {
   padding: 0;
 }
 
-/* The controls ride in the block's header band, on the name's baseline. */
-.cms-block > .cms-block-actions {
+.cms-block-actions {
   display: flex;
   gap: var(--space-1);
   justify-content: flex-end;
-  margin-bottom: 0;
-  position: absolute;
-  right: var(--space-3);
-  top: var(--space-2);
-  z-index: 1;
+  margin-bottom: var(--space-3);
 }
 
 .cms-block-move,

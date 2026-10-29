@@ -2143,7 +2143,7 @@ describe("Pages controller", () => {
             type: "hero",
             heading: "Go",
             body: document,
-            cta: { type: "page", pageId, label: "Go" },
+            cta: { type: "page", pageId },
           },
         ],
       },
