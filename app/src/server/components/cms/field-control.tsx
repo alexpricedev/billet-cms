@@ -180,6 +180,96 @@ const FieldErrors = ({
     </ul>
   ) : null;
 
+/** The four destinations a link field offers, in the switch's order. */
+const LINK_TYPES = ["url", "page", "email", "phone"] as const;
+type LinkType = (typeof LINK_TYPES)[number];
+
+const LINK_TYPE_LABELS: Record<LinkType, string> = {
+  url: "URL",
+  page: "Page",
+  email: "Email",
+  phone: "Phone",
+};
+
+/**
+ * The 14px line icons on the type switch and inside the destination input.
+ *
+ * Decorative: the switch option's own text names it, and the input has a
+ * visually hidden label, so every icon is `aria-hidden`.
+ */
+const LinkTypeIcon = ({ kind }: { kind: LinkType }): JSX.Element => {
+  switch (kind) {
+    case "url":
+      return (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="8" cy="8" r="5.5" />
+          <path d="M2.5 8h11" />
+          <path d="M8 2.5c1.5 1.6 2.3 3.4 2.3 5.5S9.5 11.9 8 13.5C6.5 11.9 5.7 10.1 5.7 8S6.5 4.1 8 2.5Z" />
+        </svg>
+      );
+    case "page":
+      return (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M4 2.5h5l3 3v8H4z" />
+          <path d="M9 2.5v3h3" />
+        </svg>
+      );
+    case "email":
+      return (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="2" y="4" width="12" height="8" rx="1" />
+          <path d="m2.5 4.5 5.5 4 5.5-4" />
+        </svg>
+      );
+    default:
+      return (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M5.5 2.5c.4 0 .7.2.9.6l.7 1.5c.2.4.1.8-.2 1.1l-.8.7a8 8 0 0 0 3.3 3.3l.7-.8c.3-.3.7-.4 1.1-.2l1.5.7c.4.2.6.5.6.9v1.4c0 .6-.5 1.1-1.1 1.1A10.4 10.4 0 0 1 2.5 3.6c0-.6.5-1.1 1.1-1.1h1.9Z" />
+        </svg>
+      );
+  }
+};
+
 const RichTextToolbar = ({ editorId }: { editorId?: string }): JSX.Element => (
   <div
     className="cms-rte-toolbar"
@@ -575,7 +665,46 @@ export const FieldControl = ({
 
     case "link": {
       const link = asRecord(value);
-      const type = link.type === "page" ? "page" : "url";
+      // Email and Phone have no stored type of their own: both are url-mode
+      // links whose scheme is what the editor recognises them by.
+      const storedUrl = asString(link.url);
+      const lowerUrl = storedUrl.toLowerCase();
+      const type: LinkType =
+        link.type === "page"
+          ? "page"
+          : lowerUrl.startsWith("mailto:")
+            ? "email"
+            : lowerUrl.startsWith("tel:")
+              ? "phone"
+              : "url";
+
+      // Errors arrive with the whole dotted path (`cta.url`), so each control
+      // takes the message whose last segment names it. Anything else — a
+      // whole-link issue, or a field-level one the schema produced — stays on
+      // the container.
+      const forControl = (segment: string): FieldError[] =>
+        (errors ?? []).filter(
+          (error) =>
+            error.path.slice(error.path.lastIndexOf(".") + 1) === segment,
+        );
+      const labelErrors = forControl("label");
+      const titleErrors = forControl("title");
+      const destinationErrors = forControl(type === "page" ? "pageId" : "url");
+      const known = new Set(["label", "title", "url", "pageId"]);
+      const groupErrors = (errors ?? []).filter(
+        (error) =>
+          !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
+      );
+
+      const labelErrorId = idFor("label-error");
+      const titleErrorId = idFor("title-error");
+      const destinationErrorId = idFor("destination-error");
+      const titleHelpId = idFor("title-help");
+      // A row has no stable id, so its radios fall back to the field's own
+      // name. Rows of the same list would share it; a link inside a list is
+      // not a shape the current blocks use.
+      const radioName = `${controlId ?? field.name}-type`;
+
       return (
         <fieldset
           className="cms-field cms-field-link"
@@ -593,78 +722,230 @@ export const FieldControl = ({
             </legend>
           )}
           <FieldHelp help={field.help} id={helpId} />
-          <SubControlLabel htmlFor={idFor("type")}>Link type</SubControlLabel>
-          <select
-            id={idFor("type")}
-            data-link-type
-            aria-label={controlId ? undefined : "Link type"}
-          >
-            <option value="url" selected={type === "url"}>
-              External URL
-            </option>
-            <option value="page" selected={type === "page"}>
-              CMS page
-            </option>
-          </select>
-          <div className="cms-link-url">
-            <SubControlLabel htmlFor={idFor("url")}>
-              External URL
+
+          <div className="cms-link-text">
+            <SubControlLabel htmlFor={idFor("label")}>
+              Button text<span className="cms-required"> *</span>
             </SubControlLabel>
             <input
               type="text"
-              id={idFor("url")}
-              data-link-url
-              placeholder="https://…"
-              aria-label={controlId ? undefined : "External URL"}
-              value={asString(link.url)}
-              aria-invalid={invalid ? "true" : undefined}
-              aria-describedby={described}
+              id={idFor("label")}
+              data-link-label
+              aria-label={controlId ? undefined : "Button text"}
+              value={asString(link.label)}
+              aria-invalid={labelErrors.length > 0 ? "true" : undefined}
+              aria-describedby={
+                labelErrors.length > 0 ? labelErrorId : undefined
+              }
             />
+            <FieldErrors errors={labelErrors} id={labelErrorId} />
           </div>
-          <div className="cms-link-page">
-            <SubControlLabel htmlFor={idFor("page")}>CMS page</SubControlLabel>
-            <select
-              id={idFor("page")}
-              data-link-page
-              aria-label={controlId ? undefined : "CMS page"}
-              aria-invalid={invalid ? "true" : undefined}
-              aria-describedby={described}
+
+          <div className="cms-link-destination-group">
+            <span className="cms-field-sublabel">
+              Goes to<span className="cms-required"> *</span>
+            </span>
+            <div
+              className="cms-link-types"
+              role="radiogroup"
+              aria-label="Link type"
             >
-              <option value="" selected={!link.pageId}>
-                Choose a page…
-              </option>
-              {/* The link stores the page id, so a rename changes what this
-                  resolves to without touching the saved content. */}
-              {(pages ?? []).map((option) => (
-                <option
-                  key={option.id}
-                  value={option.id}
-                  selected={option.id === link.pageId}
-                >
-                  {option.title} ({option.url})
-                </option>
+              {LINK_TYPES.map((kind) => (
+                <label key={kind} className="cms-link-type">
+                  <input
+                    type="radio"
+                    className="sr-only"
+                    name={radioName}
+                    value={kind}
+                    data-link-type
+                    checked={type === kind}
+                  />
+                  <LinkTypeIcon kind={kind} />
+                  <span>{LINK_TYPE_LABELS[kind]}</span>
+                </label>
               ))}
-            </select>
+            </div>
+
+            <div className="cms-link-destination" data-link-destination="url">
+              <label className="sr-only" htmlFor={idFor("url")}>
+                URL
+              </label>
+              <span className="cms-link-icon" aria-hidden="true">
+                <LinkTypeIcon kind="url" />
+              </span>
+              <input
+                type="url"
+                id={idFor("url")}
+                data-link-url
+                placeholder="https://…"
+                aria-label={controlId ? undefined : "URL"}
+                value={type === "url" ? storedUrl : ""}
+                aria-invalid={
+                  type === "url" && destinationErrors.length > 0
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  type === "url" && destinationErrors.length > 0
+                    ? destinationErrorId
+                    : undefined
+                }
+              />
+              {type === "url" && (
+                <FieldErrors
+                  errors={destinationErrors}
+                  id={destinationErrorId}
+                />
+              )}
+            </div>
+
+            <div className="cms-link-destination" data-link-destination="page">
+              <label className="sr-only" htmlFor={idFor("page")}>
+                Page
+              </label>
+              <span className="cms-link-icon" aria-hidden="true">
+                <LinkTypeIcon kind="page" />
+              </span>
+              <select
+                id={idFor("page")}
+                data-link-page
+                aria-label={controlId ? undefined : "Page"}
+                aria-invalid={
+                  type === "page" && destinationErrors.length > 0
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  type === "page" && destinationErrors.length > 0
+                    ? destinationErrorId
+                    : undefined
+                }
+              >
+                <option value="" selected={!link.pageId}>
+                  Choose a page…
+                </option>
+                {/* The link stores the page id, so a rename changes what this
+                    resolves to without touching the saved content. */}
+                {(pages ?? []).map((option) => (
+                  <option
+                    key={option.id}
+                    value={option.id}
+                    selected={option.id === link.pageId}
+                  >
+                    {option.title} ({option.url})
+                  </option>
+                ))}
+              </select>
+              {type === "page" && (
+                <FieldErrors
+                  errors={destinationErrors}
+                  id={destinationErrorId}
+                />
+              )}
+            </div>
+
+            <div className="cms-link-destination" data-link-destination="email">
+              <label className="sr-only" htmlFor={idFor("email")}>
+                Email
+              </label>
+              <span className="cms-link-icon" aria-hidden="true">
+                <LinkTypeIcon kind="email" />
+              </span>
+              <input
+                type="email"
+                id={idFor("email")}
+                data-link-email
+                placeholder="name@example.com"
+                aria-label={controlId ? undefined : "Email"}
+                value={
+                  type === "email" ? storedUrl.slice("mailto:".length) : ""
+                }
+                aria-invalid={
+                  type === "email" && destinationErrors.length > 0
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  type === "email" && destinationErrors.length > 0
+                    ? destinationErrorId
+                    : undefined
+                }
+              />
+              {type === "email" && (
+                <FieldErrors
+                  errors={destinationErrors}
+                  id={destinationErrorId}
+                />
+              )}
+            </div>
+
+            <div className="cms-link-destination" data-link-destination="phone">
+              <label className="sr-only" htmlFor={idFor("phone")}>
+                Phone
+              </label>
+              <span className="cms-link-icon" aria-hidden="true">
+                <LinkTypeIcon kind="phone" />
+              </span>
+              <input
+                type="tel"
+                id={idFor("phone")}
+                data-link-phone
+                placeholder="+44 20 7946 0000"
+                aria-label={controlId ? undefined : "Phone"}
+                value={type === "phone" ? storedUrl.slice("tel:".length) : ""}
+                aria-invalid={
+                  type === "phone" && destinationErrors.length > 0
+                    ? "true"
+                    : undefined
+                }
+                aria-describedby={
+                  type === "phone" && destinationErrors.length > 0
+                    ? destinationErrorId
+                    : undefined
+                }
+              />
+              {type === "phone" && (
+                <FieldErrors
+                  errors={destinationErrors}
+                  id={destinationErrorId}
+                />
+              )}
+            </div>
+
+            <label className="cms-link-newtab" data-link-newtab-row>
+              <input
+                type="checkbox"
+                id={idFor("newtab")}
+                data-link-newtab
+                checked={link.newTab === true}
+              />
+              Open in a new tab
+            </label>
           </div>
-          <SubControlLabel htmlFor={idFor("label")}>Label</SubControlLabel>
-          <input
-            type="text"
-            id={idFor("label")}
-            data-link-label
-            placeholder="Label"
-            aria-label={controlId ? undefined : "Label"}
-            value={asString(link.label)}
-          />
-          <label>
+
+          <hr className="cms-link-divider" />
+
+          <div className="cms-link-title">
+            <SubControlLabel htmlFor={idFor("title")}>
+              Hover text
+              <span className="cms-field-optional"> Optional</span>
+            </SubControlLabel>
             <input
-              type="checkbox"
-              id={idFor("newtab")}
-              data-link-newtab
-              checked={link.newTab === true}
+              type="text"
+              id={idFor("title")}
+              data-link-title
+              aria-label={controlId ? undefined : "Hover text"}
+              value={asString(link.title)}
+              aria-invalid={titleErrors.length > 0 ? "true" : undefined}
+              aria-describedby={titleHelpId}
             />
-            Open in a new tab
-          </label>
-          <FieldErrors errors={errors} id={errorId} />
+            <span className="cms-field-help" id={titleHelpId}>
+              Shown as a tooltip when someone hovers over the link.
+            </span>
+            <FieldErrors errors={titleErrors} id={titleErrorId} />
+          </div>
+
+          <FieldErrors errors={groupErrors} id={errorId} />
         </fieldset>
       );
     }

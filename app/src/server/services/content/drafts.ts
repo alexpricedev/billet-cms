@@ -167,15 +167,106 @@ const isUnchosenPageLink = (value: unknown): boolean => {
   return pageId === undefined || pageId === null || pageId === "";
 };
 
-/** True when a value is a url-mode link whose `url` fails the shared allowlist. */
-const isBadLinkUrl = (value: unknown): boolean => {
-  if (typeof value !== "object" || value === null) return false;
+/**
+ * The destination a url-mode link failed on, or `null` when it is valid.
+ *
+ * The value is returned rather than a bare boolean because the editor shows a
+ * different message for each destination it offers: a `mailto:` link is an
+ * Email field and a `tel:` link is a Phone field to the person typing, even
+ * though both are stored as `type: "url"`.
+ */
+const badLinkUrl = (value: unknown): string | null => {
+  if (typeof value !== "object" || value === null) return null;
   const record = value as { type?: unknown; url?: unknown };
-  return (
-    record.type === "url" &&
-    typeof record.url === "string" &&
-    !URL_PATTERN.test(record.url)
-  );
+  if (record.type !== "url" || typeof record.url !== "string") return null;
+  return URL_PATTERN.test(record.url) ? null : record.url;
+};
+
+/** Copy for the link field's destination inputs, one per kind the editor shows. */
+const LINK_URL_MESSAGE = "Enter a full URL, starting with https://";
+const LINK_EMAIL_MESSAGE = "Enter an email address like name@example.com";
+const LINK_PHONE_MESSAGE = "Enter a phone number like +44 20 7946 0000";
+
+/**
+ * The destination message for a bad url-mode link.
+ *
+ * Email and Phone are stored as full URLs with the same `type: "url"` shape, so
+ * the scheme is what tells the editor which box the person was filling in.
+ */
+const linkDestinationMessage = (url: string): string => {
+  const lower = url.toLowerCase();
+  if (lower.startsWith("mailto:")) return LINK_EMAIL_MESSAGE;
+  if (lower.startsWith("tel:")) return LINK_PHONE_MESSAGE;
+  return LINK_URL_MESSAGE;
+};
+
+/**
+ * True when a value is a link the editor renders, so its `label` is Button text.
+ *
+ * A link is only stored once the person has filled something in (an empty one
+ * is dropped by the client and refused by the schema), so finding one means
+ * they chose to use the field. Button text is then required: the link's visible
+ * words are what the site renders, and a link with none is not a usable link.
+ * `label` is optional in the stored schema for older content, which is why this
+ * is an editor rule here rather than a schema constraint.
+ */
+const isLinkValue = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.type === "url") return typeof record.url === "string";
+  if (record.type === "page")
+    return (
+      typeof record.pageId === "string" ||
+      record.pageId === undefined ||
+      record.pageId === null
+    );
+  return false;
+};
+
+/**
+ * Button-text issues for every link in the content.
+ *
+ * Walks values rather than field metadata: a link can sit at the top level, in a
+ * group or inside a list, and the value is the same shape wherever it is. The
+ * walk stops at a link rather than descending into it, because its own keys
+ * (`type`, `url`, `label`) are not fields.
+ */
+const missingLinkLabels = (content: unknown): FieldIssue[] => {
+  const issues: FieldIssue[] = [];
+  const walk = (value: unknown, path: (string | number)[]): void => {
+    if (Array.isArray(value)) {
+      for (const [index, item] of value.entries()) {
+        walk(item, [...path, index]);
+      }
+      return;
+    }
+    if (isLinkValue(value)) {
+      // Only a link with a destination is "filled in": a page-mode link with no
+      // page chosen yet is what the client keeps so a failed save does not lose
+      // the mode. Complaining about its button text as well would bury the one
+      // thing the person still has to do.
+      const destination =
+        value.type === "url"
+          ? typeof value.url === "string" && value.url.trim() !== ""
+          : typeof value.pageId === "string" && value.pageId !== "";
+      const label = value.label;
+      if (destination && (typeof label !== "string" || label.trim() === "")) {
+        issues.push({
+          path: [...path, "label"].join("."),
+          message: "Button text is required.",
+        });
+      }
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    for (const [key, child] of Object.entries(value)) {
+      walk(child, [...path, key]);
+    }
+  };
+  walk(content, []);
+  return issues;
 };
 
 /**
@@ -192,19 +283,27 @@ const isBadLinkUrl = (value: unknown): boolean => {
 export const formatIssues = (
   issues: ValidationIssue[],
   content: unknown,
-): FieldIssue[] =>
-  issues.map((issue) => {
+): FieldIssue[] => {
+  const formatted = issues.map((issue) => {
     const path = issue.path.length > 0 ? issue.path.join(".") : "(content)";
     const last = issue.path[issue.path.length - 1];
     const parent = valueAtPath(content, issue.path.slice(0, -1));
-    const value = valueAtPath(content, issue.path);
-    const message = isBadLinkUrl(value)
-      ? URL_PATTERN_MESSAGE
-      : last === "pageId" && isUnchosenPageLink(parent)
-        ? "Choose a page."
-        : plainMessage(issue.message);
+    // The issue names the failing key (`cta.url`), so the link itself is the
+    // parent, not the value at the path — which is the url string.
+    const url = last === "url" ? badLinkUrl(parent) : null;
+    const message =
+      url !== null
+        ? linkDestinationMessage(url)
+        : last === "pageId" && isUnchosenPageLink(parent)
+          ? "Choose a page."
+          : plainMessage(issue.message);
     return { path, message };
   });
+
+  // Button text required is not a schema rule (see `isLinkValue`), so it is
+  // added here, on the same dotted paths the schema issues use.
+  return [...formatted, ...missingLinkLabels(content)];
+};
 
 const describeConflict = async (
   revision: RevisionRecord,

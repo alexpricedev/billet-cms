@@ -7,7 +7,6 @@ import {
   list,
   richText,
   text,
-  URL_PATTERN_MESSAGE,
 } from "@alexpricedev/billet-cms/fields";
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
@@ -44,7 +43,7 @@ const document: RichTextDocument = {
 const validContent = {
   heading: "A heading",
   body: document,
-  cta: { type: "url", url: "https://example.com" },
+  cta: { type: "url", url: "https://example.com", label: "Go" },
   gallery: [],
 };
 
@@ -188,7 +187,9 @@ describe("content write layer", () => {
     expect(result.ok).toBe(false);
     if (result.ok || result.reason !== "invalid") return;
     expect(
-      result.issues.some((issue) => issue.message === URL_PATTERN_MESSAGE),
+      result.issues.some(
+        (issue) => issue.message === "Enter a full URL, starting with https://",
+      ),
       JSON.stringify(result.issues),
     ).toBe(true);
   });
