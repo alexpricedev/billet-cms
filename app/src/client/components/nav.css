@@ -272,6 +272,22 @@
     }
   }
 
+  /* Signed out: no menu, no panel to open — the Sign in action stays visible.
+     Before the app variant's panel rules because biome's cascade check wants
+     specificity to climb; the two variants never match the same nav. */
+  [data-variant="plain"] .nav-panel {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  [data-variant="plain"] .nav-auth {
+    border-top: 0;
+    margin-top: 0;
+    padding-top: 0;
+  }
+
   /* The panel drops below the sticky bar at full width. */
   [data-variant="app"] .nav-panel {
     background: var(--surface);
@@ -306,19 +322,5 @@
 
   [data-variant="app"] .nav-auth form .btn {
     height: 40px;
-  }
-
-  /* Signed out: no menu, no panel to open — the Sign in action stays visible. */
-  [data-variant="plain"] .nav-panel {
-    align-items: center;
-    display: flex;
-    flex: 0 0 auto;
-    margin-left: auto;
-  }
-
-  [data-variant="plain"] .nav-auth {
-    border-top: 0;
-    margin-top: 0;
-    padding-top: 0;
   }
 }
