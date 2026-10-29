@@ -214,123 +214,41 @@ const imageValue = (control: Element): unknown => {
   return alt === "" ? { mediaId: id } : { mediaId: id, alt };
 };
 
-/**
- * The stored value of a link control.
- *
- * Email and Phone are not types of their own in the stored shape: both are
- * `type: "url"` links whose scheme is what the editor recognises them by, so
- * the destination input holds the bare address and the prefix is added here
- * (and stripped again when the field is rendered).
- */
 const linkValue = (control: Element): unknown => {
   const type =
-    control.querySelector<HTMLInputElement>("[data-link-type]:checked")
-      ?.value || "url";
-  const inputValue = (selector: string): string =>
-    control.querySelector<HTMLInputElement | HTMLSelectElement>(selector)
-      ?.value ?? "";
-  const label = inputValue("[data-link-label]");
-  const title = inputValue("[data-link-title]");
-  // Email and Phone hide the New tab row, so a box ticked before switching type
-  // must not be written onto a link that can't show it.
+    control.querySelector<HTMLSelectElement>("[data-link-type]")?.value;
+  const label =
+    control.querySelector<HTMLInputElement>("[data-link-label]")?.value ?? "";
   const newTab =
-    type === "email" || type === "phone"
-      ? false
-      : (control.querySelector<HTMLInputElement>("[data-link-newtab]")
-          ?.checked ?? false);
+    control.querySelector<HTMLInputElement>("[data-link-newtab]")?.checked ??
+    false;
 
   if (type === "page") {
-    const pageId = inputValue("[data-link-page]");
-    // Keep the page mode, label and hover text even with no page chosen yet, so
-    // a failed save re-renders what the editor typed instead of resetting the
-    // field to a URL link. A page-mode link that carries nothing at all is
-    // still dropped.
-    if (pageId === "" && label === "" && title === "" && !newTab) {
-      return undefined;
-    }
+    const pageId =
+      control.querySelector<HTMLInputElement | HTMLSelectElement>(
+        "[data-link-page]",
+      )?.value ?? "";
+    // Keep the page mode and label even with no page chosen yet, so a failed
+    // save re-renders what the editor typed instead of resetting the field to a
+    // URL link. A page-mode link that carries nothing at all is still dropped.
+    if (pageId === "" && label === "" && !newTab) return undefined;
     return {
       type: "page",
       ...(pageId ? { pageId } : {}),
       ...(label ? { label } : {}),
-      ...(title ? { title } : {}),
       ...(newTab ? { newTab } : {}),
     };
   }
 
-  const scheme = type === "email" ? "mailto:" : type === "phone" ? "tel:" : "";
-  const destination = inputValue(
-    type === "email"
-      ? "[data-link-email]"
-      : type === "phone"
-        ? "[data-link-phone]"
-        : "[data-link-url]",
-  );
-  // The phone placeholder is written with spaces (`+44 20 7946 0000`), but the
-  // stored `tel:` allowlist refuses whitespace, so accept the format the field
-  // itself suggests and save it compacted.
-  const stored =
-    type === "phone" ? destination.replace(/\s+/g, "") : destination;
-  if (stored === "") return undefined;
+  const url =
+    control.querySelector<HTMLInputElement>("[data-link-url]")?.value ?? "";
+  if (url === "") return undefined;
   return {
     type: "url",
-    url: `${scheme}${stored}`,
+    url,
     ...(label ? { label } : {}),
-    ...(title ? { title } : {}),
     ...(newTab ? { newTab } : {}),
   };
-};
-
-/**
- * Drop every destination value the editor is not using when the link type
- * changes.
- *
- * A value typed for one type does not make sense for another — a path is not an
- * email — so carrying it into the newly selected input would save a destination
- * the editor never chose. The inputs are all server-rendered; this only clears
- * the ones the stylesheet is about to hide.
- */
-const clearLinkDestinations = (field: Element, keep: string): void => {
-  for (const destination of Array.from(
-    field.querySelectorAll("[data-link-destination]"),
-  )) {
-    if (destination.getAttribute("data-link-destination") === keep) continue;
-    const control = destination.querySelector<
-      HTMLInputElement | HTMLSelectElement
-    >("input, select");
-    if (control) control.value = "";
-  }
-  // Email and Phone have no New tab row, so a tick left over from URL or Page
-  // would keep the checkbox true behind a hidden row.
-  if (keep === "email" || keep === "phone") {
-    const newTab = field.querySelector<HTMLInputElement>("[data-link-newtab]");
-    if (newTab) newTab.checked = false;
-  }
-};
-
-/**
- * Give every link control in a cloned subtree its own radio-group name.
- *
- * A row or block is copied from a `<template>`, so the copy would share the
- * name of the row it came from — and every copy after it. The browser groups
- * inputs by name, so choosing a type in one row would uncheck it in another.
- * Names only have to differ, so a counter is enough; nothing reads them back
- * except the browser's own grouping.
- */
-let clonedLinkGroup = 0;
-const rescopeLinkRadios = (root: Element | null): void => {
-  if (!root) return;
-  const links = [
-    ...(root.matches('[data-field-kind="link"]') ? [root] : []),
-    ...Array.from(root.querySelectorAll('[data-field-kind="link"]')),
-  ];
-  for (const link of links) {
-    const name = `cms-link-type-${++clonedLinkGroup}`;
-    for (const radio of Array.from(
-      link.querySelectorAll<HTMLInputElement>("[data-link-type]"),
-    )) {
-      radio.name = name;
-    }
-  }
 };
 
 /**
@@ -775,17 +693,6 @@ const wireControls = (form: HTMLFormElement): void => {
   form.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-
-    // Switching a link's type drops the destination it is leaving behind. The
-    // radio group is a real one, so this is the only place a type change needs
-    // handling: the markup for every type is already on the page.
-    const type = target.closest("[data-link-type]");
-    if (type instanceof HTMLInputElement) {
-      const field = type.closest("[data-field]");
-      if (field) clearLinkDestinations(field, type.value);
-      return;
-    }
-
     const picker = target.closest("[data-image-picker]");
     if (!(picker instanceof HTMLSelectElement)) return;
     const field = picker.closest("[data-field]");
@@ -847,7 +754,6 @@ const wireControls = (form: HTMLFormElement): void => {
       items.append(template.content.cloneNode(true));
       syncListAdd(list, items);
       const addedRow = items.lastElementChild;
-      rescopeLinkRadios(addedRow);
       // A list nested inside the new row was cloned from an empty template, so
       // its own Add state has to be recomputed against the rows it now holds.
       syncListsIn(addedRow);
@@ -878,7 +784,6 @@ const wireControls = (form: HTMLFormElement): void => {
 
       list.append(template.content.cloneNode(true));
       const added = list.lastElementChild;
-      rescopeLinkRadios(added);
       // Lists inside the cloned block were rendered against an empty value; a
       // nested list already holding the template's one row, at max one, arrives
       // with an enabled Add.

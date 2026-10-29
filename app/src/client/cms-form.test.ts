@@ -25,27 +25,16 @@ const markup = `
       <input type="text" data-image-alt value="Alt text">
     </div>
     <div data-field data-field-kind="link" data-field-name="cta">
-      <input type="radio" name="cta-type" value="url" data-link-type checked>
-      <input type="radio" name="cta-type" value="page" data-link-type>
-      <input type="radio" name="cta-type" value="email" data-link-type>
-      <input type="radio" name="cta-type" value="phone" data-link-type>
-      <div data-link-destination="url">
-        <input type="url" data-link-url value="https://example.com">
-      </div>
-      <div data-link-destination="page">
-        <select data-link-page>
-          <option value="">Choose a page…</option>
-          <option value="${MEDIA_ID}">About us (/about)</option>
-        </select>
-      </div>
-      <div data-link-destination="email">
-        <input type="email" data-link-email value="">
-      </div>
-      <div data-link-destination="phone">
-        <input type="tel" data-link-phone value="">
-      </div>
+      <select data-link-type>
+        <option value="url" selected>External URL</option>
+        <option value="page">CMS page</option>
+      </select>
+      <input type="text" data-link-url value="https://example.com">
+      <select data-link-page>
+        <option value="">Choose a page…</option>
+        <option value="${MEDIA_ID}">About us (/about)</option>
+      </select>
       <input type="text" data-link-label value="Go">
-      <input type="text" data-link-title value="">
       <input type="checkbox" data-link-newtab checked>
     </div>
     <div data-field data-field-kind="list" data-field-name="tags" data-list data-max="3">
@@ -77,49 +66,6 @@ const markup = `
 `;
 
 const form = () => document.querySelector("form") as HTMLFormElement;
-
-/** The first matching control in the mounted form, asserted present. */
-const input = <T extends HTMLElement = HTMLInputElement>(
-  selector: string,
-): T => {
-  const found = form().querySelector<T>(selector);
-  if (!found) throw new Error(`no ${selector} in the form`);
-  return found;
-};
-
-/** A link field's server markup: four type radios and one input per type. */
-const linkMarkup = (checked: string): string => `
-  <form data-cms-form>
-    <div data-field data-field-kind="link" data-field-name="cta">
-      ${["url", "page", "email", "phone"]
-        .map(
-          (kind) =>
-            `<input type="radio" name="cta-type" value="${kind}" data-link-type${
-              kind === checked ? " checked" : ""
-            }>`,
-        )
-        .join("")}
-      <div data-link-destination="url">
-        <input type="url" data-link-url value="">
-      </div>
-      <div data-link-destination="page">
-        <select data-link-page>
-          <option value="">Choose a page…</option>
-          <option value="${MEDIA_ID}">About us (/about)</option>
-        </select>
-      </div>
-      <div data-link-destination="email">
-        <input type="email" data-link-email value="">
-      </div>
-      <div data-link-destination="phone">
-        <input type="tel" data-link-phone value="">
-      </div>
-      <input type="text" data-link-label value="">
-      <input type="text" data-link-title value="">
-      <input type="checkbox" data-link-newtab>
-    </div>
-  </form>
-`;
 
 /** Replace the page with markup of this test's choosing and wire it. */
 const mount = (html: string) => {
@@ -199,26 +145,15 @@ describe("cms form editor", () => {
     mount(`
       <form data-cms-form>
         <div data-field data-field-kind="link" data-field-name="cta">
-          <input type="radio" name="cta-type" value="url" data-link-type>
-          <input type="radio" name="cta-type" value="page" data-link-type checked>
-          <input type="radio" name="cta-type" value="email" data-link-type>
-          <input type="radio" name="cta-type" value="phone" data-link-type>
-          <div data-link-destination="url">
-            <input type="url" data-link-url value="">
-          </div>
-          <div data-link-destination="page">
-            <select data-link-page>
-              <option value="">Choose a page…</option>
-            </select>
-          </div>
-          <div data-link-destination="email">
-            <input type="email" data-link-email value="">
-          </div>
-          <div data-link-destination="phone">
-            <input type="tel" data-link-phone value="">
-          </div>
+          <select data-link-type>
+            <option value="url">External URL</option>
+            <option value="page" selected>CMS page</option>
+          </select>
+          <input type="text" data-link-url value="">
+          <select data-link-page>
+            <option value="">Choose a page…</option>
+          </select>
           <input type="text" data-link-label value="Go">
-          <input type="text" data-link-title value="">
           <input type="checkbox" data-link-newtab>
         </div>
       </form>
@@ -230,99 +165,6 @@ describe("cms form editor", () => {
     const label = form().querySelector<HTMLInputElement>("[data-link-label]");
     if (label) label.value = "";
     expect(buildContent(form()).cta).toBeUndefined();
-  });
-
-  // Email and Phone have no stored type of their own: both save as url links
-  // whose scheme is what the editor recognises them by on reload.
-  test("reads an Email destination as a mailto: url", () => {
-    mount(linkMarkup("email"));
-    input("[data-link-email]").value = "hello@example.com";
-    input("[data-link-label]").value = "Email us";
-
-    expect(buildContent(form()).cta).toEqual({
-      type: "url",
-      url: "mailto:hello@example.com",
-      label: "Email us",
-    });
-  });
-
-  // The placeholder is written with spaces, but the `tel:` allowlist refuses
-  // whitespace — so the suggested format is accepted and saved compacted.
-  test("reads a Phone destination as a tel: url without whitespace", () => {
-    mount(linkMarkup("phone"));
-    input("[data-link-phone]").value = "+44 20 7946 0000";
-
-    expect(buildContent(form()).cta).toEqual({
-      type: "url",
-      url: "tel:+442079460000",
-    });
-  });
-
-  // The New tab row is hidden for Email and Phone, so a tick left over from URL
-  // must not be written onto a link that can't show it.
-  test("leaves new tab out of an Email or Phone link", () => {
-    mount(linkMarkup("email"));
-    input("[data-link-email]").value = "hello@example.com";
-    const newTab = form().querySelector<HTMLInputElement>("[data-link-newtab]");
-    if (newTab) newTab.checked = true;
-
-    expect(buildContent(form()).cta).toEqual({
-      type: "url",
-      url: "mailto:hello@example.com",
-    });
-  });
-
-  // Hover text alone is enough to keep page mode, so a failed save doesn't
-  // throw away what the editor typed.
-  test("keeps a page-mode link that has only hover text", () => {
-    mount(linkMarkup("page"));
-    input("[data-link-title]").value = "Read more";
-
-    expect(buildContent(form()).cta).toEqual({
-      type: "page",
-      title: "Read more",
-    });
-  });
-
-  test("saves hover text as the link's title, and leaves a blank one out", () => {
-    mount(linkMarkup("url"));
-    input("[data-link-url]").value = "https://example.com";
-    input("[data-link-title]").value = "Read more";
-
-    expect(buildContent(form()).cta).toEqual({
-      type: "url",
-      url: "https://example.com",
-      title: "Read more",
-    });
-
-    input("[data-link-title]").value = "";
-    expect(buildContent(form()).cta).toEqual({
-      type: "url",
-      url: "https://example.com",
-    });
-  });
-
-  // A destination typed for one type does not make sense for another, so
-  // switching the type must not carry it into the newly selected input.
-  test("clears the other destinations when the link type changes", () => {
-    mount(linkMarkup("url"));
-    input("[data-link-url]").value = "https://example.com";
-    input("[data-link-page]").value = MEDIA_ID;
-    input("[data-link-email]").value = "hello@example.com";
-    input("[data-link-phone]").value = "+44 20 7946 0000";
-
-    const email = form().querySelector<HTMLInputElement>(
-      '[data-link-type][value="email"]',
-    );
-    if (!email) throw new Error("no email radio");
-    email.checked = true;
-    email.dispatchEvent(new Event("change", { bubbles: true }));
-
-    expect(input("[data-link-url]").value).toBe("");
-    expect(input("[data-link-page]").value).toBe("");
-    expect(input("[data-link-phone]").value).toBe("");
-    // The selected type's own input is left as the editor typed it.
-    expect(input("[data-link-email]").value).toBe("hello@example.com");
   });
 
   test("writes the rebuilt document into the hidden field on submit", () => {
@@ -740,67 +582,6 @@ describe("nested lists", () => {
         ":scope > [data-list-items] > [data-list-item]",
       ).length,
     ).toBe(1);
-  });
-
-  // The template's radios all carry one name. Copies must not keep it, or the
-  // browser treats every row's switch as the same four-way group.
-  test("gives a cloned link row a radio group of its own", () => {
-    const radios = (name: string): string =>
-      ["url", "page", "email", "phone"]
-        .map(
-          (kind, index) =>
-            `<input type="radio" name="${name}" value="${kind}" data-link-type${
-              index === 0 ? " checked" : ""
-            }>`,
-        )
-        .join("");
-    mount(`
-      <form data-cms-form>
-        <input type="hidden" name="content" data-cms-content value="{}">
-        <div data-field data-field-kind="list" data-field-name="links" data-list>
-          <div data-list-items>
-            <div data-list-item>
-              <div data-field data-field-kind="link" data-field-name="link">
-                ${radios("links-row-0")}
-              </div>
-            </div>
-          </div>
-          <template data-list-template>
-            <div data-list-item>
-              <div data-field data-field-kind="link" data-field-name="link">
-                ${radios("links-template")}
-              </div>
-            </div>
-          </template>
-          <button type="button" data-list-add>Add item</button>
-        </div>
-      </form>
-    `);
-
-    const list = form().querySelector(
-      '[data-field-name="links"]',
-    ) as HTMLElement;
-    const add = list.querySelector(
-      ":scope > [data-list-add]",
-    ) as HTMLButtonElement;
-    add.click();
-    add.click();
-
-    const rows = Array.from(
-      list.querySelectorAll(":scope > [data-list-items] > [data-list-item]"),
-    );
-    const names = rows.map(
-      (row) =>
-        new Set(
-          Array.from(
-            row.querySelectorAll<HTMLInputElement>("[data-link-type]"),
-            (radio) => radio.name,
-          ),
-        ),
-    );
-    // Four options per row share one name; no two rows share it.
-    for (const name of names) expect(name.size).toBe(1);
-    expect(new Set(names.map((name) => [...name][0])).size).toBe(rows.length);
   });
 });
 
