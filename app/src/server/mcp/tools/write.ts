@@ -25,6 +25,7 @@ import {
   getPageTypeByName,
   getSlotById,
   getSlotByName,
+  linkLabelIssues,
   listBlockTypes,
   type PageBlock,
   type PageRecord,
@@ -178,11 +179,17 @@ export const registerWriteTools = (
         }
 
         const validation = validateContent(blockType.jsonSchema, content);
-        if (!validation.success) {
+        // Button text is an editor rule, not a schema one; say so here too, or
+        // validate_slot says the content is fine and save_slot then refuses it.
+        const labelIssues = linkLabelIssues(blockType.fields, content);
+        if (!validation.success || labelIssues.length > 0) {
+          const issues = validation.success
+            ? labelIssues
+            : [...formatIssues(validation.issues, content), ...labelIssues];
           return issuesResult(
-            `The content does not validate: ${validation.issues.length} issue(s).`,
+            `The content does not validate: ${issues.length} issue(s).`,
             "invalid",
-            { issues: formatIssues(validation.issues, content) },
+            { issues },
           );
         }
 
