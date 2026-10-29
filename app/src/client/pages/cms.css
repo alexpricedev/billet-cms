@@ -433,7 +433,6 @@ h1 {
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
-  height: 36px;
   padding: 0 var(--space-4);
   transition: background-color 120ms ease;
 
