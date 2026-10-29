@@ -6,6 +6,21 @@ import { describe, expect, test } from "bun:test";
 // `scripts/browser-smoke.test.ts` or an eye on the page; what fails here is a
 // rule quietly disappearing.
 const css = await Bun.file(new URL("./cms.css", import.meta.url)).text();
+const layoutCss = await Bun.file(
+  new URL("../components/layout.css", import.meta.url),
+).text();
+const baseCss = await Bun.file(new URL("../base.css", import.meta.url)).text();
+
+// `[selector, body]` for every rule in a stylesheet. Comments are stripped
+// first: prose that names a selector would otherwise be captured as part of the
+// next rule's selector, and `[^{}]` stops at a nested block the way a real
+// parser would, so a rule inside `@media` is matched on its own.
+const rules = (source: string): [string, string][] =>
+  [
+    ...source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .matchAll(/([^{}]*)\{([^{}]*)\}/g),
+  ].map((match) => [match[1] ?? "", match[2] ?? ""]);
 
 describe("cms.css layout", () => {
   // A long slot name or page type name is one unbroken token; without this it
@@ -83,18 +98,138 @@ describe("cms.css action bar", () => {
 
   // A bar that is a card with a max-width reads as a panel in the form rather
   // than the page's own action strip; this is the full-width hairline version.
-  test("keeps the bar full width with a hairline, not a card", () => {
+  // The hairline lives on the backdrop, not on the bar's own box: a border
+  // here would draw a second line over the form column, a pixel above the
+  // full-pane one, which is the clipped look the ticket started from.
+  test("keeps the bar full width with one hairline, not a card", () => {
     const rule = /\.cms-actions\s*\{([^}]*)\}/.exec(css)?.[1];
-    expect(rule).toContain("border-top: 1px solid var(--border)");
+    expect(rule).not.toContain("border-top");
     expect(rule).not.toContain("border-radius");
     expect(rule).not.toContain("max-width");
   });
 
+  // The bar's own box is the form column, and `.app-content` is centred under
+  // `--content-max`, so at a wide window that box ends well inside the pane
+  // however far its padding is bled. The backdrop is a pseudo-element measured
+  // in container units off `.app-main` instead: half the bar minus half the
+  // pane cancels the column's centring at any width, and subtracting the pane's
+  // padding token reaches the sidebar and the viewport edge. `vw` would count
+  // the scrollbar's gutter and overhang the pane.
+  test("paints the bar's surface across the whole main pane", () => {
+    const bar = /\.cms-actions\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(bar).toContain("background: var(--surface)");
+
+    const rule = /\.cms-actions::before\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(rule).toContain('content: ""');
+    expect(rule).toContain("position: absolute");
+    expect(rule).toContain("background: var(--surface)");
+    expect(rule).toContain("border-top: 1px solid var(--border)");
+    expect(rule).toContain("box-shadow: var(--shadow-bar)");
+    expect(rule).toMatch(
+      /left:\s*calc\(50% - 50cqw - var\(--app-main-pad-x\)\)/,
+    );
+    expect(rule).toMatch(
+      /right:\s*calc\(50% - 50cqw - var\(--app-main-pad-x\)\)/,
+    );
+    expect(rule).not.toContain("100vw");
+    // Tokens only: the new rule introduces no colour literal.
+    expect(rule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
+  // The backdrop above is only full-pane at any width if the pane is a size
+  // container whose horizontal padding is the same token the backdrop cancels.
+  // Scoped with `:has()` so a page without the bar never pays for containment.
+  test("sizes the backdrop from the pane, not the content column", () => {
+    const main = /^\.app-main\s*\{([^}]*)\}/m.exec(layoutCss)?.[1];
+    expect(main).toContain("--app-main-pad-x: var(--space-10)");
+    expect(main).toContain(
+      "padding: var(--space-8) var(--app-main-pad-x) var(--space-16)",
+    );
+    // Containment is scoped to the editor, not paid for by every page.
+    expect(main).not.toContain("container-type");
+    const scoped = /\.app-main:has\(\.cms-actions\)\s*\{([^}]*)\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(scoped).toContain("container-type: inline-size");
+
+    // The wide-window premise: the content column is centred under a max-width,
+    // so its own box stops short of the pane however far padding is bled.
+    const content = /\.app-content\s*\{([^}]*)\}/.exec(layoutCss)?.[1];
+    expect(content).toContain("max-width: var(--content-max)");
+    expect(content).toContain("margin-inline: auto");
+
+    // Both narrower breakpoints redefine the padding the backdrop uses, so the
+    // two stay in step at 900px and 640px.
+    const at900 = /@media\s*\(width <= 900px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(at900).toContain("--app-main-pad-x: var(--space-5)");
+    const at640 = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
+      layoutCss,
+    )?.[1];
+    expect(at640).toContain("--app-main-pad-x: var(--space-4)");
+  });
+
+  // The bar sticks over the form while it scrolls, but it is also the flow's
+  // last element, so it already reserves its own height at the end. A second
+  // stack of padding on the form doubles that gap: at full scroll the last
+  // help line floated 136px above the bar at 1280 and 200px at 390. The form
+  // takes no bottom padding of its own, and the one gap it does leave is the
+  // bar's `margin-top` — the normal section spacing.
+  //
+  // Every rule naming either form is checked, at every breakpoint, rather than
+  // one anchored at the selector's start: a scoped rule like
+  // `.cms-page-form:not(.cms-new-page-form) { padding-bottom: … }` put the
+  // doubled gap back while passing an anchored match, and so did any literal.
+  test("leaves only the bar's own flow space below the form", () => {
+    const formRules = rules(css).filter(([selector]) =>
+      /\.cms-(?:slot|page)-form\b/.test(selector),
+    );
+    expect(formRules.length).toBeGreaterThan(0);
+    for (const [, body] of formRules) {
+      expect(body).not.toContain("padding-bottom");
+    }
+
+    expect(css).toMatch(
+      /\.cms-actions\s*\{[^}]*margin-top:\s*var\(--space-6\)/,
+    );
+  });
+
+  // The shadow is a token in every theme block, so light, dark and System all
+  // draw the same soft upward edge rather than a bare border.
+  test("defines the bar shadow in both themes and System", () => {
+    const light = /:root\s*\{([\s\S]*?)\n\}/.exec(baseCss)?.[1];
+    expect(light).toContain("--shadow-bar:");
+    const dark = /:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/.exec(
+      baseCss,
+    )?.[1];
+    expect(dark).toContain("--shadow-bar:");
+    const system =
+      /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{([\s\S]*?)\n\}/.exec(
+        baseCss,
+      )?.[1];
+    expect(system).toContain("--shadow-bar:");
+  });
+
   // The legacy `.cms-*` button classes are styled through the `.btn` variants;
   // no rule of their own may reintroduce a background the variant cannot see.
+  // Every `.cms-save` rule is checked, not just a bare one: `.cms-save` sits on
+  // both Save draft and Publish, and page CSS loads after base.css, so a fill
+  // in any rule that names it beats `btn-secondary` and leaves two filled
+  // buttons in the bar. One primary per bar means the variant decides.
   test("styles the legacy buttons through the variants", () => {
     expect(css).not.toMatch(/\.cms-publish-button\s*\{/);
     expect(css).not.toMatch(/\.cms-preview-button\s*\{/);
+
+    const saveRules = rules(css).filter(([selector]) =>
+      selector.includes(".cms-save"),
+    );
+    expect(saveRules.length).toBeGreaterThan(0);
+    for (const [, body] of saveRules) {
+      expect(body).not.toContain("background");
+      expect(body).not.toContain("border");
+      expect(body).not.toContain("color");
+    }
   });
 
   test("stacks the bar into two columns on a phone", () => {
@@ -106,6 +241,8 @@ describe("cms.css action bar", () => {
     );
     // The status line spans both columns so it is not squeezed into half of one.
     expect(mobile).toContain("grid-column: 1 / -1");
+    // The bar's last row clears a phone's home indicator.
+    expect(mobile).toContain("env(safe-area-inset-bottom, 0px)");
   });
 });
 

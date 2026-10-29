@@ -467,6 +467,17 @@ describe("Slot form controller", () => {
       expect(saveButton(html)).toContain('form="cms-slot-form"');
       expect(html).toContain('id="cms-slot-form"');
     });
+
+    // The form carries no bottom padding of its own: the clearance under its
+    // last field is the sticky bar's in-flow space plus its `margin-top`. That
+    // only holds while the bar stays after every field in the flow, so pin it.
+    test("keeps the action bar after every field in the form", async () => {
+      const html = await (await slotForm.index(get())).text();
+
+      const bar = html.indexOf('aria-label="Publishing"');
+      expect(bar).toBeGreaterThan(-1);
+      expect(html.slice(bar)).not.toContain('class="cms-field"');
+    });
   });
 
   describe("POST", () => {

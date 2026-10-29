@@ -425,41 +425,23 @@ h1 {
 
 /* ---- Save and publishing ---------------------------------------------- */
 
-.cms-save {
-  background: var(--button-primary-bg);
-  border: 1px solid var(--button-primary-bg);
-  border-radius: var(--radius-sm);
-  color: var(--button-primary-fg);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  height: 36px;
-  padding: 0 var(--space-4);
-  transition: background-color 120ms ease;
-
-  &:hover,
-  &:focus {
-    background: var(--button-primary-bg-hover);
-    border-color: var(--button-primary-bg-hover);
-    color: var(--button-primary-fg);
-  }
-
-  &:disabled {
-    background: var(--surface-subtle);
-    border-color: var(--border);
-    color: var(--text-disabled);
-    cursor: default;
-  }
-}
+/* `.cms-save` is a hook for the layout rules below, not a style of its own: it
+   carries no fill and no cursor, so the variant classes alone decide the look
+   and `.btn` alone decides the pointer. A style here would outrank the variant
+   (page CSS loads after base.css) and make every Save look primary. */
 
 /* The action bar: what is live, what is draft, and the buttons that change it.
    It sticks to the bottom of the viewport so Publish is in reach on a phone
-   without scrolling past a long form. A strip rather than a card: a top
-   hairline separates it from the fields, and the page's own surface behind it
-   means nothing shows through as the form scrolls under. */
+   without scrolling past a long form. A strip rather than a card: the backdrop
+   below carries the single top hairline, and the page's own surface means
+   nothing shows through as the form scrolls under.
+   Being sticky, it is also the last thing in the flow, so it reserves its own
+   height below the last field; the only clearance the form needs is that plus
+   this rule's `margin-top` (`--space-6`). At full scroll the last field and its
+   help text sit one normal section gap above the bar. Padding the form by the
+   bar's height as well would put a second, empty stack between the two. */
 .cms-actions {
   background: var(--surface);
-  border-top: 1px solid var(--border);
   bottom: 0;
   display: grid;
   gap: var(--space-2);
@@ -467,6 +449,25 @@ h1 {
   padding: var(--space-3) 0;
   position: sticky;
   z-index: 10;
+}
+
+/* The bar's box is the form column, so on its own its white ends mid-air
+   beside the off-white page — and further from the edges the wider the window,
+   because `.app-content` is centred under a max-width. This pseudo-element
+   paints the same strip across the whole main pane instead: `50cqw` is half
+   of `.app-main`'s content box, so the offset cancels its padding and the
+   column's centring at every width. Container units rather than `vw`, which
+   counts the scrollbar's gutter and would overhang the pane. */
+.cms-actions::before {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: var(--shadow-bar);
+  content: "";
+  inset-block: 0;
+  left: calc(50% - 50cqw - var(--app-main-pad-x));
+  position: absolute;
+  right: calc(50% - 50cqw - var(--app-main-pad-x));
+  z-index: -1;
 }
 
 .cms-publish-status {
@@ -1113,7 +1114,10 @@ h1 {
   }
 
   /* At a phone's width the bar stacks into two columns with the status across
-     the top: four buttons in one row would each be too narrow to read. */
+     the top: four buttons in one row would each be too narrow to read. It is
+     taller stacked, but it is still the flow's last element, so it reserves
+     that height itself and the form needs no extra bottom padding. The
+     safe-area inset belongs on the bar, below its last row. */
   .cms-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));

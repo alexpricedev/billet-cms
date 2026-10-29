@@ -152,7 +152,7 @@ export const MediaList = ({
           Up to {MAX_ALT_LENGTH} characters.
         </span>
       </div>
-      <button type="submit" className="cms-save">
+      <button type="submit" className="cms-save btn btn-primary">
         Upload
       </button>
     </form>
@@ -345,7 +345,7 @@ export const MediaDetail = ({
           </span>
         </div>
 
-        <button type="submit" className="cms-save">
+        <button type="submit" className="cms-save btn btn-primary">
           Save
         </button>
       </form>
