@@ -687,6 +687,11 @@ export const FieldControl = ({
 
     case "link": {
       const link = asRecord(value);
+      // A site can model a button as its own text field beside a link that only
+      // says where it goes; `text: false` is that link. It gets no Button text
+      // input and no "Goes to" sub-label — the fieldset's own legend names the
+      // box — and the write path never asks it for a label.
+      const carriesText = field.text !== false;
       // Email and Phone have no stored type of their own: both are url-mode
       // links whose scheme is what the editor recognises them by.
       const storedUrl = asString(link.url);
@@ -712,7 +717,14 @@ export const FieldControl = ({
       const labelErrors = forControl("label");
       const titleErrors = forControl("title");
       const destinationErrors = forControl(type === "page" ? "pageId" : "url");
-      const known = new Set(["label", "title", "url", "pageId"]);
+      // `label` only has a control to carry its errors when the link has its own
+      // text. Without one they would be silently swallowed, so let them fall
+      // through to the container with the whole-link errors.
+      const known = new Set(
+        carriesText
+          ? ["label", "title", "url", "pageId"]
+          : ["title", "url", "pageId"],
+      );
       const groupErrors = (errors ?? []).filter(
         (error) =>
           !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
@@ -736,7 +748,9 @@ export const FieldControl = ({
 
       return (
         <fieldset
-          className="cms-field cms-field-link"
+          className={`cms-field cms-field-link${
+            required ? "" : " cms-field-link-optional"
+          }`}
           data-field
           data-field-kind="link"
           data-field-name={field.name}
@@ -752,28 +766,37 @@ export const FieldControl = ({
           )}
           <FieldHelp help={field.help} id={helpId} />
 
-          <div className="cms-link-text">
-            <SubControlLabel htmlFor={idFor("label")}>
-              Button text<span className="cms-required"> *</span>
-            </SubControlLabel>
-            <input
-              type="text"
-              id={idFor("label")}
-              data-link-label
-              aria-label={controlId ? undefined : "Button text"}
-              value={asString(link.label)}
-              aria-invalid={labelErrors.length > 0 ? "true" : undefined}
-              aria-describedby={
-                labelErrors.length > 0 ? labelErrorId : undefined
-              }
-            />
-            <FieldErrors errors={labelErrors} id={labelErrorId} />
-          </div>
+          {carriesText && (
+            <div className="cms-link-text">
+              <SubControlLabel htmlFor={idFor("label")}>
+                Button text<span className="cms-required"> *</span>
+              </SubControlLabel>
+              {/* A blank placeholder is what lets the optional-link rule hide
+                  the asterisks until the editor starts filling the box in: CSS
+                  reads `:placeholder-shown` on the group's inputs, and an input
+                  with no placeholder attribute never matches it. */}
+              <input
+                type="text"
+                id={idFor("label")}
+                data-link-label
+                placeholder=" "
+                aria-label={controlId ? undefined : "Button text"}
+                value={asString(link.label)}
+                aria-invalid={labelErrors.length > 0 ? "true" : undefined}
+                aria-describedby={
+                  labelErrors.length > 0 ? labelErrorId : undefined
+                }
+              />
+              <FieldErrors errors={labelErrors} id={labelErrorId} />
+            </div>
+          )}
 
           <div className="cms-link-destination-group">
-            <span className="cms-field-sublabel">
-              Goes to<span className="cms-required"> *</span>
-            </span>
+            {carriesText && (
+              <span className="cms-field-sublabel">
+                Goes to<span className="cms-required"> *</span>
+              </span>
+            )}
             <div
               className="cms-link-types"
               role="radiogroup"
@@ -912,6 +935,7 @@ export const FieldControl = ({
               type="text"
               id={idFor("title")}
               data-link-title
+              placeholder=" "
               aria-label={controlId ? undefined : "Hover text"}
               value={asString(link.title)}
               aria-invalid={titleErrors.length > 0 ? "true" : undefined}

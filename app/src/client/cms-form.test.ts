@@ -302,6 +302,20 @@ describe("cms form editor", () => {
     });
   });
 
+  // A site can model the button's words as a separate field, so the link control
+  // renders no `[data-link-label]` at all (`link({ text: false })`). The
+  // serialiser must leave `label` out rather than inventing an empty one.
+  test("writes no label for a link with no button-text control", () => {
+    mount(linkMarkup("url"));
+    input("[data-link-url]").value = "https://example.com";
+    form().querySelector("[data-link-label]")?.remove();
+
+    expect(buildContent(form()).cta).toEqual({
+      type: "url",
+      url: "https://example.com",
+    });
+  });
+
   // A destination typed for one type does not make sense for another, so
   // switching the type must not carry it into the newly selected input.
   test("clears the other destinations when the link type changes", () => {
