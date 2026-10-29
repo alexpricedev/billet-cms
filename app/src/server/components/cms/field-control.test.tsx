@@ -518,6 +518,38 @@ describe("FieldControl link", () => {
     expect(html).toContain("Button text is required.");
   });
 
+  // The older shape of the same idea: a group holds a text field beside a link
+  // that only says where it goes. The write paths ask no Button text of it
+  // (`linkNeedsText`), so the form must not show a box for it either.
+  test("a link beside a group text field has no button text", () => {
+    const group: FieldMetadata = {
+      name: "cta",
+      kind: "group",
+      label: "Call to action",
+      required: true,
+      fields: [
+        { name: "text", kind: "text", required: true },
+        { name: "link", kind: "link", required: false },
+      ],
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={group}
+        value={{
+          text: "Read more",
+          link: { type: "url", url: "https://example.com" },
+        }}
+        idBase="cms-field-cta"
+      />,
+    );
+
+    expect(html).toContain("data-link-url");
+    expect(html).not.toContain("data-link-label");
+    expect(html).not.toContain("Button text");
+  });
+
   // An optional link is optional as a whole, so its parts only look required
   // once it is in use. The rule is CSS: mark the field and give the text inputs
   // a placeholder, so `:placeholder-shown` can tell empty from typed.
@@ -567,6 +599,48 @@ describe("FieldControl link", () => {
     // and every one of them used by its own four options.
     const unique = Array.from(new Set(names));
     expect(unique.filter((name) => !name.includes("template"))).toHaveLength(2);
+    for (const name of unique) {
+      expect(names.filter((candidate) => candidate === name)).toHaveLength(4);
+    }
+  });
+
+  // A URL-rendered link has no page picker, so an error keyed `pageId` has no
+  // control of its own. It is still an issue the editor was refused over, so it
+  // goes on the container rather than being dropped as "known".
+  test("shows a non-selected destination error on the container", () => {
+    const html = renderLink(
+      { type: "url", url: "https://example.com", label: "Go" },
+      [{ path: "cta.pageId", message: "Choose a page." }],
+    );
+
+    expect(html).toContain('id="cms-field-cta-error"');
+    expect(html).toContain("Choose a page.");
+    expect(html).not.toMatch(/data-link-url[^>]*aria-invalid/);
+  });
+
+  // Rendered outside `ContentFields` a link has neither an id nor a row scope.
+  // Two links with the same field name must still not become one browser-side
+  // radio group, or choosing a type in one changes the other.
+  test("keeps two unscoped same-named links in separate radio groups", () => {
+    const renderUnscoped = (): string =>
+      renderToString(
+        <FieldControl
+          hasMedia={false}
+          pickerCapped={false}
+          field={link}
+          value={{}}
+          labelOverride="Link"
+        />,
+      );
+
+    const names = Array.from(
+      `${renderUnscoped()}${renderUnscoped()}`.matchAll(
+        /type="radio"[^>]*name="([^"]+)"/g,
+      ),
+      (match) => match[1],
+    );
+    const unique = Array.from(new Set(names));
+    expect(unique).toHaveLength(2);
     for (const name of unique) {
       expect(names.filter((candidate) => candidate === name)).toHaveLength(4);
     }

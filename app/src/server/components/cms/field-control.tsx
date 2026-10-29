@@ -2,7 +2,10 @@ import {
   type FieldMetadata,
   MAX_ALT_LENGTH,
 } from "@alexpricedev/billet-cms/contract";
-import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
+import {
+  linkNeedsText,
+  type RichTextDocument,
+} from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
 import type { MediaOption } from "../../services/media";
@@ -30,6 +33,9 @@ import { RichTextView } from "./rich-text";
  */
 
 const EMPTY_DOCUMENT: RichTextDocument = { type: "doc", content: [] };
+
+/** Last-resort scope for a link with no id or row name; see `radioName`. */
+let unscopedLink = 0;
 
 const asRichTextDocument = (value: unknown): RichTextDocument => {
   if (
@@ -78,6 +84,12 @@ export interface FieldControlProps {
    * unique per link, or picking a type in one list row unchecks it in the next.
    */
   nameScope?: string;
+  /**
+   * The other children of the `group` this control is declared in, when it is
+   * one. A link beside a sibling text field owes no Button text of its own; the
+   * same metadata the write paths read is what decides, here and there.
+   */
+  siblings?: FieldMetadata[];
   /** The CMS pages a `link` field may point at, for the internal-link picker. */
   pages?: PageOption[];
   /**
@@ -442,6 +454,7 @@ export const FieldControl = ({
   errors,
   labelOverride,
   nameScope,
+  siblings,
   pages,
   hasMedia,
   pickerCapped,
@@ -687,11 +700,12 @@ export const FieldControl = ({
 
     case "link": {
       const link = asRecord(value);
-      // A site can model a button as its own text field beside a link that only
-      // says where it goes; `text: false` is that link. It gets no Button text
-      // input and no "Goes to" sub-label — the fieldset's own legend names the
-      // box — and the write path never asks it for a label.
-      const carriesText = field.text !== false;
+      // A link owes its own Button text unless the site says otherwise: either
+      // `text: false`, or a sibling text field in the same group that carries
+      // the words. `linkNeedsText` is the same predicate the write paths use,
+      // so the form cannot ask for a label the server will not require (or
+      // drop the control for one it will).
+      const carriesText = linkNeedsText(field, siblings);
       // Email and Phone have no stored type of their own: both are url-mode
       // links whose scheme is what the editor recognises them by.
       const storedUrl = asString(link.url);
@@ -716,15 +730,19 @@ export const FieldControl = ({
         );
       const labelErrors = forControl("label");
       const titleErrors = forControl("title");
-      const destinationErrors = forControl(type === "page" ? "pageId" : "url");
-      // `label` only has a control to carry its errors when the link has its own
-      // text. Without one they would be silently swallowed, so let them fall
-      // through to the container with the whole-link errors.
-      const known = new Set(
-        carriesText
-          ? ["label", "title", "url", "pageId"]
-          : ["title", "url", "pageId"],
-      );
+      // Only the selected type's destination is rendered with an error list, so
+      // only its key counts as "known". An error on the other one — a `pageId`
+      // failure on a url-rendered link, say — has no visible control of its own
+      // and falls through to the container rather than disappearing.
+      const activeDestination = type === "page" ? "pageId" : "url";
+      const destinationErrors = forControl(activeDestination);
+      // `label` similarly only has a control to carry its errors when the link
+      // has its own text.
+      const known = new Set([
+        ...(carriesText ? ["label"] : []),
+        "title",
+        activeDestination,
+      ]);
       const groupErrors = (errors ?? []).filter(
         (error) =>
           !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
@@ -737,7 +755,13 @@ export const FieldControl = ({
       // Radio `name` groups the four options into one control. A row has no
       // stable id, so the list hands it a `nameScope` that differs per row —
       // share the name and picking a type in one row unchecks it in the next.
-      const radioName = `${nameScope ?? controlId ?? field.name}-type`;
+      // If neither is there (a control rendered outside `ContentFields`, as a
+      // test or a future caller might), a counter still keeps two same-named
+      // links from becoming one browser-side group; the page is rendered once,
+      // so a process-local counter is enough.
+      const radioName = `${
+        nameScope ?? controlId ?? `cms-link-${++unscopedLink}`
+      }-type`;
       const destinationAria = (kind: LinkType) =>
         type === kind && destinationErrors.length > 0
           ? {
@@ -1001,6 +1025,7 @@ export const FieldControl = ({
                 // than inheriting the row's — "Title", not "Steps".
                 idBase={controlId ? `${controlId}-${child.name}` : undefined}
                 labelOverride={controlId ? undefined : fieldName(child)}
+                siblings={children}
                 nameScope={
                   nameScope
                     ? `${nameScope}-${child.name}`
