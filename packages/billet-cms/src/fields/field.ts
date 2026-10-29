@@ -119,10 +119,28 @@ export interface ImageValue {
   alt?: string;
 }
 
-/** A link to a CMS page (by id, so it survives URL changes) or a free URL. */
+/**
+ * A link to a CMS page (by id, so it survives URL changes) or a free URL.
+ *
+ * `label` is the link's visible text; `title` is the hover text a browser shows
+ * as a tooltip. Both are optional, and a link written before `title` existed
+ * still validates.
+ */
 export type LinkValue =
-  | { type: "page"; pageId: string; label?: string; newTab?: boolean }
-  | { type: "url"; url: string; label?: string; newTab?: boolean };
+  | {
+      type: "page";
+      pageId: string;
+      label?: string;
+      title?: string;
+      newTab?: boolean;
+    }
+  | {
+      type: "url";
+      url: string;
+      label?: string;
+      title?: string;
+      newTab?: boolean;
+    };
 
 /** The shape an image field's `aspect` guidance must take, e.g. `"16:9"`. */
 export const ASPECT_PATTERN = /^\d+:\d+$/;
@@ -235,6 +253,7 @@ const pageLink = z.strictObject({
   type: z.literal("page"),
   pageId: z.uuid(),
   label: z.string().optional(),
+  title: z.string().optional(),
   newTab: z.boolean().optional(),
 });
 
@@ -242,6 +261,7 @@ const urlLink = z.strictObject({
   type: z.literal("url"),
   url: z.string().regex(URL_PATTERN, URL_PATTERN_MESSAGE),
   label: z.string().optional(),
+  title: z.string().optional(),
   newTab: z.boolean().optional(),
 });
 

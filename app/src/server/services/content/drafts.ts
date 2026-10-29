@@ -15,6 +15,7 @@
  *    to show the editor, not a row. The check and the insert run in one
  *    transaction, under a row lock on the slot, so two saves can't both pass.
  */
+import type { FieldMetadata } from "@alexpricedev/billet-cms/contract";
 import {
   URL_PATTERN,
   URL_PATTERN_MESSAGE,
@@ -167,15 +168,137 @@ const isUnchosenPageLink = (value: unknown): boolean => {
   return pageId === undefined || pageId === null || pageId === "";
 };
 
-/** True when a value is a url-mode link whose `url` fails the shared allowlist. */
-const isBadLinkUrl = (value: unknown): boolean => {
-  if (typeof value !== "object" || value === null) return false;
+/**
+ * The destination a url-mode link failed on, or `null` when it is valid.
+ *
+ * The value is returned rather than a bare boolean because the editor shows a
+ * different message for each destination it offers: a `mailto:` link is an
+ * Email field and a `tel:` link is a Phone field to the person typing, even
+ * though both are stored as `type: "url"`.
+ */
+const badLinkUrl = (value: unknown): string | null => {
+  if (typeof value !== "object" || value === null) return null;
   const record = value as { type?: unknown; url?: unknown };
-  return (
-    record.type === "url" &&
-    typeof record.url === "string" &&
-    !URL_PATTERN.test(record.url)
-  );
+  if (record.type !== "url" || typeof record.url !== "string") return null;
+  return URL_PATTERN.test(record.url) ? null : record.url;
+};
+
+/** Copy for the link field's destination inputs, one per kind the editor shows. */
+const LINK_URL_MESSAGE = "Enter a full URL, starting with https://";
+const LINK_EMAIL_MESSAGE = "Enter an email address like name@example.com";
+const LINK_PHONE_MESSAGE = "Enter a phone number like +44 20 7946 0000";
+
+/**
+ * The destination message for a bad url-mode link.
+ *
+ * Email and Phone are stored as full URLs with the same `type: "url"` shape, so
+ * the scheme is what tells the editor which box the person was filling in.
+ */
+const linkDestinationMessage = (url: string): string => {
+  const lower = url.toLowerCase();
+  if (lower.startsWith("mailto:")) return LINK_EMAIL_MESSAGE;
+  if (lower.startsWith("tel:")) return LINK_PHONE_MESSAGE;
+  return LINK_URL_MESSAGE;
+};
+
+/**
+ * True when a value is a link the editor renders, so its `label` is Button text.
+ *
+ * A link is only stored once the person has filled something in (an empty one
+ * is dropped by the client and refused by the schema), so finding one means
+ * they chose to use the field. Button text is then required: the link's visible
+ * words are what the site renders, and a link with none is not a usable link.
+ * `label` is optional in the stored schema for older content, which is why this
+ * is an editor rule here rather than a schema constraint.
+ */
+const isLinkValue = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.type === "url") return typeof record.url === "string";
+  if (record.type === "page")
+    return (
+      typeof record.pageId === "string" ||
+      record.pageId === undefined ||
+      record.pageId === null
+    );
+  return false;
+};
+
+/** True when a link value names a destination, so its Button text is needed. */
+const hasLinkDestination = (value: Record<string, unknown>): boolean =>
+  value.type === "url"
+    ? typeof value.url === "string" && value.url.trim() !== ""
+    : typeof value.pageId === "string" && value.pageId !== "";
+
+/**
+ * Button-text issues for the links the block's own metadata declares.
+ *
+ * Walks the field metadata tree rather than raw values on purpose. Content can
+ * still carry a field a deploy removed (see `carryRemovedFields`); it has no
+ * control in the form, so an editor could never add the missing button text and
+ * the whole block would be unpublishable. Following `list.of` and
+ * `group.fields` is what reaches a link nested in either.
+ *
+ * A link with no destination is not "filled in": a page-mode link with no page
+ * chosen yet is what the client keeps so a failed save does not lose the mode.
+ * Complaining about its button text as well would bury the one thing the person
+ * still has to do.
+ */
+const walkLinkLabels = (
+  field: FieldMetadata,
+  value: unknown,
+  path: (string | number)[],
+  issues: FieldIssue[],
+): void => {
+  if (field.kind === "link") {
+    if (!isLinkValue(value) || !hasLinkDestination(value)) return;
+    const label = value.label;
+    if (typeof label !== "string" || label.trim() === "") {
+      issues.push({
+        path: [...path, "label"].join("."),
+        message: "Button text is required.",
+      });
+    }
+    return;
+  }
+
+  if (field.kind === "list") {
+    if (!field.of || !Array.isArray(value)) return;
+    for (const [index, item] of value.entries()) {
+      walkLinkLabels(field.of, item, [...path, index], issues);
+    }
+    return;
+  }
+
+  if (field.kind === "group") {
+    if (!field.fields || typeof value !== "object" || value === null) return;
+    const record = value as Record<string, unknown>;
+    for (const child of field.fields) {
+      walkLinkLabels(child, record[child.name], [...path, child.name], issues);
+    }
+  }
+};
+
+/**
+ * Button-text issues for a block's content.
+ *
+ * Exported because the check is not in the schema (`label` is optional there):
+ * every write path has to run it itself, before it decides a save or publish
+ * is valid, or a link with no visible words is stored and never reported.
+ */
+export const linkLabelIssues = (
+  fields: FieldMetadata[],
+  content: unknown,
+): FieldIssue[] => {
+  const issues: FieldIssue[] = [];
+  if (typeof content !== "object" || content === null) return issues;
+  const record = content as Record<string, unknown>;
+  for (const field of fields) {
+    walkLinkLabels(field, record[field.name], [field.name], issues);
+  }
+  return issues;
 };
 
 /**
@@ -197,12 +320,15 @@ export const formatIssues = (
     const path = issue.path.length > 0 ? issue.path.join(".") : "(content)";
     const last = issue.path[issue.path.length - 1];
     const parent = valueAtPath(content, issue.path.slice(0, -1));
-    const value = valueAtPath(content, issue.path);
-    const message = isBadLinkUrl(value)
-      ? URL_PATTERN_MESSAGE
-      : last === "pageId" && isUnchosenPageLink(parent)
-        ? "Choose a page."
-        : plainMessage(issue.message);
+    // The issue names the failing key (`cta.url`), so the link itself is the
+    // parent, not the value at the path — which is the url string.
+    const url = last === "url" ? badLinkUrl(parent) : null;
+    const message =
+      url !== null
+        ? linkDestinationMessage(url)
+        : last === "pageId" && isUnchosenPageLink(parent)
+          ? "Choose a page."
+          : plainMessage(issue.message);
     return { path, message };
   });
 
@@ -288,12 +414,14 @@ export const saveSlotDraft = async (
   // Strict: a key the block doesn't declare is refused. Removed fields are
   // re-attached below from the base revision, so they never need to pass here.
   const validation = validateContent(blockType.jsonSchema, input.content);
-  if (!validation.success) {
-    return {
-      ok: false,
-      reason: "invalid",
-      issues: formatIssues(validation.issues, input.content),
-    };
+  // Button text is not in the schema, so it has to be checked on every save,
+  // not only when the validator already found something else wrong.
+  const labelIssues = linkLabelIssues(blockType.fields, input.content);
+  if (!validation.success || labelIssues.length > 0) {
+    const issues = validation.success
+      ? labelIssues
+      : [...formatIssues(validation.issues, input.content), ...labelIssues];
+    return { ok: false, reason: "invalid", issues };
   }
 
   // The schema can only say an image reference is a UUID; whether the picture
