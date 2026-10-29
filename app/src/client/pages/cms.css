@@ -437,7 +437,12 @@ h1 {
    It sticks to the bottom of the viewport so Publish is in reach on a phone
    without scrolling past a long form. A strip rather than a card: the backdrop
    below carries the single top hairline, and the page's own surface means
-   nothing shows through as the form scrolls under. */
+   nothing shows through as the form scrolls under.
+   Being sticky, it is also the last thing in the flow, so it reserves its own
+   height below the last field; the only clearance the form needs is that plus
+   this rule's `margin-top` (`--space-6`). At full scroll the last field and its
+   help text sit one normal section gap above the bar. Padding the form by the
+   bar's height as well would put a second, empty stack between the two. */
 .cms-actions {
   background: var(--surface);
   bottom: 0;
@@ -467,14 +472,6 @@ h1 {
   right: calc(50% - 50cqw - var(--app-main-pad-x));
   z-index: -1;
 }
-
-/* The bar sticks over the form while it scrolls, but it is also the last thing
-   in the flow, so it already reserves its own height below the last field. The
-   only clearance the form needs is that flow space and the bar's `margin-top`
-   (`--space-6`): at full scroll the last field and its help text sit one normal
-   section gap above the bar, and no scroll position can hide them under it.
-   Padding the form by the bar's height would put a second, empty stack between
-   the two. */
 
 .cms-publish-status {
   color: var(--text-secondary);
