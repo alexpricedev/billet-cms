@@ -170,6 +170,39 @@ describe("cms.css action bar", () => {
     expect(at640).toContain("--app-main-pad-x: var(--space-4)");
   });
 
+  // The bar is the flow's last element and sticks to the window, so the pane's
+  // own bottom padding would sit under it at full scroll: a strip of page
+  // between the bar's bottom edge and the footer. Only the pane carrying the
+  // bar drops it — scoped with `:has()`, so every other page keeps the
+  // breathing room `.app-main` gives it, including at the narrower breakpoints
+  // that redefine its padding.
+  test("drops the pane's bottom padding on the editor only", () => {
+    const main = /^\.app-main\s*\{([^}]*)\}/m.exec(layoutCss)?.[1];
+    expect(main).toContain(
+      "padding: var(--space-8) var(--app-main-pad-x) var(--space-16)",
+    );
+
+    const editorRules = rules(layoutCss).filter(([selector]) =>
+      /\.app-main[^{]*:has\(\.cms-actions\)/.test(selector),
+    );
+    expect(editorRules.length).toBeGreaterThan(0);
+    // The rule that zeroes it is scoped to the editor; a page without the bar
+    // never matches, so the base padding above stays in force there.
+    expect(editorRules[0]?.[1]).toContain("padding-bottom: 0");
+
+    // Every other rule naming the editor pane may only repeat the zero: a
+    // media block that re-adds a bottom padding (or a `padding` shorthand with
+    // one) puts the strip back at that width while passing the match above.
+    for (const [, body] of editorRules) {
+      for (const [, value] of body.matchAll(/padding-bottom\s*:\s*([^;]+)/g)) {
+        expect(value.trim()).toBe("0");
+      }
+      for (const [, value] of body.matchAll(/(?<!-)padding\s*:\s*([^;]+)/g)) {
+        expect(value.trim()).toBe("0");
+      }
+    }
+  });
+
   // The bar sticks over the form while it scrolls, but it is also the flow's
   // last element, so it already reserves its own height at the end. A second
   // stack of padding on the form doubles that gap: at full scroll the last
