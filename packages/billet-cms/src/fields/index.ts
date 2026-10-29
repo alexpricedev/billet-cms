@@ -4,5 +4,6 @@
  */
 export * from "./definition";
 export * from "./field";
+export * from "./link-text";
 export * from "./rich-text";
 export * from "./url";

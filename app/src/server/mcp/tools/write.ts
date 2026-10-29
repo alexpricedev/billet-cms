@@ -10,14 +10,13 @@
  * Nothing here is destructive beyond publishing: a bad publish is undone by
  * publishing an older revision, and a draft never reaches the site.
  */
-import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import {
   asPageContent,
   type BlockTypeRecord,
+  blockContentIssues,
   type FieldIssue,
-  formatIssues,
   getBlockTypeByName,
   getLatestRevision,
   getPageById,
@@ -177,12 +176,15 @@ export const registerWriteTools = (
           });
         }
 
-        const validation = validateContent(blockType.jsonSchema, content);
-        if (!validation.success) {
+        // Button text is an editor rule, not a schema one; the shared helper
+        // runs both so validate_slot cannot say the content is fine and
+        // save_slot then refuse it.
+        const issues = blockContentIssues(blockType, content);
+        if (issues.length > 0) {
           return issuesResult(
-            `The content does not validate: ${validation.issues.length} issue(s).`,
+            `The content does not validate: ${issues.length} issue(s).`,
             "invalid",
-            { issues: formatIssues(validation.issues, content) },
+            { issues },
           );
         }
 

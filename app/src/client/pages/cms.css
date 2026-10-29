@@ -214,9 +214,27 @@ h1 {
   font-size: 12px;
 }
 
+/* A group's heading is a title over its children, so the first child gets
+   `--space-3` of air below it — enough that the two never read as one stacked
+   label — and the children themselves are spaced apart. */
+.cms-field-group {
+  gap: var(--space-3);
+}
+
+.cms-field-group [data-group-fields] {
+  display: grid;
+  gap: var(--space-3);
+}
+
 .cms-required {
   color: var(--danger);
   font-weight: 500;
+}
+
+.cms-field-optional {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .cms-field-help {
@@ -265,13 +283,217 @@ h1 {
   text-overflow: ellipsis;
 }
 
-/* The link field offers a URL and a page id; only the one the select names is
-   shown. `:has` reads the chosen option, so this needs no script. */
-.cms-field-link:has([data-link-type] option[value="page"]:checked)
-  .cms-link-url,
-.cms-field-link:has([data-link-type] option[value="url"]:checked)
-  .cms-link-page {
+/* ---- The link field ------------------------------------------------------ */
+
+/* One box per link: button text, where it goes, then hover text. The field's
+   own name heads the box. A fieldset draws its legend in the top border, so the
+   name is positioned into reserved padding instead; the border stays a clean
+   rounded rectangle. The padding reserves the heading's line plus
+   `--space-3`, so the first sub-label never sits directly under the heading. */
+.cms-field-link {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  gap: var(--space-3);
+  padding: calc(14px + 18px + var(--space-3)) 14px 16px;
+  position: relative;
+}
+
+/* A group heading is the container's title, not a second label: it is set
+   heavier than the sub-labels it introduces, and the gap below it is at least
+   `--space-3` whether the group is a link box or a plain group. */
+.cms-field-link > .cms-field-label,
+.cms-field-group > .cms-field-label {
+  font-weight: 600;
+}
+
+.cms-field-link > .cms-field-label {
+  left: 14px;
+  position: absolute;
+  right: 14px;
+  top: 14px;
+}
+
+.cms-link-text,
+.cms-link-title {
+  display: grid;
+  gap: 6px;
+}
+
+/* The two sub-labels ("Button text", "Goes to") sit at the ticket's 13/18,
+   weight 500, in the secondary text colour. Only link sub-controls use this
+   class, so the shared rule can carry it. Neither carries a required marker:
+   the group heading owns the one marker for the whole link. */
+.cms-field-link .cms-field-sublabel {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+/* An optional link is not in error while it is empty, so its heading says
+   "Optional" instead of carrying the group's asterisk. `:placeholder-shown`
+   reads an input left blank (the Button text and Hover text inputs carry a
+   blank placeholder precisely so they can be read this way), and the select
+   half covers a page chosen with nothing typed. A required link never gets
+   `.cms-field-link-optional`, so it keeps its asterisk from the start. */
+.cms-field-link-optional:not(
+    :has(input[placeholder]:not(:placeholder-shown))
+  ):not(:has(select option:checked:not([value=""])))
+  .cms-required {
+  visibility: hidden;
+}
+
+/* Once the box is in use, "Optional" gives way to that asterisk: a half-filled
+   link is one the editor has to finish, not one they may leave empty. */
+.cms-field-link-optional:has(input[placeholder]:not(:placeholder-shown))
+  > .cms-field-label
+  .cms-field-optional,
+.cms-field-link-optional:has(select option:checked:not([value=""]))
+  > .cms-field-label
+  .cms-field-optional {
   display: none;
+}
+
+.cms-link-text input,
+.cms-link-destination input,
+.cms-link-destination select,
+.cms-link-title input {
+  height: 44px;
+}
+
+.cms-link-destination-group {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* The type switch: a real radio group, so it submits without JavaScript and
+   `:has(input:checked)` alone decides which destination is on screen. */
+.cms-link-types {
+  background: var(--surface-selected);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 3px;
+}
+
+.cms-link-types .cms-link-type {
+  align-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  font-weight: 500;
+  gap: 6px;
+  height: 38px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.cms-link-type:hover {
+  color: var(--text);
+}
+
+.cms-link-type:has(input:checked) {
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The radio itself is visually hidden, so the ring has to be drawn on its
+   label to stay visible to a keyboard user. */
+.cms-link-type:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.cms-link-type svg {
+  flex: 0 0 auto;
+}
+
+/* At 320 an option is about 54px wide and the icon plus a five-letter word no
+   longer fits; the words still name each option, so the icons go. */
+@media (max-width: 380px) {
+  .cms-link-types .cms-link-type svg {
+    display: none;
+  }
+}
+
+/* All four destinations are in the DOM; only the checked type's is shown. */
+.cms-link-destination {
+  display: none;
+  gap: 6px;
+  position: relative;
+}
+
+.cms-field-link
+  .cms-link-types:has(input[value="url"]:checked)
+  ~ .cms-link-destination[data-link-destination="url"],
+.cms-field-link
+  .cms-link-types:has(input[value="page"]:checked)
+  ~ .cms-link-destination[data-link-destination="page"],
+.cms-field-link
+  .cms-link-types:has(input[value="email"]:checked)
+  ~ .cms-link-destination[data-link-destination="email"],
+.cms-field-link
+  .cms-link-types:has(input[value="phone"]:checked)
+  ~ .cms-link-destination[data-link-destination="phone"] {
+  display: grid;
+}
+
+.cms-link-destination input,
+.cms-link-destination select {
+  padding-left: 38px;
+}
+
+/* The type icon sits inside the control, vertically centred on its 44px
+   height; it never takes a click meant for the input. */
+.cms-link-icon {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  height: 44px;
+  left: 12px;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+}
+
+.cms-link-icon svg {
+  height: 16px;
+  width: 16px;
+}
+
+.cms-link-newtab {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+/* New tab is part of "where it goes" for a URL or a page; an email address and
+   a phone number have nowhere to open. */
+.cms-field-link:has(.cms-link-types input[value="email"]:checked)
+  .cms-link-newtab,
+.cms-field-link:has(.cms-link-types input[value="phone"]:checked)
+  .cms-link-newtab {
+  display: none;
+}
+
+.cms-link-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0;
+  width: 100%;
+}
+
+.cms-field-link .cms-field-help {
+  font-size: 12px;
+  margin: 0;
 }
 
 .cms-noscript {
@@ -646,14 +868,26 @@ h1 {
 }
 
 /* A block is a card so a long page stays scannable and the Remove button sits
-   with the block it removes. */
+   with the block it removes. The stronger border and the wider gap between
+   blocks do the separating when one block ends and the next begins. */
+.cms-blocks {
+  /* "Block N" is a counter over the rendered list, not an index from the
+     server: adding, moving or removing a block with the client renumbers the
+     cards with no extra state and no stale number. Each `.cms-block` below
+     increments it, flagged blocks included, so the count matches what the
+     editor sees. */
+  counter-reset: cms-block;
+}
+
 .cms-block {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  margin: 0 0 var(--space-3);
+  counter-increment: cms-block;
+  margin: 0 0 var(--space-4);
   min-inline-size: 0;
-  padding: var(--space-4);
+  padding: calc(44px + var(--space-4)) var(--space-4) var(--space-4);
+  position: relative;
 }
 
 /* The block already spaces its own controls; the shared field list's margin
@@ -662,30 +896,60 @@ h1 {
   margin: 0;
 }
 
+/* The block's name and its move/remove controls share a tinted band across the
+   top of the card. The fieldset would otherwise draw its legend in the top
+   border, so it is taken out of flow into the band's reserved padding; the
+   card's border stays one clean rounded rectangle. */
 .cms-block-legend {
   align-items: center;
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
   color: var(--text);
   display: flex;
   font-size: 13.5px;
   font-weight: 600;
   gap: var(--space-2);
+  left: 0;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  padding-right: 136px;
+  position: absolute;
+  right: 0;
+  top: 0;
 }
 
+/* The block's name is set in the same type as the "Block N · " prefix beside
+   it: one heading, not a sans number followed by a monospace name. */
 .cms-block-legend code {
   background: none;
   border: 0;
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-family: inherit;
+  font-size: inherit;
   font-weight: 500;
   padding: 0;
 }
 
-.cms-block-actions {
+/* The number is generated content, so it renumbers with the DOM and works
+   with JavaScript off. The name beside it is the humanised one the server
+   renders; the number alone is not in the legend's accessible name. */
+.cms-block-legend::before {
+  color: var(--text-muted);
+  content: "Block " counter(cms-block) " · ";
+  font-weight: 500;
+}
+
+/* The controls ride in the block's header band, on the name's baseline. */
+.cms-block > .cms-block-actions {
   display: flex;
   gap: var(--space-1);
   justify-content: flex-end;
-  margin-bottom: var(--space-3);
+  margin-bottom: 0;
+  position: absolute;
+  right: var(--space-3);
+  top: var(--space-2);
+  z-index: 1;
 }
 
 .cms-block-move,

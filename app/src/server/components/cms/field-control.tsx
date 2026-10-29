@@ -31,6 +31,9 @@ import { RichTextView } from "./rich-text";
 
 const EMPTY_DOCUMENT: RichTextDocument = { type: "doc", content: [] };
 
+/** Last-resort scope for a link with no id or row name; see `radioName`. */
+let unscopedLink = 0;
+
 const asRichTextDocument = (value: unknown): RichTextDocument => {
   if (
     typeof value === "object" &&
@@ -72,6 +75,21 @@ export interface FieldControlProps {
    * where ids stop, because a cloned row would repeat them.
    */
   labelOverride?: string;
+  /**
+   * Where a control sits in the tree, for the few things that need to differ
+   * between two copies even when ids can't: a radio group's `name` has to be
+   * unique per link, or picking a type in one list row unchecks it in the next.
+   */
+  nameScope?: string;
+  /**
+   * Whether this control is a direct child of a `group`.
+   *
+   * A group heading owns the group's one required marker, so a child never
+   * repeats it: two asterisks stacked over one column read as two labels for
+   * the same thing. The child is still `aria-required`; only the visible
+   * marker is the group's to show.
+   */
+  inGroup?: boolean;
   /** The CMS pages a `link` field may point at, for the internal-link picker. */
   pages?: PageOption[];
   /**
@@ -145,11 +163,73 @@ const listHelp = (field: FieldMetadata): string | undefined => {
   return field.help ?? limit ?? undefined;
 };
 
-const FieldLabelText = ({ field }: { field: FieldMetadata }): JSX.Element => (
+const FieldLabelText = ({
+  field,
+  inGroup = false,
+}: {
+  field: FieldMetadata;
+  inGroup?: boolean;
+}): JSX.Element => (
   <>
     {fieldName(field)}
-    {field.required && <span className="cms-required"> *</span>}
+    {!inGroup && field.required && <span className="cms-required"> *</span>}
   </>
+);
+
+/**
+ * A group heading: the container's title, never a second label.
+ *
+ * A group owns exactly one required marker, and it sits here. A required group
+ * carries the asterisk; an optional one says "Optional" beside its name, and
+ * its parts carry no marker of their own — inside a group they are required (or
+ * not) by the group's own state, so a second asterisk would read as a second
+ * label for the same control.
+ *
+ * An optional link is optional only while it is empty: once the editor starts
+ * filling it in, it has become a link that must be complete, so the asterisk
+ * takes the place of "Optional". Both are rendered and the stylesheet swaps
+ * them, because "in use" is what CSS reads from the inputs themselves.
+ *
+ * `text` is the field's own name, or the list's name when the row overrides it.
+ * The marker belongs to the control, not the word, so an overridden heading
+ * carries it too — otherwise a required link in a list row has no marker
+ * anywhere, since its sub-labels never render one.
+ */
+const HeadingText = ({
+  text,
+  field,
+  inGroup = false,
+}: {
+  text: string;
+  field: FieldMetadata;
+  inGroup?: boolean;
+}): JSX.Element => {
+  if (inGroup) return <>{text}</>;
+  if (field.required) {
+    return (
+      <>
+        {text}
+        <span className="cms-required"> *</span>
+      </>
+    );
+  }
+  return (
+    <>
+      {text}
+      {field.kind === "link" && <span className="cms-required"> *</span>}
+      <span className="cms-field-optional"> Optional</span>
+    </>
+  );
+};
+
+const GroupLabelText = ({
+  field,
+  inGroup = false,
+}: {
+  field: FieldMetadata;
+  inGroup?: boolean;
+}): JSX.Element => (
+  <HeadingText text={fieldName(field)} field={field} inGroup={inGroup} />
 );
 
 const FieldHelp = ({
@@ -179,6 +259,107 @@ const FieldErrors = ({
       ))}
     </ul>
   ) : null;
+
+/** The four destinations a link field offers, in the switch's order. */
+const LINK_TYPES = ["url", "page", "email", "phone"] as const;
+type LinkType = (typeof LINK_TYPES)[number];
+
+const LINK_TYPE_LABELS: Record<LinkType, string> = {
+  url: "URL",
+  page: "Page",
+  email: "Email",
+  phone: "Phone",
+};
+
+/**
+ * The paths each kind draws inside the shared 14px line icon.
+ *
+ * The four share every svg attribute, so only the shapes differ; `url` is the
+ * globe, `page` a document, `email` an envelope and `phone` a handset.
+ */
+const LINK_TYPE_PATHS: Record<LinkType, JSX.Element> = {
+  url: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M2.5 8h11" />
+      <path d="M8 2.5c1.5 1.6 2.3 3.4 2.3 5.5S9.5 11.9 8 13.5C6.5 11.9 5.7 10.1 5.7 8S6.5 4.1 8 2.5Z" />
+    </>
+  ),
+  page: (
+    <>
+      <path d="M4 2.5h5l3 3v8H4z" />
+      <path d="M9 2.5v3h3" />
+    </>
+  ),
+  email: (
+    <>
+      <rect x="2" y="4" width="12" height="8" rx="1" />
+      <path d="m2.5 4.5 5.5 4 5.5-4" />
+    </>
+  ),
+  phone: (
+    <path d="M5.5 2.5c.4 0 .7.2.9.6l.7 1.5c.2.4.1.8-.2 1.1l-.8.7a8 8 0 0 0 3.3 3.3l.7-.8c.3-.3.7-.4 1.1-.2l1.5.7c.4.2.6.5.6.9v1.4c0 .6-.5 1.1-1.1 1.1A10.4 10.4 0 0 1 2.5 3.6c0-.6.5-1.1 1.1-1.1h1.9Z" />
+  ),
+};
+
+/**
+ * The 14px line icons on the type switch and inside the destination input.
+ *
+ * Decorative: the switch option's own text names it, and the input has a
+ * visually hidden label, so every icon is `aria-hidden`.
+ */
+const LinkTypeIcon = ({ kind }: { kind: LinkType }): JSX.Element => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    {LINK_TYPE_PATHS[kind]}
+  </svg>
+);
+
+/**
+ * One destination wrapper: the visually hidden label, its type icon, the
+ * control, and the error list when this is the selected type and it has one.
+ *
+ * Four destinations share this markup, so the wiring lives here rather than
+ * being repeated per control; `active` is what decides whether the error list
+ * is rendered under a destination the editor can currently see.
+ */
+const LinkDestination = ({
+  kind,
+  label,
+  htmlFor,
+  active,
+  errors,
+  errorId,
+  children,
+}: {
+  kind: LinkType;
+  label: string;
+  htmlFor?: string;
+  active: boolean;
+  errors: FieldError[];
+  errorId?: string;
+  children: JSX.Element;
+}): JSX.Element => (
+  <div className="cms-link-destination" data-link-destination={kind}>
+    <label className="sr-only" htmlFor={htmlFor}>
+      {label}
+    </label>
+    <span className="cms-link-icon" aria-hidden="true">
+      <LinkTypeIcon kind={kind} />
+    </span>
+    {children}
+    {active && <FieldErrors errors={errors} id={errorId} />}
+  </div>
+);
 
 const RichTextToolbar = ({ editorId }: { editorId?: string }): JSX.Element => (
   <div
@@ -289,6 +470,7 @@ const ListItemControl = ({
   field,
   value,
   listLabel,
+  nameScope,
   pages,
   hasMedia,
   pickerCapped,
@@ -298,6 +480,8 @@ const ListItemControl = ({
   value: unknown;
   /** The list's own label, so every Add/Remove names the list it belongs to. */
   listLabel: string;
+  /** Where the row sits, so a link in it gets radio names of its own. */
+  nameScope: string;
   pages?: PageOption[];
   hasMedia: boolean;
   pickerCapped: boolean;
@@ -308,6 +492,7 @@ const ListItemControl = ({
       field={field}
       value={value}
       labelOverride={listLabel}
+      nameScope={nameScope}
       pages={pages}
       hasMedia={hasMedia}
       pickerCapped={pickerCapped}
@@ -330,6 +515,8 @@ export const FieldControl = ({
   idBase,
   errors,
   labelOverride,
+  nameScope,
+  inGroup = false,
   pages,
   hasMedia,
   pickerCapped,
@@ -363,7 +550,7 @@ export const FieldControl = ({
             <span className="cms-field-label">{labelOverride}</span>
           ) : (
             <label className="cms-field-label" htmlFor={controlId}>
-              <FieldLabelText field={field} />
+              <FieldLabelText field={field} inGroup={inGroup} />
             </label>
           )}
           <input
@@ -423,7 +610,7 @@ export const FieldControl = ({
             </span>
           ) : (
             <legend className="cms-field-label" id={labelId}>
-              <FieldLabelText field={field} />
+              <FieldLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           <RichTextToolbar editorId={controlId} />
@@ -478,7 +665,7 @@ export const FieldControl = ({
             <span className="cms-field-label">{labelOverride}</span>
           ) : (
             <legend className="cms-field-label">
-              <FieldLabelText field={field} />
+              <FieldLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           <FieldHelp help={field.help} id={helpId} />
@@ -575,10 +762,69 @@ export const FieldControl = ({
 
     case "link": {
       const link = asRecord(value);
-      const type = link.type === "page" ? "page" : "url";
+      // Email and Phone have no stored type of their own: both are url-mode
+      // links whose scheme is what the editor recognises them by.
+      const storedUrl = asString(link.url);
+      const lowerUrl = storedUrl.toLowerCase();
+      const type: LinkType =
+        link.type === "page"
+          ? "page"
+          : lowerUrl.startsWith("mailto:")
+            ? "email"
+            : lowerUrl.startsWith("tel:")
+              ? "phone"
+              : "url";
+
+      // Errors arrive with the whole dotted path (`cta.url`), so each control
+      // takes the message whose last segment names it. Anything else — a
+      // whole-link issue, or a field-level one the schema produced — stays on
+      // the container.
+      const forControl = (segment: string): FieldError[] =>
+        (errors ?? []).filter(
+          (error) =>
+            error.path.slice(error.path.lastIndexOf(".") + 1) === segment,
+        );
+      const labelErrors = forControl("label");
+      const titleErrors = forControl("title");
+      // Only the selected type's destination is rendered with an error list, so
+      // only its key counts as "known". An error on the other one — a `pageId`
+      // failure on a url-rendered link, say — has no visible control of its own
+      // and falls through to the container rather than disappearing.
+      const activeDestination = type === "page" ? "pageId" : "url";
+      const destinationErrors = forControl(activeDestination);
+      const known = new Set(["label", "title", activeDestination]);
+      const groupErrors = (errors ?? []).filter(
+        (error) =>
+          !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
+      );
+
+      const labelErrorId = idFor("label-error");
+      const titleErrorId = idFor("title-error");
+      const destinationErrorId = idFor("destination-error");
+      const titleHelpId = idFor("title-help");
+      // Radio `name` groups the four options into one control. A row has no
+      // stable id, so the list hands it a `nameScope` that differs per row —
+      // share the name and picking a type in one row unchecks it in the next.
+      // If neither is there (a control rendered outside `ContentFields`, as a
+      // test or a future caller might), a counter still keeps two same-named
+      // links from becoming one browser-side group; the page is rendered once,
+      // so a process-local counter is enough.
+      const radioName = `${
+        nameScope ?? controlId ?? `cms-link-${++unscopedLink}`
+      }-type`;
+      const destinationAria = (kind: LinkType) =>
+        type === kind && destinationErrors.length > 0
+          ? {
+              "aria-invalid": "true" as const,
+              "aria-describedby": destinationErrorId,
+            }
+          : {};
+
       return (
         <fieldset
-          className="cms-field cms-field-link"
+          className={`cms-field cms-field-link${
+            required ? "" : " cms-field-link-optional"
+          }`}
           data-field
           data-field-kind="link"
           data-field-name={field.name}
@@ -586,85 +832,196 @@ export const FieldControl = ({
           aria-label={labelOverride}
         >
           {labelOverride ? (
-            <span className="cms-field-label">{labelOverride}</span>
+            <span className="cms-field-label">
+              <HeadingText
+                text={labelOverride}
+                field={field}
+                inGroup={inGroup}
+              />
+            </span>
           ) : (
             <legend className="cms-field-label">
-              <FieldLabelText field={field} />
+              <GroupLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           <FieldHelp help={field.help} id={helpId} />
-          <SubControlLabel htmlFor={idFor("type")}>Link type</SubControlLabel>
-          <select
-            id={idFor("type")}
-            data-link-type
-            aria-label={controlId ? undefined : "Link type"}
-          >
-            <option value="url" selected={type === "url"}>
-              External URL
-            </option>
-            <option value="page" selected={type === "page"}>
-              CMS page
-            </option>
-          </select>
-          <div className="cms-link-url">
-            <SubControlLabel htmlFor={idFor("url")}>
-              External URL
+
+          <div className="cms-link-text">
+            <SubControlLabel htmlFor={idFor("label")}>
+              Button text
+            </SubControlLabel>
+            {/* A blank placeholder is what lets the optional-link rule swap
+                "Optional" for the heading's asterisk once the box is in use:
+                CSS reads `:placeholder-shown` on the group's inputs, and an
+                input with no placeholder attribute never matches it. */}
+            <input
+              type="text"
+              id={idFor("label")}
+              data-link-label
+              placeholder=" "
+              aria-label={controlId ? undefined : "Button text"}
+              value={asString(link.label)}
+              aria-invalid={labelErrors.length > 0 ? "true" : undefined}
+              aria-describedby={
+                labelErrors.length > 0 ? labelErrorId : undefined
+              }
+            />
+            <FieldErrors errors={labelErrors} id={labelErrorId} />
+          </div>
+
+          <div className="cms-link-destination-group">
+            <span className="cms-field-sublabel">Goes to</span>
+            <div
+              className="cms-link-types"
+              role="radiogroup"
+              aria-label="Link type"
+            >
+              {LINK_TYPES.map((kind) => (
+                <label key={kind} className="cms-link-type">
+                  <input
+                    type="radio"
+                    className="sr-only"
+                    name={radioName}
+                    value={kind}
+                    data-link-type
+                    checked={type === kind}
+                  />
+                  <LinkTypeIcon kind={kind} />
+                  <span>{LINK_TYPE_LABELS[kind]}</span>
+                </label>
+              ))}
+            </div>
+
+            <LinkDestination
+              kind="url"
+              label="URL"
+              htmlFor={idFor("url")}
+              active={type === "url"}
+              errors={destinationErrors}
+              errorId={destinationErrorId}
+            >
+              {/* `type="text"`: the stored value may be a root-relative path
+                  or a fragment (`/pricing`, `#faq`), which the browser's
+                  `type="url"` validation would refuse before the server saw
+                  it. `inputMode` still asks for a URL keyboard. */}
+              <input
+                type="text"
+                inputMode="url"
+                id={idFor("url")}
+                data-link-url
+                placeholder="https://…"
+                aria-label={controlId ? undefined : "URL"}
+                value={type === "url" ? storedUrl : ""}
+                {...destinationAria("url")}
+              />
+            </LinkDestination>
+
+            <LinkDestination
+              kind="page"
+              label="Page"
+              htmlFor={idFor("page")}
+              active={type === "page"}
+              errors={destinationErrors}
+              errorId={destinationErrorId}
+            >
+              <select
+                id={idFor("page")}
+                data-link-page
+                aria-label={controlId ? undefined : "Page"}
+                {...destinationAria("page")}
+              >
+                <option value="" selected={!link.pageId}>
+                  Choose a page…
+                </option>
+                {/* The link stores the page id, so a rename changes what this
+                    resolves to without touching the saved content. */}
+                {(pages ?? []).map((option) => (
+                  <option
+                    key={option.id}
+                    value={option.id}
+                    selected={option.id === link.pageId}
+                  >
+                    {option.title} ({option.url})
+                  </option>
+                ))}
+              </select>
+            </LinkDestination>
+
+            <LinkDestination
+              kind="email"
+              label="Email"
+              htmlFor={idFor("email")}
+              active={type === "email"}
+              errors={destinationErrors}
+              errorId={destinationErrorId}
+            >
+              <input
+                type="email"
+                id={idFor("email")}
+                data-link-email
+                placeholder="name@example.com"
+                aria-label={controlId ? undefined : "Email"}
+                value={
+                  type === "email" ? storedUrl.slice("mailto:".length) : ""
+                }
+                {...destinationAria("email")}
+              />
+            </LinkDestination>
+
+            <LinkDestination
+              kind="phone"
+              label="Phone"
+              htmlFor={idFor("phone")}
+              active={type === "phone"}
+              errors={destinationErrors}
+              errorId={destinationErrorId}
+            >
+              <input
+                type="tel"
+                id={idFor("phone")}
+                data-link-phone
+                placeholder="+44 20 7946 0000"
+                aria-label={controlId ? undefined : "Phone"}
+                value={type === "phone" ? storedUrl.slice("tel:".length) : ""}
+                {...destinationAria("phone")}
+              />
+            </LinkDestination>
+
+            <label className="cms-link-newtab" data-link-newtab-row>
+              <input
+                type="checkbox"
+                id={idFor("newtab")}
+                data-link-newtab
+                checked={link.newTab === true}
+              />
+              Open in a new tab
+            </label>
+          </div>
+
+          <hr className="cms-link-divider" />
+
+          <div className="cms-link-title">
+            <SubControlLabel htmlFor={idFor("title")}>
+              Hover text
+              <span className="cms-field-optional"> Optional</span>
             </SubControlLabel>
             <input
               type="text"
-              id={idFor("url")}
-              data-link-url
-              placeholder="https://…"
-              aria-label={controlId ? undefined : "External URL"}
-              value={asString(link.url)}
-              aria-invalid={invalid ? "true" : undefined}
-              aria-describedby={described}
+              id={idFor("title")}
+              data-link-title
+              placeholder=" "
+              aria-label={controlId ? undefined : "Hover text"}
+              value={asString(link.title)}
+              aria-invalid={titleErrors.length > 0 ? "true" : undefined}
+              aria-describedby={titleHelpId}
             />
+            <span className="cms-field-help" id={titleHelpId}>
+              Shown as a tooltip when someone hovers over the link.
+            </span>
+            <FieldErrors errors={titleErrors} id={titleErrorId} />
           </div>
-          <div className="cms-link-page">
-            <SubControlLabel htmlFor={idFor("page")}>CMS page</SubControlLabel>
-            <select
-              id={idFor("page")}
-              data-link-page
-              aria-label={controlId ? undefined : "CMS page"}
-              aria-invalid={invalid ? "true" : undefined}
-              aria-describedby={described}
-            >
-              <option value="" selected={!link.pageId}>
-                Choose a page…
-              </option>
-              {/* The link stores the page id, so a rename changes what this
-                  resolves to without touching the saved content. */}
-              {(pages ?? []).map((option) => (
-                <option
-                  key={option.id}
-                  value={option.id}
-                  selected={option.id === link.pageId}
-                >
-                  {option.title} ({option.url})
-                </option>
-              ))}
-            </select>
-          </div>
-          <SubControlLabel htmlFor={idFor("label")}>Label</SubControlLabel>
-          <input
-            type="text"
-            id={idFor("label")}
-            data-link-label
-            placeholder="Label"
-            aria-label={controlId ? undefined : "Label"}
-            value={asString(link.label)}
-          />
-          <label>
-            <input
-              type="checkbox"
-              id={idFor("newtab")}
-              data-link-newtab
-              checked={link.newTab === true}
-            />
-            Open in a new tab
-          </label>
-          <FieldErrors errors={errors} id={errorId} />
+
+          <FieldErrors errors={groupErrors} id={errorId} />
         </fieldset>
       );
     }
@@ -699,10 +1056,16 @@ export const FieldControl = ({
           aria-label={labelOverride}
         >
           {labelOverride ? (
-            <span className="cms-field-label">{labelOverride}</span>
+            <span className="cms-field-label">
+              <HeadingText
+                text={labelOverride}
+                field={field}
+                inGroup={inGroup}
+              />
+            </span>
           ) : (
             <legend className="cms-field-label">
-              <FieldLabelText field={field} />
+              <GroupLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           {/* Scoped, so the client reads these as the group's own fields and
@@ -718,6 +1081,14 @@ export const FieldControl = ({
                 // than inheriting the row's — "Title", not "Steps".
                 idBase={controlId ? `${controlId}-${child.name}` : undefined}
                 labelOverride={controlId ? undefined : fieldName(child)}
+                inGroup
+                nameScope={
+                  nameScope
+                    ? `${nameScope}-${child.name}`
+                    : controlId
+                      ? `${controlId}-${child.name}`
+                      : undefined
+                }
                 pages={pages}
                 hasMedia={hasMedia}
                 pickerCapped={pickerCapped}
@@ -760,6 +1131,9 @@ export const FieldControl = ({
       // list's own label is what makes each row's Add and Remove say which
       // list they belong to.
       const listLabel = fieldName(field);
+      // Each row gets a scope of its own. The template's is distinct from every
+      // real row's, and the client re-names a clone the moment it is added.
+      const scopeBase = nameScope ?? controlId ?? field.name;
       const atMax = field.max !== undefined && items.length >= field.max;
 
       return (
@@ -778,7 +1152,7 @@ export const FieldControl = ({
             <span className="cms-field-label">{labelOverride}</span>
           ) : (
             <legend className="cms-field-label">
-              <FieldLabelText field={field} />
+              <FieldLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
           <div data-list-items>
@@ -788,6 +1162,7 @@ export const FieldControl = ({
                 field={itemField}
                 value={item}
                 listLabel={listLabel}
+                nameScope={`${scopeBase}-${itemField.name}-${index}`}
                 pages={pages}
                 hasMedia={hasMedia}
                 pickerCapped={pickerCapped}
@@ -802,6 +1177,7 @@ export const FieldControl = ({
               field={itemField}
               value={undefined}
               listLabel={listLabel}
+              nameScope={`${scopeBase}-${itemField.name}-template`}
               pages={pages}
               hasMedia={hasMedia}
               pickerCapped={pickerCapped}

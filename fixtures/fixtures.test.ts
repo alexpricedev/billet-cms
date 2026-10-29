@@ -247,6 +247,58 @@ describe("fixtures and personas", () => {
     }
   });
 
+  test("the banner publishes one link whose button text lives in the link", async () => {
+    const blockTypes = (await sql`
+      SELECT name, fields FROM cms_block_types
+      WHERE name = 'banner'
+    `) as {
+      name: string;
+      fields: {
+        name: string;
+        kind: string;
+        label?: string;
+        text?: boolean;
+      }[];
+    }[];
+
+    // One link field and no separate text field: a plain link publishes no
+    // `text` key at all, and the editor's Button text is the link's `label`.
+    const fields = blockTypes[0]?.fields ?? [];
+    expect(fields.map((field) => field.name)).toEqual(["link"]);
+    expect(fields[0]?.kind).toBe("link");
+    expect(fields[0]?.label).toBe("Button link");
+    expect(fields[0]?.text).toBeUndefined();
+
+    // The landing page type (what /about uses) allows it.
+    const landing = (await sql`
+      SELECT allowed_blocks FROM cms_page_types WHERE name = 'landing'
+    `) as { allowed_blocks: string[] }[];
+    expect(landing[0].allowed_blocks).toEqual(
+      expect.arrayContaining(["banner"]),
+    );
+    expect(landing[0].allowed_blocks).not.toContain("banner-plain");
+
+    // /about's published revision holds the banner with its words in the link.
+    const published = (await sql`
+      SELECT r.content FROM cms_revisions r
+      JOIN cms_pages p ON p.id = r.target_id
+      WHERE p.url = '/about' AND r.id = p.published_revision_id
+    `) as {
+      content: {
+        blocks: {
+          type: string;
+          link?: { label?: string; pageId?: string };
+        }[];
+      };
+    }[];
+    const banners = published[0].content.blocks.filter(
+      (block) => block.type === "banner",
+    );
+    expect(banners).toHaveLength(1);
+    expect(banners[0]?.link?.label).toBe("Start a project");
+    expect(banners[0]?.link?.pageId).toBeTruthy();
+  });
+
   test("the site serves the published content and the local media", async () => {
     const about = await fetch(`${siteUrl}/about`);
     expect(about.status).toBe(200);

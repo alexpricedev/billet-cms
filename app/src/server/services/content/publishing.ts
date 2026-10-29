@@ -13,7 +13,6 @@
  * validates (a deploy changed the block under it) is refused with field-level
  * messages rather than going live and being skipped by the site at read time.
  */
-import { validateContent } from "@alexpricedev/billet-cms/schema";
 import type { SQL } from "bun";
 import { db } from "../database";
 import {
@@ -24,7 +23,7 @@ import {
   referencedMediaIds,
 } from "../media/guidance";
 import { type BlockTypeRecord, getBlockTypeByName } from "./definitions";
-import { type FieldIssue, formatIssues } from "./drafts";
+import { blockContentIssues, type FieldIssue } from "./drafts";
 import {
   createRevision,
   getLatestRevision,
@@ -166,15 +165,15 @@ export const publishSlot = async (
 
     // Removed top-level fields are tolerated, exactly as a save tolerates them
     // (Q4): they are carried from the base revision and never authored here.
-    const validation = validateContent(blockType.jsonSchema, revision.content, {
+    // Button text is left out on purpose: it is an authoring rule, and this
+    // revision was already gated when it was saved. Re-running it here would
+    // refuse a draft written before the rule existed (see `blockContentIssues`).
+    const issues = blockContentIssues(blockType, revision.content, {
       allowAdditionalFields: true,
+      skipLinkText: true,
     });
-    if (!validation.success) {
-      return {
-        ok: false as const,
-        reason: "invalid" as const,
-        issues: formatIssues(validation.issues, revision.content),
-      };
+    if (issues.length > 0) {
+      return { ok: false as const, reason: "invalid" as const, issues };
     }
 
     if (locked[0].published_revision_id === revision.id) {

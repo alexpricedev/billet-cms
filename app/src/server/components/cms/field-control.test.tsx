@@ -403,38 +403,370 @@ describe("FieldControl image picker", () => {
 });
 
 describe("FieldControl link", () => {
-  test("marks its inputs invalid and points them at the error", () => {
-    const link: FieldMetadata = { name: "cta", kind: "link", required: true };
-    const html = renderToString(
+  const PAGE_ID = "22222222-2222-4222-8222-222222222222";
+  const link: FieldMetadata = {
+    name: "cta",
+    kind: "link",
+    label: "Primary button",
+    required: true,
+  };
+  const renderLink = (value: unknown, errors?: FieldError[]): string =>
+    renderToString(
       <FieldControl
         hasMedia={false}
         pickerCapped={false}
         field={link}
-        value={{ type: "url", url: "not a url" }}
+        value={value}
         idBase="cms-field-cta"
-        errors={[{ path: "cta", message: "This value isn't valid." }]}
+        pages={[{ id: PAGE_ID, title: "About", url: "/about" }]}
+        errors={errors}
       />,
     );
 
-    expect(html).toContain('id="cms-field-cta-url"');
+  test("is one container with button text, a type switch and hover text", () => {
+    const html = renderLink({
+      type: "url",
+      url: "https://example.com",
+      label: "Go",
+    });
+
+    // The field's own label heads the box, and Button text comes first.
+    expect(html).toContain('class="cms-field cms-field-link"');
+    expect(html).toContain("Primary button");
+    expect(html).toContain("data-link-label");
+    expect(html).toContain('value="Go"');
+
+    // A real radio group with all four destinations.
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('aria-label="Link type"');
+    expect(count(html, 'type="radio"')).toBe(4);
+    for (const kind of ["url", "page", "email", "phone"]) {
+      expect(html).toContain(`data-link-destination="${kind}"`);
+    }
+
+    // All four destination controls render, each with its own type; CSS shows
+    // the one whose radio is checked. The URL box is `type="text"` so a stored
+    // root-relative path or fragment isn't refused by native validation.
+    expect(html).toMatch(/type="text"[^>]*data-link-url/);
+    expect(html).not.toContain('type="url"');
+    expect(html).toContain('placeholder="https://…"');
+    expect(html).toContain("data-link-page");
+    expect(html).toContain('type="email"');
+    expect(html).toContain('placeholder="name@example.com"');
+    expect(html).toContain('type="tel"');
+    expect(html).toContain('placeholder="+44 20 7946 0000"');
+
+    // New tab, divider, then Hover text with its hint.
+    expect(html).toContain("data-link-newtab");
+    expect(html).toContain("Open in a new tab");
+    expect(html).toContain('class="cms-link-divider"');
+    expect(html).toContain("data-link-title");
+    expect(html).toContain(
+      "Shown as a tooltip when someone hovers over the link.",
+    );
+
+    // One required marker for the whole group, on its heading: the sub-labels
+    // inside it carry none, or they read as a second label for Button text.
+    expect(html).toMatch(
+      /<legend class="cms-field-label">Primary button<span class="cms-required"> \*<\/span><\/legend>/,
+    );
+    expect(count(html, 'class="cms-required"')).toBe(1);
+    expect(html).toContain("Button text");
+    expect(html).not.toContain("Button text<span");
+    expect(html).not.toContain(">Goes to<span");
+    // A required link's asterisk does not wait to be used.
+    expect(html).not.toContain("cms-field-link-optional");
+  });
+
+  // Every link with a destination renders its own Button text, wherever it
+  // sits: a text field beside it in the same group is a different control.
+  test("renders Button text on a link inside a group", () => {
+    const group: FieldMetadata = {
+      name: "cta",
+      kind: "group",
+      label: "Call to action",
+      required: true,
+      fields: [
+        { name: "text", kind: "text", required: true },
+        { name: "link", kind: "link", required: true },
+      ],
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={group}
+        value={{
+          text: "Read more",
+          link: { type: "url", url: "https://example.com" },
+        }}
+        idBase="cms-field-cta"
+      />,
+    );
+
+    expect(html).toContain("data-link-label");
+    expect(html).toContain("Button text");
+  });
+
+  // A group's heading owns its one marker. Its children never repeat it: two
+  // asterisks stacked over the first control read as two labels for one input.
+  test("a group's heading carries the only required marker", () => {
+    const group: FieldMetadata = {
+      name: "cta",
+      kind: "group",
+      label: "Call to action",
+      required: true,
+      fields: [
+        { name: "heading", kind: "text", required: true },
+        { name: "link", kind: "link", required: true },
+      ],
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={group}
+        value={{ heading: "Hi", link: { type: "url", url: "https://a.test" } }}
+        idBase="cms-field-cta"
+      />,
+    );
+
+    // The heading's star, and none on "Heading" or the link's "Goes to".
+    expect(count(html, 'class="cms-required"')).toBe(1);
+    expect(html).toMatch(
+      /<legend class="cms-field-label">Call to action<span class="cms-required"> \*<\/span><\/legend>/,
+    );
+    expect(html).toContain(">heading<");
+  });
+
+  // An optional group says so on its heading, and nothing on its parts.
+  test("an optional group heading says Optional with no asterisk", () => {
+    const group: FieldMetadata = {
+      name: "cta",
+      kind: "group",
+      label: "Call to action",
+      required: false,
+      fields: [{ name: "heading", kind: "text", required: true }],
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={group}
+        value={{ heading: "Hi" }}
+        idBase="cms-field-cta"
+      />,
+    );
+
+    expect(html).toMatch(
+      /Call to action<span class="cms-field-optional"> Optional<\/span>/,
+    );
+    expect(count(html, 'class="cms-required"')).toBe(0);
+  });
+
+  // An optional link is optional as a whole, so its heading says "Optional"
+  // until the box is in use and only then carries the asterisk. The swap is
+  // CSS: mark the field and give the text inputs a placeholder, so
+  // `:placeholder-shown` can tell empty from typed.
+  test("marks an optional link and its text inputs for the in-use rule", () => {
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={{ ...link, required: false }}
+        value={{}}
+        idBase="cms-field-cta"
+      />,
+    );
+
+    expect(html).toContain("cms-field-link-optional");
+    expect(html).toMatch(/data-link-label[^>]*placeholder=" "/);
+    expect(html).toMatch(/data-link-title[^>]*placeholder=" "/);
+    // The heading owns both markers; the parts carry none.
+    expect(html).toMatch(
+      /Primary button<span class="cms-required"> \*<\/span><span class="cms-field-optional"> Optional<\/span>/,
+    );
+    expect(html).not.toContain("Button text<span");
+    expect(html).not.toContain(">Goes to<span");
+  });
+
+  // Each row is its own link. Sharing a radio `name` would make choosing a type
+  // in one row uncheck it in the next, because the browser groups by name.
+  test("gives a link in each list row its own radio group name", () => {
+    const links: FieldMetadata = {
+      name: "links",
+      kind: "list",
+      required: false,
+      of: { name: "link", kind: "link", required: true },
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={links}
+        idBase="cms-field-links"
+        value={[
+          { type: "url", url: "https://a.example", label: "A" },
+          { type: "url", url: "https://b.example", label: "B" },
+        ]}
+      />,
+    );
+
+    const names = Array.from(
+      html.matchAll(/type="radio"[^>]*name="([^"]+)"/g),
+      (match) => match[1],
+    );
+    // Two real rows plus the template row the client clones: one name each,
+    // and every one of them used by its own four options.
+    const unique = Array.from(new Set(names));
+    expect(unique.filter((name) => !name.includes("template"))).toHaveLength(2);
+    for (const name of unique) {
+      expect(names.filter((candidate) => candidate === name)).toHaveLength(4);
+    }
+  });
+
+  // A list row's heading is the list's name, not the link's, but the marker
+  // belongs to the link control the row renders. Its sub-labels carry none, so
+  // without the heading's star a required link in a list shows no marker at all.
+  test("a required link in a list row carries its marker on the row heading", () => {
+    const links: FieldMetadata = {
+      name: "links",
+      kind: "list",
+      required: false,
+      of: { name: "link", kind: "link", required: true },
+    };
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={links}
+        idBase="cms-field-links"
+        value={[{ type: "url", url: "https://a.example", label: "A" }]}
+      />,
+    );
+
+    expect(html).toContain(
+      '<span class="cms-field-label">links<span class="cms-required"> *</span></span>',
+    );
+    expect(html).not.toContain("Button text<span");
+    expect(html).not.toContain(">Goes to<span");
+  });
+
+  // A URL-rendered link has no page picker, so an error keyed `pageId` has no
+  // control of its own. It is still an issue the editor was refused over, so it
+  // goes on the container rather than being dropped as "known".
+  test("shows a non-selected destination error on the container", () => {
+    const html = renderLink(
+      { type: "url", url: "https://example.com", label: "Go" },
+      [{ path: "cta.pageId", message: "Choose a page." }],
+    );
+
     expect(html).toContain('id="cms-field-cta-error"');
-    // The help id is included even when a field has no help text, so point at
-    // the error within the list rather than asserting the whole attribute.
-    expect(html).toMatch(/aria-describedby="[^"]*cms-field-cta-error/);
-    expect(html).toContain('aria-invalid="true"');
+    expect(html).toContain("Choose a page.");
+    expect(html).not.toMatch(/data-link-url[^>]*aria-invalid/);
+  });
+
+  // Rendered outside `ContentFields` a link has neither an id nor a row scope.
+  // Two links with the same field name must still not become one browser-side
+  // radio group, or choosing a type in one changes the other.
+  test("keeps two unscoped same-named links in separate radio groups", () => {
+    const renderUnscoped = (): string =>
+      renderToString(
+        <FieldControl
+          hasMedia={false}
+          pickerCapped={false}
+          field={link}
+          value={{}}
+          labelOverride="Link"
+        />,
+      );
+
+    const names = Array.from(
+      `${renderUnscoped()}${renderUnscoped()}`.matchAll(
+        /type="radio"[^>]*name="([^"]+)"/g,
+      ),
+      (match) => match[1],
+    );
+    const unique = Array.from(new Set(names));
+    expect(unique).toHaveLength(2);
+    for (const name of unique) {
+      expect(names.filter((candidate) => candidate === name)).toHaveLength(4);
+    }
+  });
+
+  test("checks the stored type, including mailto and tel", () => {
+    const checkedRadio = (html: string): string =>
+      html.match(/<input[^>]*type="radio"[^>]*checked[^>]*>/)?.[0] ?? "";
+
+    expect(
+      checkedRadio(renderLink({ type: "url", url: "https://example.com" })),
+    ).toContain('value="url"');
+    expect(
+      checkedRadio(renderLink({ type: "page", pageId: PAGE_ID })),
+    ).toContain('value="page"');
+    const email = renderLink({ type: "url", url: "mailto:hi@example.com" });
+    expect(checkedRadio(email)).toContain('value="email"');
+    // The address is shown without its scheme; switching back re-adds it.
+    expect(email).toMatch(/data-link-email[^>]*value="hi@example.com"/);
+    const phone = renderLink({ type: "url", url: "tel:+442079460000" });
+    expect(checkedRadio(phone)).toContain('value="phone"');
+    expect(phone).toMatch(/data-link-phone[^>]*value="\+442079460000"/);
+  });
+
+  test("puts a button-text error under button text and marks only it", () => {
+    const html = renderLink({ type: "url", url: "https://example.com" }, [
+      { path: "cta.label", message: "Button text is required." },
+    ]);
+
+    expect(html).toContain('id="cms-field-cta-label-error"');
+    expect(html).toMatch(
+      /data-link-label[^>]*aria-invalid="true"[^>]*aria-describedby="cms-field-cta-label-error"/,
+    );
+    // The URL input is fine and keeps no invalid state.
+    expect(html).toMatch(/data-link-url(?![^>]*aria-invalid)/);
+  });
+
+  test("puts a URL error under the URL input", () => {
+    const html = renderLink({ type: "url", url: "not a url" }, [
+      { path: "cta.url", message: "Enter a full URL, starting with https://" },
+    ]);
+
+    expect(html).toContain("Enter a full URL, starting with https://");
+    expect(html).toContain('id="cms-field-cta-destination-error"');
+    expect(html).toMatch(
+      /data-link-url[^>]*aria-invalid="true"[^>]*aria-describedby="cms-field-cta-destination-error"/,
+    );
+    expect(html).not.toMatch(/data-link-label[^>]*aria-invalid/);
+  });
+
+  test("puts a page error under the page picker", () => {
+    const html = renderLink({ type: "page" }, [
+      { path: "cta.pageId", message: "Choose a page." },
+    ]);
+
+    expect(html).toContain("Choose a page.");
+    expect(html).toMatch(
+      /data-link-page[^>]*aria-invalid="true"[^>]*aria-describedby="cms-field-cta-destination-error"/,
+    );
+  });
+
+  test("keeps a whole-link error on the container", () => {
+    const html = renderLink(
+      { type: "url", url: "https://example.com", label: "Go" },
+      [{ path: "cta", message: "This value isn't valid." }],
+    );
+
+    expect(html).toContain('id="cms-field-cta-error"');
+    expect(html).toContain("This value isn't valid.");
+    expect(html).not.toContain('aria-invalid="true"');
   });
 
   test("marks nothing invalid when there are no errors", () => {
-    const link: FieldMetadata = { name: "cta", kind: "link", required: true };
-    const html = renderToString(
-      <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
-        field={link}
-        value={{ type: "url", url: "https://example.com" }}
-        idBase="cms-field-cta"
-      />,
-    );
+    const html = renderLink({
+      type: "url",
+      url: "https://example.com",
+      label: "Go",
+    });
 
     expect(html).not.toContain('aria-invalid="true"');
   });

@@ -19,9 +19,14 @@
  * rejected wherever it appears for the same reason — browsers read `\` as `/`,
  * so `/\host` is `//host` in disguise. A scheme also needs something after it
  * (`https://` with no host is not a link), while a bare `/` or `#` is kept.
+ *
+ * A `tel:` number may contain spaces: the editor's placeholder says
+ * `+44 20 7946 0000`, and the browser strips them from an `href` anyway. The
+ * editor itself compacts what it saves, so this only lets a caller that does
+ * not run the client script (MCP, an import) send the format the field shows.
  */
 export const URL_PATTERN =
-  /^(?:[Hh][Tt][Tt][Pp][Ss]?:\/\/[^\s\\]+|[Mm][Aa][Ii][Ll][Tt][Oo]:[^\s\\]+|[Tt][Ee][Ll]:[^\s\\]+|\/(?![/\\])[^\s\\]*|#[^\s\\]*)$/;
+  /^(?:[Hh][Tt][Tt][Pp][Ss]?:\/\/[^\s\\]+|[Mm][Aa][Ii][Ll][Tt][Oo]:[^\s\\]+|[Tt][Ee][Ll]:[^\s\\]+(?: +[^\s\\]+)*|\/(?![/\\])[^\s\\]*|#[^\s\\]*)$/;
 
 /** The message shown when a link fails the allowlist. */
 export const URL_PATTERN_MESSAGE =

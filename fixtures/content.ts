@@ -115,6 +115,16 @@ export const REVISIONS: readonly FixtureRevision[] = [
           text: "They shipped on time and the site has never gone down.",
           attribution: "A happy harbourmaster",
         },
+        // A banner whose button text lives in the link itself: one Button text
+        // inside the link group, and no separate text field to fill in twice.
+        {
+          type: "banner",
+          link: {
+            type: "page",
+            pageId: PAGE_IDS.work,
+            label: "Start a project",
+          },
+        },
         {
           type: "cta",
           heading: "Want to work together?",

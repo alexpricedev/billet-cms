@@ -113,16 +113,43 @@ export interface ListOptions extends FieldOptions {
   max?: number;
 }
 
+/**
+ * The options a link accepts: the shared field options and nothing more.
+ *
+ * A link always carries its own visible text in the value's `label`; a site
+ * that models the button's words as a separate field drops that field instead.
+ * Kept as a named alias because it is part of the published vocabulary.
+ */
+export type LinkOptions = FieldOptions;
+
 /** A reference to a `cms_media` row, with an optional per-use alt override. */
 export interface ImageValue {
   mediaId: string;
   alt?: string;
 }
 
-/** A link to a CMS page (by id, so it survives URL changes) or a free URL. */
+/**
+ * A link to a CMS page (by id, so it survives URL changes) or a free URL.
+ *
+ * `label` is the link's visible text; `title` is the hover text a browser shows
+ * as a tooltip. Both are optional, and a link written before `title` existed
+ * still validates.
+ */
 export type LinkValue =
-  | { type: "page"; pageId: string; label?: string; newTab?: boolean }
-  | { type: "url"; url: string; label?: string; newTab?: boolean };
+  | {
+      type: "page";
+      pageId: string;
+      label?: string;
+      title?: string;
+      newTab?: boolean;
+    }
+  | {
+      type: "url";
+      url: string;
+      label?: string;
+      title?: string;
+      newTab?: boolean;
+    };
 
 /** The shape an image field's `aspect` guidance must take, e.g. `"16:9"`. */
 export const ASPECT_PATTERN = /^\d+:\d+$/;
@@ -235,6 +262,7 @@ const pageLink = z.strictObject({
   type: z.literal("page"),
   pageId: z.uuid(),
   label: z.string().optional(),
+  title: z.string().optional(),
   newTab: z.boolean().optional(),
 });
 
@@ -242,13 +270,14 @@ const urlLink = z.strictObject({
   type: z.literal("url"),
   url: z.string().regex(URL_PATTERN, URL_PATTERN_MESSAGE),
   label: z.string().optional(),
+  title: z.string().optional(),
   newTab: z.boolean().optional(),
 });
 
 const linkValue = z.discriminatedUnion("type", [pageLink, urlLink]);
 
 /** A link to a CMS page or a free URL. */
-export const link = <O extends FieldOptions = DefaultOptions>(
+export const link = <O extends LinkOptions = DefaultOptions>(
   options: O = {} as O,
 ): Field<FieldValue<LinkValue, O>> => ({
   kind: "link",

@@ -16,11 +16,15 @@
  *    transaction, under a row lock on the slot, so two saves can't both pass.
  */
 import {
+  linkTextIssues,
   URL_PATTERN,
   URL_PATTERN_MESSAGE,
 } from "@alexpricedev/billet-cms/fields";
 import type { ValidationIssue } from "@alexpricedev/billet-cms/schema";
-import { validateContent } from "@alexpricedev/billet-cms/schema";
+import {
+  type ValidateOptions,
+  validateContent,
+} from "@alexpricedev/billet-cms/schema";
 import type { SQL } from "bun";
 import { findUserById } from "../auth";
 import { db } from "../database";
@@ -167,16 +171,49 @@ const isUnchosenPageLink = (value: unknown): boolean => {
   return pageId === undefined || pageId === null || pageId === "";
 };
 
-/** True when a value is a url-mode link whose `url` fails the shared allowlist. */
-const isBadLinkUrl = (value: unknown): boolean => {
-  if (typeof value !== "object" || value === null) return false;
+/**
+ * The destination a url-mode link failed on, or `null` when it is valid.
+ *
+ * The value is returned rather than a bare boolean because the editor shows a
+ * different message for each destination it offers: a `mailto:` link is an
+ * Email field and a `tel:` link is a Phone field to the person typing, even
+ * though both are stored as `type: "url"`.
+ */
+const badLinkUrl = (value: unknown): string | null => {
+  if (typeof value !== "object" || value === null) return null;
   const record = value as { type?: unknown; url?: unknown };
-  return (
-    record.type === "url" &&
-    typeof record.url === "string" &&
-    !URL_PATTERN.test(record.url)
-  );
+  if (record.type !== "url" || typeof record.url !== "string") return null;
+  return URL_PATTERN.test(record.url) ? null : record.url;
 };
+
+/** Copy for the link field's destination inputs, one per kind the editor shows. */
+const LINK_URL_MESSAGE = "Enter a full URL, starting with https://";
+const LINK_EMAIL_MESSAGE = "Enter an email address like name@example.com";
+const LINK_PHONE_MESSAGE = "Enter a phone number like +44 20 7946 0000";
+
+/**
+ * The destination message for a bad url-mode link.
+ *
+ * Email and Phone are stored as full URLs with the same `type: "url"` shape, so
+ * the scheme is what tells the editor which box the person was filling in.
+ */
+const linkDestinationMessage = (url: string): string => {
+  const lower = url.toLowerCase();
+  if (lower.startsWith("mailto:")) return LINK_EMAIL_MESSAGE;
+  if (lower.startsWith("tel:")) return LINK_PHONE_MESSAGE;
+  return LINK_URL_MESSAGE;
+};
+
+/**
+ * Button-text issues for a block's content.
+ *
+ * The rule lives in the plugin (`linkTextIssues`), next to the field vocabulary
+ * it reads, so the CMS's write paths and the editor that renders the same
+ * metadata cannot disagree about which links owe their own words. It is not in
+ * the stored schema (`label` is optional there), so every authoring path still
+ * has to run it itself.
+ */
+export const linkLabelIssues = linkTextIssues;
 
 /**
  * Rewrite the validator's issues into copy an editor can act on.
@@ -197,14 +234,61 @@ export const formatIssues = (
     const path = issue.path.length > 0 ? issue.path.join(".") : "(content)";
     const last = issue.path[issue.path.length - 1];
     const parent = valueAtPath(content, issue.path.slice(0, -1));
-    const value = valueAtPath(content, issue.path);
-    const message = isBadLinkUrl(value)
-      ? URL_PATTERN_MESSAGE
-      : last === "pageId" && isUnchosenPageLink(parent)
-        ? "Choose a page."
-        : plainMessage(issue.message);
+    // The issue names the failing key (`cta.url`), so the link itself is the
+    // parent, not the value at the path — which is the url string.
+    const url = last === "url" ? badLinkUrl(parent) : null;
+    const message =
+      url !== null
+        ? linkDestinationMessage(url)
+        : last === "pageId" && isUnchosenPageLink(parent)
+          ? "Choose a page."
+          : plainMessage(issue.message);
     return { path, message };
   });
+
+/** What a block can be checked against: its published schema and metadata. */
+export interface BlockIssueSource {
+  jsonSchema: Record<string, unknown>;
+  fields: Parameters<typeof linkTextIssues>[0];
+}
+
+export interface BlockIssueOptions extends ValidateOptions {
+  /**
+   * Leave the Button-text rule out.
+   *
+   * Publishing reads a revision that was already gated when it was saved. The
+   * rule is an authoring rule, so running it again at publish would refuse
+   * content written before the rule existed — a stored link with a destination
+   * and no label was valid then. A publish therefore re-checks the schema only;
+   * anything authored from now on went through a save that enforced the rule.
+   */
+  skipLinkText?: boolean;
+}
+
+/**
+ * Every issue a block's content has: the stored schema's, rewritten for an
+ * editor, plus the Button-text rule the schema cannot express.
+ *
+ * One helper because four write paths used to merge the two by hand — a save,
+ * a publish, an MCP validate and a page's per-block check — and a fifth would
+ * have been free to forget the rule.
+ */
+export const blockContentIssues = (
+  block: BlockIssueSource,
+  content: unknown,
+  options: BlockIssueOptions = {},
+): FieldIssue[] => {
+  const { skipLinkText = false, ...validateOptions } = options;
+  const validation = validateContent(
+    block.jsonSchema,
+    content,
+    validateOptions,
+  );
+  return [
+    ...(validation.success ? [] : formatIssues(validation.issues, content)),
+    ...(skipLinkText ? [] : linkLabelIssues(block.fields, content)),
+  ];
+};
 
 const describeConflict = async (
   revision: RevisionRecord,
@@ -287,13 +371,11 @@ export const saveSlotDraft = async (
 
   // Strict: a key the block doesn't declare is refused. Removed fields are
   // re-attached below from the base revision, so they never need to pass here.
-  const validation = validateContent(blockType.jsonSchema, input.content);
-  if (!validation.success) {
-    return {
-      ok: false,
-      reason: "invalid",
-      issues: formatIssues(validation.issues, input.content),
-    };
+  // Strict: Button text is not in the schema, so the save runs both checks —
+  // the rule has to fire even when the validator found nothing else wrong.
+  const issues = blockContentIssues(blockType, input.content);
+  if (issues.length > 0) {
+    return { ok: false, reason: "invalid", issues };
   }
 
   // The schema can only say an image reference is a UUID; whether the picture

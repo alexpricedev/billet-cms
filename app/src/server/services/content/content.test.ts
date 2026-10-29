@@ -2,12 +2,12 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import {
   block,
+  group,
   image,
   link,
   list,
   richText,
   text,
-  URL_PATTERN_MESSAGE,
 } from "@alexpricedev/billet-cms/fields";
 import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
@@ -44,7 +44,7 @@ const document: RichTextDocument = {
 const validContent = {
   heading: "A heading",
   body: document,
-  cta: { type: "url", url: "https://example.com" },
+  cta: { type: "url", url: "https://example.com", label: "Go" },
   gallery: [],
 };
 
@@ -99,6 +99,62 @@ describe("content write layer", () => {
     expect(await getLatestRevision("slot", slotId)).toBeNull();
   });
 
+  // Button text is an editor rule (the schema's `label` is optional), so the
+  // write layer has to refuse a filled link with no words even when the schema
+  // itself is happy.
+  test("refuses a filled link with no button text", async () => {
+    const result = await saveSlotDraft({
+      slotId,
+      content: {
+        ...validContent,
+        cta: { type: "url", url: "https://example.com" },
+      },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    expect(result.issues).toEqual([
+      { path: "cta.label", message: "Button text is required." },
+    ]);
+    expect(await getLatestRevision("slot", slotId)).toBeNull();
+  });
+
+  // Every link owes its own words, wherever it sits: a text field beside it in
+  // the same group is a separate control, not the link's Button text.
+  test("refuses a group link with a sibling text field and no label", async () => {
+    const banner = block(
+      "banner",
+      { banner: group({ heading: text(), cta: link() }) },
+      () => null,
+    );
+    await seedBlockType(db, banner);
+    const bannerSlot = await seedSlot(db, {
+      name: "home.banner",
+      blockName: "banner",
+      page: "home",
+    });
+
+    const result = await saveSlotDraft({
+      slotId: bannerSlot,
+      content: {
+        banner: {
+          heading: "Read this",
+          cta: { type: "url", url: "https://example.com" },
+        },
+      },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || result.reason !== "invalid") return;
+    expect(result.issues).toEqual([
+      { path: "banner.cta.label", message: "Button text is required." },
+    ]);
+  });
+
   // Q4: the value is re-attached from the revision the editor loaded, so the
   // client never has to send a key the schema no longer declares.
   test("carries a removed field through from the revision it was based on", async () => {
@@ -121,6 +177,29 @@ describe("content write layer", () => {
     expect(result.ok).toBe(true);
     const latest = await getLatestRevision("slot", slotId);
     expect(latest?.content.droppedField).toEqual({ kept: true });
+  });
+
+  // A removed field has no control in the form, so a label-less link left in
+  // one must not block the save: the editor could never fix it.
+  test("does not ask for button text on a link in a removed field", async () => {
+    const seeded = await createRevision({
+      targetType: "slot",
+      targetId: slotId,
+      content: {
+        ...validContent,
+        droppedCta: { type: "url", url: "https://example.com" },
+      },
+      createdBy: editorId,
+    });
+
+    const result = await saveSlotDraft({
+      slotId,
+      content: validContent,
+      baseRevisionId: seeded.id,
+      actorId: editorId,
+    });
+
+    expect(result.ok).toBe(true);
   });
 
   test("refuses a key the schema does not declare", async () => {
@@ -188,7 +267,9 @@ describe("content write layer", () => {
     expect(result.ok).toBe(false);
     if (result.ok || result.reason !== "invalid") return;
     expect(
-      result.issues.some((issue) => issue.message === URL_PATTERN_MESSAGE),
+      result.issues.some(
+        (issue) => issue.message === "Enter a full URL, starting with https://",
+      ),
       JSON.stringify(result.issues),
     ).toBe(true);
   });

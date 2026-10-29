@@ -604,11 +604,13 @@ export const publishPage = async (
         };
       }
 
+      // The revision was gated when it was saved, so publishing does not
+      // re-run the authoring rule (see `ValidatePageOptions.skipLinkText`).
       const validation = validatePageContent(
         pageType,
         blockTypes,
         asPageContent(revision.content),
-        { allowNotAllowedBlocks: true },
+        { allowNotAllowedBlocks: true, skipLinkText: true },
       );
       if (!validation.ok) {
         return {

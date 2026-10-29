@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   block,
   blockStoredSchema,
+  group,
   link,
+  list,
   MAX_RICH_TEXT_LIST_DEPTH,
   type PageTypeDefinition,
   pageType,
@@ -10,10 +12,9 @@ import {
   richText,
   text,
   URL_PATTERN,
-  URL_PATTERN_MESSAGE,
 } from "@alexpricedev/billet-cms/fields";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
-import { formatIssues } from "./drafts";
+import { formatIssues, linkLabelIssues } from "./drafts";
 import {
   asPageContent,
   checkPageLimits,
@@ -90,6 +91,46 @@ describe("validatePageContent", () => {
     const result = validatePageContent(pageTypeRecord(landing), registry, {
       blocks: [{ type: "hero", heading: "Hi" }],
     });
+    expect(result.ok).toBe(true);
+  });
+
+  // Button text is an editor rule, not a schema one, so it has to fail here
+  // even though the schema accepted the link.
+  test("refuses a filled link with no button text", () => {
+    const result = validatePageContent(pageTypeRecord(landing), registry, {
+      blocks: [
+        {
+          type: "hero",
+          heading: "Hi",
+          cta: { type: "url", url: "https://example.com" },
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toEqual([
+      { path: "blocks.0.cta.label", message: "Button text is required." },
+    ]);
+  });
+
+  // A publish re-checks a revision a save already gated. Button text is an
+  // authoring rule, so re-running it at publish would refuse content written
+  // before the rule existed; publishing asks for the schema only.
+  test("tolerates a stored link with no button text when publishing", () => {
+    const result = validatePageContent(
+      pageTypeRecord(landing),
+      registry,
+      {
+        blocks: [
+          {
+            type: "hero",
+            heading: "Hi",
+            cta: { type: "url", url: "https://example.com" },
+          },
+        ],
+      },
+      { skipLinkText: true },
+    );
     expect(result.ok).toBe(true);
   });
 
@@ -355,7 +396,7 @@ describe("formatIssues", () => {
   test("keeps the plain message for a malformed page id", () => {
     expect(
       formatIssues([{ path: ["cta", "pageId"], message: "Invalid UUID" }], {
-        cta: { type: "page", pageId: "not-a-uuid" },
+        cta: { type: "page", pageId: "not-a-uuid", label: "Go" },
       }),
     ).toEqual([{ path: "cta.pageId", message: "Enter a valid id." }]);
   });
@@ -420,9 +461,162 @@ describe("formatIssues", () => {
             message: `Invalid string: must match pattern /${URL_PATTERN.source}/`,
           },
         ],
-        { cta: { type: "url", url: "javascript:alert(1)" } },
+        { cta: { type: "url", url: "javascript:alert(1)", label: "Go" } },
       ),
-    ).toEqual([{ path: "cta.url", message: URL_PATTERN_MESSAGE }]);
+    ).toEqual([
+      { path: "cta.url", message: "Enter a full URL, starting with https://" },
+    ]);
+  });
+
+  // Email and Phone are stored as url-mode links, so the scheme is what picks
+  // the message; the person was typing into an email or phone box.
+  test("names an email link with email copy", () => {
+    expect(
+      formatIssues(
+        [
+          {
+            path: ["cta", "url"],
+            message: `Invalid string: must match pattern /${URL_PATTERN.source}/`,
+          },
+        ],
+        { cta: { type: "url", url: "mailto:", label: "Mail us" } },
+      ),
+    ).toEqual([
+      {
+        path: "cta.url",
+        message: "Enter an email address like name@example.com",
+      },
+    ]);
+  });
+
+  test("names a phone link with phone copy", () => {
+    expect(
+      formatIssues(
+        [
+          {
+            path: ["cta", "url"],
+            message: `Invalid string: must match pattern /${URL_PATTERN.source}/`,
+          },
+        ],
+        { cta: { type: "url", url: "tel:", label: "Call us" } },
+      ),
+    ).toEqual([
+      {
+        path: "cta.url",
+        message: "Enter a phone number like +44 20 7946 0000",
+      },
+    ]);
+  });
+
+  // Button text is not in the schema (label is optional), so the write layer
+  // checks it for a link that has a destination.
+  const heroFields = blockStoredSchema(hero).fields;
+
+  test("adds a button-text message for a filled link with no label", () => {
+    expect(
+      linkLabelIssues(heroFields, {
+        cta: { type: "url", url: "https://example.com" },
+      }),
+    ).toEqual([{ path: "cta.label", message: "Button text is required." }]);
+  });
+
+  test("does not ask for button text on an unfilled page link", () => {
+    expect(
+      linkLabelIssues(heroFields, { cta: { type: "page", pageId: "" } }),
+    ).toEqual([]);
+  });
+
+  // A field a deploy removed has no control in the form, so a label-less link
+  // left in it must not make the block unpublishable.
+  test("ignores a link in a field the metadata no longer declares", () => {
+    expect(
+      linkLabelIssues(heroFields, {
+        removedCta: { type: "url", url: "https://example.com" },
+      }),
+    ).toEqual([]);
+  });
+
+  test("finds a link nested in a list and a group", () => {
+    const nested = block(
+      "nested",
+      { links: list(link()), cta: group({ url: link() }) },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(nested).fields, {
+        links: [{ type: "url", url: "https://example.com" }],
+        cta: { url: { type: "url", url: "https://example.com" } },
+      }),
+    ).toEqual([
+      { path: "links.0.label", message: "Button text is required." },
+      { path: "cta.url.label", message: "Button text is required." },
+    ]);
+  });
+
+  // Every link with a destination owes its own words, in a group, at the top
+  // level, or in a list: there is no option and no sibling-text exemption.
+  test("asks for button text on every link with a destination", () => {
+    const banner = block(
+      "banner",
+      {
+        banner: group({ heading: text(), cta: link() }),
+        cta: link(),
+        links: list(link()),
+      },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(banner).fields, {
+        banner: {
+          heading: "Read this",
+          cta: { type: "url", url: "https://example.com" },
+        },
+        cta: { type: "url", url: "https://b.test" },
+        links: [{ type: "url", url: "https://c.test" }],
+      }),
+    ).toEqual([
+      { path: "banner.cta.label", message: "Button text is required." },
+      { path: "cta.label", message: "Button text is required." },
+      { path: "links.0.label", message: "Button text is required." },
+    ]);
+  });
+
+  test("still asks when the group's only sibling is not a text field", () => {
+    const banner = block(
+      "banner",
+      { banner: group({ body: richText(), cta: link() }) },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(banner).fields, {
+        banner: {
+          body: { type: "doc", content: [] },
+          cta: { type: "url", url: "https://example.com" },
+        },
+      }),
+    ).toEqual([
+      { path: "banner.cta.label", message: "Button text is required." },
+    ]);
+  });
+
+  // A text field elsewhere in the block is not a sibling: only a group's own
+  // children exempt its links, which keeps the quote's optional link refused.
+  test("does not exempt a top-level or list link for a top-level text field", () => {
+    const quote = block(
+      "quote",
+      { heading: text(), cta: link(), links: list(link()) },
+      () => null,
+    );
+    expect(
+      linkLabelIssues(blockStoredSchema(quote).fields, {
+        heading: "Words",
+        cta: { type: "url", url: "https://example.com" },
+        links: [{ type: "url", url: "https://example.com" }],
+      }),
+    ).toEqual([
+      { path: "cta.label", message: "Button text is required." },
+      { path: "links.0.label", message: "Button text is required." },
+    ]);
   });
 });
 

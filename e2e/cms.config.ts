@@ -97,9 +97,20 @@ export const steps = block("steps", {
   ),
 });
 
+/**
+ * A button whose words live in the link itself.
+ *
+ * One link field, no separate text field: the editor shows the link's own
+ * Button text inside the group, so the block is a banner with a call to action
+ * and nothing to fill in twice.
+ */
+export const banner = block("banner", {
+  link: link({ label: "Button link" }),
+});
+
 export const landing = pageType("landing", {
   label: "Landing",
-  allowedBlocks: [hero, textBlock, gallery, quote, cta, steps],
+  allowedBlocks: [hero, textBlock, gallery, quote, cta, steps, banner],
   requiredBlocks: [],
   limits: { hero: { max: 1, position: "top" } },
 });
@@ -111,7 +122,7 @@ export const article = pageType("article", {
 });
 
 export const siteDefinitions = {
-  blocks: [hero, textBlock, gallery, quote, cta, steps],
+  blocks: [hero, textBlock, gallery, quote, cta, steps, banner],
   slots: [homeHero, footerCta],
   pageTypes: [landing, article],
 };
