@@ -52,6 +52,83 @@ describe("FieldControl rich text", () => {
   });
 });
 
+describe("FieldControl text", () => {
+  const renderText = (
+    max: number | undefined,
+    value = "",
+    errors?: FieldError[],
+  ): string =>
+    renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={{ name: "intro", kind: "text", required: false, max }}
+        value={value}
+        errors={errors}
+        idBase="cms-field-intro"
+      />,
+    );
+  const control = (html: string): string =>
+    html.match(/<(?:input|textarea)[^>]*data-text-input[^>]*>/)?.[0] ?? "";
+
+  // A long field is a three-row textarea from the start; the label, id and
+  // count wiring are the input's, so the client and the counter keep working.
+  test("renders a textarea above 120 characters", () => {
+    const html = renderText(400);
+    expect(html).toContain("<textarea");
+    expect(html).not.toContain("<input");
+    expect(control(html)).toContain('rows="3"');
+    expect(control(html)).toContain('id="cms-field-intro"');
+  });
+
+  test("renders an input at 120 characters or with no maximum", () => {
+    for (const max of [120, undefined]) {
+      const html = renderText(max);
+      expect(html).toContain('<input type="text"');
+      expect(html).not.toContain("<textarea");
+    }
+  });
+
+  // The count lives in the field's help line, the same as for an input; the
+  // textarea points at it and at the field's help, never at a missing id.
+  test("keeps the character counter and its aria wiring on the textarea", () => {
+    const html = renderText(400, "Hello");
+    expect(html).toContain("5 / 400");
+    expect(html).toContain("data-char-count");
+    expect(html).toContain('data-char-max="400"');
+    expect(control(html)).toContain('aria-describedby="cms-field-intro-count"');
+    expect(html).toContain('id="cms-field-intro-count"');
+  });
+
+  test("carries help, errors and the invalid state on the textarea", () => {
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={{
+          name: "intro",
+          kind: "text",
+          required: true,
+          max: 400,
+          help: "Keep it short.",
+        }}
+        value="Hello"
+        errors={[{ path: "intro", message: "Too long." }]}
+        idBase="cms-field-intro"
+      />,
+    );
+    const textarea = control(html);
+
+    expect(textarea).toContain('aria-required="true"');
+    expect(textarea).toContain('aria-invalid="true"');
+    expect(textarea).toContain(
+      'aria-describedby="cms-field-intro-help cms-field-intro-error cms-field-intro-count"',
+    );
+    // Stored text is the textarea's content, so the long value arrives with it.
+    expect(html).toContain(">Hello</textarea>");
+  });
+});
+
 describe("FieldControl list", () => {
   const list: FieldMetadata = {
     name: "tags",

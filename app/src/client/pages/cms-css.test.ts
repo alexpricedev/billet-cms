@@ -494,6 +494,52 @@ describe("cms.css group headings", () => {
   });
 });
 
+describe("cms.css long text fields", () => {
+  // A `text()` field over 120 characters renders a textarea, and the client
+  // grows it to its text and only then adds `cms-textarea-grown`. Hiding the
+  // scrollbar and dropping the resize handle have to hang off that class: with
+  // JavaScript off it never arrives, so a stored long value keeps its normal
+  // scrollbar instead of being clipped at three rows.
+  test("clips a long text field only once the script has grown it", () => {
+    const grown = rules(css).filter(([selector]) =>
+      /textarea\.cms-textarea-grown\b/.test(selector),
+    );
+    expect(grown).toHaveLength(1);
+    expect(grown[0]?.[1]).toContain("overflow: hidden");
+    expect(grown[0]?.[1]).toContain("resize: none");
+
+    // No rule naming a textarea without the grown class may set either, so the
+    // plain three-row textarea a no-JS page renders keeps both.
+    for (const [selector, body] of rules(css)) {
+      if (!selector.includes("textarea")) continue;
+      if (selector.includes("cms-textarea-grown")) continue;
+      expect(body).not.toContain("overflow: hidden");
+      expect(body).not.toContain("resize: none");
+    }
+  });
+
+  // The textarea is a text field like any other: the danger border and the
+  // focus ring are the input's, not a second look for the long control.
+  test("gives a long text field the input's error border", () => {
+    const danger = rules(css).find(([selector]) =>
+      selector.includes('.cms-field input[aria-invalid="true"]'),
+    );
+    expect(danger?.[0]).toContain('.cms-field textarea[aria-invalid="true"]');
+    expect(danger?.[1]).toContain("border-color: var(--danger)");
+  });
+
+  test("gives a long text field the input's focus ring", () => {
+    // base.css draws one focus-visible ring for `input, textarea, select`
+    // together; this pins that the textarea is still in that group.
+    const shared = /input,\s*\ntextarea,\s*\nselect\s*\{([\s\S]*?)\n\}/.exec(
+      baseCss,
+    )?.[1];
+    expect(shared).toContain("&:focus-visible");
+    expect(shared).toContain("border-color: var(--accent)");
+    expect(shared).toContain("box-shadow: 0 0 0 3px var(--accent-soft)");
+  });
+});
+
 describe("cms.css optional link fields", () => {
   // An optional link is not an error while it is empty, so its asterisks only
   // appear once the group is in use. Both arms matter: typing into any

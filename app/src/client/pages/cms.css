@@ -535,8 +535,22 @@ h1 {
   border-color: var(--danger);
 }
 
+/* A long text field is a textarea the client sizes to its text and only then
+   marks `cms-textarea-grown`. Hiding the scrollbar and dropping the resize
+   handle hang off that class, not the element: with JavaScript off the class
+   never arrives, so a stored long value keeps its normal scrollbar and handle
+   instead of being clipped at three rows. */
+.cms-field textarea.cms-textarea-grown {
+  overflow: hidden;
+  resize: none;
+}
+
+/* The long text field is a textarea; its error and focus states already come
+   from the shared `input, textarea, select` rules in base.css. Painting the
+   danger border here too keeps it on the same rule as the input's. */
 .cms-field input[aria-invalid="true"],
-.cms-field select[aria-invalid="true"] {
+.cms-field select[aria-invalid="true"],
+.cms-field textarea[aria-invalid="true"] {
   border-color: var(--danger);
 }
 

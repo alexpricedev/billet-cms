@@ -1773,6 +1773,243 @@ describe("character count", () => {
   });
 });
 
+// A text() field whose max is over 120 renders a textarea (field-control.tsx).
+// It is still one plain line — Enter is refused and a pasted break becomes a
+// space on save — and the script grows the box to its content. The CSS clips
+// and drops the resize handle only on the class the script adds, so with
+// JavaScript off the box keeps its scrollbar.
+describe("long text fields", () => {
+  const MARKUP = `
+    <form data-cms-form>
+      <input type="hidden" name="content" data-cms-content value="{}">
+      <div data-field data-field-kind="text" data-field-name="quote">
+        <textarea data-text-input rows="3">Two sentences</textarea>
+        <p data-char-count data-char-max="10">13 / 10</p>
+        <p data-char-over hidden>Use 10 characters or fewer.</p>
+      </div>
+    </form>
+  `;
+
+  const textarea = () =>
+    input<HTMLTextAreaElement>("textarea[data-text-input]");
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("reads a textarea as the field's plain text value", () => {
+    mount(MARKUP);
+    expect(buildContent(form())).toEqual({ quote: "Two sentences" });
+  });
+
+  test("turns a pasted line break into a single space on save", () => {
+    mount(MARKUP);
+    textarea().value = "First line\nsecond line\r\nthird";
+    expect(buildContent(form()).quote).toBe("First line second line third");
+
+    // A run of breaks is one space, not one per break.
+    textarea().value = "one\n\n\ntwo";
+    expect(buildContent(form()).quote).toBe("one two");
+  });
+
+  test("counts and marks a textarea invalid past the limit", () => {
+    mount(MARKUP);
+    const count = document.querySelector("[data-char-count]") as HTMLElement;
+    const over = document.querySelector("[data-char-over]") as HTMLElement;
+
+    textarea().value = "abcdefghijk";
+    textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(count.textContent).toBe("11 / 10");
+    expect(over.hidden).toBe(false);
+    expect(textarea().getAttribute("aria-invalid")).toBe("true");
+
+    textarea().value = "abcde";
+    textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(count.textContent).toBe("5 / 10");
+    expect(over.hidden).toBe(true);
+    expect(textarea().hasAttribute("aria-invalid")).toBe(false);
+  });
+
+  test("counts a pasted line break as the single space it saves", () => {
+    mount(MARKUP);
+    const count = document.querySelector("[data-char-count]") as HTMLElement;
+    const over = document.querySelector("[data-char-over]") as HTMLElement;
+
+    // Twelve raw characters, nine saved: "abcdefgh" + one space.
+    textarea().value = "abcdefgh\r\n\r\n";
+    textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(count.textContent).toBe("9 / 10");
+    expect(over.hidden).toBe(true);
+    expect(textarea().hasAttribute("aria-invalid")).toBe(false);
+    expect(buildContent(form()).quote).toBe("abcdefgh ");
+  });
+
+  test("refuses Enter in a textarea and leaves other keys alone", () => {
+    mount(MARKUP);
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea().dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
+
+    const letter = new KeyboardEvent("keydown", {
+      key: "a",
+      bubbles: true,
+      cancelable: true,
+    });
+    textarea().dispatchEvent(letter);
+    expect(letter.defaultPrevented).toBe(false);
+  });
+
+  test("grows on first paint, and only the script marks it grown", () => {
+    document.body.innerHTML = MARKUP;
+    // What the server sends: no class, so the stylesheet leaves the scrollbar.
+    expect(textarea().classList.contains("cms-textarea-grown")).toBe(false);
+
+    init();
+    expect(textarea().classList.contains("cms-textarea-grown")).toBe(true);
+    expect(textarea().style.height).not.toBe("");
+  });
+
+  test("grows again as text is typed", () => {
+    document.body.innerHTML = MARKUP;
+    init();
+    const area = textarea();
+    Object.defineProperty(area, "scrollHeight", {
+      configurable: true,
+      get: () => area.value.length * 2,
+    });
+    area.style.height = "";
+    area.value = "abcdef";
+    area.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(area.style.height).toBe("12px");
+  });
+
+  test("leaves a textarea with no layout box un-grown", () => {
+    document.body.innerHTML = `<div style="display:none">${MARKUP}</div>`;
+    const area = textarea();
+    // happy-dom lays nothing out, so stand in for a browser's display:none box:
+    // it has no client rects until the section is shown.
+    area.getClientRects = () => [] as unknown as DOMRectList;
+
+    init();
+    expect(area.classList.contains("cms-textarea-grown")).toBe(false);
+    expect(area.style.height).toBe("");
+  });
+
+  test("grows again when the box changes width", () => {
+    let callback: ResizeObserverCallback | undefined;
+    class FakeResizeObserver {
+      constructor(fn: ResizeObserverCallback) {
+        callback = fn;
+      }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    const original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver =
+      FakeResizeObserver as unknown as typeof ResizeObserver;
+
+    try {
+      document.body.innerHTML = MARKUP;
+      const area = textarea();
+      Object.defineProperty(area, "clientWidth", {
+        configurable: true,
+        value: 600,
+      });
+      // Narrower column, more wrapped lines: the box has to get taller.
+      Object.defineProperty(area, "scrollHeight", {
+        configurable: true,
+        get: () => (area.clientWidth < 300 ? 60 : 20),
+      });
+      init();
+      expect(area.style.height).toBe("20px");
+
+      Object.defineProperty(area, "clientWidth", {
+        configurable: true,
+        value: 200,
+      });
+      callback?.(
+        [{ target: area } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+      expect(area.style.height).toBe("60px");
+
+      // A notification caused by the new height alone is not a re-grow.
+      area.style.height = "999px";
+      callback?.(
+        [{ target: area } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+      expect(area.style.height).toBe("999px");
+    } finally {
+      globalThis.ResizeObserver = original;
+    }
+  });
+
+  test("grows a textarea in a list row cloned after load", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="list" data-field-name="quotes" data-list>
+          <div data-list-items>
+            <div data-list-item>
+              <div data-field data-field-kind="text" data-field-name="item">
+                <textarea data-text-input rows="3"></textarea>
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>
+          </div>
+          <template data-list-template>
+            <div data-list-item>
+              <div data-field data-field-kind="text" data-field-name="item">
+                <textarea data-text-input rows="3"></textarea>
+              </div>
+              <button type="button" data-list-remove>Remove</button>
+            </div>
+          </template>
+          <button type="button" data-list-add>Add item</button>
+        </div>
+      </form>
+    `);
+    click(input("[data-list-add]"));
+    const rows = form().querySelectorAll("[data-list-item]");
+    expect(rows).toHaveLength(2);
+    expect(
+      rows[1]
+        ?.querySelector("textarea")
+        ?.classList.contains("cms-textarea-grown"),
+    ).toBe(true);
+  });
+
+  test("grows a textarea in a block added after load", () => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <div data-cms-page-content>
+          <div data-cms-blocks></div>
+          <template data-cms-block-template data-block-type="prose">
+            <fieldset data-cms-block data-block-type="prose">
+              <div data-field data-field-kind="text" data-field-name="quote">
+                <textarea data-text-input rows="3"></textarea>
+              </div>
+            </fieldset>
+          </template>
+          <div><button type="button" data-block-add="prose">Add prose</button></div>
+        </div>
+      </form>
+    `);
+    click(input("[data-block-add]"));
+    expect(
+      form()
+        .querySelector("[data-cms-block] textarea")
+        ?.classList.contains("cms-textarea-grown"),
+    ).toBe(true);
+  });
+});
+
 describe("url move line", () => {
   beforeEach(() => {
     mount(`
