@@ -15,9 +15,9 @@
  * part of the revision: the spec versions a page's *content*, and a title or a
  * URL is deployment-adjacent metadata the editor expects to change immediately.
  *
- * `social_image` is a URL for now. Phase 6 adds the media library; when it does,
- * a media-backed social image can be added alongside this column rather than
- * replacing it, so a page with a plain URL keeps rendering.
+ * `social_image` starts here as a pasted URL. Migration 020 replaces it with
+ * `social_image_id`, a reference into `cms_media`: the media library arrived and
+ * the URL values were dropped by design rather than kept alongside.
  *
  * `cms_redirects` is what "changing a page's URL writes a 301 from the old URL"
  * means in the database. `from_path` is the old path (unique — one URL resolves

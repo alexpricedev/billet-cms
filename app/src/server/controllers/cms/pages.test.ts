@@ -96,9 +96,10 @@ const mediaOptionsTemplate = (html: string): string =>
   html.match(/<template data-media-options[^>]*>([\s\S]*?)<\/template>/)?.[1] ??
   "";
 
-/** Seed `count` uploads, oldest first. */
-const seedUploads = async (count: number): Promise<void> => {
+/** Seed `count` uploads, oldest first, and return their ids in that order. */
+const seedUploads = async (count: number): Promise<string[]> => {
   const storage = createMemoryStorage();
+  const ids: string[] = [];
   for (let index = 0; index < count; index += 1) {
     const result = await createMedia({
       bytes: await makeJpeg(60, 40),
@@ -107,7 +108,9 @@ const seedUploads = async (count: number): Promise<void> => {
       storage,
     });
     if (!result.ok) throw new Error("upload seed failed");
+    ids.push(result.media.id);
   }
+  return ids;
 };
 
 describe("Pages controller", () => {
@@ -190,7 +193,7 @@ describe("Pages controller", () => {
           url: "about",
           title: "About us",
           seoDescription: "Who we are.",
-          socialImage: "",
+          socialImageId: "",
         },
         "/cms/pages/new",
       ),
@@ -767,8 +770,8 @@ describe("Pages controller", () => {
       const link = `<a class="cms-delete-button" href="/cms/pages/${pageId}/delete">Delete page</a>`;
       const at = settings.indexOf(link);
       expect(at).toBeGreaterThan(-1);
-      // After Social image URL, and last: only the section's close follows.
-      expect(at).toBeGreaterThan(settings.indexOf('name="socialImage"'));
+      // After the social image field, and last: only the section's close follows.
+      expect(at).toBeGreaterThan(settings.indexOf('name="socialImageId"'));
       expect(settings.slice(at + link.length).trim()).toBe("");
 
       const bar = html.indexOf('aria-label="Publishing"');
@@ -1193,6 +1196,7 @@ describe("Pages controller", () => {
       actorId: editorId,
     });
     if (!seeded.ok) throw new Error("seed save failed");
+    const [mediaId] = await seedUploads(1);
 
     const oversized = JSON.stringify({
       blocks: [
@@ -1215,7 +1219,7 @@ describe("Pages controller", () => {
           url: "/renamed",
           title: "Renamed",
           seoDescription: "Kept description.",
-          socialImage: "https://example.com/og.png",
+          socialImageId: mediaId,
           content: oversized,
           base_revision: seeded.revision.id,
         },
@@ -1236,7 +1240,7 @@ describe("Pages controller", () => {
     expect(html).toContain('value="/renamed"');
     expect(html).toContain('value="Renamed"');
     expect(html).toContain("Kept description.");
-    expect(html).toContain('value="https://example.com/og.png"');
+    expect(html).toContain(`value="${mediaId}"`);
     // No block carries a field error here — the body is over the size cap, not
     // a field — so the banner must not promise fields to fix (review round 1).
     expect(html).not.toContain("Fix these");
@@ -1255,6 +1259,7 @@ describe("Pages controller", () => {
     });
     if (!created.ok) throw new Error("create failed");
     const pageId = created.page.id;
+    const [mediaId] = await seedUploads(1);
 
     const res = await pages.save(
       await post(
@@ -1264,7 +1269,7 @@ describe("Pages controller", () => {
           url: "/renamed",
           title: "Renamed",
           seoDescription: "Kept description.",
-          socialImage: "https://example.com/og.png",
+          socialImageId: mediaId,
           content: "{not json",
           base_revision: "",
         },
@@ -1279,7 +1284,7 @@ describe("Pages controller", () => {
     expect(html).toContain('value="/renamed"');
     expect(html).toContain('value="Renamed"');
     expect(html).toContain("Kept description.");
-    expect(html).toContain('value="https://example.com/og.png"');
+    expect(html).toContain(`value="${mediaId}"`);
 
     // Nothing was written: the stored settings are untouched.
     const page = await getPageById(pageId);
@@ -1361,6 +1366,7 @@ describe("Pages controller", () => {
     });
     if (!created.ok) throw new Error("create failed");
     const pageId = created.page.id;
+    const [mediaId] = await seedUploads(1);
 
     const formData = new FormData();
     formData.append(
@@ -1370,7 +1376,7 @@ describe("Pages controller", () => {
     formData.append("pageType", "landing");
     formData.append("url", "/renamed");
     formData.append("title", "Renamed");
-    formData.append("socialImage", "https://example.com/og.png");
+    formData.append("socialImageId", mediaId);
     formData.append("content", JSON.stringify(pageContent("New heading")));
     formData.append("base_revision", "");
 
@@ -1391,7 +1397,7 @@ describe("Pages controller", () => {
     expect(html).toContain("This page expired");
     expect(html).toContain('value="/renamed"');
     expect(html).toContain('value="Renamed"');
-    expect(html).toContain('value="https://example.com/og.png"');
+    expect(html).toContain(`value="${mediaId}"`);
     // The content they posted is still shown, behind a fresh token.
     expect(html).toContain("New heading");
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);

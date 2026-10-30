@@ -8,9 +8,10 @@
  *    blank; the bytes are sniffed rather than believed; the dimensions are read
  *    from the header before Sharp decodes a pixel; SVG and GIF are refused; the
  *    file is capped at 20 MB and the decode at 100 megapixels.
- * 2. **A published image can't be deleted.** Removal is refused while any
- *    published page or slot still references the row, so a live site never ends
- *    up pointing at a file that is gone. The caller gets the usages to show.
+ * 2. **An image in use can't be deleted.** Removal is refused while any
+ *    published page or slot's content references the row, or any page names it
+ *    as its social image, so a live site never ends up pointing at a file that
+ *    is gone. The caller gets the usages to show.
  *
  * The bytes go to the storage adapter (`./storage`), and the row keeps both the
  * object keys (to delete) and the public URLs (to render) for the original and
@@ -560,13 +561,22 @@ interface UsageRow {
 }
 
 /**
- * The published pages and slots whose content references this image.
+ * The pages and slots whose published content references this image, plus the
+ * pages that use it as their social image.
  *
- * Only published revisions count: a draft's reference doesn't put the image on
- * a live page, so deleting it can't break a visitor, and the draft that uses it
- * will re-pick. The match is `jsonb_path_exists` in SQL rather than a walk over
- * every published revision in JavaScript, so only the rows that use the image
- * come back. Pass a transaction to read inside the delete's lock.
+ * A reference in published content only counts when the revision is live: a
+ * draft's reference doesn't put the image on a live page, so deleting it can't
+ * break a visitor, and the draft that uses it will re-pick. The match is
+ * `jsonb_path_exists` in SQL rather than a walk over every published revision
+ * in JavaScript, so only the rows that use the image come back. Pass a
+ * transaction to read inside the delete's lock.
+ *
+ * A page's social image is a settings column, not revision content, and it is
+ * live as soon as it is saved — so every page naming the upload counts,
+ * published or not. The foreign key would refuse the delete either way; listing
+ * the page here is what lets the CMS say which page instead of surfacing a
+ * constraint error. `UNION` rather than `UNION ALL` folds a page that uses the
+ * image both as its social image and in its content into one row.
  */
 export const getMediaUsage = async (
   mediaId: string,
@@ -578,13 +588,17 @@ export const getMediaUsage = async (
     WHERE jsonb_path_exists(
       r.content, '$.**.mediaId ? (@ == $mediaId)',
       jsonb_build_object('mediaId', ${mediaId}::text))
-    UNION ALL
+    UNION
     SELECT 'slot' AS kind, s.id, COALESCE(s.label, s.name) AS label,
            s.name AS detail
     FROM cms_slots s JOIN cms_revisions r ON r.id = s.published_revision_id
     WHERE jsonb_path_exists(
       r.content, '$.**.mediaId ? (@ == $mediaId)',
       jsonb_build_object('mediaId', ${mediaId}::text))
+    UNION
+    SELECT 'page' AS kind, p.id, p.title AS label, p.url AS detail
+    FROM cms_pages p
+    WHERE p.social_image_id = ${mediaId}
   `) as UsageRow[];
 
   return rows.map(({ kind, id, label, detail }) => ({
@@ -601,7 +615,8 @@ export type DeleteMediaResult =
   | { ok: false; reason: "in-use"; usage: MediaUsage[] };
 
 /**
- * Delete an upload, unless published content still uses it.
+ * Delete an upload, unless a published page or slot still uses it, or a page
+ * still names it as its social image.
  *
  * The row is locked `FOR UPDATE`, the usage re-checked and the row deleted in
  * one transaction, so a delete and a publish that references the image can't

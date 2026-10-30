@@ -373,7 +373,7 @@ export const savePage = async (
   const page = input.page ?? (await getPageById(input.pageId));
   if (!page) throw new Error(`Page ${input.pageId} not found`);
 
-  const settings = validatePageSettings(input.settings);
+  const settings = await validatePageSettings(input.settings);
   if (!settings.ok) {
     return { ok: false, reason: "settings", issues: settings.issues };
   }

@@ -256,7 +256,7 @@ export const PageForm = ({
     url: page.draftUrl ?? page.url,
     title: page.title,
     seoDescription: page.seoDescription,
-    socialImage: page.socialImage,
+    socialImageId: page.socialImageId,
   };
   const hasDraft = latestRevisionId !== null;
   const upToDate =
@@ -586,11 +586,11 @@ export const PageForm = ({
                 textarea
               />
               <SettingsControl
-                name="socialImage"
-                label="Social image URL"
-                help="An absolute or site-relative image URL for social cards."
-                value={settings.socialImage ?? ""}
-                errors={settingsErrors?.get("socialImage")}
+                name="socialImageId"
+                label="Social image"
+                help="The id of an image in the media library."
+                value={settings.socialImageId ?? ""}
+                errors={settingsErrors?.get("socialImageId")}
               />
               {/* Deleting goes through a confirm step that names the page, its
                   redirects and the pages linking to it, rather than deleting
@@ -706,7 +706,7 @@ export interface NewPageFormProps {
     url: string;
     title: string;
     seoDescription: string;
-    socialImage: string;
+    socialImageId: string;
   };
   errors?: FieldError[];
 }
@@ -818,11 +818,11 @@ export const NewPageForm = ({
             textarea
           />
           <SettingsControl
-            name="socialImage"
-            label="Social image URL"
-            help="An absolute or site-relative image URL for social cards."
-            value={values.socialImage}
-            errors={errorsByField.get("socialImage")}
+            name="socialImageId"
+            label="Social image"
+            help="The id of an image in the media library."
+            value={values.socialImageId}
+            errors={errorsByField.get("socialImageId")}
           />
           <button type="submit" className="cms-save btn btn-primary">
             Create page

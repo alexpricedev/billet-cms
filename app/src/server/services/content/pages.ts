@@ -22,6 +22,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { SQL } from "bun";
+import { UUID_PATTERN } from "../../utils/uuid";
 import { db } from "../database";
 import { getPageTypeByName, type PageTypeRecord } from "./definitions";
 import { bumpContentVersion } from "./publishing";
@@ -39,7 +40,7 @@ export interface PageRecord {
   draftUrl: string | null;
   title: string;
   seoDescription: string | null;
-  socialImage: string | null;
+  socialImageId: string | null;
   publishedRevisionId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -52,7 +53,7 @@ interface PageRow {
   draft_url: string | null;
   title: string;
   seo_description: string | null;
-  social_image: string | null;
+  social_image_id: string | null;
   published_revision_id: string | null;
   created_at: Date;
   updated_at: Date;
@@ -65,7 +66,7 @@ const toPage = (row: PageRow): PageRecord => ({
   draftUrl: row.draft_url,
   title: row.title,
   seoDescription: row.seo_description,
-  socialImage: row.social_image,
+  socialImageId: row.social_image_id,
   publishedRevisionId: row.published_revision_id,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -147,35 +148,40 @@ export const normalisePageUrl = (raw: string): UrlResult => {
   return { ok: true, url };
 };
 
-/**
- * True for a social image the site can safely put in a tag.
- *
- * A site-relative path (`/og/about.png`) or an absolute http(s) URL. A
- * protocol-relative `//host` and a backslash are refused for the same reason the
- * link field refuses them: they navigate off-site, whatever they look like.
- */
-const isUsableImageUrl = (value: string): boolean => {
-  if (value.includes("\\")) return false;
-  if (value.startsWith("//")) return false;
-  if (value.startsWith("/")) return true;
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
-
 export interface FieldSettingIssue {
   path: string;
   message: string;
 }
 
+/** The social-image issue for an id that names no upload. */
+const SOCIAL_IMAGE_ISSUE: FieldSettingIssue = {
+  path: "socialImageId",
+  message: "Choose an image from the media library.",
+};
+
+/**
+ * The issue a social-image id has, or `null` when it names a real upload.
+ *
+ * The value reaches a `uuid` column and then a foreign key, so it is checked
+ * before either: a non-UUID would make Postgres fail with `invalid input
+ * syntax` (a 500 for a typo), and a well-formed id that names no row would fail
+ * the foreign key after the rest of the save had already been validated.
+ */
+const socialImageIssue = async (
+  id: string,
+): Promise<FieldSettingIssue | null> => {
+  if (!UUID_PATTERN.test(id)) return SOCIAL_IMAGE_ISSUE;
+  const rows = (await db`
+    SELECT id FROM cms_media WHERE id = ${id}
+  `) as { id: string }[];
+  return rows.length > 0 ? null : SOCIAL_IMAGE_ISSUE;
+};
+
 export interface PageSettingsValues {
   url: string;
   title: string;
   seoDescription: string | null;
-  socialImage: string | null;
+  socialImageId: string | null;
 }
 
 export type PageSettingsValidation =
@@ -186,7 +192,7 @@ export interface PageSettingsInput {
   url: string;
   title: string;
   seoDescription?: string | null;
-  socialImage?: string | null;
+  socialImageId?: string | null;
 }
 
 /**
@@ -195,9 +201,9 @@ export interface PageSettingsInput {
  * Shared by create and update so the two can't drift: the editor sees the same
  * message whichever save it came from.
  */
-export const validatePageSettings = (
+export const validatePageSettings = async (
   input: PageSettingsInput,
-): PageSettingsValidation => {
+): Promise<PageSettingsValidation> => {
   const issues: FieldSettingIssue[] = [];
 
   const title = input.title.trim();
@@ -221,13 +227,10 @@ export const validatePageSettings = (
     });
   }
 
-  const socialImage = input.socialImage?.trim() ?? "";
-  if (socialImage !== "" && !isUsableImageUrl(socialImage)) {
-    issues.push({
-      path: "socialImage",
-      message:
-        "Enter an http(s) image URL, or a path on this site starting with /.",
-    });
+  const socialImageId = input.socialImageId?.trim() ?? "";
+  if (socialImageId !== "") {
+    const issue = await socialImageIssue(socialImageId);
+    if (issue) issues.push(issue);
   }
 
   if (issues.length > 0 || !url.ok) return { ok: false, issues };
@@ -237,7 +240,7 @@ export const validatePageSettings = (
     url: url.url,
     title,
     seoDescription: seoDescription === "" ? null : seoDescription,
-    socialImage: socialImage === "" ? null : socialImage,
+    socialImageId: socialImageId === "" ? null : socialImageId,
   };
 };
 
@@ -270,7 +273,7 @@ export type PageResult =
 
 export const listPages = async (): Promise<PageRecord[]> => {
   const rows = (await db`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     ORDER BY url
@@ -329,7 +332,7 @@ export const listPageStates = async (): Promise<Map<string, PageState>> => {
 
 export const getPageById = async (id: string): Promise<PageRecord | null> => {
   const rows = (await db`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     WHERE id = ${id}
@@ -339,7 +342,7 @@ export const getPageById = async (id: string): Promise<PageRecord | null> => {
 
 export const getPageByUrl = async (url: string): Promise<PageRecord | null> => {
   const rows = (await db`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     WHERE url = ${url}
@@ -362,7 +365,7 @@ export interface CreatePageInput extends PageSettingsInput {
 export const createPage = async (
   input: CreatePageInput,
 ): Promise<PageResult> => {
-  const settings = validatePageSettings(input);
+  const settings = await validatePageSettings(input);
   if (!settings.ok) return { ok: false, issues: settings.issues };
 
   const typeIssue = await pageTypeIssue(input.pageType);
@@ -379,16 +382,16 @@ export const createPage = async (
       await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
       const rows = (await tx`
         INSERT INTO cms_pages
-          (id, page_type, url, title, seo_description, social_image)
+          (id, page_type, url, title, seo_description, social_image_id)
         VALUES (
           ${id},
           ${input.pageType},
           ${settings.url},
           ${settings.title},
           ${settings.seoDescription},
-          ${settings.socialImage}
+          ${settings.socialImageId}
         )
-        RETURNING id, page_type, url, draft_url, title, seo_description, social_image,
+        RETURNING id, page_type, url, draft_url, title, seo_description, social_image_id,
                   published_revision_id, created_at, updated_at
       `) as PageRow[];
       // The site caches pages, redirects and links against `content_version`.
@@ -491,7 +494,7 @@ const findPageHoldingUrl = async (
   exceptPageId: string,
 ): Promise<PageRecord | null> => {
   const rows = (await tx`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     WHERE (url = ${url} OR draft_url = ${url})
@@ -526,7 +529,7 @@ export const applyPageSettings = async (
   mode: PageSettingsMode,
 ): Promise<AppliedSettings> => {
   const locked = (await tx`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages WHERE id = ${pageId} FOR UPDATE
   `) as PageRow[];
@@ -572,7 +575,7 @@ export const applyPageSettings = async (
     previous.pageType !== pageType ||
     previous.title !== settings.title ||
     previous.seoDescription !== settings.seoDescription ||
-    previous.socialImage !== settings.socialImage;
+    previous.socialImageId !== settings.socialImageId;
   const draftChanged = nextDraftUrl !== previous.draftUrl;
 
   if (!liveChanged && !draftChanged) {
@@ -586,10 +589,10 @@ export const applyPageSettings = async (
         draft_url = ${nextDraftUrl},
         title = ${settings.title},
         seo_description = ${settings.seoDescription},
-        social_image = ${settings.socialImage},
+        social_image_id = ${settings.socialImageId},
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ${pageId}
-    RETURNING id, page_type, url, draft_url, title, seo_description, social_image,
+    RETURNING id, page_type, url, draft_url, title, seo_description, social_image_id,
               published_revision_id, created_at, updated_at
   `) as PageRow[];
   if (liveChanged) await bumpContentVersion(tx);
@@ -657,7 +660,7 @@ export const applyDraftUrl = async (
 export const updatePageSettings = async (
   input: UpdatePageSettingsInput,
 ): Promise<PageResult> => {
-  const settings = validatePageSettings(input);
+  const settings = await validatePageSettings(input);
   if (!settings.ok) return { ok: false, issues: settings.issues };
 
   const typeIssue = await pageTypeIssue(input.pageType);

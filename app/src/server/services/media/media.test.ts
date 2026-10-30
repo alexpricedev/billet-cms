@@ -829,6 +829,44 @@ describe("media usage and delete protection", () => {
     expect(storage.objects.has(used.media.objectKey)).toBe(true);
   });
 
+  // A page's social image is a settings column, not revision content, so the
+  // content walk can't see it. Without the extra branch a delete would surface
+  // the foreign key instead of naming the page.
+  test("a page's social image counts as usage, even unpublished", async () => {
+    await seedPageType(db, pageType("socials", { allowedBlocks: [] }));
+
+    const storage = createMemoryStorage();
+    const used = await createMedia({
+      bytes: await makeJpeg(1200, 630),
+      alt: "Social image",
+      actorId: null,
+      storage,
+    });
+    if (!used.ok) throw new Error("upload failed");
+
+    const page = await createPage({
+      pageType: "socials",
+      url: "/about",
+      title: "About us",
+      socialImageId: used.media.id,
+    });
+    expect(page.ok).toBe(true);
+    if (!page.ok) return;
+
+    expect(await getMediaUsage(used.media.id)).toEqual([
+      {
+        kind: "page",
+        id: page.page.id,
+        label: "About us",
+        detail: "/about",
+      },
+    ]);
+
+    const refused = await deleteMedia(used.media.id, storage);
+    expect(refused).toMatchObject({ ok: false, reason: "in-use" });
+    expect(await getMediaById(used.media.id)).not.toBeNull();
+  });
+
   // The interleaving the row locks close: a delete that starts while a publish
   // is mid-write must wait, then see the published reference and refuse.
   test("a delete waits for a publish holding the image, then refuses", async () => {

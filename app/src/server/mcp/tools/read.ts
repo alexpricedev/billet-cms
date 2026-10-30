@@ -402,7 +402,7 @@ export const registerReadTools = (
           title: page.title,
           pageType: page.pageType,
           seoDescription: page.seoDescription,
-          socialImage: page.socialImage,
+          socialImageId: page.socialImageId,
           state: stateOf(page.publishedRevisionId, latest),
           baseRevisionId: latest?.id ?? null,
           publishedRevisionId: page.publishedRevisionId,

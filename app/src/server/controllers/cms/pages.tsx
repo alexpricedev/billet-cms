@@ -177,7 +177,7 @@ const SETTINGS_FIELDS = new Set([
   "url",
   "title",
   "seoDescription",
-  "socialImage",
+  "socialImageId",
 ]);
 
 /** The blocks' own name for a block, with the block-type label when one exists. */
@@ -389,7 +389,7 @@ const renderNewPageForm = async (
         url: values.url,
         title: values.title,
         seoDescription: values.seoDescription ?? "",
-        socialImage: values.socialImage ?? "",
+        socialImageId: values.socialImageId ?? "",
       }}
       errors={errors?.map((issue) => ({
         path: issue.path,
@@ -418,7 +418,7 @@ const settingsFrom = (formData: FormData) => ({
   url: nonEmpty(formData.get("url")) ?? "",
   title: nonEmpty(formData.get("title")) ?? "",
   seoDescription: nonEmpty(formData.get("seoDescription")),
-  socialImage: nonEmpty(formData.get("socialImage")),
+  socialImageId: nonEmpty(formData.get("socialImageId")),
 });
 
 /**
@@ -489,7 +489,7 @@ export const pages = {
       url: "",
       title: "",
       seoDescription: "",
-      socialImage: "",
+      socialImageId: "",
     });
   },
 
@@ -594,7 +594,7 @@ export const pages = {
       url: settings.url,
       title: settings.title,
       seoDescription: settings.seoDescription,
-      socialImage: settings.socialImage,
+      socialImageId: settings.socialImageId,
     };
 
     // The page type the editor chose, resolved to one the CMS can render the

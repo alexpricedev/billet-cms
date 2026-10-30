@@ -21,6 +21,7 @@ import {
   updatePageSettings,
 } from "../../services/content";
 import { db } from "../../services/database";
+import { jsonbValue } from "../../utils/sql";
 import { mcpHandler } from "../index";
 
 const actor = {
@@ -127,5 +128,51 @@ describe("save_page", () => {
     const stored = await getPageById(created.page.id);
     expect(stored?.url).toBe("/about");
     expect(stored?.draftUrl).toBe("/studio");
+  });
+
+  // A social image is a media id, taken from list_media. The tool names a
+  // missing upload itself rather than letting the foreign key turn a bad id
+  // into a 500, and the write layer refuses it a second time either way.
+  test("saves a social image id that names an upload, and refuses one that doesn't", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const revision = await createRevision({
+      targetType: "page",
+      targetId: created.page.id,
+      content: { blocks: [] },
+      createdBy: null,
+    });
+
+    const mediaRows = (await db`
+      INSERT INTO cms_media
+        (object_key, content_type, byte_size, width, height, alt, variants)
+      VALUES ('media/social/original.webp', 'image/webp', 10, 1200, 630,
+              'Social image', ${jsonbValue([])})
+      RETURNING id
+    `) as { id: string }[];
+    const mediaId = mediaRows[0].id;
+
+    const good = await callTool("save_page", {
+      id: created.page.id,
+      baseRevisionId: revision.id,
+      settings: { socialImageId: mediaId },
+      blocks: [],
+    });
+    expect(good.result?.isError).toBeUndefined();
+    expect((await getPageById(created.page.id))?.socialImageId).toBe(mediaId);
+
+    const latest = await getLatestRevision("page", created.page.id);
+    const bad = await callTool("save_page", {
+      id: created.page.id,
+      baseRevisionId: latest?.id ?? null,
+      settings: { socialImageId: "00000000-0000-4000-8000-000000000099" },
+      blocks: [],
+    });
+    expect(bad.result?.isError).toBe(true);
+    expect(JSON.stringify(bad.result)).toContain("No media");
   });
 });
