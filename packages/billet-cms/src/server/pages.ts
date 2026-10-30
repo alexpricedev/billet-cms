@@ -114,8 +114,20 @@ export interface CmsPagesReader {
   ): Promise<CmsPage | null>;
   /** The current URL a redirect at `path` points at, or `null`. */
   getRedirect(path: string): Promise<string | null>;
-  /** The href a stored link resolves to, or `null` when its page is gone. */
-  resolveLink(link: LinkValue): Promise<string | null>;
+  /**
+   * The href a stored link resolves to, or `null` when its page is gone.
+   *
+   * Pass `{ preview }` with valid preview access to resolve a link to an
+   * unpublished page, the way `getPage` reads one: a published target still
+   * resolves from the cache, while a draft target costs one direct, uncached
+   * read per access — memoised, so repeated links to the same draft read it
+   * once — so its URL never enters the published route table. Without preview
+   * access only published pages resolve.
+   */
+  resolveLink(
+    link: LinkValue,
+    options?: { preview?: PreviewAccess | null },
+  ): Promise<string | null>;
   /** The published pages a site merges into its sitemap, in URL order. */
   listSitemapEntries(): Promise<CmsSitemapEntry[]>;
   /**
@@ -232,6 +244,45 @@ const loadRoutes = async (sql: SQL): Promise<RouteTable> => {
 export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
   const { sql } = options;
   const onSkip = options.onSkip ?? defaultSkipLogger;
+
+  /**
+   * The draft URLs already read for a preview access, by page id.
+   *
+   * A previewed page can carry any number of links to the same draft, and the
+   * site forwards the one access object `getPreviewAccess` returned to every
+   * `resolveLink` call in the render, so one read per page per preview is
+   * enough. Keyed weakly on the access: it is request-scoped, and this must not
+   * keep it — or a draft it named — alive between requests.
+   */
+  const draftUrls = new WeakMap<
+    PreviewAccess,
+    Map<string, Promise<string | null>>
+  >();
+
+  const readDraftUrl = (
+    access: PreviewAccess,
+    pageId: string,
+  ): Promise<string | null> => {
+    let byId = draftUrls.get(access);
+    if (!byId) {
+      byId = new Map();
+      draftUrls.set(access, byId);
+    }
+    const known = byId.get(pageId);
+    if (known) return known;
+    const read = (async () => {
+      const rows = (await sql.unsafe(
+        `SELECT url FROM ${TABLES.pages} WHERE id = $1`,
+        [pageId],
+      )) as { url: string }[];
+      return rows[0]?.url ?? null;
+    })();
+    byId.set(pageId, read);
+    // A failed read is transient, so let the next link try again rather than
+    // pinning the failure (and its skipped-link log) to the rest of the preview.
+    read.catch(() => byId?.delete(pageId));
+    return read;
+  };
 
   /** The block types, by name, loaded once per page render. */
   const loadBlockTypes = async (): Promise<Map<string, BlockTypeRow>> => {
@@ -512,11 +563,25 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       }
     },
 
-    async resolveLink(link: LinkValue): Promise<string | null> {
+    async resolveLink(
+      link: LinkValue,
+      readOptions?: { preview?: PreviewAccess | null },
+    ): Promise<string | null> {
       if (link.type === "url") return link.url;
       try {
         const table = await routes();
-        return table.byId.get(link.pageId) ?? null;
+        // Published wins: the route table only holds published pages, so a hit
+        // is the live URL whether or not this is a preview read.
+        const published = table.byId.get(link.pageId);
+        if (published !== undefined) return published;
+        // An unpublished target resolves only during a preview. This read is
+        // uncached on purpose: the route table is the published cache, and a
+        // draft's URL must never enter it. It is memoised per access so a page
+        // linking the same draft many times reads it once.
+        if (readOptions?.preview) {
+          return await readDraftUrl(readOptions.preview, link.pageId);
+        }
+        return null;
       } catch (error) {
         onSkip(
           `could not resolve a link to page "${link.pageId}": ${describe(error)}`,
