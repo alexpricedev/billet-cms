@@ -32,6 +32,15 @@ const PAGE_ROW: {
   updated_at: new Date("2026-10-10T09:00:00.000Z"),
 };
 
+/** An unpublished page: only the preview read's direct by-id SELECT finds it. */
+const DRAFT_PAGE: typeof PAGE_ROW = {
+  ...PAGE_ROW,
+  id: "page-2",
+  url: "/marketing-page",
+  title: "Marketing page",
+  published_revision_id: null,
+};
+
 const BLOCK_TYPES = [
   {
     name: "hero",
@@ -45,12 +54,15 @@ const BLOCK_TYPES = [
  *
  * `redirects` maps an old path to the id of the page it points at, the way the
  * real `cms_redirects` row does; the reader resolves that id to the page's
- * current URL through the published pages it loaded. The version and the content
- * are mutable so a test can prove a publish is picked up.
+ * current URL through the published pages it loaded. `draft` is a second,
+ * unpublished page: the routing table must not know it, but a preview's direct
+ * by-id SELECT must find it. The version and the content are mutable so a test
+ * can prove a publish is picked up.
  */
 const fakeSql = (
   options: {
     page?: typeof PAGE_ROW | null;
+    draft?: typeof PAGE_ROW;
     content?: { blocks: Record<string, unknown>[] };
     redirects?: Record<string, string>;
     blockTypes?: typeof BLOCK_TYPES;
@@ -65,7 +77,10 @@ const fakeSql = (
   };
   const redirects = options.redirects ?? {};
   const blockTypes = options.blockTypes ?? BLOCK_TYPES;
-  const published = page?.published_revision_id ? page : null;
+  const rows: (typeof PAGE_ROW)[] = [page, options.draft ?? null].filter(
+    (row): row is typeof PAGE_ROW => row !== null,
+  );
+  const published = rows.filter((row) => row.published_revision_id !== null);
 
   const sql = {
     unsafe: (query: string, params: unknown[] = []) => {
@@ -82,20 +97,26 @@ const fakeSql = (
       }
       if (query.includes("cms_pages")) {
         if (query.includes("WHERE id = $1")) {
-          const id = params[0];
-          return Promise.resolve(page && page.id === id ? [page] : []);
+          const row = rows.find((candidate) => candidate.id === params[0]);
+          if (!row) return Promise.resolve([]);
+          // `resolveLink`'s preview read selects only `url`; the page read
+          // selects every column. Answer in the shape the query asked for.
+          return Promise.resolve(
+            /SELECT\s+url\s+FROM/i.test(query) ? [{ url: row.url }] : [row],
+          );
         }
         // The sitemap query is the only one that reads `updated_at`.
         if (query.includes("updated_at")) {
           return Promise.resolve(
-            published
-              ? [{ url: published.url, updated_at: published.updated_at }]
-              : [],
+            published.map((row) => ({
+              url: row.url,
+              updated_at: row.updated_at,
+            })),
           );
         }
         // The routing table: every published page's URL.
         return Promise.resolve(
-          published ? [{ id: published.id, url: published.url }] : [],
+          published.map((row) => ({ id: row.id, url: row.url })),
         );
       }
       if (query.includes("cms_revisions")) {
@@ -189,6 +210,116 @@ describe("createCmsPages", () => {
     expect(
       await pages.resolveLink({ type: "page", pageId: "page-2" }),
     ).toBeNull();
+  });
+
+  describe("resolveLink during preview", () => {
+    const pagePreview = { subjectType: "page" as const, subjectId: "page-2" };
+    const slotPreview = { subjectType: "slot" as const, subjectId: "slot-1" };
+
+    test("resolves a draft page the token names", async () => {
+      const { sql } = fakeSql({ draft: DRAFT_PAGE });
+      const pages = createCmsPages({ sql, onSkip: () => {} });
+
+      expect(
+        await pages.resolveLink(
+          { type: "page", pageId: "page-2" },
+          { preview: pagePreview },
+        ),
+      ).toBe("/marketing-page");
+    });
+
+    test("resolves a published target from the cache, unchanged", async () => {
+      const { sql } = fakeSql({ draft: DRAFT_PAGE });
+      const pages = createCmsPages({ sql, onSkip: () => {} });
+
+      expect(
+        await pages.resolveLink(
+          { type: "page", pageId: "page-1" },
+          { preview: pagePreview },
+        ),
+      ).toBe("/about");
+    });
+
+    test("still returns null for a draft without preview access", async () => {
+      const { sql } = fakeSql({ draft: DRAFT_PAGE });
+      const pages = createCmsPages({ sql, onSkip: () => {} });
+
+      expect(
+        await pages.resolveLink({ type: "page", pageId: "page-2" }),
+      ).toBeNull();
+      expect(
+        await pages.resolveLink(
+          { type: "page", pageId: "page-2" },
+          { preview: null },
+        ),
+      ).toBeNull();
+    });
+
+    // The plan's answer to the ticket's open question: any valid access counts,
+    // not only a page token for the target, so cross-links between drafts work.
+    test("a slot token resolves a draft page too", async () => {
+      const { sql } = fakeSql({ draft: DRAFT_PAGE });
+      const pages = createCmsPages({ sql, onSkip: () => {} });
+
+      expect(
+        await pages.resolveLink(
+          { type: "page", pageId: "page-2" },
+          { preview: slotPreview },
+        ),
+      ).toBe("/marketing-page");
+    });
+
+    test("returns null for an unknown page id during preview", async () => {
+      const { sql } = fakeSql({ draft: DRAFT_PAGE });
+      const pages = createCmsPages({ sql, onSkip: () => {} });
+
+      expect(
+        await pages.resolveLink(
+          { type: "page", pageId: "page-3" },
+          { preview: pagePreview },
+        ),
+      ).toBeNull();
+    });
+
+    // The draft read is uncached, and the routes table is loaded from published
+    // pages only. Warming it on a preview must not leave the draft's URL in it:
+    // a later published read still misses, and the table is loaded once.
+    test("a draft resolved during preview never enters the route cache", async () => {
+      const { sql } = fakeSql({ draft: DRAFT_PAGE });
+      const inner = sql as unknown as {
+        unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+      };
+      let routeLoads = 0;
+      const counting = {
+        unsafe: (query: string, params?: unknown[]) => {
+          if (query.includes("published_revision_id IS NOT NULL")) {
+            routeLoads += 1;
+          }
+          return inner.unsafe(query, params);
+        },
+      } as unknown as SQL;
+      const pages = createCmsPages({
+        sql: counting,
+        now: () => 0,
+        onSkip: () => {},
+      });
+
+      expect(
+        await pages.resolveLink(
+          { type: "page", pageId: "page-2" },
+          { preview: pagePreview },
+        ),
+      ).toBe("/marketing-page");
+
+      // The same link outside a preview: the cached table knows nothing of it.
+      expect(
+        await pages.resolveLink({ type: "page", pageId: "page-2" }),
+      ).toBeNull();
+      // And the draft is not served as a published page either.
+      expect(await pages.getPage("/marketing-page")).toBeNull();
+
+      expect(routeLoads).toBe(1);
+    });
   });
 
   test("lists only published pages as sitemap entries", async () => {
