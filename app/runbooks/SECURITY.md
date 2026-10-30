@@ -79,7 +79,7 @@ The policy is enforcing and host-allowlist based. Current directives:
 
 ```
 default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none';
-img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline';
 script-src 'self';
 connect-src 'self'; upgrade-insecure-requests
 ```
@@ -88,6 +88,9 @@ connect-src 'self'; upgrade-insecure-requests
 configured, so every thumbnail and focal preview loads; without it the picture
 is blocked by the CMS's own policy. The origin is accepted only when it is
 http(s) (`utils/http-origin.ts`), the same rule the preview site origin uses.
+`blob:` covers the image picker's preview of a file that is still uploading:
+the URL is made by the page's own script and names no network origin, so it
+widens nothing else.
 
 `upgrade-insecure-requests` ships in production only, like HSTS: WebKit (unlike
 Chrome) applies the upgrade to `http://localhost` subresources too, which strips

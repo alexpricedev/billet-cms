@@ -87,7 +87,21 @@ describe("Content-Security-Policy img-src", () => {
         "Content-Security-Policy",
       ) ?? "";
 
-    expect(csp).toContain("img-src 'self' data: https://bucket.railway.app");
+    expect(csp).toContain(
+      "img-src 'self' data: blob: https://bucket.railway.app",
+    );
+  });
+
+  // The picker previews a file it is still uploading with a blob: URL made by
+  // its own script. Without blob: here the browser refuses it and the tile
+  // shows a broken image (caught in Chromium while taking the ticket's shots).
+  test("allows blob: for the picker's local upload previews", () => {
+    const csp =
+      withSecurityHeaders(new Response("ok")).headers.get(
+        "Content-Security-Policy",
+      ) ?? "";
+
+    expect(csp).toContain("img-src 'self' data: blob:");
   });
 
   test("falls back to the CMS host when the bucket isn't configured", () => {
@@ -96,7 +110,7 @@ describe("Content-Security-Policy img-src", () => {
         "Content-Security-Policy",
       ) ?? "";
 
-    expect(csp).toContain("img-src 'self' data:;");
+    expect(csp).toContain("img-src 'self' data: blob:;");
   });
 
   test("ignores a base URL that isn't a valid origin", () => {
@@ -106,7 +120,7 @@ describe("Content-Security-Policy img-src", () => {
         "Content-Security-Policy",
       ) ?? "";
 
-    expect(csp).toContain("img-src 'self' data:;");
+    expect(csp).toContain("img-src 'self' data: blob:;");
   });
 
   test("ignores a base URL whose scheme isn't http(s)", () => {
@@ -124,7 +138,7 @@ describe("Content-Security-Policy img-src", () => {
           "Content-Security-Policy",
         ) ?? "";
 
-      expect(csp).toContain("img-src 'self' data:;");
+      expect(csp).toContain("img-src 'self' data: blob:;");
     }
   });
 });
