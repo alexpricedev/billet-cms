@@ -214,6 +214,41 @@ describe("page CRUD", () => {
     expect(created.page.socialImageId).toBe(socialImageId);
   });
 
+  // Postgres returns uuid values lowercase. An id typed or sent in uppercase
+  // names the same upload, so normalising it keeps a no-op save a no-op rather
+  // than a different string that bumps `content_version` and drops site caches.
+  test("stores a social image id in its lowercase form", async () => {
+    const upper = socialImageId.toUpperCase();
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImageId: upper,
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.page.socialImageId).toBe(socialImageId);
+
+    const version = async (): Promise<number> =>
+      (
+        (await db`
+          SELECT content_version FROM cms_meta WHERE id = 1
+        `) as { content_version: number }[]
+      )[0].content_version;
+    const before = await version();
+
+    const again = await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImageId: upper,
+    });
+    expect(again.ok).toBe(true);
+    // The same image, unchanged, so the site's cache is left alone.
+    expect(await version()).toBe(before);
+  });
+
   test("a settings save clears the social image or refuses an unknown id", async () => {
     const created = await create("/about");
     if (!created.ok) throw new Error("create failed");

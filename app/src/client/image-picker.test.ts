@@ -139,22 +139,32 @@ const fakeFetch = async (input: RequestInfo | URL): Promise<Response> => {
   } as Response;
 };
 
-type FakeResponse = { status: number; body: unknown };
+type FakeResponse = {
+  status: number;
+  body: unknown;
+  headers?: Record<string, string>;
+};
 const uploads: FakeResponse[] = [];
 
 class FakeXhr {
   static last: FakeXhr | null = null;
+  static instances: FakeXhr[] = [];
   upload = { addEventListener: (): void => undefined };
   status = 0;
   responseText = "";
   sent: FormData | null = null;
+  private responseHeaders: Record<string, string> = {};
   private listeners = new Map<string, () => void>();
 
   constructor() {
     FakeXhr.last = this;
+    FakeXhr.instances.push(this);
   }
   open(): void {}
   setRequestHeader(): void {}
+  getResponseHeader(name: string): string | null {
+    return this.responseHeaders[name.toLowerCase()] ?? null;
+  }
   addEventListener(type: string, handler: () => void): void {
     this.listeners.set(type, handler);
   }
@@ -164,6 +174,12 @@ class FakeXhr {
     setTimeout(() => {
       this.status = answer.status;
       this.responseText = JSON.stringify(answer.body);
+      this.responseHeaders = Object.fromEntries(
+        Object.entries(answer.headers ?? {}).map(([name, value]) => [
+          name.toLowerCase(),
+          value,
+        ]),
+      );
       this.listeners.get("load")?.();
     }, 0);
   }
@@ -177,6 +193,7 @@ beforeEach(() => {
   pages = [];
   uploads.length = 0;
   FakeXhr.last = null;
+  FakeXhr.instances = [];
   globalThis.fetch = fakeFetch as unknown as typeof fetch;
   globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest;
   mount();
@@ -445,5 +462,140 @@ describe("image picker", () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     expect(el.status().textContent).toBe('No images match "nothing".');
+  });
+
+  test("Enter in search searches instead of submitting the page form", async () => {
+    pages = [
+      { items: [FIRST], next: null },
+      { items: [], next: null },
+    ];
+    el.choose().click();
+    await flush();
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    el.search().value = "pier";
+    el.search().dispatchEvent(event);
+    await flush();
+
+    // The search box lives inside the page form; its Enter must not save.
+    expect(event.defaultPrevented).toBe(true);
+    expect(requested[1]).toBe("/cms/media/options?q=pier");
+  });
+
+  test("a pick marks the form dirty, but searching and choosing a file do not", async () => {
+    await open({ items: [FIRST], next: null });
+    const form = document.querySelector("form") as HTMLFormElement;
+    let dirty = 0;
+    const onInput = (): void => {
+      dirty += 1;
+    };
+    form.addEventListener("input", onInput);
+    form.addEventListener("change", onInput);
+
+    try {
+      el.search().value = "pier";
+      el.search().dispatchEvent(new Event("input", { bubbles: true }));
+      el.file().dispatchEvent(new Event("change", { bubbles: true }));
+      expect(dirty).toBe(0);
+
+      cards()[0]?.click();
+      expect(dirty).toBe(1);
+
+      el.remove().click();
+      expect(dirty).toBe(2);
+    } finally {
+      form.removeEventListener("input", onInput);
+      form.removeEventListener("change", onInput);
+    }
+  });
+
+  test("Load more settles a pending search rather than paging the old query", async () => {
+    pages = [
+      { items: [FIRST], next: "cursor-1" },
+      { items: [], next: null },
+    ];
+    el.choose().click();
+    await flush();
+    expect(el.more().hidden).toBe(false);
+
+    el.search().value = "pier";
+    el.search().dispatchEvent(new Event("input", { bubbles: true }));
+    // Before the debounce fires, the cursor still belongs to the old query.
+    el.more().click();
+    await flush();
+
+    expect(requested[1]).toBe("/cms/media/options?q=pier");
+  });
+
+  test("releases the local preview once the upload finishes", async () => {
+    const revoked: string[] = [];
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = () => "blob:preview";
+    URL.revokeObjectURL = (url: string) => {
+      revoked.push(url);
+    };
+    try {
+      await open({ items: [], next: null });
+      uploads.push({ status: 200, body: FIRST });
+      setFiles([image("one.png")]);
+      await flush();
+
+      expect(revoked).toEqual(["blob:preview"]);
+    } finally {
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
+  test("an upload that lands after the dialog closed leaves the field alone", async () => {
+    await open({ items: [], next: null });
+    uploads.push({ status: 200, body: FIRST });
+    setFiles([image("one.png")]);
+    // The fake XHR answers on a 0ms timer; close first.
+    el.close().click();
+    await flush();
+
+    expect(el.modal().hidden).toBe(true);
+    expect(el.value().value).toBe("");
+  });
+
+  test("an expired upload token is refreshed and the upload retried once", async () => {
+    await open({ items: [], next: null });
+    uploads.push(
+      {
+        status: 403,
+        body: { errors: [{ message: "This page expired." }] },
+        headers: { "X-CSRF-Token": "fresh-token" },
+      },
+      { status: 200, body: FIRST },
+    );
+    setFiles([image("one.png")]);
+    await flush();
+
+    expect(FakeXhr.instances).toHaveLength(2);
+    expect(FakeXhr.instances[0]?.sent?.get("_csrf")).toBe("upload-token");
+    expect(FakeXhr.instances[1]?.sent?.get("_csrf")).toBe("fresh-token");
+    expect(el.value().value).toBe(FIRST.id);
+  });
+
+  test("a selection drag released over the backdrop does not close the dialog", async () => {
+    await open({ items: [], next: null });
+
+    const dialog = document.querySelector(
+      "[data-picker-dialog]",
+    ) as HTMLElement;
+    dialog.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    el.modal().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(el.modal().hidden).toBe(false);
+
+    // A press that starts on the backdrop itself still closes.
+    el.modal().dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    el.modal().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(el.modal().hidden).toBe(true);
   });
 });

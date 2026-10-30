@@ -33,10 +33,7 @@ import {
 import { createCsrfToken } from "../../services/csrf";
 import { getMediaById, listPickerMedia } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
-import {
-  GRID_THUMBNAIL_WIDTH,
-  variantForDisplay,
-} from "../../templates/cms/media";
+import { pickerOptionJson } from "../../templates/cms/media";
 import { PageDeleteConfirm } from "../../templates/cms/page-delete";
 import {
   NewPageForm,
@@ -198,15 +195,7 @@ const pickerImageFor = async (
 ): Promise<PickerImage | null> => {
   if (!mediaId || !UUID_PATTERN.test(mediaId)) return null;
   const media = await getMediaById(mediaId);
-  if (!media) return null;
-  return {
-    id: media.id,
-    alt: media.alt,
-    width: media.width,
-    height: media.height,
-    thumbnailUrl:
-      variantForDisplay(media, GRID_THUMBNAIL_WIDTH)?.fallbackUrl ?? null,
-  };
+  return media ? pickerOptionJson(media) : null;
 };
 
 /** The blocks' own name for a block, with the block-type label when one exists. */
@@ -298,6 +287,13 @@ export const renderPageForm = async (
   const sessionId = ctx.sessionId as string;
   const user = ctx.user as NonNullable<SessionContext["user"]>;
 
+  // A refused save re-renders the settings the editor typed (`extras.settings`);
+  // the picker's closed field has to show that same choice, not the stored row,
+  // or the thumbnail and the hidden input would disagree about the image.
+  const socialImageId = extras.settings
+    ? (extras.settings.socialImageId ?? null)
+    : page.socialImageId;
+
   const [blockTypes, pageTypes, pages, picker, latest, socialImage] =
     await Promise.all([
       listBlockTypes(),
@@ -305,7 +301,7 @@ export const renderPageForm = async (
       listPageOptions(),
       listPickerMedia(content),
       getLatestRevision("page", page.id),
-      pickerImageFor(page.socialImageId),
+      pickerImageFor(socialImageId),
     ]);
 
   // The status line says when the live revision was saved. A publish moves

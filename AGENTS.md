@@ -148,10 +148,11 @@ repo. This file is only the invariants.
   no bucket configuration. `image()` guidance (`minWidth`, `aspect`) is enforced
   when content is *saved*, not at upload — the same picture is a hero in one
   block and a thumbnail in another. Alt text is required, a use may override it,
-  an image referenced by any **published** page or slot cannot be deleted, and
-  publishing a draft that names a deleted image is refused with "This image was
-  deleted. Choose another." on the block (a save of that draft still succeeds, so
-  the editor can pick another).
+  an image referenced by any **published** page or slot, or named as any page's
+  social image (draft or published), cannot be deleted, and publishing a draft
+  that names a deleted image is refused with "This image was deleted. Choose
+  another." on the block (a save of that draft still succeeds, so the editor can
+  pick another).
 
   Both of those read the **field metadata tree**, through `collectReferences` in
   `services/media/guidance.ts`, and both are only as deep as that walk. It has

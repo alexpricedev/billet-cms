@@ -8,9 +8,10 @@
  * back into the form.
  */
 import { MAX_UPLOAD_BYTES } from "@alexpricedev/billet-cms/contract";
+import { CSRF_HEADER } from "@shared/protocol";
 import type { BunRequest } from "bun";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
-import { checkCsrf } from "../../middleware/csrf";
+import { checkCsrf, isRecoverableCsrfFailure } from "../../middleware/csrf";
 import { createCsrfToken } from "../../services/csrf";
 import {
   createMedia,
@@ -26,33 +27,14 @@ import {
 } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import {
-  GRID_THUMBNAIL_WIDTH,
   MediaDeleteConfirm,
   MediaDetail,
   MediaList,
-  variantForDisplay,
+  pickerOptionJson,
 } from "../../templates/cms/media";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
 import { nonEmpty, UUID_PATTERN } from "./params";
-
-/**
- * The JSON shape a picker sees for one upload.
- *
- * The thumbnail is sized for the same card the library page uses
- * (`GRID_THUMBNAIL_WIDTH` in `templates/cms/media`), so the picker doesn't
- * download a full rendition per tile.
- */
-const optionJson = (
-  option: Pick<MediaRecord, "id" | "alt" | "width" | "height" | "variants">,
-) => ({
-  id: option.id,
-  alt: option.alt,
-  width: option.width,
-  height: option.height,
-  thumbnailUrl:
-    variantForDisplay(option, GRID_THUMBNAIL_WIDTH)?.fallbackUrl ?? null,
-});
 
 /**
  * Whether the caller asked for JSON rather than a page.
@@ -184,7 +166,7 @@ export const media = {
     });
 
     return Response.json({
-      items: page.items.map(optionJson),
+      items: page.items.map(pickerOptionJson),
       next: page.next,
     });
   },
@@ -194,10 +176,40 @@ export const media = {
     const { redirect: authRedirect, ctx } = await context(req);
     if (authRedirect || !ctx) return authRedirect ?? render404();
 
-    const csrf = await checkCsrf(req, { method: "POST", path: "/cms/media" });
-    if (!csrf.ok) return csrf.response;
-
     const json = acceptsJson(req);
+    const csrf = await checkCsrf(req, { method: "POST", path: "/cms/media" });
+    if (!csrf.ok) {
+      // The picker's token is minted with the page that rendered it and can go
+      // stale while the editor works. A stale-but-authentic token gets a fresh
+      // one in the header the client retries with, plus a JSON reason so a
+      // retry that also fails still says something on the file's tile.
+      if (json && isRecoverableCsrfFailure(csrf) && ctx.sessionId) {
+        return new Response(
+          JSON.stringify({
+            errors: [
+              {
+                field: "file",
+                message: "This page expired. Reload it and try again.",
+              },
+            ],
+          }),
+          {
+            status: 403,
+            headers: {
+              [CSRF_HEADER]: await createCsrfToken(
+                ctx.sessionId,
+                "POST",
+                "/cms/media",
+              ),
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store",
+            },
+          },
+        );
+      }
+      return csrf.response;
+    }
+
     const formData = await req.formData();
     const alt = nonEmpty(formData.get("alt")) ?? "";
     const file = formData.get("file");
@@ -239,7 +251,7 @@ export const media = {
     }
 
     return json
-      ? Response.json(optionJson(result.media))
+      ? Response.json(pickerOptionJson(result.media))
       : redirect("/cms/media?uploaded=1");
   },
 
@@ -262,7 +274,7 @@ export const media = {
           ? {
               kind: "warning" as const,
               message:
-                "That image is used by published content, so it wasn't deleted.",
+                "That image is used by published content or a page's social image, so it wasn't deleted.",
             }
           : null;
 

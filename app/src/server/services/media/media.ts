@@ -106,8 +106,13 @@ export interface MediaOptionsPageOptions {
 }
 
 interface MediaOptionRow extends MediaOptionEntry {
-  /** `created_at` as ISO-8601 UTC at the column's full microsecond precision. */
-  created_at: string;
+  /**
+   * `created_at` as ISO-8601 UTC at the column's full microsecond precision.
+   * Deliberately not aliased `created_at`: an output column of that name would
+   * shadow the table column in `ORDER BY`, make the sort textual, and leave
+   * `cms_media_created_at_idx` unusable on every picker query.
+   */
+  created_at_cursor: string;
 }
 
 interface OptionsCursor {
@@ -120,7 +125,7 @@ interface OptionsCursor {
 const CURSOR_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
 const encodeOptionsCursor = (row: MediaOptionRow): string =>
-  Buffer.from(JSON.stringify({ t: row.created_at, i: row.id })).toString(
+  Buffer.from(JSON.stringify({ t: row.created_at_cursor, i: row.id })).toString(
     "base64url",
   );
 
@@ -498,7 +503,7 @@ export const listMediaOptionsPage = async (
   const rows = (await db`
     SELECT id, alt, width, height, variants,
            to_char(created_at AT TIME ZONE 'UTC',
-                   'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
+                   'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
     FROM cms_media
     WHERE TRUE
       ${pattern === null ? db`` : db`AND alt ILIKE ${pattern}`}
@@ -512,7 +517,11 @@ export const listMediaOptionsPage = async (
   `) as MediaOptionRow[];
 
   const items = rows.slice(0, limit).map(
-    ({ created_at: _createdAt, variants, ...option }): MediaOptionEntry => ({
+    ({
+      created_at_cursor: _cursor,
+      variants,
+      ...option
+    }): MediaOptionEntry => ({
       ...option,
       variants: parseVariants(variants),
     }),

@@ -1292,6 +1292,47 @@ describe("Pages controller", () => {
     expect(page?.title).toBe("About us");
   });
 
+  // A refused save re-renders the settings the editor typed, and the picker's
+  // closed field is part of those settings: it must read the typed image back,
+  // not the stored one, or the thumbnail and the hidden input disagree.
+  test("re-renders the typed social image on a refused save", async () => {
+    const [stored, typed] = await seedUploads(2);
+    if (!stored || !typed) throw new Error("seed uploads failed");
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImageId: stored,
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "landing",
+          url: "/about",
+          title: "About us",
+          socialImageId: typed,
+          content: "{not json",
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // The picker's closed field shows the typed upload, not the stored one.
+    // (The editor's media-options template lists every upload, so match the
+    // field's own details rather than the alt text anywhere in the page.)
+    expect(html).toContain('data-image-picker-alt="true">Upload 1<');
+    expect(html).not.toContain('data-image-picker-alt="true">Upload 0<');
+    expect(html).toContain(`value="${typed}"`);
+  });
+
   // Both early refusals (unreadable content, an expired page) re-render the
   // editor. The blocks must come from the page type the editor chose, not the
   // page's stored type, so the form they see matches their pick (review round

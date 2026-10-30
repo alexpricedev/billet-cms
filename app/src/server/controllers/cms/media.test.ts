@@ -430,6 +430,46 @@ describe("Media controller", () => {
       "isn't a JPEG, PNG or WebP image",
     );
   });
+
+  test("an expired upload token gets a fresh one in the JSON answer", async () => {
+    // A token from three 15-minute buckets ago: authentic, so recoverable, but
+    // too old to perform the write.
+    const realNow = Date.now;
+    Date.now = () => realNow() - 3 * 15 * 60 * 1000;
+    let stale: string;
+    try {
+      stale = await createCsrfToken(sessionId, "POST", "/cms/media");
+    } finally {
+      Date.now = realNow;
+    }
+
+    const form = new FormData();
+    form.set("alt", "Dropped in");
+    form.set("file", file(await makeJpeg(60, 40), "photo.jpg", "image/jpeg"));
+
+    const res = await media.upload(
+      await post(
+        "/cms/media",
+        form,
+        "/cms/media",
+        {},
+        {
+          ...JSON_ACCEPT,
+          "X-CSRF-Token": stale,
+        },
+      ),
+    );
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("x-csrf-token")).toBeTruthy();
+    const body = (await res.json()) as {
+      errors: { field: string; message: string }[];
+    };
+    expect(body.errors[0]?.message).toContain("This page expired");
+    // Nothing was written on the stale request.
+    expect(await db`SELECT id FROM cms_media`).toHaveLength(0);
+  });
 });
 
 /** The in-memory storage the controller's upload writes through. */

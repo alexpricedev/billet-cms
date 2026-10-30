@@ -64,9 +64,7 @@ const altFromFilename = (filename: string): string => {
 
 /** The open picker's own DOM, so the wiring reads once rather than per call. */
 interface PickerElements {
-  root: HTMLElement;
   value: HTMLInputElement;
-  current: HTMLElement;
   thumb: HTMLImageElement;
   placeholder: HTMLElement;
   alt: HTMLElement;
@@ -92,9 +90,7 @@ const must = <T extends Element>(root: ParentNode, selector: string): T => {
 };
 
 const elementsFor = (root: HTMLElement): PickerElements => ({
-  root,
   value: must<HTMLInputElement>(root, "[data-image-picker-value]"),
-  current: must<HTMLElement>(root, "[data-image-picker-current]"),
   thumb: must<HTMLImageElement>(root, "[data-image-picker-thumb]"),
   placeholder: must<HTMLElement>(root, "[data-image-picker-thumb-placeholder]"),
   alt: must<HTMLElement>(root, "[data-image-picker-alt]"),
@@ -201,12 +197,26 @@ const uploadTile = (file: File): UploadTile => {
   return { item, state, bar, preview };
 };
 
-const imagePreview = (file: File): HTMLElement | null => {
+/** A local preview of a file being uploaded, with the URL to release afterwards. */
+interface UploadPreview {
+  image: HTMLImageElement;
+  url: string;
+}
+
+const imagePreview = (file: File): UploadPreview | null => {
   if (typeof URL.createObjectURL !== "function") return null;
+  const url = URL.createObjectURL(file);
   const image = document.createElement("img");
-  image.src = URL.createObjectURL(file);
+  image.src = url;
   image.alt = "";
-  return image;
+  return { image, url };
+};
+
+/** Release a preview's object URL once the tile shows something else. */
+const revokePreview = (preview: UploadPreview | null): void => {
+  if (preview && typeof URL.revokeObjectURL === "function") {
+    URL.revokeObjectURL(preview.url);
+  }
 };
 
 type UploadResult =
@@ -232,7 +242,8 @@ const messageFrom = (body: unknown): string => {
 /** Wire every picker the page rendered. */
 const wirePicker = (root: HTMLElement): void => {
   const el = elementsFor(root);
-  const token = root.dataset.imagePickerCsrf ?? "";
+  // Replaced when the server hands back a fresh token after an expired one.
+  let token = root.dataset.imagePickerCsrf ?? "";
   const options = new Map<string, PickerOption>();
 
   let next: string | null = null;
@@ -260,6 +271,7 @@ const wirePicker = (root: HTMLElement): void => {
    * text — `src` is removed rather than emptied, so no request is made.
    */
   const showChoice = (option: PickerOption | null): void => {
+    const before = el.value.value;
     el.value.value = option?.id ?? "";
     if (option) {
       el.alt.textContent = option.alt;
@@ -285,6 +297,13 @@ const wirePicker = (root: HTMLElement): void => {
       el.remove.hidden = true;
     }
     markSelected();
+    // Setting a hidden input's value fires nothing. The preview guard marks the
+    // form dirty from `input` events, so a pick or a remove announces itself
+    // the way a typed field would — otherwise Preview would show the old saved
+    // draft without asking.
+    if (el.value.value !== before) {
+      el.value.dispatchEvent(new Event("input", { bubbles: true }));
+    }
   };
 
   const setStatus = (message: string): void => {
@@ -309,6 +328,9 @@ const wirePicker = (root: HTMLElement): void => {
 
   const load = async (replace: boolean): Promise<void> => {
     const seq = ++request;
+    // A replace is a new query or a fresh open: the previous cursor belongs to
+    // rows that query may not have, so Load more must wait for the answer.
+    if (replace) setNext(null);
     const params = new URLSearchParams();
     if (query !== "") params.set("q", query);
     if (!replace && next !== null) params.set("after", next);
@@ -410,9 +432,16 @@ const wirePicker = (root: HTMLElement): void => {
 
   el.choose.addEventListener("click", () => open(el.choose));
   el.close.addEventListener("click", close);
+  // Close on a click that both started and ended on the backdrop. A drag-select
+  // inside the dialog that is released over the backdrop also fires a click
+  // here; remembering where the press began keeps that from closing the dialog.
+  let backdropPressed = false;
+  el.modal.addEventListener("pointerdown", (event) => {
+    backdropPressed = event.target === el.modal;
+  });
   el.modal.addEventListener("click", (event) => {
-    // A click on the backdrop, not inside the dialog, closes like Escape.
-    if (event.target === el.modal) close();
+    if (backdropPressed && event.target === el.modal) close();
+    backdropPressed = false;
   });
 
   el.remove.addEventListener("click", () => showChoice(null));
@@ -428,14 +457,40 @@ const wirePicker = (root: HTMLElement): void => {
     close();
   });
 
-  el.more.addEventListener("click", () => void load(false));
+  /** Run a search the editor has typed but the debounce has not fired for. */
+  const flushSearch = (): void => {
+    if (searchTimer !== undefined) clearTimeout(searchTimer);
+    searchTimer = undefined;
+    const nextQuery = el.search.value.trim();
+    if (nextQuery === query) return;
+    query = nextQuery;
+    void load(true);
+  };
 
-  el.search.addEventListener("input", () => {
+  el.more.addEventListener("click", () => {
+    // Paging while a search is still pending would pair the new query with the
+    // cursor from before it; settle the search first instead.
+    if (searchTimer !== undefined || el.search.value.trim() !== query) {
+      flushSearch();
+      return;
+    }
+    void load(false);
+  });
+
+  el.search.addEventListener("input", (event) => {
+    // The picker sits inside the page form. Typing a search is not an edit to
+    // the page, so it must not reach the form's dirty listener (preview guard).
+    event.stopPropagation();
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-      query = el.search.value.trim();
-      void load(true);
-    }, 250);
+    searchTimer = setTimeout(flushSearch, 250);
+  });
+
+  el.search.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    // A search box inside a form submits the whole form on Enter (Save draft /
+    // Create page), which would lose the dialog. Search now instead.
+    event.preventDefault();
+    flushSearch();
   });
 
   /** Upload one file, updating its tile and resolving to the new option. */
@@ -443,84 +498,118 @@ const wirePicker = (root: HTMLElement): void => {
     const tile = uploadTile(file);
     el.uploads.prepend(tile.item);
     const preview = imagePreview(file);
-    if (preview) tile.preview.append(preview);
-
-    const form = new FormData();
-    form.append(CSRF_FIELD, token);
-    form.append("alt", altFromFilename(file.name));
-    form.append("file", file, file.name);
+    if (preview) tile.preview.append(preview.image);
 
     return await new Promise<UploadResult>((resolve) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/cms/media");
-      xhr.setRequestHeader("Accept", "application/json");
-      xhr.setRequestHeader(CSRF_HEADER, token);
+      const send = (csrfToken: string, allowRetry: boolean): void => {
+        const form = new FormData();
+        form.append(CSRF_FIELD, csrfToken);
+        form.append("alt", altFromFilename(file.name));
+        form.append("file", file, file.name);
 
-      xhr.upload.addEventListener("progress", (event) => {
-        if (!event.lengthComputable) return;
-        const percent = Math.round((event.loaded / event.total) * 100);
-        tile.bar.style.width = `${percent}%`;
-      });
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/cms/media");
+        xhr.setRequestHeader("Accept", "application/json");
+        xhr.setRequestHeader(CSRF_HEADER, csrfToken);
 
-      const fail = (message: string): void => {
-        tile.item.dataset.state = "error";
-        tile.state.textContent = message;
-        // A refused file may not be an image at all, and the object URL's
-        // broken-image icon is not a preview. Drop it so the tile shows only
-        // the file name and the server's message.
-        tile.preview.replaceChildren();
-        resolve({ ok: false, message });
+        xhr.upload.addEventListener("progress", (event) => {
+          if (!event.lengthComputable) return;
+          const percent = Math.round((event.loaded / event.total) * 100);
+          tile.bar.style.width = `${percent}%`;
+        });
+
+        const fail = (message: string): void => {
+          tile.item.dataset.state = "error";
+          tile.state.textContent = message;
+          // A refused file may not be an image at all, and the object URL's
+          // broken-image icon is not a preview. Drop it so the tile shows only
+          // the file name and the server's message.
+          tile.preview.replaceChildren();
+          revokePreview(preview);
+          resolve({ ok: false, message });
+        };
+
+        xhr.addEventListener("load", () => {
+          // The page's upload token can be older than the page by the time the
+          // drop zone is used. The server answers an expired-but-authentic
+          // token with a fresh one in the CSRF header; spend it once rather
+          // than making the editor reload and lose the form.
+          if (
+            xhr.status === 403 &&
+            allowRetry &&
+            typeof xhr.getResponseHeader === "function"
+          ) {
+            const fresh = xhr.getResponseHeader(CSRF_HEADER);
+            if (fresh) {
+              token = fresh;
+              send(fresh, false);
+              return;
+            }
+          }
+          let body: unknown = null;
+          try {
+            body = JSON.parse(xhr.responseText);
+          } catch {
+            body = null;
+          }
+          if (xhr.status >= 200 && xhr.status < 300 && isOption(body)) {
+            const option = body;
+            tile.item.dataset.state = "done";
+            tile.state.textContent = "Uploaded";
+            tile.bar.style.width = "100%";
+            if (preview) {
+              if (option.thumbnailUrl) {
+                preview.image.src = option.thumbnailUrl;
+              } else {
+                tile.preview.replaceChildren(thumbnail(option));
+              }
+              // The tile now shows the stored rendition (or the placeholder),
+              // so the local blob is no longer needed.
+              revokePreview(preview);
+            } else {
+              tile.preview.append(thumbnail(option));
+            }
+            resolve({ ok: true, option });
+            return;
+          }
+          fail(messageFrom(body));
+        });
+
+        xhr.addEventListener("error", () =>
+          fail(
+            "Couldn't upload this file. Check the connection and try again.",
+          ),
+        );
+
+        xhr.send(form);
       };
 
-      xhr.addEventListener("load", () => {
-        let body: unknown = null;
-        try {
-          body = JSON.parse(xhr.responseText);
-        } catch {
-          body = null;
-        }
-        if (xhr.status >= 200 && xhr.status < 300 && isOption(body)) {
-          const option = body;
-          tile.item.dataset.state = "done";
-          tile.state.textContent = "Uploaded";
-          tile.bar.style.width = "100%";
-          if (option.thumbnailUrl && preview) {
-            (preview as HTMLImageElement).src = option.thumbnailUrl;
-          } else if (!preview) {
-            tile.preview.append(thumbnail(option));
-          }
-          resolve({ ok: true, option });
-          return;
-        }
-        fail(messageFrom(body));
-      });
-
-      xhr.addEventListener("error", () =>
-        fail("Couldn't upload this file. Check the connection and try again."),
-      );
-
-      xhr.send(form);
+      send(token, true);
     });
   };
 
   const uploadFiles = async (files: File[]): Promise<void> => {
-    const list = files;
-    if (list.length === 0) return;
-    const single = list.length === 1;
-    for (const file of list) {
+    if (files.length === 0) return;
+    const single = files.length === 1;
+    for (const file of files) {
       const result = await upload(file);
       if (!result.ok) continue;
       prependOption(result.option);
       // One file was dropped: it is the choice, so select it and close. Several
-      // files leave the modal open for the editor to pick one.
-      if (single) {
+      // files leave the modal open for the editor to pick one. If the editor
+      // closed the dialog while the upload ran, leave the field alone — they
+      // are no longer looking at it.
+      if (single && !el.modal.hidden) {
         showChoice(result.option);
         close();
       }
     }
   };
 
-  el.file.addEventListener("change", () => {
+  el.file.addEventListener("change", (event) => {
+    // Choosing a file uploads it to the library; it is not an edit to the page
+    // until an upload is selected, which `showChoice` announces.
+    event.stopPropagation();
     // Copy before clearing: a browser empties the input's live FileList when
     // `value` is reset, so reading it afterwards would upload nothing. This
     // was caught in Chromium after the unit tests passed on a static array.

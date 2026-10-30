@@ -154,9 +154,37 @@ export interface FieldSettingIssue {
 }
 
 /** The social-image issue for an id that names no upload. */
-const SOCIAL_IMAGE_ISSUE: FieldSettingIssue = {
+export const SOCIAL_IMAGE_ISSUE: FieldSettingIssue = {
   path: "socialImageId",
   message: "Choose an image from the media library.",
+};
+
+/**
+ * The social image a save named was deleted before the write reached it.
+ *
+ * Validation reads `cms_media` outside the save's transaction, so an upload can
+ * disappear between "the id is good" and the `UPDATE`. Without this the foreign
+ * key would surface as an unhandled 500; the callers turn it into the same
+ * field issue validation gives.
+ */
+export class SocialImageMissingError extends Error {
+  constructor() {
+    super("The social image was deleted before the save.");
+    this.name = "SocialImageMissingError";
+  }
+}
+
+/**
+ * Hold a social image for the caller's transaction, or refuse a row that is
+ * gone. `FOR SHARE` makes a concurrent delete wait until the save commits, so
+ * the id cannot stop existing between the check and the write.
+ */
+const lockSocialImage = async (tx: SQL, id: string | null): Promise<void> => {
+  if (id === null) return;
+  const rows = (await tx`
+    SELECT id FROM cms_media WHERE id = ${id} FOR SHARE
+  `) as { id: string }[];
+  if (rows.length === 0) throw new SocialImageMissingError();
 };
 
 /**
@@ -227,7 +255,11 @@ export const validatePageSettings = async (
     });
   }
 
-  const socialImageId = input.socialImageId?.trim() ?? "";
+  // Stored ids are the lowercase form Postgres returns, so compare and store
+  // that form too: an uppercase id from an API caller is the same upload, but a
+  // text comparison against the stored row would read it as a change on every
+  // save and bump `content_version` for nothing.
+  const socialImageId = (input.socialImageId?.trim() ?? "").toLowerCase();
   if (socialImageId !== "") {
     const issue = await socialImageIssue(socialImageId);
     if (issue) issues.push(issue);
@@ -374,6 +406,9 @@ export const createPage = async (
   try {
     const page = await db.begin(async (tx) => {
       const id = randomUUID();
+      // Validation ran outside this transaction; hold the upload so a delete
+      // cannot land between the check and the insert's foreign key.
+      await lockSocialImage(tx, settings.socialImageId);
       // A published page can hold a path as a *pending* address change, which
       // no unique index covers, so the new page would otherwise take it and the
       // owner's Publish would fail later with a conflict. Refuse it here.
@@ -402,6 +437,9 @@ export const createPage = async (
     });
     return { ok: true, page };
   } catch (error) {
+    if (error instanceof SocialImageMissingError) {
+      return { ok: false, issues: [SOCIAL_IMAGE_ISSUE] };
+    }
     const message = await duplicateUrlMessage(error, settings.url);
     if (message) return { ok: false, issues: [{ path: "url", message }] };
     throw error;
@@ -535,6 +573,10 @@ export const applyPageSettings = async (
   `) as PageRow[];
   if (locked.length === 0) throw new Error(`Page ${pageId} not found`);
   const previous = toPage(locked[0]);
+
+  // The settings were validated before the transaction opened, so hold the
+  // upload now: a concurrent delete must not turn the foreign key into a 500.
+  await lockSocialImage(tx, settings.socialImageId);
 
   const urlChanged = previous.url !== settings.url;
   // Only a page with a published revision has a live address to keep.
@@ -672,6 +714,9 @@ export const updatePageSettings = async (
     );
     return { ok: true, page: page.page };
   } catch (error) {
+    if (error instanceof SocialImageMissingError) {
+      return { ok: false, issues: [SOCIAL_IMAGE_ISSUE] };
+    }
     const message = await duplicateUrlMessage(error, settings.url);
     if (message) return { ok: false, issues: [{ path: "url", message }] };
     throw error;
