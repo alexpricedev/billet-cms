@@ -23,10 +23,16 @@ export const seedBlockType = async (
 ): Promise<string> => {
   const stored = blockStoredSchema(definition);
   const rows = (await db.unsafe(
-    `INSERT INTO cms_block_types (name, json_schema, fields, schema_hash)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO cms_block_types (name, label, json_schema, fields, schema_hash)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [stored.name, stored.jsonSchema, stored.fields, stored.schemaHash],
+    [
+      stored.name,
+      stored.label,
+      stored.jsonSchema,
+      stored.fields,
+      stored.schemaHash,
+    ],
   )) as { id: string }[];
   return rows[0].id;
 };

@@ -38,6 +38,7 @@ const blockType = (
   return {
     id: stored.name,
     name: stored.name,
+    label: stored.label,
     jsonSchema: stored.jsonSchema,
     fields: stored.fields,
     schemaHash: stored.schemaHash,

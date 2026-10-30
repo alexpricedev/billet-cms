@@ -12,6 +12,12 @@ import { db } from "../database";
 export interface BlockTypeRecord {
   id: string;
   name: string;
+  /**
+   * The human name the editor sees, published from `block()`'s label. Empty
+   * only for a row written by a site that predates labels; never shown in
+   * place of the slug (Q2: there is no fallback).
+   */
+  label: string;
   jsonSchema: Record<string, unknown>;
   fields: FieldMetadata[];
   schemaHash: string;
@@ -33,6 +39,7 @@ export interface PageTypeRecord {
 interface BlockTypeRow {
   id: string;
   name: string;
+  label: string;
   json_schema: Record<string, unknown>;
   fields: FieldMetadata[];
   schema_hash: string;
@@ -54,6 +61,7 @@ interface PageTypeRow {
 const toBlockType = (row: BlockTypeRow): BlockTypeRecord => ({
   id: row.id,
   name: row.name,
+  label: row.label,
   jsonSchema: row.json_schema,
   fields: row.fields,
   schemaHash: row.schema_hash,
@@ -74,7 +82,7 @@ const toPageType = (row: PageTypeRow): PageTypeRecord => ({
 
 export const listBlockTypes = async (): Promise<BlockTypeRecord[]> => {
   const rows = (await db`
-    SELECT id, name, json_schema, fields, schema_hash, removed_at
+    SELECT id, name, label, json_schema, fields, schema_hash, removed_at
     FROM cms_block_types
     ORDER BY name
   `) as BlockTypeRow[];
@@ -85,7 +93,7 @@ export const getBlockTypeByName = async (
   name: string,
 ): Promise<BlockTypeRecord | null> => {
   const rows = (await db`
-    SELECT id, name, json_schema, fields, schema_hash, removed_at
+    SELECT id, name, label, json_schema, fields, schema_hash, removed_at
     FROM cms_block_types
     WHERE name = ${name}
   `) as BlockTypeRow[];
