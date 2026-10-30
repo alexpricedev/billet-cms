@@ -108,6 +108,17 @@ sets `Cache-Control: no-store` and `X-Robots-Tag: noindex`, and injects the
 Preview banner into an HTML response — the headers alone for anything else, and
 the response untouched when the access is `null`.
 
+Forward the same `{ preview }` to `resolveLink`. A `link()` to a page is stored
+as an id, and outside a preview only *published* pages resolve — a link to a
+draft returns `null`, so the site renders no button and the editor sees a
+preview with its buttons missing. With valid preview access a link to an
+unpublished page resolves to that page's URL, including a link to the page being
+previewed. Any valid access (a page's or a slot's token) resolves every draft,
+so a cross-link between two drafts has an href; following it still needs the
+target's own token or it 404s, which is more honest than a missing button. A
+published target keeps resolving from the published route cache; only a draft
+costs one direct read, and no draft URL ever enters that cache.
+
 The banner names when the draft was saved (`draftSavedAt`, read in the same
 query as the token). That line is doing a job: an editor who types, hits Preview
 without saving and sees their old words has nothing on the page to tell them
@@ -124,7 +135,8 @@ export const homeHero = slot("home.hero", hero, { previewPath: "/" });
 
 The catch-all (`createCmsPageRoute`) does this for a CMS-served page: it hands
 its `render` function `{ preview, req }`, so a page that also mounts a slot can
-forward the access and show that slot's draft inside it.
+forward the access and show that slot's draft inside it. Forward it to
+`resolveLink` as well, or the previewed page's draft links stay `null`.
 
 ## Images
 

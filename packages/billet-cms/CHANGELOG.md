@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### A preview resolves links to draft pages
+
+`resolveLink` takes the same optional `{ preview }` argument as `getPage` and
+`getSlot`. Forward the access a request carried, and a `link()` to an
+unpublished page — including the page being previewed — resolves to that page's
+URL instead of `null`, so the site renders the button. Any valid access (a
+page's or a slot's token) resolves every draft; following a cross-link to a
+draft without its own token still 404s.
+
+A published target keeps resolving from the published route cache; only a draft
+costs one direct, uncached read, so no draft URL enters that cache. Without
+preview access nothing changes: a link to a draft still resolves to `null`.
+
 ## 0.3.0
 
 Links carry hover text, and the contract version moves to `0.9.0` with it, so
