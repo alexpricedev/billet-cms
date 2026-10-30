@@ -1475,60 +1475,6 @@ describe("image fields", () => {
       { mediaId: MEDIA_ID, alt: "A photo in a row" },
     ]);
   });
-
-  // The old reuse dropdown was filled from a shared <template> on first focus.
-  // That path is gone with the select itself; a leftover template in a page
-  // (there is none, but a cached one would be) must not grow a picker.
-  test("no longer fills a picker from a media options template", () => {
-    mount(`
-      <form data-cms-form>
-        <template data-media-options>
-          <option value="${MEDIA_ID}">A photo</option>
-        </template>
-        <div data-field data-field-kind="image" data-field-name="photo">
-          <select data-image-picker>
-            <option value="">Choose an image…</option>
-          </select>
-          <input type="hidden" data-image-id value="">
-        </div>
-      </form>
-    `);
-
-    const picker = document.querySelector<HTMLSelectElement>(
-      "[data-image-picker]",
-    );
-    if (!picker) throw new Error("no picker");
-    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
-
-    expect(picker.options.length).toBe(1);
-  });
-
-  // The removed select handler used to copy its value into the hidden id. Now
-  // the hidden field is the picker's own value, and nothing else writes it.
-  test("no longer copies a legacy select's value into the image", () => {
-    mount(`
-      <form data-cms-form>
-        <div data-field data-field-kind="image" data-field-name="photo">
-          <select data-image-picker>
-            <option value="">Choose an image…</option>
-            <option value="${MEDIA_ID}">A photo</option>
-          </select>
-          <input type="hidden" data-image-id value="">
-        </div>
-      </form>
-    `);
-
-    const picker = document.querySelector<HTMLSelectElement>(
-      "[data-image-picker]",
-    );
-    if (!picker) throw new Error("no picker");
-    picker.value = MEDIA_ID;
-    picker.dispatchEvent(new Event("change", { bubbles: true }));
-
-    expect(
-      form().querySelector<HTMLInputElement>("[data-image-id]")?.value,
-    ).toBe("");
-  });
 });
 
 describe("focal point picker", () => {

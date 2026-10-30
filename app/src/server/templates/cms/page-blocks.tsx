@@ -37,7 +37,7 @@ export interface PageBlocksProps {
    */
   pickerImages?: Map<string, PickerImage>;
   /** The CSRF token bound to `POST /cms/media`, for the pickers' drop zones. */
-  uploadCsrfToken?: string;
+  uploadCsrfToken: string;
 }
 
 /** The block types a page of this type may add, in the allowed order. */
@@ -156,7 +156,7 @@ const EditableBlock = ({
   alert?: string;
   pages?: PageOption[];
   pickerImages?: Map<string, PickerImage>;
-  uploadCsrfToken?: string;
+  uploadCsrfToken: string;
 }) => (
   <fieldset
     className={alert ? "cms-block cms-block-alert" : "cms-block"}

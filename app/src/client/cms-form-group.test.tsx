@@ -18,7 +18,9 @@ const roundTrip = (
   field: FieldMetadata,
   value: unknown,
 ): Record<string, unknown> => {
-  const html = renderToString(<FieldControl field={field} value={value} />);
+  const html = renderToString(
+    <FieldControl field={field} value={value} uploadCsrfToken="upload-token" />,
+  );
   document.body.innerHTML = `<form data-cms-form><input type="hidden" data-cms-content value="{}">${html}</form>`;
   init();
   return buildContent(document.querySelector("form") as HTMLFormElement);

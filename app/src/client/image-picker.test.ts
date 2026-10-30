@@ -5,11 +5,13 @@ import { init } from "./image-picker";
  * One server-rendered picker, as `ImagePicker` writes it. Only the elements the
  * client reads are here; the client test is about wiring, not markup.
  */
-const pickerField = (): string => `
+const pickerField = (width?: number): string => `
     <fieldset class="cms-field cms-image-picker"
       data-image-picker-field
       data-image-picker-csrf="upload-token"
-      data-image-picker-name="socialImageId">
+      data-image-picker-name="socialImageId"${
+        width === undefined ? "" : ` data-image-picker-width="${width}"`
+      }>
       <input type="hidden" name="socialImageId" value="" data-image-picker-value>
       <div data-image-picker-current>
         <img class="cms-image-picker-thumb" data-image-picker-thumb alt="" hidden>
@@ -112,13 +114,13 @@ const mount = (html = markup): void => {
 };
 
 /** A picker inside the `[data-field]` an image field renders around it. */
-const mountInField = (minWidth?: number): void => {
+const mountInField = (minWidth?: number, width?: number): void => {
   mount(`
     <form>
       <div data-field data-field-kind="image" data-field-name="photo"${
         minWidth === undefined ? "" : ` data-image-min-width="${minWidth}"`
       }>
-        ${pickerField()}
+        ${pickerField(width)}
         <p class="cms-field-warning" data-image-warning hidden></p>
       </div>
     </form>
@@ -656,6 +658,25 @@ describe("image picker", () => {
     mountInField();
     await open({ items: [SECOND], next: null });
     cards()[0]?.click();
+
+    expect(warning().hidden).toBe(true);
+    expect(warning().textContent).toBe("");
+  });
+
+  // The stored upload's width comes down with the picker, so a field that
+  // already holds a too-narrow image warns on load rather than waiting for the
+  // editor to pick the same image again.
+  test("warns about a stored narrow image before any interaction", () => {
+    mountInField(1600, 800);
+
+    const field = document.querySelector<HTMLElement>("[data-field]");
+    expect(field?.dataset.imageWidth).toBe("800");
+    expect(warning().hidden).toBe(false);
+    expect(warning().textContent).toContain("800px");
+  });
+
+  test("leaves the warning hidden on load when the stored image is wide enough", () => {
+    mountInField(1600, 1600);
 
     expect(warning().hidden).toBe(true);
     expect(warning().textContent).toBe("");

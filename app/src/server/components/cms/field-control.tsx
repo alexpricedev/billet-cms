@@ -98,8 +98,12 @@ export interface FieldControlProps {
    * it.
    */
   pickerImages?: Map<string, PickerImage>;
-  /** The CSRF token bound to `POST /cms/media`, for the pickers' drop zones. */
-  uploadCsrfToken?: string;
+  /**
+   * The CSRF token bound to `POST /cms/media`, for the pickers' drop zones.
+   * Required: an omitted token would render pickers that only fail at upload
+   * time, so every form that can hold an image field must mint one.
+   */
+  uploadCsrfToken: string;
 }
 
 const describedBy = (...ids: (string | undefined)[]): string | undefined => {
@@ -451,7 +455,7 @@ const ListItemControl = ({
   nameScope: string;
   pages?: PageOption[];
   pickerImages?: Map<string, PickerImage>;
-  uploadCsrfToken?: string;
+  uploadCsrfToken: string;
 }): JSX.Element => (
   <div className="cms-list-item" data-list-item>
     <FieldControl
@@ -675,16 +679,17 @@ export const FieldControl = ({
             }${field.help ? " cms-image-parts-after-help" : ""}`}
           >
             {/* The shared picker is the field's first part. Its own legend is
-                visually hidden so the field's heading names it once; a row has
-                no stable id, so it passes none and the picker falls back to an
-                aria-label rather than repeating ids across cloned rows. */}
+                visually hidden so the field's heading names it once. It gets
+                no id prefix: a block or list row is cloned from a `<template>`,
+                so every copy would carry the same ids, and the picker needs
+                none — its legend names the fieldset it sits in, and the dialog
+                falls back to an aria-label. */}
             <ImagePicker
-              idBase={controlId}
               label={labelOverride ?? fieldName(field)}
               labelHidden
               value={mediaId || null}
               image={pickerImage}
-              uploadCsrfToken={uploadCsrfToken ?? ""}
+              uploadCsrfToken={uploadCsrfToken}
             />
             <div className="cms-image-part">
               <SubControlLabel htmlFor={idFor("alt")}>Alt text</SubControlLabel>

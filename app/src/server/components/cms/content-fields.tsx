@@ -19,7 +19,7 @@ export interface ContentFieldsProps {
    */
   pickerImages?: Map<string, PickerImage>;
   /** The CSRF token bound to `POST /cms/media`, for the pickers' drop zones. */
-  uploadCsrfToken?: string;
+  uploadCsrfToken: string;
   /**
    * Id prefix for the controls. A page renders one block per `ContentFields`,
    * and two blocks can declare the same field name, so the block's own prefix

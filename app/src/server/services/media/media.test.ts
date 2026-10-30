@@ -51,7 +51,6 @@ import {
   getMediaById,
   getMediaUsage,
   listMedia,
-  listMediaOptions,
   listMediaOptionsPage,
   listPickerImages,
   MAX_ALT_LENGTH,
@@ -332,29 +331,6 @@ describe("createMedia", () => {
       all.slice(0, 2).map((row) => row.id),
     );
     expect(limited.map((row) => row.alt)).toEqual(["Third", "Second"]);
-  });
-
-  // The picker only needs these four fields; the old shape read the whole row
-  // (and its thumbnail URL) to build them, so a large library is now walked for
-  // neither.
-  test("listMediaOptions selects only the picker's fields", async () => {
-    const result = await createMedia({
-      bytes: await makeJpeg(800, 400),
-      alt: "A field",
-      actorId: null,
-      storage: createMemoryStorage(),
-    });
-    if (!result.ok) throw new Error("upload failed");
-
-    const options = await listMediaOptions();
-    expect(options).toHaveLength(1);
-    expect(Object.keys(options[0]).sort()).toEqual([
-      "alt",
-      "height",
-      "id",
-      "width",
-    ]);
-    expect(options[0].alt).toBe("A field");
   });
 
   /** Upload a tiny image with the given alt, so paging has distinct rows. */

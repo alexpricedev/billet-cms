@@ -27,12 +27,6 @@ export interface ImagePickerProps {
    * unnamed picker submits nothing, so it cannot add stray fields to the POST.
    */
   name?: string;
-  /**
-   * Prefix for the element ids. Defaults to `name`; a block or list row has no
-   * stable name of its own, so `FieldControl` passes the id it already uses for
-   * the field, and only where that id exists.
-   */
-  idBase?: string;
   label: string;
   /** Hide the label visually; a field's own heading already names the control. */
   labelHidden?: boolean;
@@ -50,10 +44,16 @@ export interface ImagePickerProps {
   uploadCsrfToken: string;
 }
 
-const idPrefix = (name?: string, idBase?: string): string | null => {
-  const base = idBase ?? name;
-  return base ? `cms-image-picker-${base}` : null;
-};
+/**
+ * Element ids come from `name` and nothing else. A block `image` field passes
+ * no name — its picker is one part of the generated form — and must not be
+ * given an id prefix either: blocks and list rows are cloned from a
+ * `<template>`, so any id the server renders is repeated in every copy. The
+ * picker needs none there; its legend names the fieldset by containment, and
+ * the dialog falls back to an `aria-label`.
+ */
+const idPrefix = (name?: string): string | null =>
+  name ? `cms-image-picker-${name}` : null;
 
 /**
  * The shared image picker: a server-rendered closed field plus the dialog and
@@ -72,7 +72,6 @@ const idPrefix = (name?: string, idBase?: string): string | null => {
  */
 export const ImagePicker = ({
   name,
-  idBase,
   label,
   labelHidden = false,
   help,
@@ -81,7 +80,7 @@ export const ImagePicker = ({
   errors,
   uploadCsrfToken,
 }: ImagePickerProps): JSX.Element => {
-  const base = idPrefix(name, idBase);
+  const base = idPrefix(name);
   const idFor = (suffix: string): string | undefined =>
     base ? `${base}-${suffix}` : undefined;
   const labelId = idFor("label");
@@ -115,6 +114,7 @@ export const ImagePicker = ({
       data-image-picker-field
       data-image-picker-csrf={uploadCsrfToken}
       data-image-picker-name={name}
+      data-image-picker-width={image?.width}
       aria-describedby={described || undefined}
       aria-invalid={invalid ? "true" : undefined}
     >

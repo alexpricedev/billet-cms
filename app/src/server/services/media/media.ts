@@ -429,14 +429,11 @@ export interface ListMediaOptions {
 }
 
 /**
- * The newest uploads the page and slot forms offer for reuse.
+ * How many uploads one page of the picker's options holds.
  *
- * A library can hold thousands of images; shipping them all into every form
- * would make the page heavy and the picker unusable. The forms list only this
- * many newest, and an editor who needs an older one pastes its id, which the
- * media detail page prints. The value lives in `./limits` so a component and
- * its tests can read it without loading this module; it is re-exported here so
- * the service's surface is unchanged.
+ * The value lives in `./limits` so a component and its tests can read it
+ * without loading this module; it is re-exported here so the service's surface
+ * is unchanged.
  */
 export { MEDIA_PICKER_LIMIT };
 
@@ -458,25 +455,6 @@ export const listMedia = async (
     LIMIT ${options.limit ?? null}
   `) as MediaRow[];
   return rows.map(toMedia);
-};
-
-/**
- * The picker's fields only, newest first.
- *
- * A picker shows an upload's alt and size and nothing else, so it reads the
- * four columns it uses rather than the full row — a large library is not walked
- * for object keys and variants that never reach the form.
- */
-export const listMediaOptions = async (
-  options: ListMediaOptions = {},
-): Promise<MediaOption[]> => {
-  const rows = (await db`
-    SELECT id, alt, width, height
-    FROM cms_media
-    ORDER BY created_at DESC, id DESC
-    LIMIT ${options.limit ?? null}
-  `) as MediaOption[];
-  return rows;
 };
 
 /**
@@ -556,7 +534,6 @@ export const listPickerImages = async (
            focal_x, focal_y, variants, created_at, updated_at
     FROM cms_media
     WHERE id IN ${inList(ids)}
-    ORDER BY created_at DESC, id DESC
   `) as MediaRow[];
   return rows.map(toMedia);
 };

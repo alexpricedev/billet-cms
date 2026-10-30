@@ -665,6 +665,13 @@ const wirePicker = (root: HTMLElement): void => {
     void uploadFiles(Array.from(event.dataTransfer?.files ?? []));
   });
 
+  // A stored image's width came down with the picker, so report it now: the
+  // too-narrow warning has to be beside the field on load, not only after the
+  // editor picks the same image again. A page setting's picker has no enclosing
+  // field and `reportWidth` does nothing there.
+  const initialWidth = Number.parseInt(root.dataset.imagePickerWidth ?? "", 10);
+  if (Number.isSafeInteger(initialWidth)) reportWidth(initialWidth);
+
   markSelected();
 };
 

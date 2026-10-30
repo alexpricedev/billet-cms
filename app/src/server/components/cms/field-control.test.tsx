@@ -30,6 +30,7 @@ describe("FieldControl rich text", () => {
       field={richText}
       value={emptyDocument}
       idBase="cms-field-body"
+      uploadCsrfToken="upload-token"
     />,
   );
 
@@ -57,6 +58,7 @@ describe("FieldControl text", () => {
         value={value}
         errors={errors}
         idBase="cms-field-intro"
+        uploadCsrfToken="upload-token"
       />,
     );
   const control = (html: string): string =>
@@ -119,6 +121,7 @@ describe("FieldControl text", () => {
         value="Hi"
         labelOverride="Tag"
         nameScope="tag-0"
+        uploadCsrfToken="upload-token"
       />,
     );
     const row =
@@ -154,6 +157,7 @@ describe("FieldControl text", () => {
         value="Hello"
         errors={[{ path: "intro", message: "Too long." }]}
         idBase="cms-field-intro"
+        uploadCsrfToken="upload-token"
       />,
     );
     const textarea = control(html);
@@ -179,7 +183,12 @@ describe("FieldControl list", () => {
   };
 
   const html = renderToString(
-    <FieldControl field={list} value={["one"]} idBase="cms-field-tags" />,
+    <FieldControl
+      field={list}
+      value={["one"]}
+      idBase="cms-field-tags"
+      uploadCsrfToken="upload-token"
+    />,
   );
 
   // The template row is cloned, so a number baked into it would say "Item 1"
@@ -206,6 +215,7 @@ describe("FieldControl list", () => {
         field={list}
         value={["one", "two", "three"]}
         idBase="cms-field-tags"
+        uploadCsrfToken="upload-token"
       />,
     );
     const add = /<button[^>]*data-list-add[^>]*>/.exec(full)?.[0] ?? "";
@@ -234,6 +244,7 @@ describe("FieldControl list", () => {
         field={unbounded}
         value={["one"]}
         idBase="cms-field-tags"
+        uploadCsrfToken="upload-token"
       />,
     );
     const add = /<button[^>]*data-list-add[^>]*>/.exec(html)?.[0] ?? "";
@@ -251,7 +262,12 @@ describe("FieldControl list", () => {
       of: { name: "item", kind: "text", required: true },
     };
     const single = renderToString(
-      <FieldControl field={one} value={[]} idBase="cms-field-tag" />,
+      <FieldControl
+        field={one}
+        value={[]}
+        idBase="cms-field-tag"
+        uploadCsrfToken="upload-token"
+      />,
     );
 
     expect(single).toContain("Up to 1 item.");
@@ -312,6 +328,12 @@ describe("FieldControl image picker", () => {
 
     expect(fieldset).toContain('class="cms-field cms-image-picker"');
     expect(fieldset).toContain('data-image-picker-csrf="upload-token"');
+    // The stored width travels with the picker so the field can warn before the
+    // editor touches it.
+    expect(fieldset).toContain(`data-image-picker-width="${first.width}"`);
+    // A block field is cloned from a `<template>`; an id prefix here would be
+    // repeated in every copy, so the picker renders none.
+    expect(html).not.toContain("cms-image-picker-cms-field-photo");
     expect(html).toContain(`src="${first.thumbnailUrl}"`);
     expect(html).toContain(">A photo</span>");
     expect(html).toContain(">800×400</span>");
@@ -506,6 +528,7 @@ describe("FieldControl link", () => {
         idBase="cms-field-cta"
         pages={[{ id: PAGE_ID, title: "About", url: "/about" }]}
         errors={errors}
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -585,6 +608,7 @@ describe("FieldControl link", () => {
           link: { type: "url", url: "https://example.com" },
         }}
         idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -610,6 +634,7 @@ describe("FieldControl link", () => {
         field={group}
         value={{ heading: "Hi", link: { type: "url", url: "https://a.test" } }}
         idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -635,6 +660,7 @@ describe("FieldControl link", () => {
         field={group}
         value={{ heading: "Hi" }}
         idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -654,6 +680,7 @@ describe("FieldControl link", () => {
         field={{ ...link, required: false }}
         value={{}}
         idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -685,6 +712,7 @@ describe("FieldControl link", () => {
           { type: "url", url: "https://a.example", label: "A" },
           { type: "url", url: "https://b.example", label: "B" },
         ]}
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -716,6 +744,7 @@ describe("FieldControl link", () => {
         field={links}
         idBase="cms-field-links"
         value={[{ type: "url", url: "https://a.example", label: "A" }]}
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -746,7 +775,12 @@ describe("FieldControl link", () => {
   test("keeps two unscoped same-named links in separate radio groups", () => {
     const renderUnscoped = (): string =>
       renderToString(
-        <FieldControl field={link} value={{}} labelOverride="Link" />,
+        <FieldControl
+          field={link}
+          value={{}}
+          labelOverride="Link"
+          uploadCsrfToken="upload-token"
+        />,
       );
 
     const names = Array.from(
@@ -848,6 +882,7 @@ describe("FieldControl described-by ids", () => {
         value={field.kind === "image" ? {} : ""}
         errors={errors}
         idBase="cms-field-x"
+        uploadCsrfToken="upload-token"
       />,
     );
   const imageField = (html: string): string =>

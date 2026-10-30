@@ -97,15 +97,28 @@ describe("ImagePicker", () => {
 
   // A block image field is one part of the generated form, so it renders no
   // named input: the value is read from the data attribute and serialised into
-  // the hidden `content` field, and nothing stray joins the POST.
-  test("renders no name when a block field passes none", () => {
-    const html = render({ name: undefined, idBase: "cms-field-photo" });
+  // the hidden `content` field, and nothing stray joins the POST. It renders no
+  // element ids either — a block is cloned from a `<template>`, so ids would be
+  // repeated in every copy, and the legend names the fieldset regardless.
+  test("renders no name and no ids when a block field passes none", () => {
+    const html = render({ name: undefined });
     const input = tag(html, "data-image-picker-value");
 
     expect(input).not.toContain("name=");
     expect(input).toContain("data-image-id");
     expect(input).toMatch(/value(?:="")?\s/);
-    expect(html).toContain('id="cms-image-picker-cms-field-photo-label"');
+    expect(html).not.toContain("cms-image-picker-socialImageId");
+    expect(html).not.toMatch(/\sid="/);
+  });
+
+  // A stored upload's width travels with the picker so the field can warn about
+  // a too-narrow image before the editor touches it.
+  test("carries the stored upload's width for the field's warning", () => {
+    const html = render({ value: IMAGE.id, image: IMAGE });
+
+    expect(tag(html, "data-image-picker-field")).toContain(
+      `data-image-picker-width="${IMAGE.width}"`,
+    );
   });
 
   test("shows the chosen image, its alt, size and a Remove button", () => {
