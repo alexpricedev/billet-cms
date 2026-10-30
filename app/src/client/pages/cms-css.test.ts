@@ -571,6 +571,20 @@ describe("cms.css editor field rhythm", () => {
     }
   });
 
+  // The character counter sits on the label line, not on a row below the box:
+  // an empty counter row under the Heading box read as a wider field gap. The
+  // label may wrap; the counter keeps its width so the two never overlap.
+  test("puts the character counter on the label row", () => {
+    const row = /\.cms-field-label-row\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(row).toContain("align-items: baseline");
+    expect(row).toContain("display: flex");
+    expect(row).toContain("gap: var(--space-2)");
+    expect(row).toContain("justify-content: space-between");
+
+    const counter = /\.cms-char-count\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(counter).toContain("flex: none");
+  });
+
   // The image field is composite: its parts are spaced like separate fields,
   // while each part keeps the 6px label-to-control rhythm. A fieldset's legend
   // is out of flow, so the wrapper carries the heading's --space-3 itself

@@ -558,13 +558,30 @@ export const FieldControl = ({
           data-field-kind="text"
           data-field-name={field.name}
         >
-          {labelOverride ? (
-            <span className="cms-field-label">{labelOverride}</span>
-          ) : (
-            <label className="cms-field-label" htmlFor={controlId}>
-              <FieldLabelText field={field} inGroup={inGroup} />
-            </label>
-          )}
+          {/* The counter shares the label's row instead of taking one of its
+              own under the box, where the empty space above it read as a wider
+              gap to the next field. It keeps its id and live region, so
+              `aria-describedby` and `cms-form.ts` are unchanged. */}
+          <div className="cms-field-label-row">
+            {labelOverride ? (
+              <span className="cms-field-label">{labelOverride}</span>
+            ) : (
+              <label className="cms-field-label" htmlFor={controlId}>
+                <FieldLabelText field={field} inGroup={inGroup} />
+              </label>
+            )}
+            {field.max !== undefined && (
+              <p
+                className="cms-field-help cms-char-count"
+                id={countId}
+                aria-live="polite"
+                data-char-count
+                data-char-max={field.max}
+              >
+                {asString(value).length} / {field.max}
+              </p>
+            )}
+          </div>
           {multiline ? (
             <textarea
               id={controlId}
@@ -589,23 +606,10 @@ export const FieldControl = ({
               aria-describedby={textDescribedBy}
             />
           )}
-          {field.max !== undefined && (
-            <>
-              <p
-                className="cms-field-help cms-char-count"
-                id={countId}
-                aria-live="polite"
-                data-char-count
-                data-char-max={field.max}
-              >
-                {asString(value).length} / {field.max}
-              </p>
-              {!invalid && (
-                <p className="cms-field-errors" data-char-over hidden>
-                  Use {field.max} characters or fewer.
-                </p>
-              )}
-            </>
+          {field.max !== undefined && !invalid && (
+            <p className="cms-field-errors" data-char-over hidden>
+              Use {field.max} characters or fewer.
+            </p>
           )}
           <FieldErrors errors={errors} id={errorId} />
           <FieldHelp help={field.help} id={helpId} />

@@ -100,6 +100,47 @@ describe("FieldControl text", () => {
     expect(html).toContain('id="cms-field-intro-count"');
   });
 
+  // The counter used to take a row of its own below the box, which read as a
+  // wider gap before the next field. It sits at the end of the label row now,
+  // above the control, and the control keeps pointing at it.
+  test("keeps the character counter inside the label row", () => {
+    const html = renderText(120, "Hello");
+    const row =
+      /<div class="cms-field-label-row">([\s\S]*?)<\/div>/.exec(html)?.[1] ??
+      "";
+
+    expect(row).toContain('class="cms-field-label"');
+    expect(row).toContain("5 / 120");
+    expect(row).toContain("data-char-count");
+    expect(row).toContain('data-char-max="120"');
+    expect(row).toContain('id="cms-field-intro-count"');
+    // Above the box, not below it.
+    expect(html.indexOf("cms-field-label-row")).toBeLessThan(
+      html.indexOf("data-text-input"),
+    );
+    expect(control(html)).toContain('aria-describedby="cms-field-intro-count"');
+  });
+
+  test("puts a label-overridden field's counter on the label row too", () => {
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={{ name: "item", kind: "text", required: false, max: 80 }}
+        value="Hi"
+        labelOverride="Tag"
+        nameScope="tag-0"
+      />,
+    );
+    const row =
+      /<div class="cms-field-label-row">([\s\S]*?)<\/div>/.exec(html)?.[1] ??
+      "";
+
+    expect(row).toContain('class="cms-field-label">Tag<');
+    expect(row).toContain("2 / 80");
+    expect(row).toContain("data-char-count");
+  });
+
   test("carries help, errors and the invalid state on the textarea", () => {
     const html = renderToString(
       <FieldControl

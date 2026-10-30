@@ -196,6 +196,34 @@ const fieldGaps = (root: string): Promise<number[] | null> =>
     })()`,
   );
 
+/**
+ * The vertical space from a field box's bottom to the top of the next sibling
+ * of the container it sits in, in pixels.
+ *
+ * This is the gap an editor sees: the space from a control to the next field,
+ * or from an image part's control to the next part. A field with a character
+ * counter must measure the same as one without — the counter belongs on the
+ * label row, not in a row of its own under the box.
+ */
+const boxToNextSibling = (
+  box: string,
+  containerClass: string,
+): Promise<number | null> =>
+  view.evaluate<number | null>(
+    `(() => {
+      const el = document.querySelector(${JSON.stringify(box)});
+      const container = el?.closest(${JSON.stringify(`.${containerClass}`)});
+      const next = container?.nextElementSibling;
+      if (!el || !next) return null;
+      return (
+        Math.round(
+          (next.getBoundingClientRect().top - el.getBoundingClientRect().bottom) *
+            100,
+        ) / 100
+      );
+    })()`,
+  );
+
 const siteHtml = (body: string): Response =>
   new Response(
     `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">` +
@@ -550,8 +578,7 @@ describe("browser smoke", () => {
 
     await goto(`${CMS_BASE}/cms/pages/${pageId}`);
     await until(
-      () =>
-        view.evaluate<boolean>(`document.querySelector("#url") !== null`),
+      () => view.evaluate<boolean>(`document.querySelector("#url") !== null`),
       (present) => present,
     );
     const pageHeights = {
@@ -568,10 +595,20 @@ describe("browser smoke", () => {
     await goto(`${CMS_BASE}/cms/slots/${slotId}`);
     await until(
       () =>
-        view.evaluate<boolean>(`document.querySelector(".cms-fields") !== null`),
+        view.evaluate<boolean>(
+          `document.querySelector(".cms-fields") !== null`,
+        ),
       (present) => present,
     );
     expect(await fieldGaps(".cms-fields")).toEqual([16, 16, 16, 16]);
+
+    // A field with a character counter measures from its box to the next field
+    // the same as an image part without one: the counter is on the label row,
+    // not in a row of its own that pads the gap.
+    expect(await boxToNextSibling("#cms-field-heading", "cms-field")).toBe(16);
+    expect(
+      await boxToNextSibling("#cms-field-photo-id", "cms-image-part"),
+    ).toBe(16);
 
     await goto(`${CMS_BASE}/cms/pages/${pageId}`);
     await until(
