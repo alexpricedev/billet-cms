@@ -179,6 +179,7 @@ just before the 404 — Billet core's `handleFallback` is exactly that place.
 ```tsx
 import {
   createCmsPageRoute,
+  getCmsMediaReader,
   pageSeo,
   type CmsPage,
   type CmsPageBlock,
@@ -208,9 +209,12 @@ const renderBlock = async (block: CmsPageBlock): Promise<unknown> => {
 export const cmsPage = createCmsPageRoute({
   sql: db,
   render: async (page: CmsPage, { preview }) => {
-    const seo = pageSeo(page, {
+    const seo = await pageSeo(page, {
       siteUrl: siteUrl(),
       fallbackDescription: SITE_DESCRIPTION,
+      // The social image is an upload id: the reader turns it into the
+      // rendition URL the share card should use.
+      media: getCmsMediaReader(db),
     });
     const blocks = await Promise.all(page.blocks.map(renderBlock));
 
@@ -511,8 +515,10 @@ A site that skips this step serves a sitemap with no CMS pages — the pages
 themselves still work.
 
 Canonicals and social tags come from `pageSeo` (fed into the site layout, as in
-step 4) or, for a site that would rather emit a fragment, `renderSeoTags`. The
-rules themselves are Billet's:
+step 4) or, for a site that would rather emit a fragment, `renderSeoTags`.
+`pageSeo` is async because the page's social image is an upload id resolved
+through `getCmsMediaReader(sql)`; without the `media` option the image tags are
+simply left out. The rules themselves are Billet's:
 [`runbooks/SEO.md`](https://github.com/alexpricedev/Billet/blob/main/runbooks/SEO.md).
 
 ## 8. Allow the media bucket in the site's CSP

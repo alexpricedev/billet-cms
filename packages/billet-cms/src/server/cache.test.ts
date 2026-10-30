@@ -675,7 +675,7 @@ describe("contentVersionFor", () => {
       url: "/about",
       title: "About us",
       seo_description: "Who we are.",
-      social_image: null,
+      social_image_id: null,
       published_revision_id: "page-rev-1",
       updated_at: new Date("2026-10-10T09:00:00.000Z"),
     };

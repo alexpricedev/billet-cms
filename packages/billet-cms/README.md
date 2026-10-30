@@ -258,7 +258,22 @@ auto-install peers leaves it out, and the server will not boot without it.
 
 4. **Merge the CMS pages into the site's sitemap** with `listSitemapEntries(sql)`,
    and set canonical URLs and social tags from `pageSeo`/`renderSeoTags`. Follow
-   Billet's SEO runbook.
+   Billet's SEO runbook. `pageSeo` is async and takes the media reader as
+   `media`, because a page's social image is an upload id, not a URL:
+
+   ```ts
+   import { getCmsMediaReader, pageSeo } from "@alexpricedev/billet-cms/server";
+
+   const seo = await pageSeo(page, {
+     siteUrl: siteUrl(),
+     fallbackDescription: SITE_DESCRIPTION,
+     media: getCmsMediaReader(sql),
+   });
+   ```
+
+   It puts the smallest rendition at least 1200px wide (or the largest there
+   is) into `og:image` and `twitter:image`. Without `media`, or for a deleted
+   upload, the image tags are left out and everything else is unchanged.
 
 5. **Mount CMS sign-in** at the path the contract fixes:
 

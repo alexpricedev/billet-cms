@@ -10,35 +10,56 @@
  *
  *   - `pageSeo` turns a page's stored settings into the values the runbook's
  *     `Layout` expects, with a description fallback for a page that never set
- *     one.
+ *     one. A page's social image is a media id, so it is read through the
+ *     plugin's media reader and comes back as a public URL — hence async.
  *   - `renderSeoTags` renders the canonical and social tags for a site that
  *     wants them as a fragment (a layout the site does not want to thread a
  *     social image through), and `renderSitemapEntries` does the same for the
  *     sitemap's `<url>` entries.
  *
- * Everything here is a pure function of already-loaded data: no database, no
- * clock, no layout. The site decides where the markup goes.
+ * The site decides where the markup goes. `renderSeoTags` and
+ * `renderSitemapEntries` are pure functions of already-loaded data; `pageSeo`
+ * is the one that reads, and only when the page names a social image.
  */
+import type { MediaVariant } from "../contract";
+import type { CmsMediaReader } from "./media";
 import type { CmsPage, CmsSitemapEntry } from "./pages";
 import { escapeHtml } from "./rich-text";
+
+/**
+ * The narrowest rendition worth putting in a share card.
+ *
+ * Open Graph's large-image card is 1200×630; a narrower picture is upscaled by
+ * the scraper and reads as blurry, so prefer the smallest rendition that is at
+ * least this wide and fall back to the widest there is.
+ */
+const OG_IMAGE_MIN_WIDTH = 1200;
 
 export interface PageSeo {
   title: string;
   description: string;
   /** The page's path, e.g. `/about` — the runbook's `canonicalPath`. */
   canonicalPath: string;
-  /** An absolute URL for a social image, when the page set one. */
+  /** An absolute URL for a social image, when the page sets one. */
   socialImage: string | null;
 }
 
 export interface PageSeoOptions {
   /**
    * The site's canonical origin (`SITE_URL`, else `APP_URL`'s origin). Only
-   * needed to resolve a relative social image; the tags do their own resolving.
+   * needed to resolve a relative social image URL; the tags do their own
+   * resolving.
    */
   siteUrl?: string;
   /** Used when the page has no SEO description of its own. */
   fallbackDescription?: string;
+  /**
+   * The plugin's media reader (`getCmsMediaReader(sql)`, or the `getMedia`-only
+   * shape for a test). A page's social image is a `cms_media` id, so resolving
+   * it needs a reader; without one no `og:image` is emitted, which is what a
+   * site that renders its own share card wants.
+   */
+  media?: Pick<CmsMediaReader, "getMedia">;
 }
 
 /**
@@ -59,6 +80,44 @@ const absolute = (siteUrl: string, path: string): string => {
 };
 
 /**
+ * The public URL of the rendition a share card should use.
+ *
+ * `variants` arrives ascending by width (`CmsMedia`'s contract). The first one
+ * at least as wide as a large card is the smallest that will not be upscaled;
+ * when every rendition is narrower, the largest is still the best there is.
+ * The fallback rendition rather than the WebP: `og:image` is one URL with no
+ * `srcset`, and a scraper that cannot decode WebP would show nothing at all.
+ */
+const shareImageUrl = (variants: readonly MediaVariant[]): string | null => {
+  if (variants.length === 0) return null;
+  const variant =
+    variants.find((candidate) => candidate.width >= OG_IMAGE_MIN_WIDTH) ??
+    variants[variants.length - 1];
+  return variant.fallbackUrl;
+};
+
+/**
+ * Resolve a page's social image id to an absolute URL.
+ *
+ * An unset id, a site that passed no media reader, a deleted upload and an
+ * upload with no renditions all leave `og:image` off, exactly as an unset image
+ * did when the page stored a URL: the media reader already turns a failed read
+ * into `null` and logs it, so nothing here can throw inside a render.
+ */
+const socialImageUrl = async (
+  mediaId: string | null,
+  options: PageSeoOptions,
+): Promise<string | null> => {
+  if (!mediaId || !options.media) return null;
+
+  const media = await options.media.getMedia(mediaId);
+  const url = media ? shareImageUrl(media.variants) : null;
+  if (!url) return null;
+
+  return options.siteUrl ? absolute(options.siteUrl, url) : url;
+};
+
+/**
  * The page's SEO values.
  *
  * The title and canonical path are the page's own; the description falls back to
@@ -66,16 +125,15 @@ const absolute = (siteUrl: string, path: string): string => {
  * `<meta name="description">`, which the runbook treats as a per-page omission.
  * A description that is only whitespace counts as unset and falls back too, so
  * an editor who clears the field gets the site default rather than a blank tag.
+ *
+ * Async because a social image id has to be read as a `cms_media` row; a page
+ * that sets none costs no read.
  */
-export const pageSeo = (
+export const pageSeo = async (
   page: CmsPage,
   options: PageSeoOptions = {},
-): PageSeo => {
-  const socialImage = page.socialImage
-    ? options.siteUrl
-      ? absolute(options.siteUrl, page.socialImage)
-      : page.socialImage
-    : null;
+): Promise<PageSeo> => {
+  const socialImage = await socialImageUrl(page.socialImageId, options);
 
   return {
     title: page.title,

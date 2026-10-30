@@ -18,7 +18,7 @@ const PAGE_ROW: {
   url: string;
   title: string;
   seo_description: string | null;
-  social_image: string | null;
+  social_image_id: string | null;
   published_revision_id: string | null;
   updated_at: Date;
 } = {
@@ -27,7 +27,7 @@ const PAGE_ROW: {
   url: "/about",
   title: "About us",
   seo_description: "Who we are.",
-  social_image: null,
+  social_image_id: null,
   published_revision_id: "rev-1",
   updated_at: new Date("2026-10-10T09:00:00.000Z"),
 };
@@ -107,7 +107,7 @@ const fakeSql = (
             normalised,
           );
           const fullRow =
-            /^SELECT id, page_type, url, title, seo_description, social_image, published_revision_id, updated_at FROM \S+ WHERE id = \$1$/.test(
+            /^SELECT id, page_type, url, title, seo_description, social_image_id, published_revision_id, updated_at FROM \S+ WHERE id = \$1$/.test(
               normalised,
             );
           if (!urlOnly && !fullRow) {
@@ -154,6 +154,17 @@ describe("createCmsPages", () => {
     const page = await pages.getPage("/about");
     expect(page?.title).toBe("About us");
     expect(page?.blocks).toEqual([{ type: "hero", heading: "Hello" }]);
+  });
+
+  // The column is a media id, not a pasted URL: a site resolves it through the
+  // plugin's media reader, so the reader has to carry it through unchanged.
+  test("carries the page's social image id", async () => {
+    const { sql } = fakeSql({
+      page: { ...PAGE_ROW, social_image_id: "media-1" },
+    });
+    const pages = createCmsPages({ sql, onSkip: () => {} });
+
+    expect((await pages.getPage("/about"))?.socialImageId).toBe("media-1");
   });
 
   // The reader's contract is "null means unset", and the editor trims on write,
