@@ -680,3 +680,59 @@ describe("cms.css optional link fields", () => {
     expect(rule?.[1]).toContain("visibility: hidden");
   });
 });
+
+describe("cms.css image picker", () => {
+  // A two-line alt (or size line) on a library card took the button's tighter
+  // line height, so its lines almost touched. 1.4 is the body value
+  // `.cms-field-label` uses.
+  test("gives the library card text a body line height", () => {
+    for (const selector of [".cms-picker-card-alt", ".cms-picker-card-size"]) {
+      const rule = rules(css).find(([name]) => name.trim() === selector);
+      expect(rule).toBeDefined();
+      expect(rule?.[1]).toMatch(/line-height:\s*1\.4/);
+    }
+  });
+
+  // The title shrinks to fit beside Close, so a border on the title stopped at
+  // the end of the text. The divider belongs to the header row instead, which
+  // spans the dialog's content width.
+  test("draws the picker's divider across the header row", () => {
+    const header = rules(css).find(
+      ([name]) => name.trim() === ".cms-picker-header",
+    );
+    expect(header?.[1]).toContain("border-bottom: 1px solid var(--border)");
+    expect(header?.[1]).toContain("padding-bottom: var(--space-3)");
+
+    const title = rules(css).find(
+      ([name]) => name.trim() === ".cms-picker-header h2",
+    );
+    expect(title?.[1]).not.toContain("border");
+  });
+
+  // The panel's heading rule used to reach into the picker dialog nested
+  // inside it, which is what put the short underline on the title. Narrowed to
+  // the panel's own heading with a child combinator, a dialog put in the panel
+  // no longer inherits it.
+  test("scopes the page-settings heading border to its own heading", () => {
+    const bordered = rules(css).filter(
+      ([selector, body]) =>
+        /\.cms-page-settings\b/.test(selector) &&
+        /\bh2\b/.test(selector) &&
+        /border-bottom\s*:/.test(body),
+    );
+    expect(bordered.length).toBeGreaterThan(0);
+    for (const [selector] of bordered) {
+      expect(selector.trim()).toMatch(/^\.cms-page-settings\s*>\s*h2$/);
+    }
+  });
+
+  // #107 set the card's padding and gap to 8px (`--space-2`); the line height
+  // above must not come with a retuned card.
+  test("keeps the library card's 8px padding and gap", () => {
+    const card = rules(css).find(
+      ([name]) => name.trim() === ".cms-picker-card-button",
+    );
+    expect(card?.[1]).toContain("gap: var(--space-2)");
+    expect(card?.[1]).toContain("padding: var(--space-2)");
+  });
+});

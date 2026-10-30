@@ -929,7 +929,9 @@ h1 {
   position: static;
 }
 
-.cms-page-settings h2 {
+/* Direct child only: the picker dialog renders inside the panel, and its own
+   header carries the divider, so it must not inherit this one. */
+.cms-page-settings > h2 {
   border-bottom: 1px solid var(--border);
   margin: 0;
   padding-bottom: var(--space-2);
@@ -1610,11 +1612,15 @@ h1 {
   width: 100%;
 }
 
+/* The divider belongs to the header row so it spans the dialog rather than
+   stopping at the end of the title. */
 .cms-picker-header {
   align-items: center;
+  border-bottom: 1px solid var(--border);
   display: flex;
   gap: var(--space-3);
   justify-content: space-between;
+  padding-bottom: var(--space-3);
 }
 
 .cms-picker-header h2 {
@@ -1832,12 +1838,14 @@ h1 {
 
 .cms-picker-card-alt {
   font-size: 12px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 .cms-picker-card-size {
   color: var(--text-muted);
   font-size: 11px;
+  line-height: 1.4;
 }
 
 .cms-picker-status {
