@@ -318,12 +318,13 @@ h1 {
 }
 
 /* The image field is composite, like a group: its heading titles the parts
-   rather than being a second label stacked on "Reuse an upload" (its weight is
-   set with the other group headings below). A fieldset's legend is not a grid
-   item, so the fieldset's own 6px gap does not reach it: the wrapper carries
-   the whole `--space-3` itself. When field help sits between the two, it keeps
-   the field's normal 6px rhythm. The sub-parts themselves are spaced like
-   separate fields, while each keeps the 6px label-to-control rhythm of one. */
+   rather than being a second label stacked on the picker's own legend (which
+   is visually hidden, its weight is set with the other group headings below).
+   A fieldset's legend is not a grid item, so the fieldset's own 6px gap does
+   not reach it: the wrapper carries the whole `--space-3` itself. When field
+   help sits between the two, it keeps the field's normal 6px rhythm. The
+   sub-parts themselves are spaced like separate fields, while each keeps the
+   6px label-to-control rhythm of one. */
 .cms-image-parts {
   display: grid;
   gap: var(--field-gap);
@@ -353,11 +354,6 @@ h1 {
 .cms-image-part {
   display: grid;
   gap: 6px;
-}
-
-/* A long upload label is ellipsised rather than widening the image picker. */
-.cms-field select[data-image-picker] {
-  text-overflow: ellipsis;
 }
 
 /* ---- The link field ------------------------------------------------------ */
@@ -1533,8 +1529,13 @@ h1 {
   display: none;
 }
 
+/* A field's control fills its width. In an image field the picker is a grid
+   item of `.cms-image-parts`, so it stretches like one; as a page setting it
+   is a grid item too. Say it outright rather than relying on the default, so a
+   future `justify-items` on either list cannot shrink it to its buttons. */
 .cms-image-picker {
   gap: var(--space-2);
+  width: 100%;
 }
 
 .cms-image-picker-current {

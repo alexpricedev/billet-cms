@@ -100,8 +100,9 @@ repo. This file is only the invariants.
   The larger one: **the generated CMS form.**
   `src/client/cms-form.ts` is shipped for the block editor and
   the media focal-point picker: rich text is a `contenteditable` editor,
-  repeatable lists are added and removed without a round trip, and the image
-  field's picker writes the chosen id into the media-id input. The server
+  repeatable lists are added and removed without a round trip, and an image
+  field is serialised from the picker's hidden media-id input and the Alt text
+  override. The server
   renders the stored document into the page and the script only walks that DOM
   back into a hidden `content` field (and, on a media form, moves the focal
   marker and the previews), so with JavaScript off the form still submits the
@@ -109,16 +110,19 @@ repo. This file is only the invariants.
   markup built from data — the same rules `client/boundaries.test.ts` enforces.
 
   The third: **the shared image picker.** `src/client/image-picker.ts` backs
-  `components/cms/image-picker.tsx`, the picker a page's social image uses (and
-  the block `image` field will). A library the editor searches, pages through
+  `components/cms/image-picker.tsx`, the picker a page's social image and every
+  block `image` field use. A library the editor searches, pages through
   and uploads into cannot be a plain form: it fetches `GET /cms/media/options`,
   XHRs files to `POST /cms/media` to report progress, and builds the grid's
   tiles from the JSON answer. It talks to those two routes and nothing else,
   builds every node with `createElement`/`textContent` (never `innerHTML`), and
   parses only those answers. The server still renders the closed field, the
   hidden media-id input and the dialog skeleton, so with JavaScript off the
-  stored id submits unchanged. `boundaries.test.ts` allows the three departures
-  in that one file, under its own byte budget; keep it there.
+  stored id submits unchanged. Inside an `image` field it also compares the
+  width it reports with the field's rendered minimum and shows the field's
+  warning line; it writes no state of its own beyond that. `boundaries.test.ts`
+  allows the three departures in that one file, under its own byte budget; keep
+  it there.
 - **Preview is a token row, not an API.** `cms_preview_tokens` holds a hashed,
   30-minute, single-subject token (a page or a slot). The CMS mints one and opens
   `<SITE_APP_URL><path>?cms_preview=…`; the plugin
