@@ -47,8 +47,13 @@ import { createHash } from "node:crypto";
  * replaces `cms_pages.social_image` (a pasted URL) with `social_image_id`, a
  * reference into `cms_media`: a page row read or written by an older version
  * names a column that no longer exists, so both sides must move together.
+ * Phase 11 adds a required `label` to a block type's stored document (and to
+ * `cms_block_types`, which the CMS reads it from): an older site publishes
+ * documents without one, and the CMS has no human name to show for its blocks,
+ * so both sides must move together. A label-only change also moves the schema
+ * hash, so a redeploy that renames a block re-publishes it.
  */
-export const CONTRACT_VERSION = "0.10.0";
+export const CONTRACT_VERSION = "0.11.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -342,6 +347,14 @@ export interface StoredSchema {
   version: typeof STORED_SCHEMA_FORMAT_VERSION;
   /** The block type name, unique within its kind. */
   name: string;
+  /**
+   * The block type's human name ("Full-width image"), shown to editors in the
+   * CMS's legends and its Add block menu instead of the developer slug. Required
+   * and never empty: `block()` refuses a blank label where the block is
+   * declared. It is part of the schema hash, so renaming a block re-publishes
+   * it even when its fields are unchanged.
+   */
+  label: string;
   /** JSON Schema generated from the field vocabulary, used to validate content. */
   jsonSchema: Record<string, unknown>;
   /** The field metadata tree, used to build the editor's form. */

@@ -349,9 +349,12 @@ export const blockStoredSchema = (
     format: STORED_SCHEMA_FORMAT,
     version: STORED_SCHEMA_FORMAT_VERSION,
     name: definition.name,
+    label: definition.label,
     jsonSchema,
     fields,
-    schemaHash: hashJson({ jsonSchema, fields }),
+    // The label is part of the hash: renaming a block changes what the CMS
+    // shows, so a deploy that only renames it must still re-publish the row.
+    schemaHash: hashJson({ jsonSchema, fields, label: definition.label }),
   };
 };
 

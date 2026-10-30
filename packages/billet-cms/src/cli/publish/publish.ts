@@ -332,9 +332,16 @@ const syncBlockTypes = async (
     const current = existing.find((row) => row.name === name);
     if (current === undefined) {
       await tx.unsafe(
-        `INSERT INTO ${TABLES.blockTypes} (name, json_schema, fields, schema_hash)
-         VALUES ($1, $2, $3, $4)`,
-        [name, schema.jsonSchema, schema.fields, schema.schemaHash],
+        `INSERT INTO ${TABLES.blockTypes}
+           (name, label, json_schema, fields, schema_hash)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          name,
+          schema.label,
+          schema.jsonSchema,
+          schema.fields,
+          schema.schemaHash,
+        ],
       );
       changed = true;
     } else if (
@@ -344,10 +351,16 @@ const syncBlockTypes = async (
       // A re-added block clears `removed_at`; a changed one rewrites its schema.
       await tx.unsafe(
         `UPDATE ${TABLES.blockTypes}
-         SET json_schema = $1, fields = $2, schema_hash = $3,
+         SET label = $1, json_schema = $2, fields = $3, schema_hash = $4,
              removed_at = NULL, updated_at = CURRENT_TIMESTAMP
-         WHERE name = $4`,
-        [schema.jsonSchema, schema.fields, schema.schemaHash, name],
+         WHERE name = $5`,
+        [
+          schema.label,
+          schema.jsonSchema,
+          schema.fields,
+          schema.schemaHash,
+          name,
+        ],
       );
       changed = true;
     }
