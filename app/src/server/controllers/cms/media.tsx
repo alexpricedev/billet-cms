@@ -18,6 +18,8 @@ import {
   getMediaById,
   getMediaUsage,
   listMedia,
+  listMediaOptionsPage,
+  MEDIA_PICKER_LIMIT,
   type MediaIssue,
   type MediaRecord,
   updateMedia,
@@ -27,10 +29,43 @@ import {
   MediaDeleteConfirm,
   MediaDetail,
   MediaList,
+  variantForDisplay,
 } from "../../templates/cms/media";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
 import { nonEmpty, UUID_PATTERN } from "./params";
+
+/**
+ * The width a picker's grid card renders at, at a 16px root.
+ *
+ * The options endpoint hands back a thumbnail sized for the same card the
+ * library page uses (`GRID_THUMBNAIL_WIDTH` in `templates/cms/media`), so the
+ * picker doesn't download a full rendition per tile.
+ */
+const OPTION_THUMBNAIL_WIDTH = 12 * 16;
+
+/** The JSON shape a picker sees for one upload. */
+const optionJson = (
+  option: Pick<MediaRecord, "id" | "alt" | "width" | "height" | "variants">,
+) => ({
+  id: option.id,
+  alt: option.alt,
+  width: option.width,
+  height: option.height,
+  thumbnailUrl:
+    variantForDisplay(option, OPTION_THUMBNAIL_WIDTH)?.fallbackUrl ?? null,
+});
+
+/**
+ * Whether the caller asked for JSON rather than a page.
+ *
+ * The picker's drop zone posts the same multipart form the library page does,
+ * but it can't use a redirect: each file's outcome has to land on that file's
+ * tile. `Accept` is the contract, so a browser form post — which sends
+ * `text/html` — keeps the redirect it always had.
+ */
+const acceptsJson = (req: BunRequest): boolean =>
+  (req.headers.get("accept") ?? "").toLowerCase().includes("application/json");
 
 const listNotice = (params: URLSearchParams): string | null => {
   if (params.get("uploaded") === "1") return "Image uploaded.";
@@ -132,6 +167,30 @@ export const media = {
     });
   },
 
+  /**
+   * The picker's options, as JSON: one page of uploads newest first.
+   *
+   * Same guard as every other media route, so a signed-out request is sent to
+   * sign in. `q` filters the alt text and `after` is the opaque cursor the
+   * previous page returned; see `listMediaOptionsPage`.
+   */
+  async options(req: BunRequest): Promise<Response> {
+    const { redirect: authRedirect, ctx } = await context(req);
+    if (authRedirect || !ctx) return authRedirect ?? render404();
+
+    const params = new URL(req.url).searchParams;
+    const page = await listMediaOptionsPage({
+      q: params.get("q"),
+      after: params.get("after"),
+      limit: MEDIA_PICKER_LIMIT,
+    });
+
+    return Response.json({
+      items: page.items.map(optionJson),
+      next: page.next,
+    });
+  },
+
   /** Accept one upload. */
   async upload(req: BunRequest): Promise<Response> {
     const { redirect: authRedirect, ctx } = await context(req);
@@ -140,15 +199,24 @@ export const media = {
     const csrf = await checkCsrf(req, { method: "POST", path: "/cms/media" });
     if (!csrf.ok) return csrf.response;
 
+    const json = acceptsJson(req);
     const formData = await req.formData();
     const alt = nonEmpty(formData.get("alt")) ?? "";
     const file = formData.get("file");
 
-    const fail = (message: string): Promise<Response> =>
-      renderList(ctx, {
-        errors: [{ field: "file", message }],
-        values: { alt },
-      });
+    // The page answers a refused upload by re-rendering the library with the
+    // message; the picker can't be navigated to, so it gets the same issue as
+    // JSON and puts it on the file's own tile.
+    const fail = (message: string): Response | Promise<Response> =>
+      json
+        ? Response.json(
+            { errors: [{ field: "file", message }] },
+            { status: 400 },
+          )
+        : renderList(ctx, {
+            errors: [{ field: "file", message }],
+            values: { alt },
+          });
 
     if (!(file instanceof File) || file.size === 0) {
       return fail("Choose an image to upload.");
@@ -167,10 +235,14 @@ export const media = {
     });
 
     if (!result.ok) {
-      return renderList(ctx, { errors: result.issues, values: { alt } });
+      return json
+        ? Response.json({ errors: result.issues }, { status: 400 })
+        : renderList(ctx, { errors: result.issues, values: { alt } });
     }
 
-    return redirect("/cms/media?uploaded=1");
+    return json
+      ? Response.json(optionJson(result.media))
+      : redirect("/cms/media?uploaded=1");
   },
 
   /** One image's detail: alt, focal point, uses and delete. */

@@ -47,7 +47,7 @@ const formatBytes = (bytes: number): string => {
  * gets the smallest it does have rather than nothing.
  */
 export const variantForDisplay = (
-  media: MediaRecord,
+  media: Pick<MediaRecord, "variants">,
   displayWidth: number,
   maxWidth?: number,
 ): MediaVariant | undefined => {

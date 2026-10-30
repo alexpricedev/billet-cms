@@ -95,6 +95,11 @@ export const appRoutes = {
     GET: media.index,
     POST: media.upload,
   }),
+  // The image picker's JSON options. Declared beside the library it pages; a
+  // static segment, so it wins over `/cms/media/:id` whatever the order.
+  "/cms/media/options": createRouteHandler({
+    GET: media.options,
+  }),
   "/cms/media/:id": createRouteHandler({
     GET: media.form,
     POST: media.save,

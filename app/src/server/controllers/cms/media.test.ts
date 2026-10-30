@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { MAX_UPLOAD_BYTES } from "@alexpricedev/billet-cms/contract";
 import { block, image, text } from "@alexpricedev/billet-cms/fields";
 import { createMemoryStorage } from "@alexpricedev/billet-storage";
 import { createBunRequest } from "../../test-utils/bun-request";
@@ -6,6 +7,7 @@ import { seedBlockType, seedSlot } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
 import { makeJpeg, svgBytes } from "../../test-utils/images";
+import { jsonbValue } from "../../utils/sql";
 
 const connection = testDatabase();
 
@@ -21,6 +23,7 @@ import { db } from "../../services/database";
 import {
   createMedia,
   getMediaById,
+  MEDIA_PICKER_LIMIT,
   type MediaRecord,
   setMediaStorageForTest,
   updateMediaFocalPoint,
@@ -64,13 +67,18 @@ describe("Media controller", () => {
     body: FormData,
     csrfPath: string,
     params: Record<string, string> = {},
+    headers: Record<string, string> = {},
   ) => {
     body.set("_csrf", await createCsrfToken(sessionId, "POST", csrfPath));
     return createBunRequest(
       `${ORIGIN}${path}`,
       {
         method: "POST",
-        headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+        headers: {
+          Origin: ORIGIN,
+          cookie: `cms_session=${sessionId}`,
+          ...headers,
+        },
         body,
       },
       params,
@@ -90,6 +98,40 @@ describe("Media controller", () => {
   /** A multipart File from raw bytes, typed as BlobPart for TS 7. */
   const file = (bytes: Uint8Array, name: string, type: string): File =>
     new File([bytes as unknown as BlobPart], name, { type });
+
+  /** The header the picker's drop zone sends, asking for JSON not a page. */
+  const JSON_ACCEPT = { Accept: "application/json" };
+
+  /**
+   * Insert an upload row without processing an image.
+   *
+   * Paging needs more than one page of rows; 51 real uploads would run Sharp
+   * 51 times for a test about the cursor. `createdAt` is explicit because the
+   * cursor orders on it.
+   */
+  const seedRow = async (alt: string, createdAt: Date): Promise<string> => {
+    const id = crypto.randomUUID();
+    await db`
+      INSERT INTO cms_media
+        (id, object_key, content_type, byte_size, width, height, alt, variants,
+         created_at)
+      VALUES (${id}, ${`media/${id}/original.jpg`}, ${"image/jpeg"}, ${1024},
+              ${80}, ${60}, ${alt}, ${jsonbValue([])}, ${createdAt})
+    `;
+    return id;
+  };
+
+  /** One page of the options route's JSON. */
+  type OptionsBody = {
+    items: {
+      id: string;
+      alt: string;
+      width: number;
+      height: number;
+      thumbnailUrl: string | null;
+    }[];
+    next: string | null;
+  };
 
   test("redirects an anonymous visitor to sign in", async () => {
     const res = await media.index(
@@ -244,6 +286,149 @@ describe("Media controller", () => {
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/cms/media?deleted=1");
     expect(await getMediaById(image.id)).toBeNull();
+  });
+
+  test("the options route redirects an anonymous visitor to sign in", async () => {
+    const res = await media.options(
+      createBunRequest(`${ORIGIN}/cms/media/options`, { method: "GET" }),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/sign-in");
+  });
+
+  test("the options route lists the newest uploads with thumbnails", async () => {
+    const older = await upload("Older");
+    const newer = await upload("Newer");
+
+    const res = await media.options(get("/cms/media/options"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+
+    const body = (await res.json()) as OptionsBody;
+    expect(body.items.map((item) => item.id)).toEqual([newer.id, older.id]);
+    expect(body.next).toBeNull();
+    expect(body.items[0]).toMatchObject({
+      id: newer.id,
+      alt: "Newer",
+      width: 800,
+      height: 400,
+    });
+    // The thumbnail is a real rendition URL, not the full-size original.
+    expect(body.items[0]?.thumbnailUrl).toContain("https://media.test/");
+  });
+
+  test("the options route pages with the cursor and never repeats a row", async () => {
+    const base = Date.UTC(2026, 0, 1);
+    const ids: string[] = [];
+    for (let index = 0; index < MEDIA_PICKER_LIMIT + 1; index += 1) {
+      ids.push(await seedRow(`Seed ${index}`, new Date(base + index * 1000)));
+    }
+
+    const firstRes = await media.options(get("/cms/media/options"));
+    const first = (await firstRes.json()) as OptionsBody;
+    expect(first.items).toHaveLength(MEDIA_PICKER_LIMIT);
+    expect(first.items[0]?.id).toBe(ids[MEDIA_PICKER_LIMIT]);
+    expect(first.items[MEDIA_PICKER_LIMIT - 1]?.id).toBe(ids[1]);
+    expect(first.next).not.toBeNull();
+
+    const secondRes = await media.options(
+      get(`/cms/media/options?after=${encodeURIComponent(first.next ?? "")}`),
+    );
+    const second = (await secondRes.json()) as OptionsBody;
+    expect(second.items.map((item) => item.id)).toEqual([ids[0]]);
+    expect(second.next).toBeNull();
+    expect(
+      second.items.some((item) =>
+        first.items.some((seen) => seen.id === item.id),
+      ),
+    ).toBe(false);
+  });
+
+  test("the options route searches alt text", async () => {
+    await upload("A red field");
+    await upload("A blue sky");
+
+    const match = (await (
+      await media.options(get("/cms/media/options?q=red"))
+    ).json()) as OptionsBody;
+    expect(match.items.map((item) => item.alt)).toEqual(["A red field"]);
+
+    const none = (await (
+      await media.options(get("/cms/media/options?q=green"))
+    ).json()) as OptionsBody;
+    expect(none.items).toEqual([]);
+    expect(none.next).toBeNull();
+  });
+
+  test("a JSON upload answers with the row instead of redirecting", async () => {
+    const form = new FormData();
+    form.set("alt", "Dropped in");
+    form.set(
+      "file",
+      file(await makeJpeg(1200, 800), "photo.jpg", "image/jpeg"),
+    );
+
+    const res = await media.upload(
+      await post("/cms/media", form, "/cms/media", {}, JSON_ACCEPT),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+
+    const body = (await res.json()) as {
+      id: string;
+      alt: string;
+      width: number;
+      height: number;
+      thumbnailUrl: string | null;
+    };
+    expect(body.alt).toBe("Dropped in");
+    expect(body.width).toBe(1200);
+    expect(body.height).toBe(800);
+    expect(body.thumbnailUrl).toContain("https://media.test/");
+    expect(await getMediaById(body.id)).not.toBeNull();
+  });
+
+  test("a JSON upload that is too large answers with the file error", async () => {
+    const form = new FormData();
+    form.set("alt", "Too big");
+    form.set(
+      "file",
+      file(new Uint8Array(MAX_UPLOAD_BYTES + 1), "big.jpg", "image/jpeg"),
+    );
+
+    const res = await media.upload(
+      await post("/cms/media", form, "/cms/media", {}, JSON_ACCEPT),
+    );
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as {
+      errors: { field: string; message: string }[];
+    };
+    expect(body.errors[0]?.field).toBe("file");
+    expect(body.errors[0]?.message).toMatch(/larger than 20 MB/);
+    expect(await db`SELECT id FROM cms_media`).toHaveLength(0);
+  });
+
+  test("a JSON upload that is not an image answers with the file error", async () => {
+    const form = new FormData();
+    form.set("alt", "Not a picture");
+    form.set(
+      "file",
+      file(new TextEncoder().encode("not an image"), "notes.txt", "text/plain"),
+    );
+
+    const res = await media.upload(
+      await post("/cms/media", form, "/cms/media", {}, JSON_ACCEPT),
+    );
+    expect(res.status).toBe(400);
+
+    const body = (await res.json()) as {
+      errors: { field: string; message: string }[];
+    };
+    expect(body.errors[0]?.field).toBe("file");
+    expect(body.errors[0]?.message).toContain(
+      "isn't a JPEG, PNG or WebP image",
+    );
   });
 });
 

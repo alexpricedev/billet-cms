@@ -53,6 +53,7 @@ import {
   getMediaUsage,
   listMedia,
   listMediaOptions,
+  listMediaOptionsPage,
   listPickerMedia,
   MAX_ALT_LENGTH,
   MEDIA_PICKER_LIMIT,
@@ -356,6 +357,84 @@ describe("createMedia", () => {
       "width",
     ]);
     expect(options[0].alt).toBe("A field");
+  });
+
+  /** Upload a tiny image with the given alt, so paging has distinct rows. */
+  const uploadAlt = async (alt: string) => {
+    const result = await createMedia({
+      bytes: await makeJpeg(80, 60),
+      alt,
+      actorId: null,
+      storage: createMemoryStorage(),
+    });
+    if (!result.ok) throw new Error("upload failed");
+    return result.media;
+  };
+
+  test("listMediaOptionsPage pages newest first with an opaque cursor", async () => {
+    const first = await uploadAlt("First");
+    const second = await uploadAlt("Second");
+    const third = await uploadAlt("Third");
+
+    const page = await listMediaOptionsPage({ limit: 2 });
+    expect(page.items.map((item) => item.id)).toEqual([third.id, second.id]);
+    expect(page.next).not.toBeNull();
+    // The picker needs a rendition to build a thumbnail from.
+    expect(page.items[0]?.variants.length).toBeGreaterThan(0);
+
+    const next = await listMediaOptionsPage({
+      limit: 2,
+      after: page.next,
+    });
+    expect(next.items.map((item) => item.id)).toEqual([first.id]);
+    expect(next.next).toBeNull();
+
+    // Exactly at the limit there is no older page to offer.
+    const exact = await listMediaOptionsPage({ limit: 3 });
+    expect(exact.items).toHaveLength(3);
+    expect(exact.next).toBeNull();
+  });
+
+  test("listMediaOptionsPage searches alt text case-insensitively", async () => {
+    await uploadAlt("A red field");
+    await uploadAlt("A blue sky");
+
+    const match = await listMediaOptionsPage({ q: "RED" });
+    expect(match.items.map((item) => item.alt)).toEqual(["A red field"]);
+    expect(match.next).toBeNull();
+
+    // Surrounding whitespace is trimmed, so a pasted term still matches.
+    const trimmed = await listMediaOptionsPage({ q: "  red  " });
+    expect(trimmed.items.map((item) => item.alt)).toEqual(["A red field"]);
+
+    const none = await listMediaOptionsPage({ q: "green" });
+    expect(none.items).toEqual([]);
+    expect(none.next).toBeNull();
+  });
+
+  test("listMediaOptionsPage treats % and _ as characters, not wildcards", async () => {
+    const percent = await uploadAlt("100% cotton");
+    await uploadAlt("1000 cotton");
+    const underscore = await uploadAlt("a_b");
+    await uploadAlt("axb");
+
+    expect(
+      (await listMediaOptionsPage({ q: "100%" })).items.map((item) => item.id),
+    ).toEqual([percent.id]);
+    expect(
+      (await listMediaOptionsPage({ q: "a_b" })).items.map((item) => item.id),
+    ).toEqual([underscore.id]);
+  });
+
+  test("listMediaOptionsPage starts at the newest upload for a bad cursor", async () => {
+    await uploadAlt("Older");
+    const newer = await uploadAlt("Newer");
+
+    const page = await listMediaOptionsPage({
+      limit: 1,
+      after: "not-a-cursor",
+    });
+    expect(page.items.map((item) => item.id)).toEqual([newer.id]);
   });
 
   // The picker lists the newest uploads capped at the limit, tells the caller
