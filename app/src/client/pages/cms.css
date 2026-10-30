@@ -232,7 +232,8 @@ h1 {
    at the right end of the label line rather than on a row of its own under the
    box, where that empty row read as a wider gap to the next field. A long
    label may wrap on a phone; the counter keeps its width (`flex: none`) and
-   stays on the first line. */
+   stays on the first line. Only a field with a counter is wrapped in this row;
+   a plain label stays a direct grid child and spans the row. */
 .cms-field-label-row {
   align-items: baseline;
   display: flex;

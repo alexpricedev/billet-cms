@@ -551,6 +551,13 @@ export const FieldControl = ({
       const multiline = field.max !== undefined && field.max > 120;
       const textDescribedBy =
         field.max === undefined ? described : describedBy(described, countId);
+      const label = labelOverride ? (
+        <span className="cms-field-label">{labelOverride}</span>
+      ) : (
+        <label className="cms-field-label" htmlFor={controlId}>
+          <FieldLabelText field={field} inGroup={inGroup} />
+        </label>
+      );
       return (
         <div
           className="cms-field"
@@ -561,16 +568,15 @@ export const FieldControl = ({
           {/* The counter shares the label's row instead of taking one of its
               own under the box, where the empty space above it read as a wider
               gap to the next field. It keeps its id and live region, so
-              `aria-describedby` and `cms-form.ts` are unchanged. */}
-          <div className="cms-field-label-row">
-            {labelOverride ? (
-              <span className="cms-field-label">{labelOverride}</span>
-            ) : (
-              <label className="cms-field-label" htmlFor={controlId}>
-                <FieldLabelText field={field} inGroup={inGroup} />
-              </label>
-            )}
-            {field.max !== undefined && (
+              `aria-describedby` and `cms-form.ts` are unchanged. Only a field
+              with a counter gets the flex row: without one the label stays a
+              direct grid child, so it spans the row and the whole line focuses
+              the control. */}
+          {field.max === undefined ? (
+            label
+          ) : (
+            <div className="cms-field-label-row">
+              {label}
               <p
                 className="cms-field-help cms-char-count"
                 id={countId}
@@ -580,8 +586,8 @@ export const FieldControl = ({
               >
                 {asString(value).length} / {field.max}
               </p>
-            )}
-          </div>
+            </div>
+          )}
           {multiline ? (
             <textarea
               id={controlId}

@@ -141,6 +141,17 @@ describe("FieldControl text", () => {
     expect(row).toContain("data-char-count");
   });
 
+  // The flex row is only for a field with a counter. Without one the label
+  // stays a direct grid child, so it spans the row and the whole line focuses
+  // the control, as it did before the counter moved.
+  test("leaves a field without a counter's label unwrapped", () => {
+    const html = renderText(undefined);
+    expect(html).not.toContain("cms-field-label-row");
+    expect(html).toContain(
+      '<label class="cms-field-label" for="cms-field-intro">',
+    );
+  });
+
   test("carries help, errors and the invalid state on the textarea", () => {
     const html = renderToString(
       <FieldControl
