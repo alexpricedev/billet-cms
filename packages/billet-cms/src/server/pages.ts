@@ -114,8 +114,19 @@ export interface CmsPagesReader {
   ): Promise<CmsPage | null>;
   /** The current URL a redirect at `path` points at, or `null`. */
   getRedirect(path: string): Promise<string | null>;
-  /** The href a stored link resolves to, or `null` when its page is gone. */
-  resolveLink(link: LinkValue): Promise<string | null>;
+  /**
+   * The href a stored link resolves to, or `null` when its page is gone.
+   *
+   * Pass `{ preview }` with valid preview access to resolve a link to an
+   * unpublished page, the way `getPage` reads one: a published target still
+   * resolves from the cache, while a draft target costs one direct, uncached
+   * read so its URL never enters the published route table. Without preview
+   * access only published pages resolve.
+   */
+  resolveLink(
+    link: LinkValue,
+    options?: { preview?: PreviewAccess | null },
+  ): Promise<string | null>;
   /** The published pages a site merges into its sitemap, in URL order. */
   listSitemapEntries(): Promise<CmsSitemapEntry[]>;
   /**
@@ -512,11 +523,28 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       }
     },
 
-    async resolveLink(link: LinkValue): Promise<string | null> {
+    async resolveLink(
+      link: LinkValue,
+      readOptions?: { preview?: PreviewAccess | null },
+    ): Promise<string | null> {
       if (link.type === "url") return link.url;
       try {
         const table = await routes();
-        return table.byId.get(link.pageId) ?? null;
+        // Published wins: the route table only holds published pages, so a hit
+        // is the live URL whether or not this is a preview read.
+        const published = table.byId.get(link.pageId);
+        if (published !== undefined) return published;
+        // An unpublished target resolves only during a preview. This read is
+        // uncached on purpose: the route table is the published cache, and a
+        // draft's URL must never enter it.
+        if (readOptions?.preview) {
+          const rows = (await sql.unsafe(
+            `SELECT url FROM ${TABLES.pages} WHERE id = $1`,
+            [link.pageId],
+          )) as { url: string }[];
+          return rows[0]?.url ?? null;
+        }
+        return null;
       } catch (error) {
         onSkip(
           `could not resolve a link to page "${link.pageId}": ${describe(error)}`,
