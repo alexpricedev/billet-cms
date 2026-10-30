@@ -41,11 +41,14 @@ import { createHash } from "node:crypto";
  * kind and `FieldMetadata.fields`, so a block can declare a nested object and a
  * list can repeat one; an older CMS reading a published `group` has no control
  * to render it with, and an older site reading content written against one
- * cannot validate the nesting. This version adds an optional `title` to a link
+ * cannot validate the nesting. Phase 9 adds an optional `title` to a link
  * value, the hover text an editor sees as "Hover text": both link branches are
- * strict, so an older CMS or site rejects a link that carries one.
+ * strict, so an older CMS or site rejects a link that carries one. Phase 10
+ * replaces `cms_pages.social_image` (a pasted URL) with `social_image_id`, a
+ * reference into `cms_media`: a page row read or written by an older version
+ * names a column that no longer exists, so both sides must move together.
  */
-export const CONTRACT_VERSION = "0.9.0";
+export const CONTRACT_VERSION = "0.10.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -462,7 +465,7 @@ export interface ExportedPage {
   url: string;
   title: string;
   seoDescription: string | null;
-  socialImage: string | null;
+  socialImageId: string | null;
   publishedRevisionId: string | null;
   createdAt: string;
   updatedAt: string;
