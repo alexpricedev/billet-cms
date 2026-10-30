@@ -138,6 +138,7 @@ describe("stored schema format", () => {
     const stored = blockStoredSchema(
       block(
         "hero",
+        { label: "Hero" },
         {
           heading: text({ label: "Heading", max: 80 }),
           links: list(link(), { min: 1, max: 6 }),

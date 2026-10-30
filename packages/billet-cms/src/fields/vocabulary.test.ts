@@ -51,7 +51,12 @@ describe("text", () => {
 
   test("appears in the block's JSON Schema with maxLength", () => {
     const stored = blockStoredSchema(
-      block("hero", { heading: text({ max: 80 }) }, () => null),
+      block(
+        "hero",
+        { label: "Hero" },
+        { heading: text({ max: 80 }) },
+        () => null,
+      ),
     );
 
     expect(properties(stored).heading).toMatchObject({
@@ -144,7 +149,7 @@ describe("richText", () => {
 
   test("flattens to JSON Schema even though the nodes are recursive", () => {
     const stored = blockStoredSchema(
-      block("article", { body: richText() }, () => null),
+      block("article", { label: "Article" }, { body: richText() }, () => null),
     );
     // The self-reference is emitted as `$ref`/`$defs`, not inlined forever.
     expect(stored.jsonSchema.$defs).toBeDefined();
@@ -422,7 +427,7 @@ describe("image", () => {
     ).toBe(false);
 
     const stored = blockStoredSchema(
-      block("hero", { photo: image() }, () => null),
+      block("hero", { label: "Hero" }, { photo: image() }, () => null),
     );
     const alt = properties(stored).photo?.properties as Record<
       string,
@@ -437,7 +442,7 @@ describe("image", () => {
     );
 
     const stored = blockStoredSchema(
-      block("hero", { photo: image() }, () => null),
+      block("hero", { label: "Hero" }, { photo: image() }, () => null),
     );
     expect(properties(stored).photo?.additionalProperties).toBe(false);
   });
@@ -476,7 +481,7 @@ describe("link", () => {
 
   test("publishes title as an optional string on both branches", () => {
     const stored = blockStoredSchema(
-      block("cta", { target: link() }, () => null),
+      block("cta", { label: "Call to action" }, { target: link() }, () => null),
     );
     const target = properties(stored).target as {
       oneOf: Array<{
@@ -508,7 +513,7 @@ describe("link", () => {
     ).toBe(false);
 
     const stored = blockStoredSchema(
-      block("cta", { target: link() }, () => null),
+      block("cta", { label: "Call to action" }, { target: link() }, () => null),
     );
     const target = properties(stored).target as {
       oneOf: Array<{ additionalProperties?: boolean }>;
@@ -592,7 +597,7 @@ describe("link", () => {
 
   test("stores the allowlist as a JSON Schema pattern on the url branch", () => {
     const stored = blockStoredSchema(
-      block("cta", { target: link() }, () => null),
+      block("cta", { label: "Call to action" }, { target: link() }, () => null),
     );
     const target = properties(stored).target as {
       oneOf: Array<{ properties?: Record<string, { pattern?: string }> }>;
@@ -629,7 +634,12 @@ describe("list", () => {
 
   test("appears in the block's JSON Schema with minItems and maxItems", () => {
     const stored = blockStoredSchema(
-      block("hero", { links: list(link(), { min: 1, max: 6 }) }, () => null),
+      block(
+        "hero",
+        { label: "Hero" },
+        { links: list(link(), { min: 1, max: 6 }) },
+        () => null,
+      ),
     );
 
     expect(properties(stored).links).toMatchObject({
@@ -695,7 +705,11 @@ describe("group", () => {
 
   test("publishes a nested object in the block's JSON Schema", () => {
     const stored = blockStoredSchema(
-      block("card", { cta: group({ label: text(), href: text() }) }),
+      block(
+        "card",
+        { label: "Card" },
+        { cta: group({ label: text(), href: text() }) },
+      ),
     );
 
     expect(properties(stored).cta).toMatchObject({
@@ -709,7 +723,11 @@ describe("group", () => {
   // a group is one field, so it has to carry its own or dropping a child field
   // takes the whole block down to the site's fallback.
   test("is strict on save but tolerates a dropped child field on read", () => {
-    const card = block("card", { cta: group({ label: text() }) });
+    const card = block(
+      "card",
+      { label: "Card" },
+      { cta: group({ label: text() }) },
+    );
     const stale = { cta: { label: "Go", removedLastDeploy: "x" } };
 
     expect(blockContentSchema(card).safeParse(stale).success).toBe(false);
@@ -717,9 +735,13 @@ describe("group", () => {
   });
 
   test("keeps the loose read through a list of groups", () => {
-    const card = block("card", {
-      steps: list(group({ title: text() })),
-    });
+    const card = block(
+      "card",
+      { label: "Card" },
+      {
+        steps: list(group({ title: text() })),
+      },
+    );
     const stale = { steps: [{ title: "One", dropped: "x" }] };
 
     expect(blockContentReadSchema(card).safeParse(stale).success).toBe(true);
