@@ -73,6 +73,54 @@ describe("ImagePicker", () => {
     expect(tag(html, "data-image-picker-remove")).toContain("hidden");
   });
 
+  // An id with no upload row is not an empty field: the value is still stored
+  // and still validated on save, so the picker tells the editor it is missing.
+  test("says 'Upload not found' for a stored id with no upload", () => {
+    const html = render({ value: IMAGE.id });
+
+    expect(html).toContain("Upload not found");
+    expect(html).not.toContain("No image chosen.");
+    expect(tag(html, "data-image-picker-value")).toContain(
+      `value="${IMAGE.id}"`,
+    );
+  });
+
+  // The field's own heading is the visible label; the picker keeps an
+  // accessible name without drawing a second one.
+  test("can hide its legend while keeping the field name", () => {
+    const html = render({ labelHidden: true });
+
+    expect(html).toContain(
+      '<legend class="cms-field-label sr-only" id="cms-image-picker-socialImageId-label">Social image</legend>',
+    );
+  });
+
+  // A block image field is one part of the generated form, so it renders no
+  // named input: the value is read from the data attribute and serialised into
+  // the hidden `content` field, and nothing stray joins the POST. It renders no
+  // element ids either — a block is cloned from a `<template>`, so ids would be
+  // repeated in every copy, and the legend names the fieldset regardless.
+  test("renders no name and no ids when a block field passes none", () => {
+    const html = render({ name: undefined });
+    const input = tag(html, "data-image-picker-value");
+
+    expect(input).not.toContain("name=");
+    expect(input).toContain("data-image-id");
+    expect(input).toMatch(/value(?:="")?\s/);
+    expect(html).not.toContain("cms-image-picker-socialImageId");
+    expect(html).not.toMatch(/\sid="/);
+  });
+
+  // A stored upload's width travels with the picker so the field can warn about
+  // a too-narrow image before the editor touches it.
+  test("carries the stored upload's width for the field's warning", () => {
+    const html = render({ value: IMAGE.id, image: IMAGE });
+
+    expect(tag(html, "data-image-picker-field")).toContain(
+      `data-image-picker-width="${IMAGE.width}"`,
+    );
+  });
+
   test("shows the chosen image, its alt, size and a Remove button", () => {
     const html = render({ value: IMAGE.id, image: IMAGE });
     const thumb = tag(html, "data-image-picker-thumb");

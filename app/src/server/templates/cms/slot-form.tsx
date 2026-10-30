@@ -1,8 +1,6 @@
 import { ContentFields } from "../../components/cms/content-fields";
-import {
-  type FieldError,
-  MediaOptionsTemplate,
-} from "../../components/cms/field-control";
+import type { FieldError } from "../../components/cms/field-control";
+import type { PickerImage } from "../../components/cms/image-picker";
 import { Flash, type FlashField } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
@@ -13,7 +11,6 @@ import type {
   RevisionConflict,
   SlotRecord,
 } from "../../services/content";
-import type { MediaOption } from "../../services/media";
 import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
@@ -50,10 +47,13 @@ export interface SlotFormProps {
   publishedRevisionAt: Date | null;
   /** Fields present in the saved content but no longer published (Q4). */
   removedFieldNames: string[];
-  /** The uploads an `image` field's picker offers, rendered once for the form. */
-  media: MediaOption[];
-  /** Whether that reuse list was capped, so the picker's help line is true. */
-  pickerCapped: boolean;
+  /**
+   * The uploads the slot's `image` fields currently reference, keyed by media
+   * id. One map serves the top-level fields and every list row.
+   */
+  pickerImages: Map<string, PickerImage>;
+  /** The CSRF token bound to `POST /cms/media`, for the pickers' drop zones. */
+  uploadCsrfToken: string;
   errors?: FieldIssue[];
   conflict?: RevisionConflict | null;
   /**
@@ -83,8 +83,8 @@ export const SlotForm = ({
   publishedRevisionId,
   publishedRevisionAt,
   removedFieldNames,
-  media,
-  pickerCapped,
+  pickerImages,
+  uploadCsrfToken,
   errors,
   conflict,
   refusedPublish,
@@ -236,9 +236,6 @@ export const SlotForm = ({
         data-cms-form
       >
         <input type="hidden" name="_csrf" value={formCsrfToken} />
-        {/* The reuse list, once for the form; each image picker is filled from
-            it on focus rather than repeating it per field. */}
-        <MediaOptionsTemplate media={media} />
         {/* The whole document, so a save without JavaScript round-trips the
             stored content unchanged. The editor rebuilds this on submit. */}
         <input
@@ -271,9 +268,8 @@ export const SlotForm = ({
           fields={blockType.fields}
           content={content}
           errorsByField={errorsByField}
-          hasMedia={media.length > 0}
-          pickerCapped={pickerCapped}
-          media={media}
+          pickerImages={pickerImages}
+          uploadCsrfToken={uploadCsrfToken}
         />
       </form>
 
@@ -361,6 +357,7 @@ export const SlotForm = ({
       </section>
 
       <script type="module" src={getAssetUrl("/assets/cms-form.js")} />
+      <script type="module" src={getAssetUrl("/assets/image-picker.js")} />
     </Layout>
   );
 };

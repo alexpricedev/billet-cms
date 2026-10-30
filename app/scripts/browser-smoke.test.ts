@@ -197,6 +197,31 @@ const fieldGaps = (root: string): Promise<number[] | null> =>
   );
 
 /**
+ * The vertical space between consecutive visible children of `root`, in
+ * pixels. The image field's picker and Alt text are children of one parts
+ * wrapper, so this measures the `--field-gap` between them the way `fieldGaps`
+ * measures it between two fields.
+ */
+const childGaps = (root: string): Promise<number[] | null> =>
+  view.evaluate<number[] | null>(
+    `(() => {
+      const parent = document.querySelector(${JSON.stringify(root)});
+      if (!parent) return null;
+      const children = Array.from(parent.children).filter(
+        (el) => el.getClientRects().length > 0,
+      );
+      return children.slice(1).map((child, index) => {
+        const previous = children[index].getBoundingClientRect();
+        return (
+          Math.round(
+            (child.getBoundingClientRect().top - previous.bottom) * 100,
+          ) / 100
+        );
+      });
+    })()`,
+  );
+
+/**
  * The vertical space from a field box's bottom to the top of the next sibling
  * of the container it sits in, in pixels.
  *
@@ -606,9 +631,27 @@ describe("browser smoke", () => {
     // the same as an image part without one: the counter is on the label row,
     // not in a row of its own that pads the gap.
     expect(await boxToNextSibling("#cms-field-heading", "cms-field")).toBe(16);
-    expect(
-      await boxToNextSibling("#cms-field-photo-id", "cms-image-part"),
-    ).toBe(16);
+
+    // Inside the image field, the picker and the Alt text are one --field-gap
+    // apart; the old Media id box that used to separate them is gone.
+    expect(await childGaps("#cms-field-photo .cms-image-parts")).toEqual([16]);
+
+    // The closed picker is a field box too, so it fills the field's width
+    // rather than shrinking to its buttons.
+    const pickerWidths = await view.evaluate<[number, number] | null>(
+      `(() => {
+        const field = document.querySelector("#cms-field-photo");
+        const picker = field?.querySelector(".cms-image-picker");
+        return field && picker
+          ? [
+              Math.round(field.getBoundingClientRect().width),
+              Math.round(picker.getBoundingClientRect().width),
+            ]
+          : null;
+      })()`,
+    );
+    expect(pickerWidths?.[0]).toBeGreaterThan(0);
+    expect(pickerWidths?.[0]).toBe(pickerWidths?.[1]);
 
     await goto(`${CMS_BASE}/cms/pages/${pageId}`);
     await until(

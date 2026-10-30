@@ -15,8 +15,9 @@ import {
   saveSlotDraft,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
-import { listPickerMedia } from "../../services/media";
+import { listPickerImages } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
+import { pickerOptionJson } from "../../templates/cms/media";
 import { SlotForm, SlotUnavailable } from "../../templates/cms/slot-form";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
@@ -167,14 +168,25 @@ export const renderSlotForm = async (
     publishCsrfToken,
     previewCsrfToken,
     navCsrfToken,
-    picker,
+    uploadCsrfToken,
+    pickerMedia,
   ] = await Promise.all([
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/publish`),
     createCsrfToken(sessionId, "POST", `/cms/slots/${slot.id}/preview`),
     createCsrfToken(sessionId, "POST", "/auth/logout"),
-    listPickerMedia(declaredContent),
+    // The picker's drop zone posts to the media upload route, which is a
+    // different path from the save — a token for the slot path would 403.
+    createCsrfToken(sessionId, "POST", "/cms/media"),
+    listPickerImages(declaredContent),
   ]);
+
+  // An image field's closed picker is drawn from the upload the stored content
+  // names; one read covers every field and list row, and an id whose upload is
+  // gone has no entry so the picker can say "Upload not found".
+  const pickerImages = new Map(
+    pickerMedia.map((media) => [media.id, pickerOptionJson(media)]),
+  );
 
   return render(
     <SlotForm
@@ -192,8 +204,8 @@ export const renderSlotForm = async (
       publishedRevisionId={slot.publishedRevisionId}
       publishedRevisionAt={published?.createdAt ?? null}
       removedFieldNames={removed.names}
-      media={picker.media}
-      pickerCapped={picker.capped}
+      pickerImages={pickerImages}
+      uploadCsrfToken={uploadCsrfToken}
       errors={extras.errors}
       conflict={extras.conflict ?? null}
       refusedPublish={extras.refusedPublish ?? false}

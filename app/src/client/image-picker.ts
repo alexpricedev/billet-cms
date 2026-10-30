@@ -18,6 +18,7 @@
  * still submit the stored media id unchanged.
  */
 
+import { narrowImageWarning } from "@shared/image-guidance";
 import { CSRF_FIELD, CSRF_HEADER } from "@shared/protocol";
 
 /** One page's worth of uploads, as the options route returns them. */
@@ -254,6 +255,38 @@ const wirePicker = (root: HTMLElement): void => {
 
   const selectedId = (): string => el.value.value;
 
+  /**
+   * Report the chosen upload's width to the field this picker sits in, and show
+   * or clear the too-narrow warning the server rendered a slot for.
+   *
+   * The field carries `data-image-min-width` from the block metadata and this
+   * picker is what knows the width of the upload just chosen: a pick or an
+   * upload carries it in the option, and Remove carries none. A page setting's
+   * picker has no enclosing `[data-field]`, so it has nowhere to report to and
+   * does nothing.
+   */
+  const reportWidth = (width: number | null): void => {
+    const field = root.closest<HTMLElement>("[data-field]");
+    if (!field) return;
+    if (width === null) delete field.dataset.imageWidth;
+    else field.dataset.imageWidth = String(width);
+
+    const warning = field.querySelector<HTMLElement>("[data-image-warning]");
+    if (!warning) return;
+    const minWidth = Number.parseInt(field.dataset.imageMinWidth ?? "", 10);
+    if (
+      width === null ||
+      !Number.isSafeInteger(minWidth) ||
+      width >= minWidth
+    ) {
+      warning.hidden = true;
+      warning.textContent = "";
+      return;
+    }
+    warning.textContent = narrowImageWarning(width, minWidth);
+    warning.hidden = false;
+  };
+
   const markSelected = (): void => {
     const id = selectedId();
     for (const card of Array.from(
@@ -296,6 +329,7 @@ const wirePicker = (root: HTMLElement): void => {
       el.placeholder.textContent = "No image";
       el.remove.hidden = true;
     }
+    reportWidth(option?.width ?? null);
     markSelected();
     // Setting a hidden input's value fires nothing. The preview guard marks the
     // form dirty from `input` events, so a pick or a remove announces itself
@@ -631,8 +665,17 @@ const wirePicker = (root: HTMLElement): void => {
     void uploadFiles(Array.from(event.dataTransfer?.files ?? []));
   });
 
+  // A stored image's width came down with the picker, so report it now: the
+  // too-narrow warning has to be beside the field on load, not only after the
+  // editor picks the same image again. A page setting's picker has no enclosing
+  // field and `reportWidth` does nothing there.
+  const initialWidth = Number.parseInt(root.dataset.imagePickerWidth ?? "", 10);
+  if (Number.isSafeInteger(initialWidth)) reportWidth(initialWidth);
+
   markSelected();
 };
+
+const PICKER_FIELD = "[data-image-picker-field]";
 
 /**
  * Bind every closed field on the page.
@@ -642,7 +685,7 @@ const wirePicker = (root: HTMLElement): void => {
  */
 export const init = (): void => {
   for (const root of Array.from(
-    document.querySelectorAll<HTMLElement>("[data-image-picker-field]"),
+    document.querySelectorAll<HTMLElement>(PICKER_FIELD),
   )) {
     if (root.dataset.imagePickerBound === "true") continue;
     root.dataset.imagePickerBound = "true";
@@ -650,4 +693,29 @@ export const init = (): void => {
   }
 };
 
+/**
+ * Bind pickers that arrive after this module ran.
+ *
+ * A list row or block is cloned from a `<template>` and inserted later, and
+ * the module's one run at load cannot see it; without this its Choose button
+ * would do nothing. Watching the document rather than hooking the editor's
+ * clone sites means every insertion path is covered, including one a later
+ * change adds. `init` is idempotent, so this only costs a query per insertion.
+ */
+const watchForPickers = (): void => {
+  if (typeof MutationObserver !== "function") return;
+  new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of Array.from(record.addedNodes)) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches(PICKER_FIELD) || node.querySelector(PICKER_FIELD)) {
+          init();
+          return;
+        }
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+};
+
 init();
+watchForPickers();

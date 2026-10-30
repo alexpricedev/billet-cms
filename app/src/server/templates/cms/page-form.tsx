@@ -1,6 +1,5 @@
 import type { JSX } from "preact";
 import type { FieldError } from "../../components/cms/field-control";
-import { MediaOptionsTemplate } from "../../components/cms/field-control";
 import {
   ImagePicker,
   type PickerImage,
@@ -21,7 +20,6 @@ import type {
   UnavailableBlock,
 } from "../../services/content";
 import { normalisePageUrl } from "../../services/content/pages";
-import type { MediaOption } from "../../services/media";
 import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { formatWhen } from "../../utils/format";
@@ -64,10 +62,11 @@ export interface PageFormProps {
   /** When the live revision was saved, for the status line. */
   publishedRevisionAt: Date | null;
   pages: PageOption[];
-  /** The uploads an `image` field's picker offers, rendered once for the form. */
-  media: MediaOption[];
-  /** Whether the reuse list was capped, so the picker's help line is true. */
-  pickerCapped: boolean;
+  /**
+   * The uploads the page's `image` fields currently reference, keyed by media
+   * id. One map serves every block, list row and slot field on the form.
+   */
+  pickerImages: Map<string, PickerImage>;
   /** The current social image, read on the server for the picker's closed field. */
   socialImage?: PickerImage | null;
   /** The CSRF token bound to `POST /cms/media`, for the picker's drop zone. */
@@ -247,8 +246,7 @@ export const PageForm = ({
   publishedRevisionId,
   publishedRevisionAt,
   pages,
-  media,
-  pickerCapped,
+  pickerImages,
   socialImage,
   uploadCsrfToken,
   settingsErrors,
@@ -425,9 +423,6 @@ export const PageForm = ({
           data-cms-form
         >
           <input type="hidden" name="_csrf" value={formCsrfToken} />
-          {/* The reuse list, once for the form; each image picker is filled
-              from it on focus rather than repeating it per field. */}
-          <MediaOptionsTemplate media={media} />
           {/* The whole document, so a save without JavaScript round-trips the
               stored content unchanged. The editor rebuilds this on submit. */}
           <input
@@ -481,9 +476,8 @@ export const PageForm = ({
                   errorsByBlock={blockErrors}
                   alertsByBlock={blockAlerts}
                   pages={pages}
-                  hasMedia={media.length > 0}
-                  pickerCapped={pickerCapped}
-                  media={media}
+                  pickerImages={pickerImages}
+                  uploadCsrfToken={uploadCsrfToken}
                 />
               ) : (
                 <p className="cms-blocks-empty">

@@ -31,7 +31,7 @@ import {
   savePage,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
-import { getMediaById, listPickerMedia } from "../../services/media";
+import { getMediaById, listPickerImages } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import { pickerOptionJson } from "../../templates/cms/media";
 import { PageDeleteConfirm } from "../../templates/cms/page-delete";
@@ -294,15 +294,22 @@ export const renderPageForm = async (
     ? (extras.settings.socialImageId ?? null)
     : page.socialImageId;
 
-  const [blockTypes, pageTypes, pages, picker, latest, socialImage] =
+  const [blockTypes, pageTypes, pages, pickerMedia, latest, socialImage] =
     await Promise.all([
       listBlockTypes(),
       listPageTypes(),
       listPageOptions(),
-      listPickerMedia(content),
+      listPickerImages(content),
       getLatestRevision("page", page.id),
       pickerImageFor(socialImageId),
     ]);
+
+  // Each image field draws its closed picker from the upload the stored content
+  // names. A map rather than a per-field read: a gallery's rows share one read,
+  // and an id whose upload is gone simply has no entry.
+  const pickerImages = new Map(
+    pickerMedia.map((media) => [media.id, pickerOptionJson(media)]),
+  );
 
   // The status line says when the live revision was saved. A publish moves
   // `published_revision_id`, so the time has to be read from the revision.
@@ -368,8 +375,7 @@ export const renderPageForm = async (
       publishedRevisionId={page.publishedRevisionId}
       publishedRevisionAt={published?.createdAt ?? null}
       pages={pages}
-      media={picker.media}
-      pickerCapped={picker.capped}
+      pickerImages={pickerImages}
       socialImage={socialImage}
       uploadCsrfToken={uploadCsrfToken}
       settingsErrors={settingsErrors}

@@ -30,8 +30,7 @@ import {
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
-import { createMedia, listMediaOptions } from "../../services/media";
-import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
+import { createMedia } from "../../services/media";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { staleCsrfToken } from "../../test-utils/auth-form";
 import { createBunRequest } from "../../test-utils/bun-request";
@@ -92,14 +91,10 @@ const saveFormCsrf = (html: string): string | undefined =>
 const previewDisabled = (html: string): boolean =>
   /<button[^>]*class="[^"]*cms-preview-button[^"]*"[^>]*disabled/.test(html);
 
-/** The contents of the form's one options template, or "" when it has none. */
-const mediaOptionsTemplate = (html: string): string =>
-  html.match(/<template data-media-options[^>]*>([\s\S]*?)<\/template>/)?.[1] ??
-  "";
-
-/** Seed `count` uploads, oldest first. */
-const seedUploads = async (count: number): Promise<void> => {
+/** Seed `count` uploads, oldest first, and return their ids in that order. */
+const seedUploads = async (count: number): Promise<string[]> => {
   const storage = createMemoryStorage();
+  const ids: string[] = [];
   for (let index = 0; index < count; index += 1) {
     const result = await createMedia({
       bytes: await makeJpeg(60, 40),
@@ -108,7 +103,9 @@ const seedUploads = async (count: number): Promise<void> => {
       storage,
     });
     if (!result.ok) throw new Error("upload seed failed");
+    ids.push(result.media.id);
   }
+  return ids;
 };
 
 describe("Slot form controller", () => {
@@ -238,23 +235,19 @@ describe("Slot form controller", () => {
       expect(html).toContain('aria-controls="cms-field-body"');
     });
 
-    test("carries a referenced image older than the picker cap and shows the help line", async () => {
+    test("draws a referenced image in its field's closed picker", async () => {
       await seedBlockType(db, photoHero);
       const photoSlotId = await seedSlot(db, {
         name: "home.photo",
         blockName: "photoHero",
         page: "home",
       });
-
-      await seedUploads(MEDIA_PICKER_LIMIT + 1);
-      const options = await listMediaOptions({ limit: MEDIA_PICKER_LIMIT + 1 });
-      // The picker reads one row past the cap, so the last row is the one the
-      // newest list leaves out.
-      const oldest = options[MEDIA_PICKER_LIMIT];
+      const [mediaId] = await seedUploads(1);
+      if (!mediaId) throw new Error("seed uploads failed");
 
       const saved = await saveSlotDraft({
         slotId: photoSlotId,
-        content: { photo: { mediaId: oldest.id } },
+        content: { photo: { mediaId } },
         baseRevisionId: null,
         actorId: editorId,
       });
@@ -270,14 +263,15 @@ describe("Slot form controller", () => {
 
       expect(res.status).toBe(200);
       const html = await res.text();
-      // The library was bigger than the cap, so the "older ones" line is true...
-      expect(html).toContain(
-        `Showing the newest ${MEDIA_PICKER_LIMIT} uploads`,
-      );
-      // ...and the referenced image outside the cap still carries its label.
-      expect(mediaOptionsTemplate(html)).toContain(
-        `${oldest.alt} (${oldest.width}×${oldest.height})`,
-      );
+      // The field renders the shared picker, closed on the stored upload, and
+      // the page loads its script so Choose image, Remove and upload work.
+      expect(html).toContain("data-image-picker-field");
+      expect(html).toContain(`value="${mediaId}"`);
+      expect(html).toContain('data-image-picker-alt="true">Upload 0<');
+      expect(html).toContain("/assets/image-picker.js");
+      // The old select, the Media id box and the reuse template are gone.
+      expect(html).not.toContain("Reuse an upload");
+      expect(html).not.toContain("data-media-options");
     });
 
     test("renders a 404 for a slot that does not exist", async () => {

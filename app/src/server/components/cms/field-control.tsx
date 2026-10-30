@@ -5,8 +5,7 @@ import {
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
-import type { MediaOption } from "../../services/media";
-import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
+import { ImagePicker, type PickerImage } from "./image-picker";
 import { RichTextView } from "./rich-text";
 
 /**
@@ -93,51 +92,19 @@ export interface FieldControlProps {
   /** The CMS pages a `link` field may point at, for the internal-link picker. */
   pages?: PageOption[];
   /**
-   * Whether the form offers a reuse picker at all. The options themselves are
-   * rendered once per form by `MediaOptionsTemplate`; this only says whether a
-   * picker is worth showing, so an empty library renders none.
+   * The uploads the form's `image` fields currently reference, keyed by media
+   * id. One read covers every field and list row; an id with no entry is an
+   * upload that no longer exists, which the picker says so the editor replaces
+   * it.
    */
-  hasMedia: boolean;
+  pickerImages?: Map<string, PickerImage>;
   /**
-   * Whether that reuse list was actually capped (the library held more than
-   * `MEDIA_PICKER_LIMIT`). The help line pointing at the id field is only true
-   * then; at exactly the cap nothing is older to go looking for.
+   * The CSRF token bound to `POST /cms/media`, for the pickers' drop zones.
+   * Required: an omitted token would render pickers that only fail at upload
+   * time, so every form that can hold an image field must mint one.
    */
-  pickerCapped: boolean;
-  /**
-   * The uploads the picker offers, for the one thing a field needs from them:
-   * the chosen image's own label and width. The options themselves are rendered
-   * once per form by `MediaOptionsTemplate`.
-   */
-  media?: MediaOption[];
+  uploadCsrfToken: string;
 }
-
-/**
- * The image picker's options, rendered once for the whole form.
- *
- * A form with many image fields — and several list rows each — would otherwise
- * render the whole reuse list per field. The client copies options out of this
- * one template into a picker when it is first focused, so the library is in the
- * document once, not once per control.
- */
-export const MediaOptionsTemplate = ({
-  media,
-}: {
-  media: MediaOption[];
-}): JSX.Element | null =>
-  media && media.length > 0 ? (
-    <template data-media-options>
-      {media.map((option) => (
-        <option
-          key={option.id}
-          value={option.id}
-          data-media-width={option.width}
-        >
-          {option.alt} ({option.width}×{option.height})
-        </option>
-      ))}
-    </template>
-  ) : null;
 
 const describedBy = (...ids: (string | undefined)[]): string | undefined => {
   const present = ids.filter((id): id is string => Boolean(id));
@@ -477,9 +444,8 @@ const ListItemControl = ({
   listLabel,
   nameScope,
   pages,
-  hasMedia,
-  pickerCapped,
-  media,
+  pickerImages,
+  uploadCsrfToken,
 }: {
   field: FieldMetadata;
   value: unknown;
@@ -488,9 +454,8 @@ const ListItemControl = ({
   /** Where the row sits, so a link in it gets radio names of its own. */
   nameScope: string;
   pages?: PageOption[];
-  hasMedia: boolean;
-  pickerCapped: boolean;
-  media?: MediaOption[];
+  pickerImages?: Map<string, PickerImage>;
+  uploadCsrfToken: string;
 }): JSX.Element => (
   <div className="cms-list-item" data-list-item>
     <FieldControl
@@ -499,9 +464,8 @@ const ListItemControl = ({
       labelOverride={listLabel}
       nameScope={nameScope}
       pages={pages}
-      hasMedia={hasMedia}
-      pickerCapped={pickerCapped}
-      media={media}
+      pickerImages={pickerImages}
+      uploadCsrfToken={uploadCsrfToken}
     />
     <button
       type="button"
@@ -523,9 +487,8 @@ export const FieldControl = ({
   nameScope,
   inGroup = false,
   pages,
-  hasMedia,
-  pickerCapped,
-  media,
+  pickerImages,
+  uploadCsrfToken,
 }: FieldControlProps): JSX.Element => {
   const required = field.required;
   const invalid = errors && errors.length > 0;
@@ -673,17 +636,10 @@ export const FieldControl = ({
     case "image": {
       const image = asRecord(value);
       const mediaId = asString(image.mediaId);
-      // The picks the form already knows about, so a current image is labelled
-      // with its own alt and dimensions rather than a bare "Current image". The
-      // media list includes every image the content references (see
-      // `listPickerMedia`), so the common case is found; a deleted or unlisted
-      // id falls back to the old label rather than showing a raw id.
-      const current = mediaId
-        ? media?.find((option) => option.id === mediaId)
-        : undefined;
-      const currentLabel = current
-        ? `${current.alt} (${current.width}×${current.height})`
-        : "Current image";
+      // A stored id with no upload row is not an empty field: the picker says
+      // "Upload not found" and the editor replaces it, while a save still
+      // validates the id the content holds.
+      const pickerImage = mediaId ? pickerImages?.get(mediaId) : undefined;
       return (
         <fieldset
           className="cms-field"
@@ -693,6 +649,8 @@ export const FieldControl = ({
           data-image-min-width={field.image?.minWidth}
           id={controlId}
           aria-label={labelOverride}
+          aria-invalid={invalid ? "true" : undefined}
+          aria-describedby={described}
         >
           {labelOverride ? (
             <span className="cms-field-label">{labelOverride}</span>
@@ -710,77 +668,29 @@ export const FieldControl = ({
             id={helpId}
             className={labelOverride ? undefined : "cms-image-help"}
           />
-          {/* The three sub-parts are spaced like separate fields; each keeps
-              the label-to-control rhythm of one. The wrapper is also where the
-              heading's extra air comes from (see the image rules in cms.css):
-              `after-label` subtracts the 6px a span label's grid gap already
-              contributes, and `after-help` lets the help line keep the 6px. */}
+          {/* The picker and the alt override are spaced like separate fields;
+              the wrapper is also where the heading's extra air comes from (see
+              the image rules in cms.css): `after-label` subtracts the 6px a
+              span label's grid gap already contributes, and `after-help` lets
+              the help line keep the 6px. */}
           <div
             className={`cms-image-parts${
               labelOverride ? " cms-image-parts-after-label" : ""
             }${field.help ? " cms-image-parts-after-help" : ""}`}
           >
-            {hasMedia && (
-              <div className="cms-image-part">
-                <SubControlLabel htmlFor={idFor("pick")}>
-                  Reuse an upload
-                </SubControlLabel>
-                <select
-                  id={idFor("pick")}
-                  data-image-picker
-                  aria-label={controlId ? undefined : "Reuse an upload"}
-                  aria-describedby={
-                    pickerCapped ? idFor("pick-help") : undefined
-                  }
-                >
-                  <option value="" selected={!image.mediaId}>
-                    Choose an image…
-                  </option>
-                  {/* Only the current image, so a picker in a long page is
-                      cheap; the client fills the rest from the form's one
-                      options template when the picker is first focused,
-                      relabelling this option when the current image is one of
-                      them unless it carries a per-use alt the editor typed. Its
-                      label is the upload's own alt and dimensions when the
-                      field knows them (part 10: it used to say only "Current
-                      image"), and falls back to that phrase for a deleted or
-                      unlisted id so a raw id is never shown as a label. */}
-                  {image.mediaId && (
-                    <option
-                      value={mediaId}
-                      selected
-                      data-media-keep-label={
-                        asString(image.alt) ? "" : undefined
-                      }
-                      data-media-width={current?.width}
-                    >
-                      {asString(image.alt) || currentLabel}
-                    </option>
-                  )}
-                </select>
-                {/* Only when the reuse list was actually capped: a library of
-                    the cap or fewer lists everything, so there is nothing older
-                    to go looking for. */}
-                {pickerCapped && (
-                  <span className="cms-field-help" id={idFor("pick-help")}>
-                    Showing the newest {MEDIA_PICKER_LIMIT} uploads. For an
-                    older one, paste its id under Media id.
-                  </span>
-                )}
-              </div>
-            )}
-            <div className="cms-image-part">
-              <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>
-              <input
-                type="text"
-                id={idFor("id")}
-                data-image-id
-                aria-label={controlId ? undefined : "Media id"}
-                value={asString(image.mediaId)}
-                aria-invalid={invalid ? "true" : undefined}
-                aria-describedby={described}
-              />
-            </div>
+            {/* The shared picker is the field's first part. Its own legend is
+                visually hidden so the field's heading names it once. It gets
+                no id prefix: a block or list row is cloned from a `<template>`,
+                so every copy would carry the same ids, and the picker needs
+                none — its legend names the fieldset it sits in, and the dialog
+                falls back to an aria-label. */}
+            <ImagePicker
+              label={labelOverride ?? fieldName(field)}
+              labelHidden
+              value={mediaId || null}
+              image={pickerImage}
+              uploadCsrfToken={uploadCsrfToken}
+            />
             <div className="cms-image-part">
               <SubControlLabel htmlFor={idFor("alt")}>Alt text</SubControlLabel>
               <input
@@ -805,11 +715,11 @@ export const FieldControl = ({
             </span>
           )}
           {/* A too-narrow image is a warning, not a refusal (part 10), so the
-              server has no field error to put here. `cms-form.ts` fills it when
-              the picker changes, from the chosen option's `data-media-width` and
-              this fieldset's `data-image-min-width` — two numbers the server
-              already rendered, so nothing is built from data. After a save the
-              notice above the form carries the same warning. */}
+              server has no field error to put here. The picker reports the
+              width of the upload it drew, and the client compares it with this
+              fieldset's `data-image-min-width` — two numbers the server already
+              rendered, so nothing is built from data. After a save the notice
+              above the form carries the same warning. */}
           <p
             className="cms-field-warning"
             role="status"
@@ -1150,9 +1060,8 @@ export const FieldControl = ({
                       : undefined
                 }
                 pages={pages}
-                hasMedia={hasMedia}
-                pickerCapped={pickerCapped}
-                media={media}
+                pickerImages={pickerImages}
+                uploadCsrfToken={uploadCsrfToken}
               />
             ))}
           </div>
@@ -1224,9 +1133,8 @@ export const FieldControl = ({
                 listLabel={listLabel}
                 nameScope={`${scopeBase}-${itemField.name}-${index}`}
                 pages={pages}
-                hasMedia={hasMedia}
-                pickerCapped={pickerCapped}
-                media={media}
+                pickerImages={pickerImages}
+                uploadCsrfToken={uploadCsrfToken}
               />
             ))}
           </div>
@@ -1239,9 +1147,8 @@ export const FieldControl = ({
               listLabel={listLabel}
               nameScope={`${scopeBase}-${itemField.name}-template`}
               pages={pages}
-              hasMedia={hasMedia}
-              pickerCapped={pickerCapped}
-              media={media}
+              pickerImages={pickerImages}
+              uploadCsrfToken={uploadCsrfToken}
             />
           </template>
           <button

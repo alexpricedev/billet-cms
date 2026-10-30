@@ -1,6 +1,7 @@
 import { Fragment } from "preact";
 import { ContentFields } from "../../components/cms/content-fields";
 import type { FieldError } from "../../components/cms/field-control";
+import type { PickerImage } from "../../components/cms/image-picker";
 import { Flash } from "../../components/flash";
 import type {
   BlockTypeRecord,
@@ -9,7 +10,6 @@ import type {
   UnavailableBlock,
 } from "../../services/content";
 import type { PageOption } from "../../services/content/pages";
-import type { MediaOption } from "../../services/media";
 import { humanise } from "../../utils/humanise";
 
 export interface PageBlocksProps {
@@ -31,15 +31,13 @@ export interface PageBlocksProps {
   alertsByBlock?: Map<number, string>;
   /** The CMS pages a `link` field's picker offers. */
   pages?: PageOption[];
-  /** Whether a form's `image` fields get a media picker at all. */
-  hasMedia: boolean;
-  /** Whether that picker's reuse list was capped. */
-  pickerCapped: boolean;
   /**
-   * The uploads the picker offers, so an image field can label and measure the
-   * image it already holds (part 10).
+   * The uploads the blocks' `image` fields currently reference, keyed by media
+   * id. One map serves every block and list row.
    */
-  media?: MediaOption[];
+  pickerImages?: Map<string, PickerImage>;
+  /** The CSRF token bound to `POST /cms/media`, for the pickers' drop zones. */
+  uploadCsrfToken: string;
 }
 
 /** The block types a page of this type may add, in the allowed order. */
@@ -148,9 +146,8 @@ const EditableBlock = ({
   errors,
   alert,
   pages,
-  hasMedia,
-  pickerCapped,
-  media,
+  pickerImages,
+  uploadCsrfToken,
 }: {
   blockType: BlockTypeRecord;
   block: PageBlock;
@@ -158,9 +155,8 @@ const EditableBlock = ({
   errors?: Map<string, FieldError[]>;
   alert?: string;
   pages?: PageOption[];
-  hasMedia: boolean;
-  pickerCapped: boolean;
-  media?: MediaOption[];
+  pickerImages?: Map<string, PickerImage>;
+  uploadCsrfToken: string;
 }) => (
   <fieldset
     className={alert ? "cms-block cms-block-alert" : "cms-block"}
@@ -188,9 +184,8 @@ const EditableBlock = ({
       content={block}
       errorsByField={errors}
       pages={pages}
-      hasMedia={hasMedia}
-      pickerCapped={pickerCapped}
-      media={media}
+      pickerImages={pickerImages}
+      uploadCsrfToken={uploadCsrfToken}
       idPrefix={`cms-block-${index}-${blockType.name}`}
     />
   </fieldset>
@@ -217,9 +212,8 @@ export const PageBlocks = ({
   errorsByBlock,
   alertsByBlock,
   pages,
-  hasMedia,
-  pickerCapped,
-  media,
+  pickerImages,
+  uploadCsrfToken,
 }: PageBlocksProps) => {
   const byName = new Map(blockTypes.map((block) => [block.name, block]));
   const unavailableByIndex = new Map(
@@ -263,9 +257,8 @@ export const PageBlocks = ({
               errors={errorsByBlock?.get(index)}
               alert={alertsByBlock?.get(index)}
               pages={pages}
-              hasMedia={hasMedia}
-              pickerCapped={pickerCapped}
-              media={media}
+              pickerImages={pickerImages}
+              uploadCsrfToken={uploadCsrfToken}
             />
           );
         })}
@@ -295,9 +288,8 @@ export const PageBlocks = ({
             block={{ type: blockType.name }}
             index={-1}
             pages={pages}
-            hasMedia={hasMedia}
-            pickerCapped={pickerCapped}
-            media={media}
+            pickerImages={pickerImages}
+            uploadCsrfToken={uploadCsrfToken}
           />
         </template>
       ))}

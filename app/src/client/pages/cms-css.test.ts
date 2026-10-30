@@ -590,7 +590,7 @@ describe("cms.css editor field rhythm", () => {
   // is out of flow, so the wrapper carries the heading's --space-3 itself
   // unless field help sits between the two and the field's gap already does.
   // The heading titles the parts, so it is weighted like a group heading
-  // rather than a second label stacked on "Reuse an upload".
+  // rather than a second label stacked on the picker's visually hidden legend.
   test("spaces the image field's parts like separate fields", () => {
     const parts = /\.cms-image-parts\s*\{([^}]*)\}/.exec(css)?.[1];
     expect(parts).toContain("gap: var(--field-gap)");
@@ -610,6 +610,10 @@ describe("cms.css editor field rhythm", () => {
 
     const part = /\.cms-image-part\s*\{([^}]*)\}/.exec(css)?.[1];
     expect(part).toContain("gap: 6px");
+
+    // The closed picker is a field box: it fills the field's width rather than
+    // shrinking to its buttons, wherever it sits (an image part or a setting).
+    expect(ruleFor(".cms-image-picker")).toContain("width: 100%");
 
     const label =
       /\.cms-field\[data-field-kind="image"\] > \.cms-field-label\s*\{([^}]*)\}/.exec(

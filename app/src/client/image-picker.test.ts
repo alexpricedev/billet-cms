@@ -2,15 +2,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { init } from "./image-picker";
 
 /**
- * The server-rendered picker, as `ImagePicker` writes it. Only the elements the
+ * One server-rendered picker, as `ImagePicker` writes it. Only the elements the
  * client reads are here; the client test is about wiring, not markup.
  */
-const markup = `
-  <form>
+const pickerField = (width?: number): string => `
     <fieldset class="cms-field cms-image-picker"
       data-image-picker-field
       data-image-picker-csrf="upload-token"
-      data-image-picker-name="socialImageId">
+      data-image-picker-name="socialImageId"${
+        width === undefined ? "" : ` data-image-picker-width="${width}"`
+      }>
       <input type="hidden" name="socialImageId" value="" data-image-picker-value>
       <div data-image-picker-current>
         <img class="cms-image-picker-thumb" data-image-picker-thumb alt="" hidden>
@@ -34,6 +35,11 @@ const markup = `
         </div>
       </div>
     </fieldset>
+`;
+
+const markup = `
+  <form>
+    ${pickerField()}
   </form>
 `;
 
@@ -102,10 +108,27 @@ const cards = (): HTMLElement[] =>
   );
 
 /** Replace the page with the picker and wire it, as the bundle would. */
-const mount = (): void => {
-  document.body.innerHTML = markup;
+const mount = (html = markup): void => {
+  document.body.innerHTML = html;
   init();
 };
+
+/** A picker inside the `[data-field]` an image field renders around it. */
+const mountInField = (minWidth?: number, width?: number): void => {
+  mount(`
+    <form>
+      <div data-field data-field-kind="image" data-field-name="photo"${
+        minWidth === undefined ? "" : ` data-image-min-width="${minWidth}"`
+      }>
+        ${pickerField(width)}
+        <p class="cms-field-warning" data-image-warning hidden></p>
+      </div>
+    </form>
+  `);
+};
+
+const warning = (): HTMLElement =>
+  document.querySelector("[data-image-warning]") as HTMLElement;
 
 const flush = async (): Promise<void> => {
   for (let index = 0; index < 4; index += 1) {
@@ -597,5 +620,103 @@ describe("image picker", () => {
     el.modal().dispatchEvent(new Event("pointerdown", { bubbles: true }));
     el.modal().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(el.modal().hidden).toBe(true);
+  });
+
+  // The min-width warning used to be worked out from a <select> option's
+  // `data-media-width`; the picker itself knows the width of the upload it drew.
+  test("reports the picked width and warns when it is under the field's minimum", async () => {
+    mountInField(1600);
+    await open({ items: [SECOND], next: null });
+    cards()[0]?.click();
+
+    const field = document.querySelector<HTMLElement>("[data-field]");
+    expect(field?.dataset.imageWidth).toBe("800");
+    expect(warning().hidden).toBe(false);
+    expect(warning().textContent).toContain("800px");
+    expect(warning().textContent).toContain("1600px");
+  });
+
+  test("a wide pick clears the warning, and Remove clears it again", async () => {
+    mountInField(1600);
+    await open({ items: [SECOND], next: null });
+    cards()[0]?.click();
+    expect(warning().hidden).toBe(false);
+
+    await open({ items: [FIRST], next: null });
+    cards()[0]?.click();
+    expect(warning().hidden).toBe(true);
+    expect(warning().textContent).toBe("");
+
+    el.remove().click();
+    const field = document.querySelector<HTMLElement>("[data-field]");
+    expect(field?.dataset.imageWidth).toBeUndefined();
+    expect(warning().hidden).toBe(true);
+    expect(warning().textContent).toBe("");
+  });
+
+  test("a field with no minimum width never warns", async () => {
+    mountInField();
+    await open({ items: [SECOND], next: null });
+    cards()[0]?.click();
+
+    expect(warning().hidden).toBe(true);
+    expect(warning().textContent).toBe("");
+  });
+
+  // The stored upload's width comes down with the picker, so a field that
+  // already holds a too-narrow image warns on load rather than waiting for the
+  // editor to pick the same image again.
+  test("warns about a stored narrow image before any interaction", () => {
+    mountInField(1600, 800);
+
+    const field = document.querySelector<HTMLElement>("[data-field]");
+    expect(field?.dataset.imageWidth).toBe("800");
+    expect(warning().hidden).toBe(false);
+    expect(warning().textContent).toContain("800px");
+  });
+
+  test("leaves the warning hidden on load when the stored image is wide enough", () => {
+    mountInField(1600, 1600);
+
+    expect(warning().hidden).toBe(true);
+    expect(warning().textContent).toBe("");
+  });
+
+  // A list row or block is cloned from a <template> after this module ran, so
+  // its picker is not in the page at load. It must still work, and bind once.
+  test("binds a picker inserted after the module ran, once", async () => {
+    const row = document.createElement("div");
+    row.innerHTML = `<div data-list-item><div data-field data-field-kind="image" data-field-name="item">${pickerField()}</div></div>`;
+    document.body.append(row);
+    await flush();
+
+    const choose = row.querySelector<HTMLButtonElement>(
+      "[data-image-picker-choose]",
+    );
+    if (!choose) throw new Error("no choose button in the row");
+    pages = [{ items: [FIRST], next: null }];
+    choose.click();
+    await flush();
+
+    // One request: a second binding would open the dialog (and load) twice.
+    expect(requested).toEqual(["/cms/media/options?"]);
+    expect(
+      row.querySelector<HTMLElement>("[data-image-picker-modal]")?.hidden,
+    ).toBe(false);
+
+    row.querySelector<HTMLElement>("[data-image-picker-option]")?.click();
+    expect(
+      row.querySelector<HTMLInputElement>("[data-image-picker-value]")?.value,
+    ).toBe(FIRST.id);
+    expect(
+      row.querySelector<HTMLElement>("[data-image-picker-alt]")?.textContent,
+    ).toBe(FIRST.alt);
+
+    // Remove works on the late picker too, and leaves only its row empty.
+    row.querySelector<HTMLElement>("[data-image-picker-remove]")?.click();
+    expect(
+      row.querySelector<HTMLInputElement>("[data-image-picker-value]")?.value,
+    ).toBe("");
+    expect(el.value().value).toBe("");
   });
 });

@@ -19,7 +19,7 @@ const roundTrip = (
   value: unknown,
 ): Record<string, unknown> => {
   const html = renderToString(
-    <FieldControl field={field} value={value} hasMedia pickerCapped={false} />,
+    <FieldControl field={field} value={value} uploadCsrfToken="upload-token" />,
   );
   document.body.innerHTML = `<form data-cms-form><input type="hidden" data-cms-content value="{}">${html}</form>`;
   init();

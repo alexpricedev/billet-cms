@@ -18,9 +18,18 @@ export interface PickerImage {
 }
 
 export interface ImagePickerProps {
-  /** The form field name; the hidden input carries the chosen media id. */
-  name: string;
+  /**
+   * The form field name for the hidden input.
+   *
+   * Optional: a page setting is a control of its own and needs one for a
+   * JavaScript-free save, but a block `image` field is one part of the block's
+   * generated form and is serialised from its `data-*` controls instead. An
+   * unnamed picker submits nothing, so it cannot add stray fields to the POST.
+   */
+  name?: string;
   label: string;
+  /** Hide the label visually; a field's own heading already names the control. */
+  labelHidden?: boolean;
   help?: string;
   /** The currently chosen media id, or null/empty for none. */
   value: string | null;
@@ -35,7 +44,16 @@ export interface ImagePickerProps {
   uploadCsrfToken: string;
 }
 
-const idBase = (name: string): string => `cms-image-picker-${name}`;
+/**
+ * Element ids come from `name` and nothing else. A block `image` field passes
+ * no name — its picker is one part of the generated form — and must not be
+ * given an id prefix either: blocks and list rows are cloned from a
+ * `<template>`, so any id the server renders is repeated in every copy. The
+ * picker needs none there; its legend names the fieldset by containment, and
+ * the dialog falls back to an `aria-label`.
+ */
+const idPrefix = (name?: string): string | null =>
+  name ? `cms-image-picker-${name}` : null;
 
 /**
  * The shared image picker: a server-rendered closed field plus the dialog and
@@ -55,17 +73,20 @@ const idBase = (name: string): string => `cms-image-picker-${name}`;
 export const ImagePicker = ({
   name,
   label,
+  labelHidden = false,
   help,
   value,
   image,
   errors,
   uploadCsrfToken,
 }: ImagePickerProps): JSX.Element => {
-  const base = idBase(name);
-  const labelId = `${base}-label`;
-  const helpId = `${base}-help`;
-  const errorId = `${base}-error`;
-  const dialogTitleId = `${base}-title`;
+  const base = idPrefix(name);
+  const idFor = (suffix: string): string | undefined =>
+    base ? `${base}-${suffix}` : undefined;
+  const labelId = idFor("label");
+  const helpId = idFor("help");
+  const errorId = idFor("error");
+  const dialogTitleId = idFor("title");
   const invalid = errors !== undefined && errors.length > 0;
   const described = [help ? helpId : null, invalid ? errorId : null]
     .filter(Boolean)
@@ -77,23 +98,41 @@ export const ImagePicker = ({
   // is also what the client swaps in — never an `<img>` with an empty `src`.
   const thumbnail = image?.thumbnailUrl ?? null;
 
+  // A stored id with no row is not the same as an empty field: the upload was
+  // deleted or the id was typed long ago, and the editor needs to know to
+  // replace it rather than reading "No image chosen." over a value a save will
+  // still validate.
+  const chosenLabel = image
+    ? image.alt
+    : chosen
+      ? "Upload not found"
+      : "No image chosen.";
+
   return (
     <fieldset
       className="cms-field cms-image-picker"
       data-image-picker-field
       data-image-picker-csrf={uploadCsrfToken}
       data-image-picker-name={name}
+      data-image-picker-width={image?.width}
       aria-describedby={described || undefined}
       aria-invalid={invalid ? "true" : undefined}
     >
-      <legend className="cms-field-label" id={labelId}>
+      <legend
+        className={labelHidden ? "cms-field-label sr-only" : "cms-field-label"}
+        id={labelId}
+      >
         {label}
       </legend>
+      {/* `data-image-id` is the handle the generated form's image field reads,
+          the same one the old Media id input carried; `name` is only present on
+          a page setting, so a block field submits no stray form value. */}
       <input
         type="hidden"
         name={name}
         value={chosen ? value : ""}
         data-image-picker-value
+        data-image-id
       />
 
       <div className="cms-image-picker-current" data-image-picker-current>
@@ -119,11 +158,11 @@ export const ImagePicker = ({
           aria-hidden="true"
           hidden={thumbnail !== null}
         >
-          {image ? image.alt : "No image"}
+          {image ? image.alt : chosen ? "Upload not found" : "No image"}
         </span>
         <span className="cms-image-picker-details">
           <span className="cms-image-picker-alt" data-image-picker-alt>
-            {image ? image.alt : "No image chosen."}
+            {chosenLabel}
           </span>
           <span className="cms-image-picker-size" data-image-picker-size>
             {image ? `${image.width}×${image.height}` : ""}
@@ -171,6 +210,7 @@ export const ImagePicker = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby={dialogTitleId}
+          aria-label={dialogTitleId ? undefined : "Choose an image"}
         >
           <div className="cms-picker-header">
             <h2 id={dialogTitleId}>Choose an image</h2>

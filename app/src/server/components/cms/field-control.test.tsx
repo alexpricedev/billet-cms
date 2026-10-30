@@ -5,13 +5,8 @@ import {
 } from "@alexpricedev/billet-cms/contract";
 import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
 import { renderToString } from "preact-render-to-string";
-import type { MediaOption } from "../../services/media";
-import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
-import {
-  FieldControl,
-  type FieldError,
-  MediaOptionsTemplate,
-} from "./field-control";
+import { FieldControl, type FieldError } from "./field-control";
+import type { PickerImage } from "./image-picker";
 
 const emptyDocument: RichTextDocument = { type: "doc", content: [] };
 
@@ -32,11 +27,10 @@ const count = (html: string, needle: string): number =>
 describe("FieldControl rich text", () => {
   const html = renderToString(
     <FieldControl
-      hasMedia={false}
-      pickerCapped={false}
       field={richText}
       value={emptyDocument}
       idBase="cms-field-body"
+      uploadCsrfToken="upload-token"
     />,
   );
 
@@ -60,12 +54,11 @@ describe("FieldControl text", () => {
   ): string =>
     renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={{ name: "intro", kind: "text", required: false, max }}
         value={value}
         errors={errors}
         idBase="cms-field-intro"
+        uploadCsrfToken="upload-token"
       />,
     );
   const control = (html: string): string =>
@@ -124,12 +117,11 @@ describe("FieldControl text", () => {
   test("puts a label-overridden field's counter on the label row too", () => {
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={{ name: "item", kind: "text", required: false, max: 80 }}
         value="Hi"
         labelOverride="Tag"
         nameScope="tag-0"
+        uploadCsrfToken="upload-token"
       />,
     );
     const row =
@@ -155,8 +147,6 @@ describe("FieldControl text", () => {
   test("carries help, errors and the invalid state on the textarea", () => {
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={{
           name: "intro",
           kind: "text",
@@ -167,6 +157,7 @@ describe("FieldControl text", () => {
         value="Hello"
         errors={[{ path: "intro", message: "Too long." }]}
         idBase="cms-field-intro"
+        uploadCsrfToken="upload-token"
       />,
     );
     const textarea = control(html);
@@ -193,11 +184,10 @@ describe("FieldControl list", () => {
 
   const html = renderToString(
     <FieldControl
-      hasMedia={false}
-      pickerCapped={false}
       field={list}
       value={["one"]}
       idBase="cms-field-tags"
+      uploadCsrfToken="upload-token"
     />,
   );
 
@@ -222,11 +212,10 @@ describe("FieldControl list", () => {
   test("disables Add when the stored list is already at its maximum", () => {
     const full = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={list}
         value={["one", "two", "three"]}
         idBase="cms-field-tags"
+        uploadCsrfToken="upload-token"
       />,
     );
     const add = /<button[^>]*data-list-add[^>]*>/.exec(full)?.[0] ?? "";
@@ -252,11 +241,10 @@ describe("FieldControl list", () => {
     };
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={unbounded}
         value={["one"]}
         idBase="cms-field-tags"
+        uploadCsrfToken="upload-token"
       />,
     );
     const add = /<button[^>]*data-list-add[^>]*>/.exec(html)?.[0] ?? "";
@@ -275,11 +263,10 @@ describe("FieldControl list", () => {
     };
     const single = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={one}
         value={[]}
         idBase="cms-field-tag"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -289,146 +276,130 @@ describe("FieldControl list", () => {
 
 describe("FieldControl image picker", () => {
   const image: FieldMetadata = { name: "photo", kind: "image", required: true };
-  const media: MediaOption[] = [
-    {
-      id: "11111111-1111-4111-8111-111111111111",
-      alt: "A photo",
-      width: 800,
-      height: 400,
-    },
-    {
-      id: "22222222-2222-4222-8222-222222222222",
-      alt: "B photo",
-      width: 1200,
-      height: 600,
-    },
-  ];
+  const first: PickerImage = {
+    id: "11111111-1111-4111-8111-111111111111",
+    alt: "A photo",
+    width: 800,
+    height: 400,
+    thumbnailUrl: "https://cdn.example.test/a-192.webp",
+  };
+  const second: PickerImage = {
+    id: "22222222-2222-4222-8222-222222222222",
+    alt: "B photo",
+    width: 1200,
+    height: 600,
+    thumbnailUrl: null,
+  };
   const unlisted = "33333333-3333-4333-8333-333333333333";
+  const pickerImages = new Map<string, PickerImage>([
+    [first.id, first],
+    [second.id, second],
+  ]);
 
-  test("renders the reuse list once for the form, not once per field", () => {
+  const renderImage = (
+    value: unknown,
+    {
+      field = image,
+      idBase = "cms-field-photo",
+      images = pickerImages,
+    }: {
+      field?: FieldMetadata;
+      idBase?: string;
+      images?: Map<string, PickerImage>;
+    } = {},
+  ): string =>
+    renderToString(
+      <FieldControl
+        field={field}
+        value={value}
+        idBase={idBase}
+        pickerImages={images}
+        uploadCsrfToken="upload-token"
+      />,
+    );
+
+  // The shared picker is the field's control now: the server draws its closed
+  // state from the upload the stored content names, and the client brings the
+  // dialog to life. One picker per field wherever the field sits.
+  test("renders the shared picker with the current upload", () => {
+    const html = renderImage({ mediaId: first.id });
+    const fieldset =
+      html.match(/<fieldset[^>]*data-image-picker-field[^>]*>/)?.[0] ?? "";
+
+    expect(fieldset).toContain('class="cms-field cms-image-picker"');
+    expect(fieldset).toContain('data-image-picker-csrf="upload-token"');
+    // The stored width travels with the picker so the field can warn before the
+    // editor touches it.
+    expect(fieldset).toContain(`data-image-picker-width="${first.width}"`);
+    // A block field is cloned from a `<template>`; an id prefix here would be
+    // repeated in every copy, so the picker renders none.
+    expect(html).not.toContain("cms-image-picker-cms-field-photo");
+    expect(html).toContain(`src="${first.thumbnailUrl}"`);
+    expect(html).toContain(">A photo</span>");
+    expect(html).toContain(">800×400</span>");
+    expect(html).toContain(`value="${first.id}"`);
+  });
+
+  test("renders one picker per image field, not a shared reuse list", () => {
     const html = renderToString(
       <div>
-        <MediaOptionsTemplate media={media} />
         <FieldControl
-          pickerCapped={false}
           field={image}
-          value={{ mediaId: media[0].id }}
+          value={{ mediaId: first.id }}
           idBase="cms-field-photo"
-          hasMedia
+          pickerImages={pickerImages}
+          uploadCsrfToken="upload-token"
         />
         <FieldControl
-          pickerCapped={false}
           field={image}
-          value={{ mediaId: media[1].id }}
+          value={{ mediaId: second.id }}
           idBase="cms-field-other"
-          hasMedia
+          pickerImages={pickerImages}
+          uploadCsrfToken="upload-token"
         />
       </div>,
     );
 
-    // One template for the whole form, so a 400-upload library is not repeated
-    // in every image field.
-    expect(count(html, "data-media-options")).toBe(1);
-    expect(count(html, "B photo (1200×600)")).toBe(1);
+    expect(count(html, "data-image-picker-field")).toBe(2);
+    expect(html).toContain("A photo");
+    expect(html).toContain("B photo");
+    expect(html).not.toContain("data-media-options");
+    expect(html).not.toContain("Reuse an upload");
   });
 
-  test("each picker shows its current image, even one not in the list", () => {
-    const html = renderToString(
-      <div>
-        <MediaOptionsTemplate media={media} />
-        <FieldControl
-          pickerCapped={false}
-          field={image}
-          value={{ mediaId: unlisted, alt: "Stored alt" }}
-          idBase="cms-field-photo"
-          hasMedia
-        />
-      </div>,
-    );
+  // The hidden input is the JavaScript-off path and the client's value: it
+  // carries the stored id, and it is hidden — the raw Media id box is gone.
+  test("carries the chosen id in a hidden input, with no Media id box", () => {
+    const html = renderImage({ mediaId: first.id });
+    const input = html.match(/<input[^>]*data-image-id[^>]*>/)?.[0] ?? "";
 
-    // The picker's own option carries the stored alt, is selected (and marked
-    // so the client keeps that label), and is the only place that id appears —
-    // the template lists other uploads.
-    expect(html).toContain(
-      `<option value="${unlisted}" selected data-media-keep-label>Stored alt</option>`,
-    );
-    expect(count(html, `<option value="${unlisted}"`)).toBe(1);
-    // Two uploads is below the cap, so the "older ones" help line is not shown.
-    expect(html).not.toContain("Showing the newest");
+    expect(input).toContain('type="hidden"');
+    expect(input).toContain(`value="${first.id}"`);
+    expect(input).not.toContain('type="text"');
+    expect(html).not.toContain("Media id");
   });
 
-  // A current image the form does not know — deleted, or older than the reuse
-  // list — has no alt of its own to show, so it keeps the phrase rather than
-  // displaying a raw id.
-  test("labels a current image the form doesn't know as 'Current image'", () => {
-    const html = renderToString(
-      <FieldControl
-        pickerCapped={false}
-        field={image}
-        value={{ mediaId: unlisted }}
-        idBase="cms-field-photo"
-        hasMedia
-      />,
-    );
+  test("shows the empty closed state when nothing is chosen", () => {
+    const html = renderImage({ mediaId: "" });
 
-    expect(html).toContain(
-      `<option value="${unlisted}" selected>Current image</option>`,
-    );
-    expect(html).not.toContain(
-      `<option value="${unlisted}" selected>${unlisted}</option>`,
-    );
+    expect(html).toContain("No image chosen.");
+    expect(html).not.toContain("Upload not found");
   });
 
-  // Part 10: the picker's label describes the image it holds rather than always
-  // saying "Current image", so an editor can see which picture is in the field
-  // (and how big it is) before opening the picker.
-  test("labels a current image the form knows with its alt and dimensions", () => {
-    const html = renderToString(
-      <FieldControl
-        pickerCapped={false}
-        field={image}
-        media={media}
-        value={{ mediaId: media[1].id }}
-        idBase="cms-field-photo"
-        hasMedia
-      />,
-    );
+  // An id with no row is an upload that no longer exists. Saying "No image
+  // chosen." over a value a save will still validate would hide the problem.
+  test("says 'Upload not found' for a stored id with no upload", () => {
+    const html = renderImage({ mediaId: unlisted });
 
-    expect(html).toContain(
-      `<option value="${media[1].id}" selected data-media-width="1200">B photo (1200×600)</option>`,
-    );
-    expect(html).not.toContain("Current image");
-  });
-
-  // A per-use alt still wins as the label, but the width the field needs for its
-  // own warning comes from the upload either way.
-  test("keeps the per-use alt on a known upload, and still carries its width", () => {
-    const html = renderToString(
-      <FieldControl
-        pickerCapped={false}
-        field={image}
-        media={media}
-        value={{ mediaId: media[0].id, alt: "Stored alt" }}
-        idBase="cms-field-photo"
-        hasMedia
-      />,
-    );
-
-    expect(html).toContain(
-      `<option value="${media[0].id}" selected data-media-keep-label data-media-width="800">Stored alt</option>`,
-    );
+    expect(html).toContain("Upload not found");
+    expect(html).not.toContain("No image chosen.");
+    expect(html).toContain(`value="${unlisted}"`);
   });
 
   test("renders the warning slot and the field's minimum width", () => {
-    const html = renderToString(
-      <FieldControl
-        pickerCapped={false}
-        field={{ ...image, image: { minWidth: 1600 } }}
-        media={media}
-        value={{ mediaId: media[0].id }}
-        idBase="cms-field-photo"
-        hasMedia
-      />,
+    const html = renderImage(
+      { mediaId: first.id },
+      { field: { ...image, image: { minWidth: 1600 } } },
     );
 
     expect(html).toContain('data-image-min-width="1600"');
@@ -436,45 +407,8 @@ describe("FieldControl image picker", () => {
     expect(html).toContain("Needs at least 1600px wide");
   });
 
-  // The per-use alt is what the site renders for this use; the marker tells the
-  // client's relabel to leave the option's label alone when the picker is
-  // focused (see cms-form.ts).
-  test("marks the current image's option when it carries a per-use alt", () => {
-    const withOverride = renderToString(
-      <FieldControl
-        pickerCapped={false}
-        field={image}
-        value={{ mediaId: unlisted, alt: "Stored alt" }}
-        idBase="cms-field-photo"
-        hasMedia
-      />,
-    );
-    expect(withOverride).toContain(
-      `<option value="${unlisted}" selected data-media-keep-label`,
-    );
-
-    const without = renderToString(
-      <FieldControl
-        pickerCapped={false}
-        field={image}
-        value={{ mediaId: unlisted }}
-        idBase="cms-field-photo"
-        hasMedia
-      />,
-    );
-    expect(without).not.toContain("data-media-keep-label");
-  });
-
   test("caps the per-use alt override input at the shared limit", () => {
-    const html = renderToString(
-      <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
-        field={image}
-        value={{ mediaId: unlisted, alt: "Stored alt" }}
-        idBase="cms-field-photo"
-      />,
-    );
+    const html = renderImage({ mediaId: unlisted, alt: "Stored alt" });
     const alt = /<input[^>]*data-image-alt[^>]*>/.exec(html)?.[0] ?? "";
 
     // Preact lower-cases the attribute in the rendered HTML.
@@ -487,73 +421,27 @@ describe("FieldControl image picker", () => {
       `Optional. Leave blank to use the upload's own alt text. Up to ${MAX_ALT_LENGTH} characters.`,
     );
   });
-
-  // The help line is keyed on the controller's `capped`, not on the option
-  // count: a library of exactly the limit lists everything, so there is nothing
-  // older to paste an id for and the line would be wrong.
-  test("shows the reuse help, tied to the picker, only when the list is capped", () => {
-    const options: MediaOption[] = Array.from(
-      { length: MEDIA_PICKER_LIMIT },
-      (_, index) => ({
-        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-        alt: `Photo ${index}`,
-        width: 800,
-        height: 400,
-      }),
-    );
-    const render = (pickerCapped: boolean): string =>
-      renderToString(
-        <div>
-          <MediaOptionsTemplate media={options} />
-          <FieldControl
-            field={image}
-            value={{ mediaId: options[0].id, alt: "First" }}
-            idBase="cms-field-photo"
-            hasMedia
-            pickerCapped={pickerCapped}
-          />
-        </div>,
-      );
-
-    const capped = render(true);
-    expect(capped).toContain("Showing the newest 50 uploads");
-    expect(capped).toContain('id="cms-field-photo-pick-help"');
-    expect(capped).toContain('aria-describedby="cms-field-photo-pick-help"');
-
-    // The same list, an uncapped library: no help line, and the picker points
-    // at nothing it does not have.
-    const uncapped = render(false);
-    expect(uncapped).not.toContain("Showing the newest");
-    expect(uncapped).not.toContain('id="cms-field-photo-pick-help"');
-    expect(uncapped).not.toContain(
-      'aria-describedby="cms-field-photo-pick-help"',
-    );
-  });
 });
 
 describe("FieldControl image parts", () => {
   const image: FieldMetadata = { name: "photo", kind: "image", required: true };
 
   const renderImage = ({
-    hasMedia = true,
-    pickerCapped = false,
     help,
     errors,
     labelOverride,
   }: {
-    hasMedia?: boolean;
-    pickerCapped?: boolean;
     help?: string;
     errors?: FieldError[];
     labelOverride?: string;
   } = {}): string =>
     renderToString(
       <FieldControl
-        hasMedia={hasMedia}
-        pickerCapped={pickerCapped}
         field={help ? { ...image, help } : image}
         value={{ mediaId: "11111111-1111-4111-8111-111111111111" }}
         idBase="cms-field-photo"
+        pickerImages={new Map()}
+        uploadCsrfToken="upload-token"
         errors={errors}
         labelOverride={labelOverride}
       />,
@@ -566,34 +454,30 @@ describe("FieldControl image parts", () => {
       .slice(1)
       .map((part) => part.split("</div>")[0]);
 
-  test("groups the sub-parts in one wrapper", () => {
+  // #110's layout stays: the picker and Alt text are the two parts, spaced
+  // like separate fields inside one wrapper.
+  test("groups the picker and Alt text in one wrapper", () => {
     const html = renderImage();
     expect(count(html, 'class="cms-image-parts"')).toBe(1);
-    expect(count(html, 'class="cms-image-part"')).toBe(3);
+    expect(count(html, "data-image-picker-field")).toBe(1);
+    expect(parts(html)).toHaveLength(1);
   });
 
-  test("keeps each sub-label with the control it names", () => {
-    const [pick, id, alt] = parts(renderImage());
+  test("keeps the Alt text sub-label with its control", () => {
+    const [alt] = parts(renderImage());
 
-    expect(pick).toContain('for="cms-field-photo-pick"');
-    expect(pick).toContain("data-image-picker");
-    expect(id).toContain('for="cms-field-photo-id"');
-    expect(id).toContain("data-image-id");
     expect(alt).toContain('for="cms-field-photo-alt"');
     expect(alt).toContain("data-image-alt");
   });
 
-  test("keeps each part's help with the control it describes", () => {
-    const [pick, , alt] = parts(renderImage({ pickerCapped: true }));
+  // The picker's own legend is visually hidden, so the field's heading ("Photo"
+  // or a list row's label) is the only visible one; the accessible name stays.
+  test("hides the picker's legend behind the field's own heading", () => {
+    const html = renderImage();
 
-    expect(pick).toContain('id="cms-field-photo-pick-help"');
-    expect(alt).toContain('id="cms-field-photo-alt-help"');
-  });
-
-  test("omits the reuse part when there is no media", () => {
-    const html = renderImage({ hasMedia: false });
-    expect(parts(html)).toHaveLength(2);
-    expect(html).not.toContain("Reuse an upload");
+    expect(html).toContain('<legend class="cms-field-label sr-only"');
+    expect(html).toContain(">photo</legend>");
+    expect(count(html, 'class="cms-field-label"')).toBe(1);
   });
 
   // The wrapper's and help line's spacing classes carry the heading rhythm:
@@ -628,7 +512,6 @@ describe("FieldControl image parts", () => {
     expect(html).toContain('id="cms-field-photo-error"');
   });
 });
-
 describe("FieldControl link", () => {
   const PAGE_ID = "22222222-2222-4222-8222-222222222222";
   const link: FieldMetadata = {
@@ -640,13 +523,12 @@ describe("FieldControl link", () => {
   const renderLink = (value: unknown, errors?: FieldError[]): string =>
     renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={link}
         value={value}
         idBase="cms-field-cta"
         pages={[{ id: PAGE_ID, title: "About", url: "/about" }]}
         errors={errors}
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -720,14 +602,13 @@ describe("FieldControl link", () => {
     };
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={group}
         value={{
           text: "Read more",
           link: { type: "url", url: "https://example.com" },
         }}
         idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -750,11 +631,10 @@ describe("FieldControl link", () => {
     };
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={group}
         value={{ heading: "Hi", link: { type: "url", url: "https://a.test" } }}
         idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -777,11 +657,10 @@ describe("FieldControl link", () => {
     };
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={group}
         value={{ heading: "Hi" }}
         idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -798,11 +677,10 @@ describe("FieldControl link", () => {
   test("marks an optional link and its text inputs for the in-use rule", () => {
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={{ ...link, required: false }}
         value={{}}
         idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -828,14 +706,13 @@ describe("FieldControl link", () => {
     };
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={links}
         idBase="cms-field-links"
         value={[
           { type: "url", url: "https://a.example", label: "A" },
           { type: "url", url: "https://b.example", label: "B" },
         ]}
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -864,11 +741,10 @@ describe("FieldControl link", () => {
     };
     const html = renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={links}
         idBase="cms-field-links"
         value={[{ type: "url", url: "https://a.example", label: "A" }]}
+        uploadCsrfToken="upload-token"
       />,
     );
 
@@ -900,11 +776,10 @@ describe("FieldControl link", () => {
     const renderUnscoped = (): string =>
       renderToString(
         <FieldControl
-          hasMedia={false}
-          pickerCapped={false}
           field={link}
           value={{}}
           labelOverride="Link"
+          uploadCsrfToken="upload-token"
         />,
       );
 
@@ -1003,35 +878,36 @@ describe("FieldControl described-by ids", () => {
   const render = (field: FieldMetadata, errors?: FieldError[]): string =>
     renderToString(
       <FieldControl
-        hasMedia={false}
-        pickerCapped={false}
         field={field}
         value={field.kind === "image" ? {} : ""}
         errors={errors}
         idBase="cms-field-x"
+        uploadCsrfToken="upload-token"
       />,
     );
-  const mediaIdInput = (html: string): string =>
-    html.match(/<input[^>]*data-image-id[^>]*>/)?.[0] ?? "";
+  const imageField = (html: string): string =>
+    html.match(/<fieldset[^>]*data-field-kind="image"[^>]*>/)?.[0] ?? "";
 
-  test("image inputs carry no placeholder", () => {
+  test("the picker's value input carries no placeholder", () => {
     const html = render({ name: "x", kind: "image", required: false });
-    expect(html).not.toContain("placeholder=");
+    const input = html.match(/<input[^>]*data-image-id[^>]*>/)?.[0] ?? "";
+
+    expect(input).not.toContain("placeholder=");
   });
 
-  test("Media id names no ids without help or errors", () => {
-    const input = mediaIdInput(
+  test("an image field names no ids without help or errors", () => {
+    const field = imageField(
       render({ name: "x", kind: "image", required: false }),
     );
-    expect(input).not.toContain("aria-describedby");
+    expect(field).not.toContain("aria-describedby");
   });
 
-  test("Media id names help only with help, error only with errors", () => {
-    const help = mediaIdInput(
+  test("an image field names help only with help, error only with errors", () => {
+    const help = imageField(
       render({ name: "x", kind: "image", required: false, help: "Pick" }),
     );
     expect(help).toContain('aria-describedby="cms-field-x-help"');
-    const err = mediaIdInput(
+    const err = imageField(
       render({ name: "x", kind: "image", required: false }, [
         { path: "", message: "Bad" },
       ]),
