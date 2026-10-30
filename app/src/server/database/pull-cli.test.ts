@@ -31,7 +31,7 @@ const document: CmsExport = {
       url: "/pulled",
       title: "Pulled page",
       seoDescription: null,
-      socialImage: null,
+      socialImageId: null,
       publishedRevisionId: "22222222-2222-4222-8222-222222222222",
       createdAt: "2026-10-01T00:00:00.000Z",
       updatedAt: "2026-10-02T00:00:00.000Z",

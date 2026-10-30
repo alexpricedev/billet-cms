@@ -54,6 +54,8 @@ import {
   type PageSettingsInput,
   type PageSettingsValues,
   resolveWritablePageType,
+  SOCIAL_IMAGE_ISSUE,
+  SocialImageMissingError,
   validatePageSettings,
 } from "./pages";
 import { bumpContentVersion, readContentVersion } from "./publishing";
@@ -373,7 +375,7 @@ export const savePage = async (
   const page = input.page ?? (await getPageById(input.pageId));
   if (!page) throw new Error(`Page ${input.pageId} not found`);
 
-  const settings = validatePageSettings(input.settings);
+  const settings = await validatePageSettings(input.settings);
   if (!settings.ok) {
     return { ok: false, reason: "settings", issues: settings.issues };
   }
@@ -403,7 +405,7 @@ export const savePage = async (
 
   const outcome = await writePage(page, pageType, blockTypes, settings, input);
 
-  if (outcome.kind === "duplicate") {
+  if (outcome.kind === "duplicate" || outcome.kind === "settings") {
     return { ok: false, reason: "settings", issues: [outcome.issue] };
   }
 
@@ -426,7 +428,9 @@ export const savePage = async (
 type PageWriteOutcome =
   | { kind: "saved"; revision: RevisionRecord; page: PageRecord }
   | { kind: "conflict"; newer: RevisionRecord }
-  | { kind: "duplicate"; issue: FieldSettingIssue };
+  | { kind: "duplicate"; issue: FieldSettingIssue }
+  /** A settings field stopped the write (the social image disappeared). */
+  | { kind: "settings"; issue: FieldSettingIssue };
 
 /**
  * The one transaction an atomic page save runs: lock, check the conflict, write
@@ -488,6 +492,9 @@ const writePage = async (
       return { kind: "saved" as const, revision, page: applied.page };
     });
   } catch (error) {
+    if (error instanceof SocialImageMissingError) {
+      return { kind: "settings", issue: SOCIAL_IMAGE_ISSUE };
+    }
     // Outside the rolled-back transaction: the owner of the URL is a committed
     // row, so this names the page the editor collided with (part 9).
     const message = await duplicateUrlMessage(error, settings.url);

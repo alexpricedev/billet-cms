@@ -37,10 +37,12 @@ export const contentSecurityPolicy = (): string => {
     "object-src 'none'",
     "frame-ancestors 'none'",
     // The uploaded images live in the bucket, not on the CMS host; without its
-    // origin here every thumbnail and focal preview is blocked.
+    // origin here every thumbnail and focal preview is blocked. `blob:` is for
+    // the image picker's local preview of a file that is still uploading: the
+    // page's own script makes the URL, and it never names a network origin.
     mediaOrigin
-      ? `img-src 'self' data: ${mediaOrigin}`
-      : "img-src 'self' data:",
+      ? `img-src 'self' data: blob: ${mediaOrigin}`
+      : "img-src 'self' data: blob:",
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "script-src 'self'",

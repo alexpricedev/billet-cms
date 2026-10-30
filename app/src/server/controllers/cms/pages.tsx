@@ -1,6 +1,7 @@
 import { narrowImagesSentence } from "@shared/image-guidance";
 import type { BunRequest } from "bun";
 import type { FieldError } from "../../components/cms/field-control";
+import type { PickerImage } from "../../components/cms/image-picker";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
 import { checkCsrf, isRecoverableCsrfFailure } from "../../middleware/csrf";
 import {
@@ -30,8 +31,9 @@ import {
   savePage,
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
-import { listPickerMedia } from "../../services/media";
+import { getMediaById, listPickerMedia } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
+import { pickerOptionJson } from "../../templates/cms/media";
 import { PageDeleteConfirm } from "../../templates/cms/page-delete";
 import {
   NewPageForm,
@@ -177,8 +179,24 @@ const SETTINGS_FIELDS = new Set([
   "url",
   "title",
   "seoDescription",
-  "socialImage",
+  "socialImageId",
 ]);
+
+/**
+ * The upload a picker's closed field shows.
+ *
+ * The page row carries only the media id, so the editor form reads the row back
+ * for the alt and the dimensions and picks the same thumbnail rendition the
+ * library grid uses. A deleted or unreadable id yields null, which the picker
+ * draws as its placeholder rather than a broken image.
+ */
+const pickerImageFor = async (
+  mediaId: string | null,
+): Promise<PickerImage | null> => {
+  if (!mediaId || !UUID_PATTERN.test(mediaId)) return null;
+  const media = await getMediaById(mediaId);
+  return media ? pickerOptionJson(media) : null;
+};
 
 /** The blocks' own name for a block, with the block-type label when one exists. */
 const blockTypeMap = (
@@ -269,13 +287,22 @@ export const renderPageForm = async (
   const sessionId = ctx.sessionId as string;
   const user = ctx.user as NonNullable<SessionContext["user"]>;
 
-  const [blockTypes, pageTypes, pages, picker, latest] = await Promise.all([
-    listBlockTypes(),
-    listPageTypes(),
-    listPageOptions(),
-    listPickerMedia(content),
-    getLatestRevision("page", page.id),
-  ]);
+  // A refused save re-renders the settings the editor typed (`extras.settings`);
+  // the picker's closed field has to show that same choice, not the stored row,
+  // or the thumbnail and the hidden input would disagree about the image.
+  const socialImageId = extras.settings
+    ? (extras.settings.socialImageId ?? null)
+    : page.socialImageId;
+
+  const [blockTypes, pageTypes, pages, picker, latest, socialImage] =
+    await Promise.all([
+      listBlockTypes(),
+      listPageTypes(),
+      listPageOptions(),
+      listPickerMedia(content),
+      getLatestRevision("page", page.id),
+      pickerImageFor(socialImageId),
+    ]);
 
   // The status line says when the live revision was saved. A publish moves
   // `published_revision_id`, so the time has to be read from the revision.
@@ -291,13 +318,15 @@ export const renderPageForm = async (
     );
   }
 
-  const [formCsrfToken, publishCsrfToken, previewCsrfToken] = await Promise.all(
-    [
+  const [formCsrfToken, publishCsrfToken, previewCsrfToken, uploadCsrfToken] =
+    await Promise.all([
       createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}`),
       createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}/publish`),
       createCsrfToken(sessionId, "POST", `/cms/pages/${page.id}/preview`),
-    ],
-  );
+      // The picker's drop zone posts to the media upload route, which is a
+      // different path from the save — a token for the page path would 403.
+      createCsrfToken(sessionId, "POST", "/cms/media"),
+    ]);
 
   const issues = extras.errors ?? [];
   const settingsIssues = issues.filter((issue) =>
@@ -341,6 +370,8 @@ export const renderPageForm = async (
       pages={pages}
       media={picker.media}
       pickerCapped={picker.capped}
+      socialImage={socialImage}
+      uploadCsrfToken={uploadCsrfToken}
       settingsErrors={settingsErrors}
       blockErrors={byBlock}
       blockAlerts={alerts}
@@ -373,10 +404,13 @@ const renderNewPageForm = async (
   const pageTypes = (await listPageTypes()).filter(
     (type) => type.removedAt === null,
   );
-  const [csrfToken, navCsrfToken] = await Promise.all([
-    createCsrfToken(sessionId, "POST", "/cms/pages/new"),
-    createCsrfToken(sessionId, "POST", "/auth/logout"),
-  ]);
+  const [csrfToken, navCsrfToken, uploadCsrfToken, socialImage] =
+    await Promise.all([
+      createCsrfToken(sessionId, "POST", "/cms/pages/new"),
+      createCsrfToken(sessionId, "POST", "/auth/logout"),
+      createCsrfToken(sessionId, "POST", "/cms/media"),
+      pickerImageFor(values.socialImageId ?? null),
+    ]);
 
   return render(
     <NewPageForm
@@ -389,8 +423,10 @@ const renderNewPageForm = async (
         url: values.url,
         title: values.title,
         seoDescription: values.seoDescription ?? "",
-        socialImage: values.socialImage ?? "",
+        socialImageId: values.socialImageId ?? "",
       }}
+      socialImage={socialImage}
+      uploadCsrfToken={uploadCsrfToken}
       errors={errors?.map((issue) => ({
         path: issue.path,
         message: issue.message,
@@ -418,7 +454,7 @@ const settingsFrom = (formData: FormData) => ({
   url: nonEmpty(formData.get("url")) ?? "",
   title: nonEmpty(formData.get("title")) ?? "",
   seoDescription: nonEmpty(formData.get("seoDescription")),
-  socialImage: nonEmpty(formData.get("socialImage")),
+  socialImageId: nonEmpty(formData.get("socialImageId")),
 });
 
 /**
@@ -489,7 +525,7 @@ export const pages = {
       url: "",
       title: "",
       seoDescription: "",
-      socialImage: "",
+      socialImageId: "",
     });
   },
 
@@ -594,7 +630,7 @@ export const pages = {
       url: settings.url,
       title: settings.title,
       seoDescription: settings.seoDescription,
-      socialImage: settings.socialImage,
+      socialImageId: settings.socialImageId,
     };
 
     // The page type the editor chose, resolved to one the CMS can render the

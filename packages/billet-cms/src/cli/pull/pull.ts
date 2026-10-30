@@ -156,11 +156,11 @@ export const applyExport = async (
     for (const page of document.pages) {
       await tx`
         INSERT INTO cms_pages
-          (id, page_type, url, title, seo_description, social_image,
+          (id, page_type, url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at)
         VALUES (
           ${page.id}, ${page.pageType}, ${page.url}, ${page.title},
-          ${page.seoDescription}, ${page.socialImage}, ${page.publishedRevisionId},
+          ${page.seoDescription}, ${page.socialImageId}, ${page.publishedRevisionId},
           ${new Date(page.createdAt)}, ${new Date(page.updatedAt)}
         )
       `;

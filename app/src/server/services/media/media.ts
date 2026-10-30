@@ -8,9 +8,10 @@
  *    blank; the bytes are sniffed rather than believed; the dimensions are read
  *    from the header before Sharp decodes a pixel; SVG and GIF are refused; the
  *    file is capped at 20 MB and the decode at 100 megapixels.
- * 2. **A published image can't be deleted.** Removal is refused while any
- *    published page or slot still references the row, so a live site never ends
- *    up pointing at a file that is gone. The caller gets the usages to show.
+ * 2. **An image in use can't be deleted.** Removal is refused while any
+ *    published page or slot's content references the row, or any page names it
+ *    as its social image, so a live site never ends up pointing at a file that
+ *    is gone. The caller gets the usages to show.
  *
  * The bytes go to the storage adapter (`./storage`), and the row keeps both the
  * object keys (to delete) and the public URLs (to render) for the original and
@@ -27,7 +28,7 @@ import {
 } from "@alexpricedev/billet-cms/contract";
 import type { SQL } from "bun";
 import { inList, jsonbValue } from "../../utils/sql";
-import { filterUuids } from "../../utils/uuid";
+import { filterUuids, UUID_PATTERN } from "../../utils/uuid";
 import { bumpContentVersion } from "../content/publishing";
 import { db } from "../database";
 import { log } from "../logger";
@@ -73,8 +74,8 @@ export { MAX_ALT_LENGTH };
  * Enough of an upload for a picker or a reuse list.
  *
  * Only what a form control shows. The thumbnail URL the old shape carried was
- * never read by a control, so it is gone rather than computed for every row of
- * a large library.
+ * never read by a control, so it is not computed here; the options endpoint
+ * reads `variants` separately (below) because only it renders thumbnails.
  */
 export interface MediaOption {
   id: string;
@@ -82,6 +83,91 @@ export interface MediaOption {
   width: number;
   height: number;
 }
+
+/** An option plus every rendition, so the picker can choose a thumbnail. */
+export interface MediaOptionEntry extends MediaOption {
+  variants: MediaVariant[];
+}
+
+/** One page of the picker's options, newest first. */
+export interface MediaOptionsPage {
+  items: MediaOptionEntry[];
+  /** An opaque cursor for the next page, or null on the last one. */
+  next: string | null;
+}
+
+export interface MediaOptionsPageOptions {
+  /** A case-insensitive substring of the alt text. Blank matches everything. */
+  q?: string | null;
+  /** The `next` from a previous page. Malformed or absent starts at the top. */
+  after?: string | null;
+  /** The page size. Defaults to the picker's cap. */
+  limit?: number;
+}
+
+interface MediaOptionRow extends MediaOptionEntry {
+  /**
+   * `created_at` as ISO-8601 UTC at the column's full microsecond precision.
+   * Deliberately not aliased `created_at`: an output column of that name would
+   * shadow the table column in `ORDER BY`, make the sort textual, and leave
+   * `cms_media_created_at_idx` unusable on every picker query.
+   */
+  created_at_cursor: string;
+}
+
+interface OptionsCursor {
+  /** `to_char`'d `created_at`, so the cursor carries its microseconds. */
+  t: string;
+  /** The id, the tie-break for two rows with the same timestamp. */
+  i: string;
+}
+
+const CURSOR_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+const encodeOptionsCursor = (row: MediaOptionRow): string =>
+  Buffer.from(JSON.stringify({ t: row.created_at_cursor, i: row.id })).toString(
+    "base64url",
+  );
+
+/**
+ * Read a page cursor, or null when it isn't one this service wrote.
+ *
+ * `after` comes from the query string, so anything at all can arrive. A cursor
+ * that doesn't decode to our timestamp and id starts at the newest upload
+ * rather than erroring: a stale or hand-edited link shows the first page, which
+ * is a page the picker can use.
+ */
+const decodeOptionsCursor = (after: string | null): OptionsCursor | null => {
+  if (!after) return null;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(after, "base64url").toString("utf8"),
+    ) as Partial<OptionsCursor> | null;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      typeof parsed.t !== "string" ||
+      !CURSOR_TIMESTAMP.test(parsed.t) ||
+      typeof parsed.i !== "string" ||
+      !UUID_PATTERN.test(parsed.i)
+    ) {
+      return null;
+    }
+    return { t: parsed.t, i: parsed.i };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Escape the LIKE metacharacters in a search term.
+ *
+ * `_` matches any one character and `%` any run, so an alt search for "100%"
+ * would otherwise match "100 miles". The backslash is Postgres's default LIKE
+ * escape and is doubled here so a search for a literal one still works.
+ */
+const escapeLikePattern = (value: string): string =>
+  value.replace(/[\\%_]/g, "\\$&");
 
 interface MediaRow {
   id: string;
@@ -393,6 +479,58 @@ export const listMediaOptions = async (
   return rows;
 };
 
+/**
+ * One page of the picker's options, newest first.
+ *
+ * Paging is a keyset cursor rather than `OFFSET`: the library can grow while
+ * the picker is open, and an offset would skip or repeat a row when an upload
+ * lands between two pages. The cursor is the last row's `created_at` and id —
+ * the same pair the ordering uses — encoded so the client treats it as opaque.
+ *
+ * `q` searches the alt text. `ILIKE` is case-insensitive, and the pattern is
+ * escaped so `%` and `_` in a search are the characters the editor typed, not
+ * wildcards. The query reads one row past the page to tell whether another
+ * page exists without a count.
+ */
+export const listMediaOptionsPage = async (
+  options: MediaOptionsPageOptions = {},
+): Promise<MediaOptionsPage> => {
+  const limit = options.limit ?? MEDIA_PICKER_LIMIT;
+  const q = options.q?.trim() ?? "";
+  const pattern = q === "" ? null : `%${escapeLikePattern(q)}%`;
+  const cursor = decodeOptionsCursor(options.after ?? null);
+
+  const rows = (await db`
+    SELECT id, alt, width, height, variants,
+           to_char(created_at AT TIME ZONE 'UTC',
+                   'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
+    FROM cms_media
+    WHERE TRUE
+      ${pattern === null ? db`` : db`AND alt ILIKE ${pattern}`}
+      ${
+        cursor === null
+          ? db``
+          : db`AND (created_at, id) < (${cursor.t}::timestamptz, ${cursor.i}::uuid)`
+      }
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${limit + 1}
+  `) as MediaOptionRow[];
+
+  const items = rows.slice(0, limit).map(
+    ({
+      created_at_cursor: _cursor,
+      variants,
+      ...option
+    }): MediaOptionEntry => ({
+      ...option,
+      variants: parseVariants(variants),
+    }),
+  );
+  const next =
+    rows.length > limit ? encodeOptionsCursor(rows[limit - 1]) : null;
+  return { items, next };
+};
+
 /** The picker's fields for the uploads named, newest first. */
 export const getMediaOptionsByIds = async (
   ids: readonly string[],
@@ -560,13 +698,22 @@ interface UsageRow {
 }
 
 /**
- * The published pages and slots whose content references this image.
+ * The pages and slots whose published content references this image, plus the
+ * pages that use it as their social image.
  *
- * Only published revisions count: a draft's reference doesn't put the image on
- * a live page, so deleting it can't break a visitor, and the draft that uses it
- * will re-pick. The match is `jsonb_path_exists` in SQL rather than a walk over
- * every published revision in JavaScript, so only the rows that use the image
- * come back. Pass a transaction to read inside the delete's lock.
+ * A reference in published content only counts when the revision is live: a
+ * draft's reference doesn't put the image on a live page, so deleting it can't
+ * break a visitor, and the draft that uses it will re-pick. The match is
+ * `jsonb_path_exists` in SQL rather than a walk over every published revision
+ * in JavaScript, so only the rows that use the image come back. Pass a
+ * transaction to read inside the delete's lock.
+ *
+ * A page's social image is a settings column, not revision content, and it is
+ * live as soon as it is saved — so every page naming the upload counts,
+ * published or not. The foreign key would refuse the delete either way; listing
+ * the page here is what lets the CMS say which page instead of surfacing a
+ * constraint error. `UNION` rather than `UNION ALL` folds a page that uses the
+ * image both as its social image and in its content into one row.
  */
 export const getMediaUsage = async (
   mediaId: string,
@@ -578,13 +725,17 @@ export const getMediaUsage = async (
     WHERE jsonb_path_exists(
       r.content, '$.**.mediaId ? (@ == $mediaId)',
       jsonb_build_object('mediaId', ${mediaId}::text))
-    UNION ALL
+    UNION
     SELECT 'slot' AS kind, s.id, COALESCE(s.label, s.name) AS label,
            s.name AS detail
     FROM cms_slots s JOIN cms_revisions r ON r.id = s.published_revision_id
     WHERE jsonb_path_exists(
       r.content, '$.**.mediaId ? (@ == $mediaId)',
       jsonb_build_object('mediaId', ${mediaId}::text))
+    UNION
+    SELECT 'page' AS kind, p.id, p.title AS label, p.url AS detail
+    FROM cms_pages p
+    WHERE p.social_image_id = ${mediaId}
   `) as UsageRow[];
 
   return rows.map(({ kind, id, label, detail }) => ({
@@ -601,7 +752,8 @@ export type DeleteMediaResult =
   | { ok: false; reason: "in-use"; usage: MediaUsage[] };
 
 /**
- * Delete an upload, unless published content still uses it.
+ * Delete an upload, unless a published page or slot still uses it, or a page
+ * still names it as its social image.
  *
  * The row is locked `FOR UPDATE`, the usage re-checked and the row deleted in
  * one transaction, so a delete and a publish that references the image can't

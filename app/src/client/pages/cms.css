@@ -910,6 +910,15 @@ h1 {
   top: var(--space-4);
 }
 
+/* A sticky element is a stacking context, so the picker's fixed overlay would
+   be trapped beneath the sticky action bar (`z-index: 10`) however high its own
+   z-index went. While its dialog is open the panel sits in the normal flow, so
+   the overlay paints over the whole page; the dialog covers the panel anyway,
+   and the panel returns to sticky the moment it closes. */
+.cms-page-settings:has(.cms-picker-overlay:not([hidden])) {
+  position: static;
+}
+
 .cms-page-settings h2 {
   border-bottom: 1px solid var(--border);
   margin: 0;
@@ -1481,5 +1490,415 @@ h1 {
   .cms-media-upload,
   .cms-media-detail {
     padding: var(--space-4);
+  }
+}
+
+/* ---- Image picker ------------------------------------------------------- */
+
+/* The shared picker: a closed field that shows the current choice, and a
+   dialog holding the drop zone, the search and the library grid. Everything is
+   drawn from base tokens; the selection ring is the primary-button foreground
+   (`--text` in both themes), never the accent, so the picker stays monochrome
+   as the ticket asks. */
+
+/* Author `display` rules beat the UA `[hidden]` rule, and several tiles below
+   set one, so hiding has to be spelled out here. */
+.cms-image-picker [hidden] {
+  display: none;
+}
+
+.cms-image-picker {
+  gap: var(--space-2);
+}
+
+.cms-image-picker-current {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2);
+}
+
+.cms-image-picker-thumb {
+  aspect-ratio: 4 / 3;
+  background: var(--surface-subtle);
+  border-radius: var(--radius-sm);
+  flex: none;
+  height: 56px;
+  object-fit: cover;
+  width: 75px;
+}
+
+/* An upload with no usable rendition (or no pick yet) shows this instead of an
+   `<img>`: a token-coloured tile carrying the alt text. */
+.cms-image-picker-placeholder {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 11px;
+  justify-content: center;
+  overflow-wrap: anywhere;
+  padding: var(--space-1);
+  text-align: center;
+}
+
+.cms-image-picker-details {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.cms-image-picker-alt {
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.cms-image-picker-size {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.cms-image-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The dialog is fixed over the page; the overlay scrolls rather than the page
+   behind it, and the panel is capped to the viewport at every width. */
+.cms-picker-overlay {
+  align-items: center;
+  animation: cms-picker-fade-in 160ms ease-out;
+  background: var(--overlay);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  overflow-y: auto;
+  padding: var(--space-4);
+  position: fixed;
+  z-index: 60;
+}
+
+.cms-picker-dialog {
+  animation: cms-picker-rise 160ms ease-out;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-height: calc(100dvh - var(--space-8));
+  max-width: 960px;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-5);
+  width: 100%;
+}
+
+.cms-picker-header {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+}
+
+.cms-picker-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.cms-picker-drop {
+  align-items: center;
+  background: var(--surface-subtle);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  justify-content: center;
+  padding: var(--space-4);
+  text-align: center;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.cms-picker-drop.is-dragover {
+  background: var(--surface-selected);
+  border-color: var(--text);
+}
+
+.cms-picker-drop-text {
+  font-size: 13px;
+  margin: 0;
+  width: 100%;
+}
+
+.cms-picker-drop .cms-field-help {
+  margin: 0;
+  width: 100%;
+}
+
+.cms-picker-uploads {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cms-picker-uploads:empty {
+  display: none;
+}
+
+.cms-picker-upload {
+  align-items: center;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2);
+}
+
+.cms-picker-upload[data-state="done"] {
+  border-color: var(--success-border);
+}
+
+.cms-picker-upload[data-state="error"] {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+}
+
+.cms-picker-upload-preview {
+  flex: none;
+  height: 32px;
+  width: 32px;
+}
+
+.cms-picker-upload-preview img {
+  border-radius: 4px;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.cms-picker-upload-preview:empty {
+  display: none;
+}
+
+.cms-picker-upload-body {
+  display: grid;
+  flex: 1;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.cms-picker-upload-name {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.cms-picker-progress {
+  background: var(--border);
+  border-radius: 999px;
+  display: block;
+  height: 4px;
+  overflow: hidden;
+}
+
+.cms-picker-progress-bar {
+  background: var(--text);
+  display: block;
+  height: 100%;
+  transition: width 120ms linear;
+  width: 0;
+}
+
+.cms-picker-upload[data-state="done"] .cms-picker-progress {
+  display: none;
+}
+
+/* A failed upload has no progress left to report; the message is the tile. */
+.cms-picker-upload[data-state="error"] .cms-picker-progress {
+  display: none;
+}
+
+.cms-picker-upload-state {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.cms-picker-upload[data-state="error"] .cms-picker-upload-state {
+  color: var(--danger);
+}
+
+.cms-picker-toolbar {
+  display: flex;
+}
+
+.cms-picker-search {
+  width: 100%;
+}
+
+.cms-picker-grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fill, minmax(min(9rem, 100%), 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cms-picker-grid:empty {
+  display: none;
+}
+
+/* A grid item's automatic minimum is its content, so a long alt would widen
+   the card past its column; this is the same fix the media grid carries. */
+.cms-picker-card {
+  min-width: 0;
+}
+
+.cms-picker-card-button {
+  align-content: start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: grid;
+  gap: var(--space-2);
+  height: 100%;
+  min-width: 0;
+  padding: var(--space-2);
+  text-align: left;
+  width: 100%;
+}
+
+.cms-picker-card-button:hover {
+  border-color: var(--border-strong);
+}
+
+/* The selection ring is monochrome: the primary button's foreground, which is
+   `--text` in light and dark, not the blue accent. */
+.cms-picker-card-button.is-selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+.cms-picker-card-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.cms-picker-card-button img,
+.cms-picker-card-button .cms-picker-placeholder {
+  aspect-ratio: 4 / 3;
+  border-radius: 4px;
+  height: auto;
+  object-fit: cover;
+  width: 100%;
+}
+
+.cms-picker-card-button .cms-picker-placeholder {
+  align-items: center;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  display: flex;
+  font-size: 11.5px;
+  justify-content: center;
+  overflow-wrap: anywhere;
+  padding: var(--space-1);
+  text-align: center;
+}
+
+.cms-picker-card-alt {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.cms-picker-card-size {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cms-picker-status {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin: 0;
+}
+
+.cms-picker-status:empty {
+  display: none;
+}
+
+.cms-picker-footer {
+  display: flex;
+  justify-content: center;
+}
+
+.cms-picker-footer:has([hidden]) {
+  display: none;
+}
+
+@keyframes cms-picker-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cms-picker-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* No transition or animation in the dialog when the reader asked for less
+   motion; the modal appears and disappears instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .cms-picker-overlay,
+  .cms-picker-dialog {
+    animation: none;
+  }
+
+  .cms-picker-drop,
+  .cms-picker-progress-bar {
+    transition: none;
+  }
+}
+
+@media (width <= 640px) {
+  /* Dialogs fill the width minus 24px at this breakpoint (DESIGN.md). */
+  .cms-picker-overlay {
+    align-items: flex-start;
+    padding: var(--space-3);
+  }
+
+  .cms-picker-dialog {
+    max-height: calc(100dvh - var(--space-6));
+    padding: var(--space-4);
+  }
+
+  .cms-picker-grid {
+    gap: var(--space-2);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

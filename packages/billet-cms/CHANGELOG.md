@@ -1,6 +1,33 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+A page’s social image is an upload, pageSeo is async, and the contract moves to 0.10.0, so deploy the CMS and the site together.
+
+### A page's social image is an upload, and `pageSeo` is async
+
+`cms_pages.social_image` (a pasted URL) is now `social_image_id`, a foreign key
+into `cms_media`, and `CmsPage.socialImage` is `socialImageId`. The contract
+version is `0.10.0`: an older CMS or site reads a page row naming a column that
+no longer exists, so deploy both together.
+
+`pageSeo` reads the upload through the plugin's media reader and puts an
+absolute URL into `og:image` and `twitter:image`: the smallest rendition at
+least 1200px wide, or the largest there is when nothing is that wide, from the
+fallback (JPEG or PNG) rather than the WebP, since a share card is one URL with
+no `srcset`. It is now `async` and takes the reader as `media`:
+
+```ts
+const seo = await pageSeo(page, {
+  siteUrl: siteUrl(),
+  fallbackDescription: SITE_DESCRIPTION,
+  media: getCmsMediaReader(sql),
+});
+```
+
+A page with no image, a deleted upload, an upload with no renditions, and a
+site that passes no `media` all leave the image tags out, exactly as an unset
+image did before.
 
 ### A preview resolves links to draft pages
 

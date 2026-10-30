@@ -4,6 +4,7 @@ import { block, pageType, text } from "@alexpricedev/billet-cms/fields";
 import { seedBlockType, seedPageType } from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData } from "../../test-utils/helpers";
+import { jsonbValue } from "../../utils/sql";
 
 const connection = testDatabase();
 
@@ -33,6 +34,18 @@ import { createRevision } from "./revisions";
 const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
 const landing = pageType("landing", { allowedBlocks: [hero] });
 const article = pageType("article", { allowedBlocks: [hero] });
+
+/** One upload row, enough for a page's social image to point at. */
+const seedMedia = async (alt: string): Promise<string> => {
+  const rows = (await db`
+    INSERT INTO cms_media
+      (object_key, content_type, byte_size, width, height, alt, variants)
+    VALUES ('media/social/original.webp', 'image/webp', 10, 1200, 630, ${alt},
+            ${jsonbValue([])})
+    RETURNING id
+  `) as { id: string }[];
+  return rows[0].id;
+};
 
 describe("normalisePageUrl", () => {
   test("adds the leading slash a bare segment is missing", () => {
@@ -73,9 +86,12 @@ describe("normalisePageUrl", () => {
 });
 
 describe("page CRUD", () => {
+  let socialImageId: string;
+
   beforeEach(async () => {
     await cleanupTestData(db);
     await seedPageType(db, landing);
+    socialImageId = await seedMedia("Social image");
   });
 
   const create = (url: string, title = "About us") =>
@@ -84,7 +100,7 @@ describe("page CRUD", () => {
       url,
       title,
       seoDescription: "Who we are.",
-      socialImage: "/og/about.png",
+      socialImageId,
     });
 
   test("creates a page and reads it back by URL", async () => {
@@ -96,7 +112,7 @@ describe("page CRUD", () => {
     const found = await getPageByUrl("/about");
     expect(found?.title).toBe("About us");
     expect(found?.seoDescription).toBe("Who we are.");
-    expect(found?.socialImage).toBe("/og/about.png");
+    expect(found?.socialImageId).toBe(socialImageId);
     expect(found?.publishedRevisionId).toBeNull();
   });
 
@@ -160,29 +176,107 @@ describe("page CRUD", () => {
     expect(await listPages()).toEqual([]);
   });
 
-  test("refuses a social image that isn't an http(s) URL or a path", async () => {
+  test("refuses a social image id that names no upload", async () => {
     const result = await createPage({
       pageType: "landing",
       url: "/about",
       title: "About us",
-      socialImage: "javascript:alert(1)",
+      socialImageId: randomUUID(),
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues[0]?.path).toBe("socialImage");
+    expect(result.issues[0]?.path).toBe("socialImageId");
     expect(await listPages()).toEqual([]);
   });
 
-  test("accepts an absolute or site-relative social image", async () => {
-    // The `create` helper uses `/og/about.png`.
-    expect((await create("/relative")).ok).toBe(true);
-    const absolute = await createPage({
+  test("refuses a social image that isn't a media id at all", async () => {
+    const result = await createPage({
       pageType: "landing",
-      url: "/absolute",
-      title: "Absolute",
-      socialImage: "https://cdn.example/og.png",
+      url: "/about",
+      title: "About us",
+      socialImageId: "https://cdn.example/og.png",
     });
-    expect(absolute.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues[0]?.path).toBe("socialImageId");
+    expect(await listPages()).toEqual([]);
+  });
+
+  test("accepts an upload's id as the social image", async () => {
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImageId,
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.page.socialImageId).toBe(socialImageId);
+  });
+
+  // Postgres returns uuid values lowercase. An id typed or sent in uppercase
+  // names the same upload, so normalising it keeps a no-op save a no-op rather
+  // than a different string that bumps `content_version` and drops site caches.
+  test("stores a social image id in its lowercase form", async () => {
+    const upper = socialImageId.toUpperCase();
+    const created = await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImageId: upper,
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.page.socialImageId).toBe(socialImageId);
+
+    const version = async (): Promise<number> =>
+      (
+        (await db`
+          SELECT content_version FROM cms_meta WHERE id = 1
+        `) as { content_version: number }[]
+      )[0].content_version;
+    const before = await version();
+
+    const again = await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImageId: upper,
+    });
+    expect(again.ok).toBe(true);
+    // The same image, unchanged, so the site's cache is left alone.
+    expect(await version()).toBe(before);
+  });
+
+  test("a settings save clears the social image or refuses an unknown id", async () => {
+    const created = await create("/about");
+    if (!created.ok) throw new Error("create failed");
+
+    const unknown = await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImageId: randomUUID(),
+    });
+    expect(unknown.ok).toBe(false);
+    if (unknown.ok) return;
+    expect(unknown.issues[0]?.path).toBe("socialImageId");
+    // The stored image is untouched by the refused save.
+    expect((await getPageById(created.page.id))?.socialImageId).toBe(
+      socialImageId,
+    );
+
+    const cleared = await updatePageSettings({
+      pageId: created.page.id,
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+      socialImageId: "",
+    });
+    expect(cleared.ok).toBe(true);
+    expect((await getPageById(created.page.id))?.socialImageId).toBeNull();
   });
 
   test("refuses a page type that isn't published", async () => {
@@ -246,7 +340,7 @@ describe("page CRUD", () => {
       url: "/about",
       title: "About us",
       seoDescription: "Who we are.",
-      socialImage: "/og/about.png",
+      socialImageId,
     });
     expect(same.ok).toBe(true);
     expect(await version()).toBe(before);

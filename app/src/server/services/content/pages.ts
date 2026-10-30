@@ -22,6 +22,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { SQL } from "bun";
+import { UUID_PATTERN } from "../../utils/uuid";
 import { db } from "../database";
 import { getPageTypeByName, type PageTypeRecord } from "./definitions";
 import { bumpContentVersion } from "./publishing";
@@ -39,7 +40,7 @@ export interface PageRecord {
   draftUrl: string | null;
   title: string;
   seoDescription: string | null;
-  socialImage: string | null;
+  socialImageId: string | null;
   publishedRevisionId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -52,7 +53,7 @@ interface PageRow {
   draft_url: string | null;
   title: string;
   seo_description: string | null;
-  social_image: string | null;
+  social_image_id: string | null;
   published_revision_id: string | null;
   created_at: Date;
   updated_at: Date;
@@ -65,7 +66,7 @@ const toPage = (row: PageRow): PageRecord => ({
   draftUrl: row.draft_url,
   title: row.title,
   seoDescription: row.seo_description,
-  socialImage: row.social_image,
+  socialImageId: row.social_image_id,
   publishedRevisionId: row.published_revision_id,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -147,35 +148,68 @@ export const normalisePageUrl = (raw: string): UrlResult => {
   return { ok: true, url };
 };
 
-/**
- * True for a social image the site can safely put in a tag.
- *
- * A site-relative path (`/og/about.png`) or an absolute http(s) URL. A
- * protocol-relative `//host` and a backslash are refused for the same reason the
- * link field refuses them: they navigate off-site, whatever they look like.
- */
-const isUsableImageUrl = (value: string): boolean => {
-  if (value.includes("\\")) return false;
-  if (value.startsWith("//")) return false;
-  if (value.startsWith("/")) return true;
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
-
 export interface FieldSettingIssue {
   path: string;
   message: string;
 }
 
+/** The social-image issue for an id that names no upload. */
+export const SOCIAL_IMAGE_ISSUE: FieldSettingIssue = {
+  path: "socialImageId",
+  message: "Choose an image from the media library.",
+};
+
+/**
+ * The social image a save named was deleted before the write reached it.
+ *
+ * Validation reads `cms_media` outside the save's transaction, so an upload can
+ * disappear between "the id is good" and the `UPDATE`. Without this the foreign
+ * key would surface as an unhandled 500; the callers turn it into the same
+ * field issue validation gives.
+ */
+export class SocialImageMissingError extends Error {
+  constructor() {
+    super("The social image was deleted before the save.");
+    this.name = "SocialImageMissingError";
+  }
+}
+
+/**
+ * Hold a social image for the caller's transaction, or refuse a row that is
+ * gone. `FOR SHARE` makes a concurrent delete wait until the save commits, so
+ * the id cannot stop existing between the check and the write.
+ */
+const lockSocialImage = async (tx: SQL, id: string | null): Promise<void> => {
+  if (id === null) return;
+  const rows = (await tx`
+    SELECT id FROM cms_media WHERE id = ${id} FOR SHARE
+  `) as { id: string }[];
+  if (rows.length === 0) throw new SocialImageMissingError();
+};
+
+/**
+ * The issue a social-image id has, or `null` when it names a real upload.
+ *
+ * The value reaches a `uuid` column and then a foreign key, so it is checked
+ * before either: a non-UUID would make Postgres fail with `invalid input
+ * syntax` (a 500 for a typo), and a well-formed id that names no row would fail
+ * the foreign key after the rest of the save had already been validated.
+ */
+const socialImageIssue = async (
+  id: string,
+): Promise<FieldSettingIssue | null> => {
+  if (!UUID_PATTERN.test(id)) return SOCIAL_IMAGE_ISSUE;
+  const rows = (await db`
+    SELECT id FROM cms_media WHERE id = ${id}
+  `) as { id: string }[];
+  return rows.length > 0 ? null : SOCIAL_IMAGE_ISSUE;
+};
+
 export interface PageSettingsValues {
   url: string;
   title: string;
   seoDescription: string | null;
-  socialImage: string | null;
+  socialImageId: string | null;
 }
 
 export type PageSettingsValidation =
@@ -186,7 +220,7 @@ export interface PageSettingsInput {
   url: string;
   title: string;
   seoDescription?: string | null;
-  socialImage?: string | null;
+  socialImageId?: string | null;
 }
 
 /**
@@ -195,9 +229,9 @@ export interface PageSettingsInput {
  * Shared by create and update so the two can't drift: the editor sees the same
  * message whichever save it came from.
  */
-export const validatePageSettings = (
+export const validatePageSettings = async (
   input: PageSettingsInput,
-): PageSettingsValidation => {
+): Promise<PageSettingsValidation> => {
   const issues: FieldSettingIssue[] = [];
 
   const title = input.title.trim();
@@ -221,13 +255,14 @@ export const validatePageSettings = (
     });
   }
 
-  const socialImage = input.socialImage?.trim() ?? "";
-  if (socialImage !== "" && !isUsableImageUrl(socialImage)) {
-    issues.push({
-      path: "socialImage",
-      message:
-        "Enter an http(s) image URL, or a path on this site starting with /.",
-    });
+  // Stored ids are the lowercase form Postgres returns, so compare and store
+  // that form too: an uppercase id from an API caller is the same upload, but a
+  // text comparison against the stored row would read it as a change on every
+  // save and bump `content_version` for nothing.
+  const socialImageId = (input.socialImageId?.trim() ?? "").toLowerCase();
+  if (socialImageId !== "") {
+    const issue = await socialImageIssue(socialImageId);
+    if (issue) issues.push(issue);
   }
 
   if (issues.length > 0 || !url.ok) return { ok: false, issues };
@@ -237,7 +272,7 @@ export const validatePageSettings = (
     url: url.url,
     title,
     seoDescription: seoDescription === "" ? null : seoDescription,
-    socialImage: socialImage === "" ? null : socialImage,
+    socialImageId: socialImageId === "" ? null : socialImageId,
   };
 };
 
@@ -270,7 +305,7 @@ export type PageResult =
 
 export const listPages = async (): Promise<PageRecord[]> => {
   const rows = (await db`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     ORDER BY url
@@ -329,7 +364,7 @@ export const listPageStates = async (): Promise<Map<string, PageState>> => {
 
 export const getPageById = async (id: string): Promise<PageRecord | null> => {
   const rows = (await db`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     WHERE id = ${id}
@@ -339,7 +374,7 @@ export const getPageById = async (id: string): Promise<PageRecord | null> => {
 
 export const getPageByUrl = async (url: string): Promise<PageRecord | null> => {
   const rows = (await db`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     WHERE url = ${url}
@@ -362,7 +397,7 @@ export interface CreatePageInput extends PageSettingsInput {
 export const createPage = async (
   input: CreatePageInput,
 ): Promise<PageResult> => {
-  const settings = validatePageSettings(input);
+  const settings = await validatePageSettings(input);
   if (!settings.ok) return { ok: false, issues: settings.issues };
 
   const typeIssue = await pageTypeIssue(input.pageType);
@@ -371,6 +406,9 @@ export const createPage = async (
   try {
     const page = await db.begin(async (tx) => {
       const id = randomUUID();
+      // Validation ran outside this transaction; hold the upload so a delete
+      // cannot land between the check and the insert's foreign key.
+      await lockSocialImage(tx, settings.socialImageId);
       // A published page can hold a path as a *pending* address change, which
       // no unique index covers, so the new page would otherwise take it and the
       // owner's Publish would fail later with a conflict. Refuse it here.
@@ -379,16 +417,16 @@ export const createPage = async (
       await tx`DELETE FROM cms_redirects WHERE from_path = ${settings.url}`;
       const rows = (await tx`
         INSERT INTO cms_pages
-          (id, page_type, url, title, seo_description, social_image)
+          (id, page_type, url, title, seo_description, social_image_id)
         VALUES (
           ${id},
           ${input.pageType},
           ${settings.url},
           ${settings.title},
           ${settings.seoDescription},
-          ${settings.socialImage}
+          ${settings.socialImageId}
         )
-        RETURNING id, page_type, url, draft_url, title, seo_description, social_image,
+        RETURNING id, page_type, url, draft_url, title, seo_description, social_image_id,
                   published_revision_id, created_at, updated_at
       `) as PageRow[];
       // The site caches pages, redirects and links against `content_version`.
@@ -399,6 +437,9 @@ export const createPage = async (
     });
     return { ok: true, page };
   } catch (error) {
+    if (error instanceof SocialImageMissingError) {
+      return { ok: false, issues: [SOCIAL_IMAGE_ISSUE] };
+    }
     const message = await duplicateUrlMessage(error, settings.url);
     if (message) return { ok: false, issues: [{ path: "url", message }] };
     throw error;
@@ -491,7 +532,7 @@ const findPageHoldingUrl = async (
   exceptPageId: string,
 ): Promise<PageRecord | null> => {
   const rows = (await tx`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages
     WHERE (url = ${url} OR draft_url = ${url})
@@ -526,12 +567,16 @@ export const applyPageSettings = async (
   mode: PageSettingsMode,
 ): Promise<AppliedSettings> => {
   const locked = (await tx`
-    SELECT id, page_type, url, draft_url, title, seo_description, social_image,
+    SELECT id, page_type, url, draft_url, title, seo_description, social_image_id,
            published_revision_id, created_at, updated_at
     FROM cms_pages WHERE id = ${pageId} FOR UPDATE
   `) as PageRow[];
   if (locked.length === 0) throw new Error(`Page ${pageId} not found`);
   const previous = toPage(locked[0]);
+
+  // The settings were validated before the transaction opened, so hold the
+  // upload now: a concurrent delete must not turn the foreign key into a 500.
+  await lockSocialImage(tx, settings.socialImageId);
 
   const urlChanged = previous.url !== settings.url;
   // Only a page with a published revision has a live address to keep.
@@ -572,7 +617,7 @@ export const applyPageSettings = async (
     previous.pageType !== pageType ||
     previous.title !== settings.title ||
     previous.seoDescription !== settings.seoDescription ||
-    previous.socialImage !== settings.socialImage;
+    previous.socialImageId !== settings.socialImageId;
   const draftChanged = nextDraftUrl !== previous.draftUrl;
 
   if (!liveChanged && !draftChanged) {
@@ -586,10 +631,10 @@ export const applyPageSettings = async (
         draft_url = ${nextDraftUrl},
         title = ${settings.title},
         seo_description = ${settings.seoDescription},
-        social_image = ${settings.socialImage},
+        social_image_id = ${settings.socialImageId},
         updated_at = CURRENT_TIMESTAMP
     WHERE id = ${pageId}
-    RETURNING id, page_type, url, draft_url, title, seo_description, social_image,
+    RETURNING id, page_type, url, draft_url, title, seo_description, social_image_id,
               published_revision_id, created_at, updated_at
   `) as PageRow[];
   if (liveChanged) await bumpContentVersion(tx);
@@ -657,7 +702,7 @@ export const applyDraftUrl = async (
 export const updatePageSettings = async (
   input: UpdatePageSettingsInput,
 ): Promise<PageResult> => {
-  const settings = validatePageSettings(input);
+  const settings = await validatePageSettings(input);
   if (!settings.ok) return { ok: false, issues: settings.issues };
 
   const typeIssue = await pageTypeIssue(input.pageType);
@@ -669,6 +714,9 @@ export const updatePageSettings = async (
     );
     return { ok: true, page: page.page };
   } catch (error) {
+    if (error instanceof SocialImageMissingError) {
+      return { ok: false, issues: [SOCIAL_IMAGE_ISSUE] };
+    }
     const message = await duplicateUrlMessage(error, settings.url);
     if (message) return { ok: false, issues: [{ path: "url", message }] };
     throw error;
