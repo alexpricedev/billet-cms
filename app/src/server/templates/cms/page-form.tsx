@@ -384,16 +384,26 @@ export const PageForm = ({
       )}
 
       {uneditable && (
-        <Flash
-          tone="warning"
-          title={
-            <>
-              The page type <code>{page.pageType}</code> is no longer published,
-              so this page can't be edited until it is declared again. Its
-              content is kept.
-            </>
-          }
-        />
+        <>
+          <Flash
+            tone="warning"
+            title={
+              <>
+                The page type <code>{page.pageType}</code> is no longer
+                published, so this page can't be edited until it is declared
+                again. Its content is kept.
+              </>
+            }
+          />
+          {/* The form and its settings don't render without a page type, so
+              the page's only remaining action sits here, under the warning. */}
+          <a
+            className="cms-delete-button"
+            href={`/cms/pages/${page.id}/delete`}
+          >
+            Delete page
+          </a>
+        </>
       )}
 
       {contentIssues && contentIssues.length > 0 && (
@@ -592,6 +602,16 @@ export const PageForm = ({
                 value={settings.socialImage ?? ""}
                 errors={settingsErrors?.get("socialImage")}
               />
+              {/* Deleting goes through a confirm step that names the page, its
+                  redirects and the pages linking to it, rather than deleting
+                  on one click. It is a link, not a submit: the save payload
+                  doesn't change. */}
+              <a
+                className="cms-delete-button"
+                href={`/cms/pages/${page.id}/delete`}
+              >
+                Delete page
+              </a>
             </section>
           </div>
         </form>
@@ -677,15 +697,6 @@ export const PageForm = ({
             {previewWhy && <span id="preview-reason">{previewWhy}</span>}
           </p>
         )}
-      </section>
-
-      <section className="cms-danger" aria-label="Delete">
-        {/* Deleting goes through a confirm step that names the page, its
-            redirects and the pages linking to it, rather than deleting on one
-            click. */}
-        <a className="cms-delete-button" href={`/cms/pages/${page.id}/delete`}>
-          Delete page
-        </a>
       </section>
 
       {!uneditable && (
