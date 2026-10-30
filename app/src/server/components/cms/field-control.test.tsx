@@ -100,6 +100,58 @@ describe("FieldControl text", () => {
     expect(html).toContain('id="cms-field-intro-count"');
   });
 
+  // The counter used to take a row of its own below the box, which read as a
+  // wider gap before the next field. It sits at the end of the label row now,
+  // above the control, and the control keeps pointing at it.
+  test("keeps the character counter inside the label row", () => {
+    const html = renderText(120, "Hello");
+    const row =
+      /<div class="cms-field-label-row">([\s\S]*?)<\/div>/.exec(html)?.[1] ??
+      "";
+
+    expect(row).toContain('class="cms-field-label"');
+    expect(row).toContain("5 / 120");
+    expect(row).toContain("data-char-count");
+    expect(row).toContain('data-char-max="120"');
+    expect(row).toContain('id="cms-field-intro-count"');
+    // Above the box, not below it.
+    expect(html.indexOf("cms-field-label-row")).toBeLessThan(
+      html.indexOf("data-text-input"),
+    );
+    expect(control(html)).toContain('aria-describedby="cms-field-intro-count"');
+  });
+
+  test("puts a label-overridden field's counter on the label row too", () => {
+    const html = renderToString(
+      <FieldControl
+        hasMedia={false}
+        pickerCapped={false}
+        field={{ name: "item", kind: "text", required: false, max: 80 }}
+        value="Hi"
+        labelOverride="Tag"
+        nameScope="tag-0"
+      />,
+    );
+    const row =
+      /<div class="cms-field-label-row">([\s\S]*?)<\/div>/.exec(html)?.[1] ??
+      "";
+
+    expect(row).toContain('class="cms-field-label">Tag<');
+    expect(row).toContain("2 / 80");
+    expect(row).toContain("data-char-count");
+  });
+
+  // The flex row is only for a field with a counter. Without one the label
+  // stays a direct grid child, so it spans the row and the whole line focuses
+  // the control, as it did before the counter moved.
+  test("leaves a field without a counter's label unwrapped", () => {
+    const html = renderText(undefined);
+    expect(html).not.toContain("cms-field-label-row");
+    expect(html).toContain(
+      '<label class="cms-field-label" for="cms-field-intro">',
+    );
+  });
+
   test("carries help, errors and the invalid state on the textarea", () => {
     const html = renderToString(
       <FieldControl
@@ -476,6 +528,104 @@ describe("FieldControl image picker", () => {
     expect(uncapped).not.toContain(
       'aria-describedby="cms-field-photo-pick-help"',
     );
+  });
+});
+
+describe("FieldControl image parts", () => {
+  const image: FieldMetadata = { name: "photo", kind: "image", required: true };
+
+  const renderImage = ({
+    hasMedia = true,
+    pickerCapped = false,
+    help,
+    errors,
+    labelOverride,
+  }: {
+    hasMedia?: boolean;
+    pickerCapped?: boolean;
+    help?: string;
+    errors?: FieldError[];
+    labelOverride?: string;
+  } = {}): string =>
+    renderToString(
+      <FieldControl
+        hasMedia={hasMedia}
+        pickerCapped={pickerCapped}
+        field={help ? { ...image, help } : image}
+        value={{ mediaId: "11111111-1111-4111-8111-111111111111" }}
+        idBase="cms-field-photo"
+        errors={errors}
+        labelOverride={labelOverride}
+      />,
+    );
+
+  // A part ends at its own closing div: nothing inside one nests another div.
+  const parts = (html: string): string[] =>
+    html
+      .split('<div class="cms-image-part">')
+      .slice(1)
+      .map((part) => part.split("</div>")[0]);
+
+  test("groups the sub-parts in one wrapper", () => {
+    const html = renderImage();
+    expect(count(html, 'class="cms-image-parts"')).toBe(1);
+    expect(count(html, 'class="cms-image-part"')).toBe(3);
+  });
+
+  test("keeps each sub-label with the control it names", () => {
+    const [pick, id, alt] = parts(renderImage());
+
+    expect(pick).toContain('for="cms-field-photo-pick"');
+    expect(pick).toContain("data-image-picker");
+    expect(id).toContain('for="cms-field-photo-id"');
+    expect(id).toContain("data-image-id");
+    expect(alt).toContain('for="cms-field-photo-alt"');
+    expect(alt).toContain("data-image-alt");
+  });
+
+  test("keeps each part's help with the control it describes", () => {
+    const [pick, , alt] = parts(renderImage({ pickerCapped: true }));
+
+    expect(pick).toContain('id="cms-field-photo-pick-help"');
+    expect(alt).toContain('id="cms-field-photo-alt-help"');
+  });
+
+  test("omits the reuse part when there is no media", () => {
+    const html = renderImage({ hasMedia: false });
+    expect(parts(html)).toHaveLength(2);
+    expect(html).not.toContain("Reuse an upload");
+  });
+
+  // The wrapper's and help line's spacing classes carry the heading rhythm:
+  // a legend is outside the fieldset's grid (so help under it needs the 6px),
+  // while a list row's span label is a grid item (so it must not double it).
+  test("marks the wrapper and heading help for the label they follow", () => {
+    const legend = renderImage({ help: "A photo." });
+    expect(legend).toContain(
+      'class="cms-image-parts cms-image-parts-after-help"',
+    );
+    expect(legend).toContain('class="cms-field-help cms-image-help"');
+
+    const span = renderImage({ help: "A photo.", labelOverride: "Images" });
+    expect(span).toContain(
+      'class="cms-image-parts cms-image-parts-after-label cms-image-parts-after-help"',
+    );
+    expect(span).not.toContain("cms-image-help");
+  });
+
+  // The field's own help, errors and the min-width note describe the field as
+  // a whole, not a part, so they stay direct children of the fieldset.
+  test("leaves the field's own help and errors outside the parts", () => {
+    const html = renderImage({
+      help: "A photo.",
+      errors: [{ path: "photo", message: "Choose an image." }],
+    });
+    const inside = parts(html).join("");
+
+    expect(inside).not.toContain('id="cms-field-photo-help"');
+    expect(inside).not.toContain('id="cms-field-photo-error"');
+    expect(html).toContain('id="cms-field-photo-help"');
+    expect(html).toContain('id="cms-field-photo-error"');
   });
 });
 

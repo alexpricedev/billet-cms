@@ -1,6 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
-import { block, list, richText, text } from "@alexpricedev/billet-cms/fields";
+import type {
+  PageTypeDefinition,
+  RichTextDocument,
+} from "@alexpricedev/billet-cms/fields";
+import {
+  block,
+  image,
+  link,
+  list,
+  pageType,
+  richText,
+  text,
+} from "@alexpricedev/billet-cms/fields";
 import { createEditContentLink } from "@alexpricedev/billet-cms/handoff";
 import {
   type ContentReader,
@@ -10,7 +21,12 @@ import {
 import { handleCmsSignIn } from "@alexpricedev/billet-cms/sign-in";
 import type { Subprocess } from "bun";
 import { SQL } from "bun";
-import { seedBlockType, seedSlot } from "../src/server/test-utils/content";
+import { createPage } from "../src/server/services/content";
+import {
+  seedBlockType,
+  seedPageType,
+  seedSlot,
+} from "../src/server/test-utils/content";
 import {
   cleanupTestData,
   seedIdentity,
@@ -53,6 +69,8 @@ let view: InstanceType<typeof Bun.WebView>;
 let adminId = "";
 // The slot whose generated form proves the CMS form script runs.
 let slotId = "";
+// The page whose editor carries the settings fields (URL, page type).
+let pageId = "";
 
 // The site's read side: the plugin helper the stand-in site renders the
 // published slot through, exactly the way a real site would.
@@ -140,6 +158,71 @@ const escapeHtml = (value: string): string =>
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+
+/** The rendered height of the first element matching `selector`, or null. */
+const renderedHeight = (selector: string): Promise<number | null> =>
+  view.evaluate<number | null>(
+    `(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      return el ? Math.round(el.getBoundingClientRect().height) : null;
+    })()`,
+  );
+
+/**
+ * The vertical space between consecutive `.cms-field` boxes that are direct
+ * children of `root`, in pixels.
+ *
+ * Only field-to-field gaps are measured; a non-field sibling (the settings
+ * heading, the delete link) is skipped, because `--field-gap` governs the space
+ * between fields and nothing else. The image field's own parts are *inside* one
+ * `.cms-field`, so its heading-to-parts air never counts either.
+ */
+const fieldGaps = (root: string): Promise<number[] | null> =>
+  view.evaluate<number[] | null>(
+    `(() => {
+      const parent = document.querySelector(${JSON.stringify(root)});
+      if (!parent) return null;
+      const fields = Array.from(parent.children).filter((el) =>
+        el.classList.contains("cms-field"),
+      );
+      return fields.slice(1).map((field, index) => {
+        const previous = fields[index].getBoundingClientRect();
+        return (
+          Math.round(
+            (field.getBoundingClientRect().top - previous.bottom) * 100,
+          ) / 100
+        );
+      });
+    })()`,
+  );
+
+/**
+ * The vertical space from a field box's bottom to the top of the next sibling
+ * of the container it sits in, in pixels.
+ *
+ * This is the gap an editor sees: the space from a control to the next field,
+ * or from an image part's control to the next part. A field with a character
+ * counter must measure the same as one without — the counter belongs on the
+ * label row, not in a row of its own under the box.
+ */
+const boxToNextSibling = (
+  box: string,
+  containerClass: string,
+): Promise<number | null> =>
+  view.evaluate<number | null>(
+    `(() => {
+      const el = document.querySelector(${JSON.stringify(box)});
+      const container = el?.closest(${JSON.stringify(`.${containerClass}`)});
+      const next = container?.nextElementSibling;
+      if (!el || !next) return null;
+      return (
+        Math.round(
+          (next.getBoundingClientRect().top - el.getBoundingClientRect().bottom) *
+            100,
+        ) / 100
+      );
+    })()`,
+  );
 
 const siteHtml = (body: string): Response =>
   new Response(
@@ -229,16 +312,26 @@ const startSite = (): void => {
 
 // The block and slot the CMS builds a form from. The list gives the page
 // script something to do (Add appends a row) and the text field something to
-// type into, so a save proves the script rebuilt the hidden content field.
+// type into, so a save proves the script rebuilt the hidden content field. The
+// image and link fields are optional — the save test leaves them empty — and
+// exist so the smoke run can measure every kind of editor field box: a plain
+// text input, an image's alt input and the link's Button text.
 const hero = block(
   "hero",
   {
     heading: text({ label: "Heading", max: 80 }),
     body: richText({ label: "Body", required: false }),
     tags: list(text({ label: "Tag" }), { label: "Tags", max: 5 }),
+    photo: image({ label: "Photo", required: false }),
+    cta: link({ label: "Call to action", required: false }),
   },
   () => null,
 );
+
+// The page type behind the page editor, so its settings controls render.
+const landing: PageTypeDefinition = pageType("landing", {
+  allowedBlocks: [hero],
+});
 
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) {
@@ -302,6 +395,18 @@ beforeAll(async () => {
     page: "home",
     label: "Hero",
   });
+
+  // A page and its type, for the settings fields the height and gap checks
+  // measure. `createPage` is the same service the New page form calls, so the
+  // row is what a real page create leaves behind.
+  await seedPageType(sql, landing);
+  const created = await createPage({
+    pageType: "landing",
+    url: "/smoke-page",
+    title: "Smoke page",
+  });
+  if (!created.ok) throw new Error("page seed failed");
+  pageId = created.page.id;
 
   // The site's reader, over the same shared pool. The stand-in site renders
   // through it, so the smoke run exercises the real read path end to end.
@@ -449,6 +554,71 @@ describe("browser smoke", () => {
       text.includes("Draft saved."),
     );
     expect(saved).toContain("Draft saved.");
+  });
+
+  test("every single-line editor field box is one height", async () => {
+    // Continues signed in from the journey above. The slot form has a plain
+    // text input, an image's alt input and a link's Button text; the page
+    // editor has the URL input and the page-type select. All five are field
+    // boxes under `.cms-field`, so all five take `--field-height`.
+    await goto(`${CMS_BASE}/cms/slots/${slotId}`);
+    await until(
+      () =>
+        view.evaluate<boolean>(
+          `document.querySelector("#cms-field-heading") !== null`,
+        ),
+      (present) => present,
+    );
+    const slotHeights = {
+      heading: await renderedHeight("#cms-field-heading"),
+      alt: await renderedHeight("#cms-field-photo-alt"),
+      buttonText: await renderedHeight(".cms-link-text input"),
+    };
+    expect(slotHeights).toEqual({ heading: 44, alt: 44, buttonText: 44 });
+
+    await goto(`${CMS_BASE}/cms/pages/${pageId}`);
+    await until(
+      () => view.evaluate<boolean>(`document.querySelector("#url") !== null`),
+      (present) => present,
+    );
+    const pageHeights = {
+      url: await renderedHeight("#url"),
+      pageType: await renderedHeight("#pageType"),
+    };
+    expect(pageHeights).toEqual({ url: 44, pageType: 44 });
+  });
+
+  test("consecutive editor field boxes keep one gap", async () => {
+    // The hero block has five fields (heading, body, tags, photo, cta), so
+    // four field-to-field gaps; the page settings has five fields too (page
+    // type, URL, title, SEO description, social image).
+    await goto(`${CMS_BASE}/cms/slots/${slotId}`);
+    await until(
+      () =>
+        view.evaluate<boolean>(
+          `document.querySelector(".cms-fields") !== null`,
+        ),
+      (present) => present,
+    );
+    expect(await fieldGaps(".cms-fields")).toEqual([16, 16, 16, 16]);
+
+    // A field with a character counter measures from its box to the next field
+    // the same as an image part without one: the counter is on the label row,
+    // not in a row of its own that pads the gap.
+    expect(await boxToNextSibling("#cms-field-heading", "cms-field")).toBe(16);
+    expect(
+      await boxToNextSibling("#cms-field-photo-id", "cms-image-part"),
+    ).toBe(16);
+
+    await goto(`${CMS_BASE}/cms/pages/${pageId}`);
+    await until(
+      () =>
+        view.evaluate<boolean>(
+          `document.querySelector(".cms-page-settings") !== null`,
+        ),
+      (present) => present,
+    );
+    expect(await fieldGaps(".cms-page-settings")).toEqual([16, 16, 16, 16]);
   });
 
   test("a published slot renders on the site within seconds", async () => {

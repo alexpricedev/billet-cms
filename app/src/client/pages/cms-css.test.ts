@@ -475,6 +475,157 @@ describe("cms.css group headings", () => {
   });
 });
 
+describe("cms.css editor field rhythm", () => {
+  // Both sizes are tokens so a field box and the space between fields move
+  // together: the height the link field already used, and one gap for every
+  // field list instead of four different space steps.
+  test("defines one field height and one field gap", () => {
+    const root = /:root\s*\{([\s\S]*?)\n\}/.exec(baseCss)?.[1];
+    expect(root).toContain("--field-height: 44px");
+    expect(root).toContain("--field-gap: var(--space-4)");
+  });
+
+  // A text(), an image alt and the link field's boxes are the same control.
+  // The rule is an allow-list of single-line text-like inputs (plus selects),
+  // so a checkbox, radio, hidden input, file, button, colour or range control
+  // keeps its own size; textareas keep their own three-row/auto-grown size and
+  // stay out of the selector. The image picker's modal is rendered inside the
+  // fieldset but is chrome rather than a field box, so the whole overlay is
+  // excluded: its search input keeps the base control size.
+  test("sizes every single-line field control from the token", () => {
+    const rule = rules(css).find(
+      ([selector, body]) =>
+        /\.cms-field[^{]*input/.test(selector) &&
+        /height:\s*var\(--field-height\)/.test(body),
+    );
+    expect(rule).toBeDefined();
+
+    const selector = (rule?.[0] ?? "").replace(/\s+/g, " ");
+    for (const type of ["text", "url", "email", "tel", "search"]) {
+      expect(selector).toContain(`[type="${type}"]`);
+    }
+    // No `type` means `text` in the browser, so it is in the allow-list too.
+    // Pin the whole branch: `input:not([type]` alone would also match
+    // `input:not([type="checkbox"])`, a broad exclusion.
+    expect(selector).toContain("input:not([type], .cms-picker-overlay *)");
+    expect(selector).toContain(".cms-field select:not(.cms-picker-overlay *)");
+    // The image picker's dialog sits inside the fieldset; its own controls
+    // (the search box) are not field boxes and keep the base size. Every
+    // branch carries the exclusion — one dropped branch stretches the search
+    // box again — so count them rather than finding it somewhere.
+    expect(selector.match(/\.cms-picker-overlay \*/g) ?? []).toHaveLength(3);
+    expect(selector).not.toContain("textarea");
+    // Not a broad exclusion that would catch every other input type.
+    expect(selector).not.toContain('[type="checkbox"]');
+  });
+
+  // The link field's hard-coded 44px was the only field-box height; every
+  // field control now takes the token. A literal left on a field or link rule
+  // is the thing that drifts when the token changes.
+  test("leaves no literal field-box height in cms.css", () => {
+    const fieldRules = rules(css).filter(([selector]) =>
+      /\.cms-(?:field|link)\b/.test(selector),
+    );
+    expect(fieldRules.length).toBeGreaterThan(0);
+    for (const [selector, body] of fieldRules) {
+      expect(body, selector).not.toMatch(/\b44px\b/);
+    }
+  });
+
+  // Four lists used to space their fields at --space-5, --space-4 and
+  // --space-3; they all answer to the one gap token now.
+  test("spaces every editor field list from the gap token", () => {
+    for (const wanted of [
+      ".cms-fields",
+      ".cms-new-page-form",
+      ".cms-page-settings",
+      ".cms-field-group [data-group-fields]",
+    ]) {
+      const rule = rules(css).find(
+        ([selector, body]) =>
+          selector.trim() === wanted && /gap:\s*var\(--field-gap\)/.test(body),
+      );
+      expect(rule, wanted).toBeDefined();
+    }
+  });
+
+  // Inside a field the label sits 6px above its control, and the help,
+  // character count, errors and warnings sit that same 6px below it: the
+  // field's own grid gap is the whole rhythm, so none of them may add a
+  // margin or padding of their own.
+  test("keeps help, count, errors and warnings on the field's 6px rhythm", () => {
+    const field = rules(css).find(
+      ([selector]) => selector.trim() === ".cms-field",
+    );
+    expect(field?.[1]).toContain("gap: 6px");
+
+    for (const name of [
+      ".cms-field-help",
+      ".cms-char-count",
+      ".cms-field-errors",
+      ".cms-field-warning",
+    ]) {
+      const rule = rules(css).find(([selector]) => selector.trim() === name);
+      expect(rule?.[1], name).toContain("margin: 0");
+      expect(rule?.[1], name).not.toContain("padding");
+    }
+  });
+
+  // The character counter sits on the label line, not on a row below the box:
+  // an empty counter row under the Heading box read as a wider field gap. The
+  // label may wrap; the counter keeps its width so the two never overlap.
+  test("puts the character counter on the label row", () => {
+    const row = /\.cms-field-label-row\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(row).toContain("align-items: baseline");
+    expect(row).toContain("display: flex");
+    expect(row).toContain("gap: var(--space-2)");
+    expect(row).toContain("justify-content: space-between");
+
+    const counter = /\.cms-char-count\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(counter).toContain("flex: none");
+  });
+
+  // The image field is composite: its parts are spaced like separate fields,
+  // while each part keeps the 6px label-to-control rhythm. A fieldset's legend
+  // is out of flow, so the wrapper carries the heading's --space-3 itself
+  // unless field help sits between the two and the field's gap already does.
+  // The heading titles the parts, so it is weighted like a group heading
+  // rather than a second label stacked on "Reuse an upload".
+  test("spaces the image field's parts like separate fields", () => {
+    const parts = /\.cms-image-parts\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(parts).toContain("gap: var(--field-gap)");
+    expect(parts).toContain("margin-top: var(--space-3)");
+
+    // A legend is outside the fieldset's grid, so a help line under the image
+    // heading takes the field's 6px itself. A list row's span label is inside
+    // the grid: the wrapper gives up the 6px its gap already contributes, and
+    // help above it zeroes the wrapper's heading air.
+    const ruleFor = (name: string) =>
+      rules(css).find(([selector]) => selector.trim() === name)?.[1];
+    expect(ruleFor(".cms-image-help")).toContain("margin-top: 6px");
+    expect(ruleFor(".cms-image-parts-after-label")).toContain(
+      "calc(var(--space-3) - 6px)",
+    );
+    expect(ruleFor(".cms-image-parts-after-help")).toContain("margin-top: 0");
+
+    const part = /\.cms-image-part\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(part).toContain("gap: 6px");
+
+    const label =
+      /\.cms-field\[data-field-kind="image"\] > \.cms-field-label\s*\{([^}]*)\}/.exec(
+        css,
+      )?.[1];
+    expect(label).toContain("font-weight: 600");
+  });
+
+  // The type icon inside the link destination is vertically centred on the
+  // control, so it has to take the same token as the control it sits in.
+  test("centres the link icon on the field height", () => {
+    const icon = /\.cms-link-icon\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(icon).toContain("height: var(--field-height)");
+  });
+});
+
 describe("cms.css long text fields", () => {
   // A `text()` field over 120 characters renders a textarea, and the client
   // grows it to its text and only then adds `cms-textarea-grown`. Hiding the

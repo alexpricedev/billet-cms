@@ -101,6 +101,10 @@
   --content-max: 1120px;
   --bar-height: 56px;
   --control-height: 32px;
+  /* Editor field boxes: one height for every single-line input and select, and
+     one gap between consecutive fields in a field list. */
+  --field-height: 44px;
+  --field-gap: var(--space-4);
 
   /* Compatibility aliases. Older component CSS names these; new CSS uses the
      semantic tokens above. Mapping them here is what stops a second palette

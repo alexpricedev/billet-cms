@@ -184,7 +184,7 @@ h1 {
 
 .cms-fields {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--field-gap);
   margin: 0;
   max-width: 760px;
 }
@@ -196,6 +196,49 @@ h1 {
   margin: 0;
   min-inline-size: 0;
   padding: 0;
+}
+
+/* Every single-line control in an editor field is one height. base.css leaves
+   `min-height` at the control size; this takes the text controls to
+   `--field-height` so a text() box, an image's alt input and the link field's
+   boxes all line up. The input half is an allow-list, not an exclusion: only
+   text-like types — and an input with no `type`, which is `text` — are matched,
+   so a checkbox, radio, hidden input, file, button, colour or range control
+   keeps its own size. Textareas and the rich text editor are not matched.
+
+   The image picker's dialog is rendered inside a `.cms-field` so that opening
+   it moves no layout, but it is modal chrome rather than one of the field's
+   boxes: its search input keeps the base control size, like the dialog's
+   buttons. The exclusion is on the overlay, not on that one input, so
+   anything the dialog grows later is not stretched either.
+
+   The typed branch's allow-list is `:where()` rather than `:is()` so it
+   contributes no specificity: all three branches stay (0,2,1) and an override
+   cannot beat the no-type input while losing to the typed ones. */
+.cms-field input:not([type], .cms-picker-overlay *),
+.cms-field
+  input:where(
+    [type="text"],
+    [type="url"],
+    [type="email"],
+    [type="tel"],
+    [type="search"]
+  ):not(.cms-picker-overlay *),
+.cms-field select:not(.cms-picker-overlay *) {
+  height: var(--field-height);
+}
+
+/* A field's label and its character counter share one row: the counter sits
+   at the right end of the label line rather than on a row of its own under the
+   box, where that empty row read as a wider gap to the next field. A long
+   label may wrap on a phone; the counter keeps its width (`flex: none`) and
+   stays on the first line. Only a field with a counter is wrapped in this row;
+   a plain label stays a direct grid child and spans the row. */
+.cms-field-label-row {
+  align-items: baseline;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
 }
 
 .cms-field-label {
@@ -223,7 +266,7 @@ h1 {
 
 .cms-field-group [data-group-fields] {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--field-gap);
 }
 
 .cms-required {
@@ -246,13 +289,10 @@ h1 {
 
 .cms-char-count {
   color: var(--text-muted);
+  flex: none;
   font-size: 11.5px;
   margin: 0;
   text-align: right;
-}
-
-.cms-field-errors[data-char-over] {
-  padding-left: 0;
 }
 
 .cms-char-count-over {
@@ -264,7 +304,6 @@ h1 {
   font-size: 12px;
   line-height: 1.5;
   margin: 0;
-  padding-left: var(--space-4);
 }
 
 /* A narrow image doesn't refuse the save (part 10), so its line is the warning
@@ -276,6 +315,44 @@ h1 {
   font-size: 12px;
   line-height: 1.5;
   margin: 0;
+}
+
+/* The image field is composite, like a group: its heading titles the parts
+   rather than being a second label stacked on "Reuse an upload" (its weight is
+   set with the other group headings below). A fieldset's legend is not a grid
+   item, so the fieldset's own 6px gap does not reach it: the wrapper carries
+   the whole `--space-3` itself. When field help sits between the two, it keeps
+   the field's normal 6px rhythm. The sub-parts themselves are spaced like
+   separate fields, while each keeps the 6px label-to-control rhythm of one. */
+.cms-image-parts {
+  display: grid;
+  gap: var(--field-gap);
+  margin-top: var(--space-3);
+}
+
+/* A list row's label is a span, not a legend, so it *is* a grid item: the 6px
+   gap already sits above the wrapper. Take that 6px out of the wrapper's
+   --space-3, or a list image's heading gets 18px instead of the 12px every
+   other image heading gets. */
+.cms-image-parts-after-label {
+  margin-top: calc(var(--space-3) - 6px);
+}
+
+/* Help and the wrapper are both grid items, so their 6px gap is the rhythm
+   below the help line; the wrapper's heading air would double it. */
+.cms-image-parts-after-help {
+  margin-top: 0;
+}
+
+/* A legend is outside the fieldset's grid, so a help line directly under the
+   image heading has to carry the field's 6px itself. */
+.cms-image-help {
+  margin-top: 6px;
+}
+
+.cms-image-part {
+  display: grid;
+  gap: 6px;
 }
 
 /* A long upload label is ellipsised rather than widening the image picker. */
@@ -312,6 +389,13 @@ h1 {
   position: absolute;
   right: 14px;
   top: 14px;
+}
+
+/* An image fieldset's heading is a group heading too (see `.cms-image-parts`):
+   it titles the whole field, so it is not a second label stacked on "Reuse an
+   upload". */
+.cms-field[data-field-kind="image"] > .cms-field-label {
+  font-weight: 600;
 }
 
 .cms-link-text,
@@ -353,13 +437,6 @@ h1 {
   > .cms-field-label
   .cms-field-optional {
   display: none;
-}
-
-.cms-link-text input,
-.cms-link-destination input,
-.cms-link-destination select,
-.cms-link-title input {
-  height: 44px;
 }
 
 .cms-link-destination-group {
@@ -457,7 +534,7 @@ h1 {
   align-items: center;
   color: var(--text-muted);
   display: flex;
-  height: 44px;
+  height: var(--field-height);
   left: 12px;
   pointer-events: none;
   position: absolute;
@@ -850,7 +927,7 @@ h1 {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   display: grid;
-  gap: var(--space-4);
+  gap: var(--field-gap);
   margin: 0;
   padding: var(--space-4);
   position: sticky;
@@ -877,7 +954,7 @@ h1 {
 /* The create form is a flat list of fields, so it carries its own rhythm. */
 .cms-new-page-form {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--field-gap);
   max-width: 720px;
 }
 

@@ -235,12 +235,17 @@ const GroupLabelText = ({
 const FieldHelp = ({
   help,
   id,
+  className,
 }: {
   help?: string;
   id?: string;
+  className?: string;
 }): JSX.Element | null =>
   help ? (
-    <span className="cms-field-help" id={id}>
+    <span
+      className={className ? `cms-field-help ${className}` : "cms-field-help"}
+      id={id}
+    >
       {help}
     </span>
   ) : null;
@@ -546,6 +551,13 @@ export const FieldControl = ({
       const multiline = field.max !== undefined && field.max > 120;
       const textDescribedBy =
         field.max === undefined ? described : describedBy(described, countId);
+      const label = labelOverride ? (
+        <span className="cms-field-label">{labelOverride}</span>
+      ) : (
+        <label className="cms-field-label" htmlFor={controlId}>
+          <FieldLabelText field={field} inGroup={inGroup} />
+        </label>
+      );
       return (
         <div
           className="cms-field"
@@ -553,12 +565,28 @@ export const FieldControl = ({
           data-field-kind="text"
           data-field-name={field.name}
         >
-          {labelOverride ? (
-            <span className="cms-field-label">{labelOverride}</span>
+          {/* The counter shares the label's row instead of taking one of its
+              own under the box, where the empty space above it read as a wider
+              gap to the next field. It keeps its id and live region, so
+              `aria-describedby` and `cms-form.ts` are unchanged. Only a field
+              with a counter gets the flex row: without one the label stays a
+              direct grid child, so it spans the row and the whole line focuses
+              the control. */}
+          {field.max === undefined ? (
+            label
           ) : (
-            <label className="cms-field-label" htmlFor={controlId}>
-              <FieldLabelText field={field} inGroup={inGroup} />
-            </label>
+            <div className="cms-field-label-row">
+              {label}
+              <p
+                className="cms-field-help cms-char-count"
+                id={countId}
+                aria-live="polite"
+                data-char-count
+                data-char-max={field.max}
+              >
+                {asString(value).length} / {field.max}
+              </p>
+            </div>
           )}
           {multiline ? (
             <textarea
@@ -584,23 +612,10 @@ export const FieldControl = ({
               aria-describedby={textDescribedBy}
             />
           )}
-          {field.max !== undefined && (
-            <>
-              <p
-                className="cms-field-help cms-char-count"
-                id={countId}
-                aria-live="polite"
-                data-char-count
-                data-char-max={field.max}
-              >
-                {asString(value).length} / {field.max}
-              </p>
-              {!invalid && (
-                <p className="cms-field-errors" data-char-over hidden>
-                  Use {field.max} characters or fewer.
-                </p>
-              )}
-            </>
+          {field.max !== undefined && !invalid && (
+            <p className="cms-field-errors" data-char-over hidden>
+              Use {field.max} characters or fewer.
+            </p>
           )}
           <FieldErrors errors={errors} id={errorId} />
           <FieldHelp help={field.help} id={helpId} />
@@ -686,76 +701,103 @@ export const FieldControl = ({
               <FieldLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
-          <FieldHelp help={field.help} id={helpId} />
-          {hasMedia && (
-            <>
-              <SubControlLabel htmlFor={idFor("pick")}>
-                Reuse an upload
-              </SubControlLabel>
-              <select
-                id={idFor("pick")}
-                data-image-picker
-                aria-label={controlId ? undefined : "Reuse an upload"}
-                aria-describedby={pickerCapped ? idFor("pick-help") : undefined}
-              >
-                <option value="" selected={!image.mediaId}>
-                  Choose an image…
-                </option>
-                {/* Only the current image, so a picker in a long page is cheap;
-                    the client fills the rest from the form's one options
-                    template when the picker is first focused, relabelling this
-                    option when the current image is one of them unless it
-                    carries a per-use alt the editor typed. Its label is the
-                    upload's own alt and dimensions when the field knows them
-                    (part 10: it used to say only "Current image"), and falls
-                    back to that phrase for a deleted or unlisted id so a raw id
-                    is never shown as a label. */}
-                {image.mediaId && (
-                  <option
-                    value={mediaId}
-                    selected
-                    data-media-keep-label={asString(image.alt) ? "" : undefined}
-                    data-media-width={current?.width}
-                  >
-                    {asString(image.alt) || currentLabel}
+          {/* A fieldset's legend is outside its grid, so the field's 6px gap
+              does not sit between the heading and a help line. The class puts
+              that gap back; a list row's span label is a grid item and must not
+              get it twice. */}
+          <FieldHelp
+            help={field.help}
+            id={helpId}
+            className={labelOverride ? undefined : "cms-image-help"}
+          />
+          {/* The three sub-parts are spaced like separate fields; each keeps
+              the label-to-control rhythm of one. The wrapper is also where the
+              heading's extra air comes from (see the image rules in cms.css):
+              `after-label` subtracts the 6px a span label's grid gap already
+              contributes, and `after-help` lets the help line keep the 6px. */}
+          <div
+            className={`cms-image-parts${
+              labelOverride ? " cms-image-parts-after-label" : ""
+            }${field.help ? " cms-image-parts-after-help" : ""}`}
+          >
+            {hasMedia && (
+              <div className="cms-image-part">
+                <SubControlLabel htmlFor={idFor("pick")}>
+                  Reuse an upload
+                </SubControlLabel>
+                <select
+                  id={idFor("pick")}
+                  data-image-picker
+                  aria-label={controlId ? undefined : "Reuse an upload"}
+                  aria-describedby={
+                    pickerCapped ? idFor("pick-help") : undefined
+                  }
+                >
+                  <option value="" selected={!image.mediaId}>
+                    Choose an image…
                   </option>
+                  {/* Only the current image, so a picker in a long page is
+                      cheap; the client fills the rest from the form's one
+                      options template when the picker is first focused,
+                      relabelling this option when the current image is one of
+                      them unless it carries a per-use alt the editor typed. Its
+                      label is the upload's own alt and dimensions when the
+                      field knows them (part 10: it used to say only "Current
+                      image"), and falls back to that phrase for a deleted or
+                      unlisted id so a raw id is never shown as a label. */}
+                  {image.mediaId && (
+                    <option
+                      value={mediaId}
+                      selected
+                      data-media-keep-label={
+                        asString(image.alt) ? "" : undefined
+                      }
+                      data-media-width={current?.width}
+                    >
+                      {asString(image.alt) || currentLabel}
+                    </option>
+                  )}
+                </select>
+                {/* Only when the reuse list was actually capped: a library of
+                    the cap or fewer lists everything, so there is nothing older
+                    to go looking for. */}
+                {pickerCapped && (
+                  <span className="cms-field-help" id={idFor("pick-help")}>
+                    Showing the newest {MEDIA_PICKER_LIMIT} uploads. For an
+                    older one, paste its id under Media id.
+                  </span>
                 )}
-              </select>
-              {/* Only when the reuse list was actually capped: a library of the
-                  cap or fewer lists everything, so there is nothing older to go
-                  looking for. */}
-              {pickerCapped && (
-                <span className="cms-field-help" id={idFor("pick-help")}>
-                  Showing the newest {MEDIA_PICKER_LIMIT} uploads. For an older
-                  one, paste its id under Media id.
-                </span>
-              )}
-            </>
-          )}
-          <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>
-          <input
-            type="text"
-            id={idFor("id")}
-            data-image-id
-            aria-label={controlId ? undefined : "Media id"}
-            value={asString(image.mediaId)}
-            aria-invalid={invalid ? "true" : undefined}
-            aria-describedby={described}
-          />
-          <SubControlLabel htmlFor={idFor("alt")}>Alt text</SubControlLabel>
-          <input
-            type="text"
-            id={idFor("alt")}
-            data-image-alt
-            aria-label={controlId ? undefined : "Alt text"}
-            value={asString(image.alt)}
-            maxLength={MAX_ALT_LENGTH}
-            aria-describedby={idFor("alt-help")}
-          />
-          <span className="cms-field-help" id={idFor("alt-help")}>
-            Optional. Leave blank to use the upload's own alt text. Up to{" "}
-            {MAX_ALT_LENGTH} characters.
-          </span>
+              </div>
+            )}
+            <div className="cms-image-part">
+              <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>
+              <input
+                type="text"
+                id={idFor("id")}
+                data-image-id
+                aria-label={controlId ? undefined : "Media id"}
+                value={asString(image.mediaId)}
+                aria-invalid={invalid ? "true" : undefined}
+                aria-describedby={described}
+              />
+            </div>
+            <div className="cms-image-part">
+              <SubControlLabel htmlFor={idFor("alt")}>Alt text</SubControlLabel>
+              <input
+                type="text"
+                id={idFor("alt")}
+                data-image-alt
+                aria-label={controlId ? undefined : "Alt text"}
+                value={asString(image.alt)}
+                maxLength={MAX_ALT_LENGTH}
+                aria-describedby={idFor("alt-help")}
+              />
+              <span className="cms-field-help" id={idFor("alt-help")}>
+                Optional. Leave blank to use the upload's own alt text. Up to{" "}
+                {MAX_ALT_LENGTH} characters.
+              </span>
+            </div>
+          </div>
           <FieldErrors errors={errors} id={errorId} />
           {field.image?.minWidth && (
             <span className="cms-field-help">
