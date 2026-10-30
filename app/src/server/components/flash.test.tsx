@@ -21,7 +21,9 @@ describe("Flash", () => {
   }
 
   test("marks both icons aria-hidden", () => {
-    const html = renderToString(<Flash tone="success" title="Draft saved." />);
+    const html = renderToString(
+      <Flash tone="success" title="Draft saved." dismissible />,
+    );
 
     expect(html.match(/aria-hidden="true"/g)).toHaveLength(2);
   });
@@ -75,8 +77,18 @@ describe("Flash", () => {
     expect(html).not.toContain('href="#');
   });
 
-  test("ships the dismiss button hidden and labelled", () => {
+  test("without dismissible, ships no dismiss button at all", () => {
     const html = renderToString(<Flash tone="info" title="Draft saved." />);
+
+    expect(html).not.toContain('class="flash-dismiss"');
+    expect(html).not.toContain("data-flash-dismiss");
+    expect(html).not.toContain('aria-label="Dismiss"');
+  });
+
+  test("with dismissible, ships the dismiss button hidden and labelled", () => {
+    const html = renderToString(
+      <Flash tone="info" title="Draft saved." dismissible />,
+    );
 
     expect(html).toContain('class="flash-dismiss"');
     expect(html).toContain('aria-label="Dismiss"');

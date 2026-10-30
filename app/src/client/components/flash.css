@@ -21,6 +21,12 @@
   padding: 12px 4px 12px 14px;
 }
 
+/* Without a × the 4px right padding has nothing to make room for, so the text
+   sits as far from the right edge as it does from the left. */
+.flash:not(:has(> .flash-dismiss)) {
+  padding-right: 14px;
+}
+
 .flash[data-tone="success"] {
   --flash-bg: var(--banner-success-bg);
   --flash-border: var(--banner-success-border);

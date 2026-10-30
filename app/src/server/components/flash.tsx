@@ -32,6 +32,12 @@ interface FlashProps {
    * token). Prefer `detail` for plain text.
    */
   children?: ComponentChildren;
+  /**
+   * Render the × — for a banner reporting the result of an action the editor
+   * just took. A banner describing the page's own state stays put: closing it
+   * would leave the page emptier and a reload would bring it back.
+   */
+  dismissible?: boolean;
 }
 
 // One 20px line icon per tone. The tone is carried by the shape as well as the
@@ -98,9 +104,10 @@ const roleFor = (tone: FlashTone): "status" | "alert" =>
  * A banner at the top of a page or an editor: one message, optionally with a
  * detail line, action links and a list of field errors.
  *
- * The × ships hidden. `src/client/components/flash-dismiss.ts` reveals it, so
- * a page without JavaScript still shows the banner and simply cannot close it.
- * Errors are announced assertively; the other tones politely.
+ * The × is opt-in (`dismissible`) and ships hidden.
+ * `src/client/components/flash-dismiss.ts` reveals it, so a page without
+ * JavaScript still shows the banner and simply cannot close it. Errors are
+ * announced assertively; the other tones politely.
  */
 export const Flash = ({
   tone,
@@ -109,6 +116,7 @@ export const Flash = ({
   actions,
   fields,
   children,
+  dismissible = false,
 }: FlashProps) => {
   return (
     <div className="flash" data-tone={tone} role={roleFor(tone)}>
@@ -145,26 +153,28 @@ export const Flash = ({
           </ul>
         )}
       </div>
-      <button
-        type="button"
-        className="flash-dismiss"
-        aria-label="Dismiss"
-        data-flash-dismiss
-        hidden
-      >
-        <svg
-          viewBox="0 0 16 16"
-          width="16"
-          height="16"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          aria-hidden="true"
+      {dismissible && (
+        <button
+          type="button"
+          className="flash-dismiss"
+          aria-label="Dismiss"
+          data-flash-dismiss
+          hidden
         >
-          <path d="m4 4 8 8M12 4l-8 8" />
-        </svg>
-      </button>
+          <svg
+            viewBox="0 0 16 16"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="m4 4 8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 };
