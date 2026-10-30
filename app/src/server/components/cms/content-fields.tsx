@@ -3,8 +3,8 @@ import {
   FieldControl,
   type FieldError,
 } from "../../components/cms/field-control";
+import type { PickerImage } from "../../components/cms/image-picker";
 import type { PageOption } from "../../services/content/pages";
-import type { MediaOption } from "../../services/media";
 
 export interface ContentFieldsProps {
   fields: FieldMetadata[];
@@ -13,15 +13,13 @@ export interface ContentFieldsProps {
   errorsByField?: Map<string, FieldError[]>;
   /** The CMS pages a `link` field's picker offers. */
   pages?: PageOption[];
-  /** Whether the form offers a media picker for its `image` fields. */
-  hasMedia: boolean;
-  /** Whether that picker's reuse list was capped. */
-  pickerCapped: boolean;
   /**
-   * The uploads the picker offers. A field uses them for one thing only: the
-   * current image's own label and width (part 10).
+   * The uploads an `image` field currently references, keyed by media id. One
+   * map serves every field (and every list row) on the form.
    */
-  media?: MediaOption[];
+  pickerImages?: Map<string, PickerImage>;
+  /** The CSRF token bound to `POST /cms/media`, for the pickers' drop zones. */
+  uploadCsrfToken?: string;
   /**
    * Id prefix for the controls. A page renders one block per `ContentFields`,
    * and two blocks can declare the same field name, so the block's own prefix
@@ -36,9 +34,8 @@ export const ContentFields = ({
   content,
   errorsByField,
   pages,
-  hasMedia,
-  pickerCapped,
-  media,
+  pickerImages,
+  uploadCsrfToken,
   idPrefix = "cms-field",
 }: ContentFieldsProps) => (
   <div className="cms-fields" data-cms-fields>
@@ -50,9 +47,8 @@ export const ContentFields = ({
         idBase={`${idPrefix}-${field.name}`}
         errors={errorsByField?.get(field.name)}
         pages={pages}
-        hasMedia={hasMedia}
-        pickerCapped={pickerCapped}
-        media={media}
+        pickerImages={pickerImages}
+        uploadCsrfToken={uploadCsrfToken}
       />
     ))}
   </div>

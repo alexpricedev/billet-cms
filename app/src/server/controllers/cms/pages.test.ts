@@ -39,8 +39,7 @@ import {
 } from "../../services/content";
 import { createCsrfToken } from "../../services/csrf";
 import { db } from "../../services/database";
-import { createMedia, listMediaOptions } from "../../services/media";
-import { MEDIA_PICKER_LIMIT } from "../../services/media/limits";
+import { createMedia } from "../../services/media";
 import { createAuthenticatedSession } from "../../services/sessions";
 import { staleCsrfToken } from "../../test-utils/auth-form";
 import { pagePublish } from "./page-publish";
@@ -90,11 +89,6 @@ const pageContent = (heading: string) => ({
 /** Whether the Preview draft button rendered disabled. */
 const previewDisabled = (html: string): boolean =>
   /<button[^>]*class="[^"]*cms-preview-button[^"]*"[^>]*disabled/.test(html);
-
-/** The contents of the form's one options template, or "" when it has none. */
-const mediaOptionsTemplate = (html: string): string =>
-  html.match(/<template data-media-options[^>]*>([\s\S]*?)<\/template>/)?.[1] ??
-  "";
 
 /** Seed `count` uploads, oldest first, and return their ids in that order. */
 const seedUploads = async (count: number): Promise<string[]> => {
@@ -432,7 +426,7 @@ describe("Pages controller", () => {
     });
   });
 
-  test("carries a referenced image older than the picker cap and shows the help line", async () => {
+  test("draws a referenced image in its field's closed picker", async () => {
     await seedBlockType(db, photos);
     await seedPageType(db, gallery);
     const created = await createPage({
@@ -442,16 +436,12 @@ describe("Pages controller", () => {
     });
     if (!created.ok) throw new Error("create failed");
     const pageId = created.page.id;
-
-    await seedUploads(MEDIA_PICKER_LIMIT + 1);
-    const options = await listMediaOptions({ limit: MEDIA_PICKER_LIMIT + 1 });
-    // The picker reads one row past the cap, so the last row is the one the
-    // newest list leaves out.
-    const oldest = options[MEDIA_PICKER_LIMIT];
+    const [mediaId] = await seedUploads(1);
+    if (!mediaId) throw new Error("seed uploads failed");
 
     const saved = await savePageDraft({
       pageId,
-      content: { blocks: [{ type: "photos", photo: { mediaId: oldest.id } }] },
+      content: { blocks: [{ type: "photos", photo: { mediaId } }] },
       baseRevisionId: null,
       actorId: editorId,
     });
@@ -467,15 +457,16 @@ describe("Pages controller", () => {
 
     expect(res.status).toBe(200);
     const html = await res.text();
-    // The library was bigger than the cap, so the "older ones" line is true...
-    expect(html).toContain(`Showing the newest ${MEDIA_PICKER_LIMIT} uploads`);
-    // ...and the referenced image outside the cap still carries its label.
-    expect(mediaOptionsTemplate(html)).toContain(
-      `${oldest.alt} (${oldest.width}×${oldest.height})`,
-    );
+    // The block's field renders the shared picker, closed on the stored upload.
+    expect(html).toContain("data-image-picker-field");
+    expect(html).toContain(`value="${mediaId}"`);
+    expect(html).toContain('data-image-picker-alt="true">Upload 0<');
+    // The old select, the Media id box and the reuse template are gone.
+    expect(html).not.toContain("Reuse an upload");
+    expect(html).not.toContain("data-media-options");
   });
 
-  test("re-renders a mistyped Media id as a field error, not a 500", async () => {
+  test("re-renders a mistyped image id as a field error, not a 500", async () => {
     await seedBlockType(db, photos);
     await seedPageType(db, gallery);
     const created = await createPage({
@@ -1326,8 +1317,6 @@ describe("Pages controller", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     // The picker's closed field shows the typed upload, not the stored one.
-    // (The editor's media-options template lists every upload, so match the
-    // field's own details rather than the alt text anywhere in the page.)
     expect(html).toContain('data-image-picker-alt="true">Upload 1<');
     expect(html).not.toContain('data-image-picker-alt="true">Upload 0<');
     expect(html).toContain(`value="${typed}"`);
