@@ -531,60 +531,34 @@ export const listMediaOptionsPage = async (
   return { items, next };
 };
 
-/** The picker's fields for the uploads named, newest first. */
-export const getMediaOptionsByIds = async (
-  ids: readonly string[],
-): Promise<MediaOption[]> => {
+/**
+ * The uploads an editor form's image fields currently reference.
+ *
+ * A block `image` field is drawn from the `{ mediaId }` the stored content
+ * already carries, so the form needs the chosen upload's alt, dimensions and
+ * variants — and nothing else from the library. The ids come from the same walk
+ * over stored values that delete protection uses (`collectMediaIds`); a draft
+ * can name anything, so non-UUIDs are dropped before they reach the `uuid`
+ * column. Everything is read in one query, however many fields reference an
+ * image: a page with a gallery is one read, not one per row.
+ *
+ * An id with no row is simply absent from the result; the picker draws that as
+ * "Upload not found" so the editor knows to replace it, and a save still
+ * validates the stored value as before.
+ */
+export const listPickerImages = async (
+  content: unknown,
+): Promise<MediaRecord[]> => {
+  const ids = filterUuids(collectMediaIds(content));
   if (ids.length === 0) return [];
   const rows = (await db`
-    SELECT id, alt, width, height
+    SELECT id, object_key, content_type, byte_size, width, height, alt,
+           focal_x, focal_y, variants, created_at, updated_at
     FROM cms_media
     WHERE id IN ${inList(ids)}
     ORDER BY created_at DESC, id DESC
-  `) as MediaOption[];
-  return rows;
-};
-
-export interface PickerMedia {
-  /** The newest uploads, plus any the content references that fall outside them. */
-  media: MediaOption[];
-  /**
-   * Whether the library held more than `MEDIA_PICKER_LIMIT` uploads, so the
-   * list really was capped. At exactly the cap nothing is older and the picker
-   * has no "older ones" help line to show.
-   */
-  capped: boolean;
-}
-
-/**
- * The options a page or slot form's picker offers.
- *
- * The newest `MEDIA_PICKER_LIMIT` uploads, plus the rows the content references
- * that fall outside them — so a current image older than the cap still carries
- * its "alt (W×H)" label rather than a bare id. The limit is read one row past
- * the cap to tell a capped library from one that ends exactly at it.
- */
-export const listPickerMedia = async (
-  content: unknown,
-): Promise<PickerMedia> => {
-  // A draft can name anything the editor typed into the Media id field. Only a
-  // UUID can reach the `uuid` column, so a typo is dropped here rather than
-  // asked of Postgres — `WHERE id IN ('not-a-uuid')` is a 500, not an empty
-  // result (review r1-1).
-  const referenced = filterUuids(collectMediaIds(content));
-  // The two reads don't depend on each other, so they run together rather than
-  // one after the other. A referenced id that the newest list already carries
-  // is dropped below rather than filtered out before the query, which is what
-  // lets the reads stay parallel (review round 2).
-  const [rows, referencedOptions] = await Promise.all([
-    listMediaOptions({ limit: MEDIA_PICKER_LIMIT + 1 }),
-    getMediaOptionsByIds(referenced),
-  ]);
-  const capped = rows.length > MEDIA_PICKER_LIMIT;
-  const newest = rows.slice(0, MEDIA_PICKER_LIMIT);
-  const listed = new Set(newest.map((option) => option.id));
-  const extras = referencedOptions.filter((option) => !listed.has(option.id));
-  return { media: [...newest, ...extras], capped };
+  `) as MediaRow[];
+  return rows.map(toMedia);
 };
 
 export const getMediaById = async (

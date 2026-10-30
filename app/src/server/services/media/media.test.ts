@@ -49,14 +49,12 @@ import {
   createMedia,
   deleteMedia,
   getMediaById,
-  getMediaOptionsByIds,
   getMediaUsage,
   listMedia,
   listMediaOptions,
   listMediaOptionsPage,
-  listPickerMedia,
+  listPickerImages,
   MAX_ALT_LENGTH,
-  MEDIA_PICKER_LIMIT,
   updateMediaAlt,
   updateMediaFocalPoint,
 } from "./media";
@@ -437,63 +435,55 @@ describe("createMedia", () => {
     expect(page.items.map((item) => item.id)).toEqual([newer.id]);
   });
 
-  // The picker lists the newest uploads capped at the limit, tells the caller
-  // whether the library was really bigger, and adds any image the content
-  // references so its label survives outside the cap.
-  test("listPickerMedia caps the list and carries referenced rows", async () => {
+  // An image field draws its closed picker from the upload the stored content
+  // names, so the form needs those rows — with variants, for the thumbnail —
+  // and not the whole library. One query covers every field and list row.
+  test("listPickerImages reads every referenced upload once", async () => {
     const storage = createMemoryStorage();
-    for (let index = 0; index < MEDIA_PICKER_LIMIT; index += 1) {
-      const result = await createMedia({
-        bytes: await makeJpeg(40, 40),
-        alt: `Upload ${index}`,
-        actorId: null,
-        storage,
-      });
-      if (!result.ok) throw new Error("upload failed");
-    }
-
-    const atCap = await listPickerMedia({});
-    expect(atCap.media).toHaveLength(MEDIA_PICKER_LIMIT);
-    expect(atCap.capped).toBe(false);
-
-    // One more upload and the library is genuinely bigger than the cap.
-    const extra = await createMedia({
-      bytes: await makeJpeg(40, 40),
-      alt: "Newest",
+    const hero = await createMedia({
+      bytes: await makeJpeg(800, 400),
+      alt: "A hero",
       actorId: null,
       storage,
     });
-    if (!extra.ok) throw new Error("upload failed");
-
-    const overCap = await listPickerMedia({});
-    expect(overCap.media).toHaveLength(MEDIA_PICKER_LIMIT);
-    expect(overCap.capped).toBe(true);
-    // The oldest upload fell out of the cap and is not referenced, so it is gone.
-    expect(overCap.media.some((option) => option.alt === "Upload 0")).toBe(
-      false,
-    );
-
-    // A reference to an upload outside the newest cap brings its row back, so
-    // its label survives outside the cap.
-    const oldest = atCap.media.find((option) => option.alt === "Upload 0");
-    const referenced = await listPickerMedia({
-      photo: { mediaId: oldest?.id },
+    const thumb = await createMedia({
+      bytes: await makeJpeg(80, 60),
+      alt: "A small photo",
+      actorId: null,
+      storage,
     });
-    expect(referenced.media).toHaveLength(MEDIA_PICKER_LIMIT + 1);
-    expect(referenced.media.some((option) => option.alt === "Upload 0")).toBe(
-      true,
+    if (!hero.ok || !thumb.ok) throw new Error("upload failed");
+
+    const images = await listPickerImages({
+      heading: "Not an image",
+      photo: { mediaId: hero.media.id, alt: "A per-use override" },
+      gallery: [
+        { mediaId: thumb.media.id },
+        // The same upload twice is one row, not two.
+        { mediaId: hero.media.id },
+      ],
+    });
+
+    expect(images.map((image) => image.id).sort()).toEqual(
+      [hero.media.id, thumb.media.id].sort(),
     );
+    const byId = new Map(images.map((image) => [image.id, image]));
+    expect(byId.get(hero.media.id)?.alt).toBe("A hero");
+    expect(byId.get(hero.media.id)?.width).toBe(800);
+    // The variants are what the picker's thumbnail is chosen from.
+    expect(byId.get(hero.media.id)?.variants.length).toBeGreaterThan(0);
   });
 
-  test("getMediaOptionsByIds reads nothing for an empty id list", async () => {
-    expect(await getMediaOptionsByIds([])).toEqual([]);
+  test("listPickerImages reads nothing when no image is referenced", async () => {
+    expect(await listPickerImages({})).toEqual([]);
+    expect(await listPickerImages({ body: "Just words" })).toEqual([]);
+    expect(await listPickerImages([{ mediaId: "" }])).toEqual([]);
   });
 
-  // A mistyped Media id reaches the picker as a plain string, and `WHERE id IN
-  // (...)` on the `uuid` column answers a non-UUID with an error, not an empty
-  // set. The referenced ids are filtered before the query, so a refused save
-  // re-renders instead of becoming a 500 (review r1-1).
-  test("listPickerMedia drops a referenced id that isn't a UUID", async () => {
+  // A stored id whose upload is gone has no row to read. It is left out rather
+  // than failing the read, so the picker can say "Upload not found" and the
+  // editor knows to replace it.
+  test("listPickerImages leaves an id with no row out", async () => {
     const result = await createMedia({
       bytes: await makeJpeg(80, 60),
       alt: "A photo",
@@ -502,14 +492,33 @@ describe("createMedia", () => {
     });
     if (!result.ok) throw new Error("upload failed");
 
-    const picker = await listPickerMedia({
+    const images = await listPickerImages({
+      deleted: { mediaId: "00000000-0000-4000-8000-000000000000" },
+      other: { mediaId: result.media.id },
+    });
+    expect(images.map((image) => image.id)).toEqual([result.media.id]);
+  });
+
+  // A mistyped Media id reaches the picker as a plain string, and `WHERE id IN
+  // (...)` on the `uuid` column answers a non-UUID with an error, not an empty
+  // set. The referenced ids are filtered before the query, so a refused save
+  // re-renders instead of becoming a 500 (review r1-1).
+  test("listPickerImages drops a referenced id that isn't a UUID", async () => {
+    const result = await createMedia({
+      bytes: await makeJpeg(80, 60),
+      alt: "A photo",
+      actorId: null,
+      storage: createMemoryStorage(),
+    });
+    if (!result.ok) throw new Error("upload failed");
+
+    const images = await listPickerImages({
       photo: { mediaId: "not-a-uuid" },
       other: { mediaId: result.media.id },
     });
 
-    // The bad reference is never queried for; the real one is still carried.
-    expect(picker.media.map((option) => option.id)).toEqual([result.media.id]);
-    expect(picker.capped).toBe(false);
+    // The bad reference is never queried for; the real one is still read.
+    expect(images.map((image) => image.id)).toEqual([result.media.id]);
   });
 
   test("refuses an animated WebP", async () => {
