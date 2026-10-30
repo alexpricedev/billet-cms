@@ -25,10 +25,16 @@ import {
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   { heading: text({ max: 80 }), cta: link({ required: false }) },
   () => null,
 );
-const prose = block("prose", { body: richText() }, () => null);
+const prose = block(
+  "prose",
+  { label: "Prose" },
+  { body: richText() },
+  () => null,
+);
 
 const blockType = (
   definition: Parameters<typeof blockStoredSchema>[0],
@@ -540,6 +546,7 @@ describe("formatIssues", () => {
   test("finds a link nested in a list and a group", () => {
     const nested = block(
       "nested",
+      { label: "Nested" },
       { links: list(link()), cta: group({ url: link() }) },
       () => null,
     );
@@ -559,6 +566,7 @@ describe("formatIssues", () => {
   test("asks for button text on every link with a destination", () => {
     const banner = block(
       "banner",
+      { label: "Banner" },
       {
         banner: group({ heading: text(), cta: link() }),
         cta: link(),
@@ -585,6 +593,7 @@ describe("formatIssues", () => {
   test("still asks when the group's only sibling is not a text field", () => {
     const banner = block(
       "banner",
+      { label: "Banner" },
       { banner: group({ body: richText(), cta: link() }) },
       () => null,
     );
@@ -605,6 +614,7 @@ describe("formatIssues", () => {
   test("does not exempt a top-level or list link for a top-level text field", () => {
     const quote = block(
       "quote",
+      { label: "Quote" },
       { heading: text(), cta: link(), links: list(link()) },
       () => null,
     );

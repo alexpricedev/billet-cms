@@ -50,6 +50,7 @@ const ORIGIN = process.env.APP_URL as string;
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ max: 80, label: "Heading" }),
     body: richText(),
@@ -57,8 +58,18 @@ const hero = block(
   },
   () => null,
 );
-const prose = block("prose", { body: richText() }, () => null);
-const quote = block("quote", { body: richText() }, () => null);
+const prose = block(
+  "prose",
+  { label: "Prose" },
+  { body: richText() },
+  () => null,
+);
+const quote = block(
+  "quote",
+  { label: "Quote" },
+  { body: richText() },
+  () => null,
+);
 
 const landing: PageTypeDefinition = pageType("landing", {
   allowedBlocks: [hero],
@@ -72,7 +83,12 @@ const notes: PageTypeDefinition = pageType("notes", { allowedBlocks: [prose] });
 
 // A page type with an image field, so a save can name a media id the picker
 // then has to carry.
-const photos = block("photos", { photo: image() }, () => null);
+const photos = block(
+  "photos",
+  { label: "Photos" },
+  { photo: image() },
+  () => null,
+);
 const gallery: PageTypeDefinition = pageType("gallery", {
   allowedBlocks: [photos],
 });
@@ -891,7 +907,12 @@ describe("Pages controller", () => {
   // Button text is an editor rule the page save shares with the slot save, so
   // a plain link with no words is refused here too, with the editor's message.
   test("refuses a page whose plain link has no button text", async () => {
-    const plain = block("plain", { cta: link() }, () => null);
+    const plain = block(
+      "plain",
+      { label: "Plain" },
+      { cta: link() },
+      () => null,
+    );
     await seedBlockType(db, plain);
     await seedPageType(db, pageType("plains", { allowedBlocks: [plain] }));
 
@@ -935,6 +956,7 @@ describe("Pages controller", () => {
   test("refuses a page whose group link has a sibling text field and no button text", async () => {
     const banner = block(
       "banner",
+      { label: "Banner" },
       { banner: group({ heading: text(), cta: link() }) },
       () => null,
     );

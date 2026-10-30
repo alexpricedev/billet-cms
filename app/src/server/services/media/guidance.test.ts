@@ -200,7 +200,11 @@ describe("findDeletedImageIssues", () => {
 
 describe("blocks are the same shape as loose fields", () => {
   test("a block's own fields walk identically", () => {
-    const card = block("card", { photo: image({ minWidth: 400 }) });
+    const card = block(
+      "card",
+      { label: "Card" },
+      { photo: image({ minWidth: 400 }) },
+    );
 
     expect(
       referencedMediaIds(metadataOf(card.fields), {

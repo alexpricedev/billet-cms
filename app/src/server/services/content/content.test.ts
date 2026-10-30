@@ -27,6 +27,7 @@ import { createRevision } from "./revisions";
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ max: 80 }),
     body: richText(),
@@ -126,6 +127,7 @@ describe("content write layer", () => {
   test("refuses a group link with a sibling text field and no label", async () => {
     const banner = block(
       "banner",
+      { label: "Banner" },
       { banner: group({ heading: text(), cta: link() }) },
       () => null,
     );

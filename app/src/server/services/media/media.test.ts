@@ -61,18 +61,21 @@ import { renditionWidths } from "./processor";
 
 const photoBlock = block(
   "hero",
+  { label: "Hero" },
   { heading: text({ max: 80 }), photo: image() },
   () => null,
 );
 
 const guidedBlock = block(
   "banner",
+  { label: "Banner" },
   { heading: text(), photo: image({ minWidth: 1600 }) },
   () => null,
 );
 
 const squareBlock = block(
   "square",
+  { label: "Square" },
   { photo: image({ aspect: "1:1" }) },
   () => null,
 );

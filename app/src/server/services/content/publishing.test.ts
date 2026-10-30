@@ -36,6 +36,7 @@ import { getSlotById } from "./slots";
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ max: 80 }),
     body: richText(),
@@ -207,7 +208,12 @@ describe("publishing", () => {
   // but re-running the rule at publish would strand content the site already
   // renders — so publish checks the schema only.
   test("publishes stored content written before the button-text rule", async () => {
-    const legacy = block("legacy-cta", { cta: link() }, () => null);
+    const legacy = block(
+      "legacy-cta",
+      { label: "Legacy CTA" },
+      { cta: link() },
+      () => null,
+    );
     await seedBlockType(db, legacy);
     const legacySlot = await seedSlot(db, {
       name: "home.legacy-cta",

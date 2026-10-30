@@ -41,13 +41,19 @@ const withDatabase = async (
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ label: "Heading", max: 80 }),
     photo: image({ minWidth: 1600, aspect: "16:9" }),
   },
   () => null,
 );
-const cta = block("cta", { label: text(), target: link() }, () => null);
+const cta = block(
+  "cta",
+  { label: "Call to action" },
+  { label: text(), target: link() },
+  () => null,
+);
 const landing = pageType("landing", {
   allowedBlocks: [hero, cta],
   requiredBlocks: [hero],
@@ -200,6 +206,7 @@ describe("publish", () => {
 
       const resized = block(
         "hero",
+        { label: "Hero" },
         {
           heading: text({ label: "Heading", max: 40 }),
           photo: image({ minWidth: 1600, aspect: "16:9" }),

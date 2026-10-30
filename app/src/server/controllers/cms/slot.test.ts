@@ -42,6 +42,7 @@ const ORIGIN = process.env.APP_URL as string;
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ max: 80, label: "Heading" }),
     body: richText(),
@@ -53,11 +54,17 @@ const hero = block(
 
 // A slot whose block carries an image, so a save can name a media id the picker
 // then has to carry.
-const photoHero = block("photoHero", { photo: image() }, () => null);
+const photoHero = block(
+  "photoHero",
+  { label: "Photo hero" },
+  { photo: image() },
+  () => null,
+);
 
 // Part 10: a field with a minimum width. A narrower image warns but saves.
 const narrowHero = block(
   "narrowHero",
+  { label: "Narrow hero" },
   { photo: image({ minWidth: 1600 }) },
   () => null,
 );
