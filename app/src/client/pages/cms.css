@@ -184,7 +184,7 @@ h1 {
 
 .cms-fields {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--field-gap);
   margin: 0;
   max-width: 760px;
 }
@@ -196,6 +196,17 @@ h1 {
   margin: 0;
   min-inline-size: 0;
   padding: 0;
+}
+
+/* Every single-line control in an editor field is one height. base.css leaves
+   `min-height` at the control size; this takes the text controls to
+   `--field-height` so a text() box, an image's alt input and the link field's
+   boxes all line up. Checkbox, radio, hidden and file inputs keep their own
+   size, and textareas and the rich text editor are not matched. */
+.cms-field
+  input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="file"]),
+.cms-field select {
+  height: var(--field-height);
 }
 
 .cms-field-label {
@@ -223,7 +234,7 @@ h1 {
 
 .cms-field-group [data-group-fields] {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--field-gap);
 }
 
 .cms-required {
@@ -251,10 +262,6 @@ h1 {
   text-align: right;
 }
 
-.cms-field-errors[data-char-over] {
-  padding-left: 0;
-}
-
 .cms-char-count-over {
   color: var(--danger);
 }
@@ -264,7 +271,6 @@ h1 {
   font-size: 12px;
   line-height: 1.5;
   margin: 0;
-  padding-left: var(--space-4);
 }
 
 /* A narrow image doesn't refuse the save (part 10), so its line is the warning
@@ -353,13 +359,6 @@ h1 {
   > .cms-field-label
   .cms-field-optional {
   display: none;
-}
-
-.cms-link-text input,
-.cms-link-destination input,
-.cms-link-destination select,
-.cms-link-title input {
-  height: 44px;
 }
 
 .cms-link-destination-group {
@@ -457,7 +456,7 @@ h1 {
   align-items: center;
   color: var(--text-muted);
   display: flex;
-  height: 44px;
+  height: var(--field-height);
   left: 12px;
   pointer-events: none;
   position: absolute;
@@ -850,7 +849,7 @@ h1 {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   display: grid;
-  gap: var(--space-4);
+  gap: var(--field-gap);
   margin: 0;
   padding: var(--space-4);
   position: sticky;
@@ -866,7 +865,7 @@ h1 {
 /* The create form is a flat list of fields, so it carries its own rhythm. */
 .cms-new-page-form {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--field-gap);
   max-width: 720px;
 }
 
