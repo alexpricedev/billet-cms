@@ -358,6 +358,7 @@ export const PageForm = ({
           tone={notice.kind}
           title={notice.message}
           detail={notice.detail}
+          dismissible
         />
       )}
 
@@ -378,6 +379,7 @@ export const PageForm = ({
               to start from what they saved.
             </>
           }
+          dismissible
         />
       )}
 
@@ -400,6 +402,7 @@ export const PageForm = ({
           title={refusedPublish ? "Couldn't publish." : "Couldn't save draft."}
           detail={fixLine}
           fields={issueFields}
+          dismissible
         />
       )}
 

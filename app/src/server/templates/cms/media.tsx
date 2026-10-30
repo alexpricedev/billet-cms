@@ -107,13 +107,14 @@ export const MediaList = ({
       description="Upload an image once and reuse it across the site. Alt text is required; JPEG, PNG and WebP up to 20 MB."
     />
 
-    {notice && <Flash tone="success" title={notice} />}
+    {notice && <Flash tone="success" title={notice} dismissible />}
 
     {errors?.map((error) => (
       <Flash
         key={`${error.field}:${error.message}`}
         tone="error"
         title={error.message}
+        dismissible
       />
     ))}
 
@@ -259,13 +260,16 @@ export const MediaDetail = ({
         }
       />
 
-      {notice && <Flash tone={notice.kind} title={notice.message} />}
+      {notice && (
+        <Flash tone={notice.kind} title={notice.message} dismissible />
+      )}
 
       {errors?.map((error) => (
         <Flash
           key={`${error.field}:${error.message}`}
           tone="error"
           title={error.message}
+          dismissible
         />
       ))}
 

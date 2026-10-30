@@ -86,8 +86,8 @@ export const McpPage = ({
         }
       />
 
-      {notice && <Flash tone="success" title={notice} />}
-      {error && <Flash tone="error" title={error} />}
+      {notice && <Flash tone="success" title={notice} dismissible />}
+      {error && <Flash tone="error" title={error} dismissible />}
 
       <section className="cms-page" aria-labelledby="connected-heading">
         <h2 id="connected-heading">Connected</h2>

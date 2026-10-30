@@ -177,7 +177,9 @@ export const SlotForm = ({
         />
       )}
 
-      {notice && <Flash tone={notice.kind} title={notice.message} />}
+      {notice && (
+        <Flash tone={notice.kind} title={notice.message} dismissible />
+      )}
 
       {conflict && (
         <Flash
@@ -196,6 +198,7 @@ export const SlotForm = ({
               to start from what they saved.
             </>
           }
+          dismissible
         />
       )}
 
@@ -205,6 +208,7 @@ export const SlotForm = ({
           title={refusedPublish ? "Couldn't publish." : "Couldn't save draft."}
           detail={fixLine}
           fields={issueFields}
+          dismissible
         />
       )}
 

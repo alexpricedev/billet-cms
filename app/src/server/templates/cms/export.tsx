@@ -66,13 +66,14 @@ export const ExportPage = ({
       }
     />
 
-    {notice && <Flash tone="success" title={notice} />}
+    {notice && <Flash tone="success" title={notice} dismissible />}
 
     {newToken && (
       <Flash
         tone="warning"
         title="Copy this token now."
         detail="It is shown once and only its hash is stored, so it can't be shown again."
+        dismissible
       >
         <p>
           <code data-export-token>{newToken}</code>
@@ -137,7 +138,7 @@ export const ExportPage = ({
 
     <section className="cms-page" aria-labelledby="export-create-heading">
       <h2 id="export-create-heading">New token</h2>
-      {error && <Flash tone="error" title={error} />}
+      {error && <Flash tone="error" title={error} dismissible />}
       <form
         method="POST"
         action="/cms/export"
