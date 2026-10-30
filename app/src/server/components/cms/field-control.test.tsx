@@ -487,11 +487,13 @@ describe("FieldControl image parts", () => {
     pickerCapped = false,
     help,
     errors,
+    labelOverride,
   }: {
     hasMedia?: boolean;
     pickerCapped?: boolean;
     help?: string;
     errors?: FieldError[];
+    labelOverride?: string;
   } = {}): string =>
     renderToString(
       <FieldControl
@@ -501,6 +503,7 @@ describe("FieldControl image parts", () => {
         value={{ mediaId: "11111111-1111-4111-8111-111111111111" }}
         idBase="cms-field-photo"
         errors={errors}
+        labelOverride={labelOverride}
       />,
     );
 
@@ -539,6 +542,23 @@ describe("FieldControl image parts", () => {
     const html = renderImage({ hasMedia: false });
     expect(parts(html)).toHaveLength(2);
     expect(html).not.toContain("Reuse an upload");
+  });
+
+  // The wrapper's and help line's spacing classes carry the heading rhythm:
+  // a legend is outside the fieldset's grid (so help under it needs the 6px),
+  // while a list row's span label is a grid item (so it must not double it).
+  test("marks the wrapper and heading help for the label they follow", () => {
+    const legend = renderImage({ help: "A photo." });
+    expect(legend).toContain(
+      'class="cms-image-parts cms-image-parts-after-help"',
+    );
+    expect(legend).toContain('class="cms-field-help cms-image-help"');
+
+    const span = renderImage({ help: "A photo.", labelOverride: "Images" });
+    expect(span).toContain(
+      'class="cms-image-parts cms-image-parts-after-label cms-image-parts-after-help"',
+    );
+    expect(span).not.toContain("cms-image-help");
   });
 
   // The field's own help, errors and the min-width note describe the field as

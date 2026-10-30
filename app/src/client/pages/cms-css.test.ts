@@ -486,24 +486,28 @@ describe("cms.css editor field rhythm", () => {
   });
 
   // A text(), an image alt and the link field's boxes are the same control.
-  // The rule has to reach every single-line input and select inside a field,
-  // while leaving checkboxes, radios, hidden and file inputs alone; textareas
-  // keep their own three-row/auto-grown size and stay out of the selector.
+  // The rule is an allow-list of single-line text-like inputs (plus selects),
+  // so a checkbox, radio, hidden input, file, button, colour or range control
+  // keeps its own size; textareas keep their own three-row/auto-grown size and
+  // stay out of the selector.
   test("sizes every single-line field control from the token", () => {
     const rule = rules(css).find(
       ([selector, body]) =>
-        /\.cms-field\s+input:not\(/.test(selector) &&
+        /\.cms-field[^{]*input/.test(selector) &&
         /height:\s*var\(--field-height\)/.test(body),
     );
     expect(rule).toBeDefined();
 
     const selector = (rule?.[0] ?? "").replace(/\s+/g, " ");
-    expect(selector).toContain('[type="checkbox"]');
-    expect(selector).toContain('[type="radio"]');
-    expect(selector).toContain('[type="hidden"]');
-    expect(selector).toContain('[type="file"]');
+    for (const type of ["text", "url", "email", "tel", "search"]) {
+      expect(selector).toContain(`[type="${type}"]`);
+    }
+    // No `type` means `text` in the browser, so it is in the allow-list too.
+    expect(selector).toContain("input:not([type])");
     expect(selector).toContain(".cms-field select");
     expect(selector).not.toContain("textarea");
+    // Not a broad exclusion that would catch every other input type.
+    expect(selector).not.toContain('[type="checkbox"]');
   });
 
   // The link field's hard-coded 44px was the only field-box height; every
@@ -569,9 +573,17 @@ describe("cms.css editor field rhythm", () => {
     expect(parts).toContain("gap: var(--field-gap)");
     expect(parts).toContain("margin-top: var(--space-3)");
 
-    const afterHelp =
-      /\.cms-field-help \+ \.cms-image-parts\s*\{([^}]*)\}/.exec(css)?.[1];
-    expect(afterHelp).toContain("margin-top: 0");
+    // A legend is outside the fieldset's grid, so a help line under the image
+    // heading takes the field's 6px itself. A list row's span label is inside
+    // the grid: the wrapper gives up the 6px its gap already contributes, and
+    // help above it zeroes the wrapper's heading air.
+    const ruleFor = (name: string) =>
+      rules(css).find(([selector]) => selector.trim() === name)?.[1];
+    expect(ruleFor(".cms-image-help")).toContain("margin-top: 6px");
+    expect(ruleFor(".cms-image-parts-after-label")).toContain(
+      "calc(var(--space-3) - 6px)",
+    );
+    expect(ruleFor(".cms-image-parts-after-help")).toContain("margin-top: 0");
 
     const part = /\.cms-image-part\s*\{([^}]*)\}/.exec(css)?.[1];
     expect(part).toContain("gap: 6px");

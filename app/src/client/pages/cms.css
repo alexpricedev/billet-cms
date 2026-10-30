@@ -201,10 +201,19 @@ h1 {
 /* Every single-line control in an editor field is one height. base.css leaves
    `min-height` at the control size; this takes the text controls to
    `--field-height` so a text() box, an image's alt input and the link field's
-   boxes all line up. Checkbox, radio, hidden and file inputs keep their own
-   size, and textareas and the rich text editor are not matched. */
+   boxes all line up. The input half is an allow-list, not an exclusion: only
+   text-like types — and an input with no `type`, which is `text` — are matched,
+   so a checkbox, radio, hidden input, file, button, colour or range control
+   keeps its own size. Textareas and the rich text editor are not matched. */
+.cms-field input:not([type]),
 .cms-field
-  input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="file"]),
+  input:is(
+    [type="text"],
+    [type="url"],
+    [type="email"],
+    [type="tel"],
+    [type="search"]
+  ),
 .cms-field select {
   height: var(--field-height);
 }
@@ -297,8 +306,24 @@ h1 {
   margin-top: var(--space-3);
 }
 
-.cms-field-help + .cms-image-parts {
+/* A list row's label is a span, not a legend, so it *is* a grid item: the 6px
+   gap already sits above the wrapper. Take that 6px out of the wrapper's
+   --space-3, or a list image's heading gets 18px instead of the 12px every
+   other image heading gets. */
+.cms-image-parts-after-label {
+  margin-top: calc(var(--space-3) - 6px);
+}
+
+/* Help and the wrapper are both grid items, so their 6px gap is the rhythm
+   below the help line; the wrapper's heading air would double it. */
+.cms-image-parts-after-help {
   margin-top: 0;
+}
+
+/* A legend is outside the fieldset's grid, so a help line directly under the
+   image heading has to carry the field's 6px itself. */
+.cms-image-help {
+  margin-top: 6px;
 }
 
 .cms-image-part {

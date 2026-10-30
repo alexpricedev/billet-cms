@@ -235,12 +235,17 @@ const GroupLabelText = ({
 const FieldHelp = ({
   help,
   id,
+  className,
 }: {
   help?: string;
   id?: string;
+  className?: string;
 }): JSX.Element | null =>
   help ? (
-    <span className="cms-field-help" id={id}>
+    <span
+      className={className ? `cms-field-help ${className}` : "cms-field-help"}
+      id={id}
+    >
       {help}
     </span>
   ) : null;
@@ -686,11 +691,25 @@ export const FieldControl = ({
               <FieldLabelText field={field} inGroup={inGroup} />
             </legend>
           )}
-          <FieldHelp help={field.help} id={helpId} />
+          {/* A fieldset's legend is outside its grid, so the field's 6px gap
+              does not sit between the heading and a help line. The class puts
+              that gap back; a list row's span label is a grid item and must not
+              get it twice. */}
+          <FieldHelp
+            help={field.help}
+            id={helpId}
+            className={labelOverride ? undefined : "cms-image-help"}
+          />
           {/* The three sub-parts are spaced like separate fields; each keeps
               the label-to-control rhythm of one. The wrapper is also where the
-              heading's extra air comes from (see the image rules in cms.css). */}
-          <div className="cms-image-parts">
+              heading's extra air comes from (see the image rules in cms.css):
+              `after-label` subtracts the 6px a span label's grid gap already
+              contributes, and `after-help` lets the help line keep the 6px. */}
+          <div
+            className={`cms-image-parts${
+              labelOverride ? " cms-image-parts-after-label" : ""
+            }${field.help ? " cms-image-parts-after-help" : ""}`}
+          >
             {hasMedia && (
               <div className="cms-image-part">
                 <SubControlLabel htmlFor={idFor("pick")}>
