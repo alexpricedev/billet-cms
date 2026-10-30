@@ -86,7 +86,7 @@ repo. This file is only the invariants.
   round 4 removed it). A session stores the site user's id and re-reads the view
   on every request, so a site that removes an account ends the session at the
   next request. There is no CMS account to provision.
-- **Two recorded exceptions to server-rendered interaction, and no more.**
+- **Three recorded exceptions to server-rendered interaction, and no more.**
   `src/client/components/preview-guard.ts` is the smaller one: Preview mints a
   token for the last *saved* revision, so pressed with unsaved edits on screen
   it shows older words and says nothing about why. The guard marks the form
@@ -107,6 +107,18 @@ repo. This file is only the invariants.
   marker and the previews), so with JavaScript off the form still submits the
   stored content unchanged. Keep it to that: no fetching, no `JSON.parse`, no
   markup built from data — the same rules `client/boundaries.test.ts` enforces.
+
+  The third: **the shared image picker.** `src/client/image-picker.ts` backs
+  `components/cms/image-picker.tsx`, the picker a page's social image uses (and
+  the block `image` field will). A library the editor searches, pages through
+  and uploads into cannot be a plain form: it fetches `GET /cms/media/options`,
+  XHRs files to `POST /cms/media` to report progress, and builds the grid's
+  tiles from the JSON answer. It talks to those two routes and nothing else,
+  builds every node with `createElement`/`textContent` (never `innerHTML`), and
+  parses only those answers. The server still renders the closed field, the
+  hidden media-id input and the dialog skeleton, so with JavaScript off the
+  stored id submits unchanged. `boundaries.test.ts` allows the three departures
+  in that one file, under its own byte budget; keep it there.
 - **Preview is a token row, not an API.** `cms_preview_tokens` holds a hashed,
   30-minute, single-subject token (a page or a slot). The CMS mints one and opens
   `<SITE_APP_URL><path>?cms_preview=…`; the plugin

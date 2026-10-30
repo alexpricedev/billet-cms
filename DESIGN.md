@@ -153,6 +153,29 @@ control's margin removed, so the control centres on its text and the row shares
 the card's left edge. Group rows in a `.choice-group` fieldset, with one
 `--space-2` gap between them.
 
+### Image picker
+
+A field that holds one library image: a bordered `--surface` row with a 75×56
+thumbnail (or a `--surface-subtle` placeholder carrying the alt text when there
+is no image), the alt at 13/500, the pixel size in muted 11.5px, then *Choose
+image* and *Remove* — secondary and ghost, wrapping below the image at narrow
+widths. The field's value is a hidden media id, so the row submits without
+JavaScript.
+
+*Choose image* opens the library dialog: `--surface`, `--radius-lg`,
+`--shadow-lg`, at most 960px wide and the viewport tall; below 640px it fills
+the width minus 24px, and the overlay scrolls rather than the page behind it.
+The dialog runs top to bottom as drop zone, upload tiles, search, grid, status,
+*Load more*. The drop zone is `--surface-subtle` with a dashed
+`--border-strong` edge and turns `--surface-selected` on drag-over; each
+uploaded file gets a row with a 4px progress bar in `--text`, a success border,
+or the `--danger-soft` error surface with the handler's message. The grid is
+`auto-fill minmax(min(9rem, 100%), 1fr)` (two columns below 640px); tiles carry
+the 4:3 thumbnail, alt and size, and the selected tile is ringed in `--text` —
+the primary button's foreground, not the accent, so selection stays monochrome.
+Escape and Close leave the value unchanged. The dialog's fade and rise are
+160ms and are removed under `prefers-reduced-motion`.
+
 ### Cards and panels
 
 `.panel` is a bordered surface for a group of controls. `.panel-header` carries
