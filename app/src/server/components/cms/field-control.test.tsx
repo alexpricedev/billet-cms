@@ -479,6 +479,84 @@ describe("FieldControl image picker", () => {
   });
 });
 
+describe("FieldControl image parts", () => {
+  const image: FieldMetadata = { name: "photo", kind: "image", required: true };
+
+  const renderImage = ({
+    hasMedia = true,
+    pickerCapped = false,
+    help,
+    errors,
+  }: {
+    hasMedia?: boolean;
+    pickerCapped?: boolean;
+    help?: string;
+    errors?: FieldError[];
+  } = {}): string =>
+    renderToString(
+      <FieldControl
+        hasMedia={hasMedia}
+        pickerCapped={pickerCapped}
+        field={help ? { ...image, help } : image}
+        value={{ mediaId: "11111111-1111-4111-8111-111111111111" }}
+        idBase="cms-field-photo"
+        errors={errors}
+      />,
+    );
+
+  // A part ends at its own closing div: nothing inside one nests another div.
+  const parts = (html: string): string[] =>
+    html
+      .split('<div class="cms-image-part">')
+      .slice(1)
+      .map((part) => part.split("</div>")[0]);
+
+  test("groups the sub-parts in one wrapper", () => {
+    const html = renderImage();
+    expect(count(html, 'class="cms-image-parts"')).toBe(1);
+    expect(count(html, 'class="cms-image-part"')).toBe(3);
+  });
+
+  test("keeps each sub-label with the control it names", () => {
+    const [pick, id, alt] = parts(renderImage());
+
+    expect(pick).toContain('for="cms-field-photo-pick"');
+    expect(pick).toContain("data-image-picker");
+    expect(id).toContain('for="cms-field-photo-id"');
+    expect(id).toContain("data-image-id");
+    expect(alt).toContain('for="cms-field-photo-alt"');
+    expect(alt).toContain("data-image-alt");
+  });
+
+  test("keeps each part's help with the control it describes", () => {
+    const [pick, , alt] = parts(renderImage({ pickerCapped: true }));
+
+    expect(pick).toContain('id="cms-field-photo-pick-help"');
+    expect(alt).toContain('id="cms-field-photo-alt-help"');
+  });
+
+  test("omits the reuse part when there is no media", () => {
+    const html = renderImage({ hasMedia: false });
+    expect(parts(html)).toHaveLength(2);
+    expect(html).not.toContain("Reuse an upload");
+  });
+
+  // The field's own help, errors and the min-width note describe the field as
+  // a whole, not a part, so they stay direct children of the fieldset.
+  test("leaves the field's own help and errors outside the parts", () => {
+    const html = renderImage({
+      help: "A photo.",
+      errors: [{ path: "photo", message: "Choose an image." }],
+    });
+    const inside = parts(html).join("");
+
+    expect(inside).not.toContain('id="cms-field-photo-help"');
+    expect(inside).not.toContain('id="cms-field-photo-error"');
+    expect(html).toContain('id="cms-field-photo-help"');
+    expect(html).toContain('id="cms-field-photo-error"');
+  });
+});
+
 describe("FieldControl link", () => {
   const PAGE_ID = "22222222-2222-4222-8222-222222222222";
   const link: FieldMetadata = {

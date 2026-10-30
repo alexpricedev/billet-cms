@@ -687,75 +687,88 @@ export const FieldControl = ({
             </legend>
           )}
           <FieldHelp help={field.help} id={helpId} />
-          {hasMedia && (
-            <>
-              <SubControlLabel htmlFor={idFor("pick")}>
-                Reuse an upload
-              </SubControlLabel>
-              <select
-                id={idFor("pick")}
-                data-image-picker
-                aria-label={controlId ? undefined : "Reuse an upload"}
-                aria-describedby={pickerCapped ? idFor("pick-help") : undefined}
-              >
-                <option value="" selected={!image.mediaId}>
-                  Choose an image…
-                </option>
-                {/* Only the current image, so a picker in a long page is cheap;
-                    the client fills the rest from the form's one options
-                    template when the picker is first focused, relabelling this
-                    option when the current image is one of them unless it
-                    carries a per-use alt the editor typed. Its label is the
-                    upload's own alt and dimensions when the field knows them
-                    (part 10: it used to say only "Current image"), and falls
-                    back to that phrase for a deleted or unlisted id so a raw id
-                    is never shown as a label. */}
-                {image.mediaId && (
-                  <option
-                    value={mediaId}
-                    selected
-                    data-media-keep-label={asString(image.alt) ? "" : undefined}
-                    data-media-width={current?.width}
-                  >
-                    {asString(image.alt) || currentLabel}
+          {/* The three sub-parts are spaced like separate fields; each keeps
+              the label-to-control rhythm of one. The wrapper is also where the
+              heading's extra air comes from (see the image rules in cms.css). */}
+          <div className="cms-image-parts">
+            {hasMedia && (
+              <div className="cms-image-part">
+                <SubControlLabel htmlFor={idFor("pick")}>
+                  Reuse an upload
+                </SubControlLabel>
+                <select
+                  id={idFor("pick")}
+                  data-image-picker
+                  aria-label={controlId ? undefined : "Reuse an upload"}
+                  aria-describedby={
+                    pickerCapped ? idFor("pick-help") : undefined
+                  }
+                >
+                  <option value="" selected={!image.mediaId}>
+                    Choose an image…
                   </option>
+                  {/* Only the current image, so a picker in a long page is
+                      cheap; the client fills the rest from the form's one
+                      options template when the picker is first focused,
+                      relabelling this option when the current image is one of
+                      them unless it carries a per-use alt the editor typed. Its
+                      label is the upload's own alt and dimensions when the
+                      field knows them (part 10: it used to say only "Current
+                      image"), and falls back to that phrase for a deleted or
+                      unlisted id so a raw id is never shown as a label. */}
+                  {image.mediaId && (
+                    <option
+                      value={mediaId}
+                      selected
+                      data-media-keep-label={
+                        asString(image.alt) ? "" : undefined
+                      }
+                      data-media-width={current?.width}
+                    >
+                      {asString(image.alt) || currentLabel}
+                    </option>
+                  )}
+                </select>
+                {/* Only when the reuse list was actually capped: a library of
+                    the cap or fewer lists everything, so there is nothing older
+                    to go looking for. */}
+                {pickerCapped && (
+                  <span className="cms-field-help" id={idFor("pick-help")}>
+                    Showing the newest {MEDIA_PICKER_LIMIT} uploads. For an
+                    older one, paste its id under Media id.
+                  </span>
                 )}
-              </select>
-              {/* Only when the reuse list was actually capped: a library of the
-                  cap or fewer lists everything, so there is nothing older to go
-                  looking for. */}
-              {pickerCapped && (
-                <span className="cms-field-help" id={idFor("pick-help")}>
-                  Showing the newest {MEDIA_PICKER_LIMIT} uploads. For an older
-                  one, paste its id under Media id.
-                </span>
-              )}
-            </>
-          )}
-          <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>
-          <input
-            type="text"
-            id={idFor("id")}
-            data-image-id
-            aria-label={controlId ? undefined : "Media id"}
-            value={asString(image.mediaId)}
-            aria-invalid={invalid ? "true" : undefined}
-            aria-describedby={described}
-          />
-          <SubControlLabel htmlFor={idFor("alt")}>Alt text</SubControlLabel>
-          <input
-            type="text"
-            id={idFor("alt")}
-            data-image-alt
-            aria-label={controlId ? undefined : "Alt text"}
-            value={asString(image.alt)}
-            maxLength={MAX_ALT_LENGTH}
-            aria-describedby={idFor("alt-help")}
-          />
-          <span className="cms-field-help" id={idFor("alt-help")}>
-            Optional. Leave blank to use the upload's own alt text. Up to{" "}
-            {MAX_ALT_LENGTH} characters.
-          </span>
+              </div>
+            )}
+            <div className="cms-image-part">
+              <SubControlLabel htmlFor={idFor("id")}>Media id</SubControlLabel>
+              <input
+                type="text"
+                id={idFor("id")}
+                data-image-id
+                aria-label={controlId ? undefined : "Media id"}
+                value={asString(image.mediaId)}
+                aria-invalid={invalid ? "true" : undefined}
+                aria-describedby={described}
+              />
+            </div>
+            <div className="cms-image-part">
+              <SubControlLabel htmlFor={idFor("alt")}>Alt text</SubControlLabel>
+              <input
+                type="text"
+                id={idFor("alt")}
+                data-image-alt
+                aria-label={controlId ? undefined : "Alt text"}
+                value={asString(image.alt)}
+                maxLength={MAX_ALT_LENGTH}
+                aria-describedby={idFor("alt-help")}
+              />
+              <span className="cms-field-help" id={idFor("alt-help")}>
+                Optional. Leave blank to use the upload's own alt text. Up to{" "}
+                {MAX_ALT_LENGTH} characters.
+              </span>
+            </div>
+          </div>
           <FieldErrors errors={errors} id={errorId} />
           {field.image?.minWidth && (
             <span className="cms-field-help">

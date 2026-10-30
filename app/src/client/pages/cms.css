@@ -284,6 +284,28 @@ h1 {
   margin: 0;
 }
 
+/* The image field is composite, like a group: its heading titles the parts
+   rather than being a second label stacked on "Reuse an upload" (its weight is
+   set with the other group headings below). A fieldset's legend is not a grid
+   item, so the fieldset's own 6px gap does not reach it: the wrapper carries
+   the whole `--space-3` itself. When field help sits between the two, it keeps
+   the field's normal 6px rhythm. The sub-parts themselves are spaced like
+   separate fields, while each keeps the 6px label-to-control rhythm of one. */
+.cms-image-parts {
+  display: grid;
+  gap: var(--field-gap);
+  margin-top: var(--space-3);
+}
+
+.cms-field-help + .cms-image-parts {
+  margin-top: 0;
+}
+
+.cms-image-part {
+  display: grid;
+  gap: 6px;
+}
+
 /* A long upload label is ellipsised rather than widening the image picker. */
 .cms-field select[data-image-picker] {
   text-overflow: ellipsis;
@@ -318,6 +340,13 @@ h1 {
   position: absolute;
   right: 14px;
   top: 14px;
+}
+
+/* An image fieldset's heading is a group heading too (see `.cms-image-parts`):
+   it titles the whole field, so it is not a second label stacked on "Reuse an
+   upload". */
+.cms-field[data-field-kind="image"] > .cms-field-label {
+  font-weight: 600;
 }
 
 .cms-link-text,
