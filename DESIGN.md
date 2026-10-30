@@ -100,7 +100,8 @@ micro-label is uppercased.
 - Content max width: `--content-max` 1120px; vertical padding 32px desktop.
 - Control height: 32px default, 28px compact, 40px large. Icon button 32×32.
 - Card padding: 16px (20px on large panels).
-- Field gap: 16px between fields, 6px between a label, control, help and error.
+- Field gap: `--field-gap` (16px) between fields, 6px between a label, control,
+  help and error.
 - Table row height: 40–44px; cell padding 10px 12px.
 - Radius: `--radius-sm` 6px (controls, badges), `--radius` 8px (cards,
   inputs, panels), `--radius-lg` 12px (dialogs, large overlays).
@@ -141,17 +142,24 @@ diverge.
 ### Form controls
 
 Inputs, selects and textareas share one box: `--surface-subtle` background,
-1px `--border`, 8px radius, 13.5px text, 32px height (textarea auto). Hover
-raises the border; focus uses a 3px accent ring plus the border, never an
-outline that shifts layout. Placeholders use `--text-muted` and never replace a
-label. Invalid controls use `--danger` border and `aria-invalid`, with the
-message adjacent.
+1px `--border`, 8px radius, 13.5px text, 32px height (`--control-height`,
+textarea auto). In the page and slot editors every single-line input and select
+is `--field-height` (44px) instead. Hover raises the border; focus uses a 3px
+accent ring plus the border, never an outline that shifts layout. Placeholders
+use `--text-muted` and never replace a label. Invalid controls use `--danger`
+border and `aria-invalid`, with the message adjacent.
 
 A choice row — a radio or checkbox wrapped in its own `label` — is one flex
 row: `display: flex; align-items: center; gap: var(--space-2)`, with the
 control's margin removed, so the control centres on its text and the row shares
 the card's left edge. Group rows in a `.choice-group` fieldset, with one
 `--space-2` gap between them.
+
+**Decision (2026-10-30).** Every single-line input and select in the page and
+slot editors uses `--field-height` (44px), so a text box, an image's alt input
+and a link's text input are the same height; a textarea keeps its own height.
+Fields are `--field-gap` (16px) apart, from one token, and a field's label,
+control, help and error stay 6px apart.
 
 ### Cards and panels
 
