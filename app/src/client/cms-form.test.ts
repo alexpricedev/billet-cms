@@ -925,14 +925,18 @@ describe("cloned list state", () => {
               </div>
             </fieldset>
           </template>
-          <div class="cms-block-add">
-            <button type="button" data-block-add="prose">Add prose</button>
+          <div class="cms-block-add" data-block-add-area>
+            <button type="button" data-block-add-toggle aria-expanded="false">Add block</button>
+            <div data-block-add-menu hidden>
+              <button type="button" role="menuitem" data-block-add="prose">Prose</button>
+            </div>
           </div>
         </div>
       </form>
     `);
 
-    click(document.querySelector("[data-block-add]") as Element);
+    click(document.querySelector("[data-block-add-toggle]") as Element);
+    click(document.querySelector('[data-block-add="prose"]') as Element);
     const list = document.querySelector("[data-cms-block] [data-list]");
     const add = list?.querySelector(":scope > [data-list-add]");
     expect(add?.getAttribute("aria-disabled")).toBe("true");
@@ -1120,8 +1124,11 @@ const PAGE_MARKUP = `
           </div>
         </fieldset>
       </template>
-      <div class="cms-block-add">
-        <button type="button" data-block-add="prose">Add prose</button>
+      <div class="cms-block-add" data-block-add-area>
+        <button type="button" data-block-add-toggle aria-haspopup="menu" aria-expanded="false" aria-controls="cms-block-add-menu">Add block</button>
+        <div id="cms-block-add-menu" role="menu" data-block-add-menu hidden>
+          <button type="button" role="menuitem" data-block-add="prose">Prose</button>
+        </div>
       </div>
     </div>
   </form>
@@ -1129,6 +1136,29 @@ const PAGE_MARKUP = `
 
 const click = (target: Element) => {
   target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+};
+
+const key = (target: Element, name: string) => {
+  target.dispatchEvent(
+    new KeyboardEvent("keydown", { key: name, bubbles: true }),
+  );
+};
+
+/** The Add block toggle in the mounted page editor. */
+const addToggle = () =>
+  document.querySelector("[data-block-add-toggle]") as HTMLButtonElement;
+
+/** A type's item in the Add block menu, whether hidden or not. */
+const addItem = (type: string) =>
+  document.querySelector(`[data-block-add="${type}"]`) as HTMLButtonElement;
+
+/** Open the Add block menu the way an editor does. */
+const openAddMenu = () => click(addToggle());
+
+/** Open the menu and pick a type, the way an editor does. */
+const pickBlock = (type: string) => {
+  openAddMenu();
+  click(addItem(type));
 };
 
 describe("page block editor", () => {
@@ -1147,9 +1177,9 @@ describe("page block editor", () => {
   });
 
   const addEmpty = (type: string) => {
-    const add = document.querySelector(`[data-block-add="${type}"]`);
-    if (!add) throw new Error("no add button");
-    click(add);
+    const add = addItem(type);
+    if (!add) throw new Error("no menu item");
+    pickBlock(type);
   };
   const droppedField = () =>
     document.querySelector<HTMLInputElement>("[data-cms-dropped]");
@@ -1176,9 +1206,7 @@ describe("page block editor", () => {
   });
 
   test("adds a block from the type's template", () => {
-    const add = document.querySelector("[data-block-add]");
-    if (!add) throw new Error("no add button");
-    click(add);
+    pickBlock("prose");
 
     const blocks = document.querySelectorAll("[data-cms-block]");
     // The stored hero, the unavailable block, and the added prose.
@@ -1196,45 +1224,131 @@ describe("page block editor", () => {
     });
   });
 
+  describe("the Add block menu", () => {
+    const menu = () =>
+      document.querySelector("[data-block-add-menu]") as HTMLElement;
+
+    test("opens from the toggle and closes again", () => {
+      expect(addToggle().getAttribute("aria-expanded")).toBe("false");
+      expect(menu().hidden).toBe(true);
+
+      openAddMenu();
+      expect(addToggle().getAttribute("aria-expanded")).toBe("true");
+      expect(menu().hidden).toBe(false);
+
+      click(addToggle());
+      expect(addToggle().getAttribute("aria-expanded")).toBe("false");
+      expect(menu().hidden).toBe(true);
+    });
+
+    test("opens with focus on the first item", () => {
+      openAddMenu();
+      expect(document.activeElement).toBe(addItem("prose"));
+    });
+
+    test("Enter on a focused item picks it", () => {
+      openAddMenu();
+      key(addItem("prose"), "Enter");
+      expect(
+        document.querySelectorAll('[data-cms-block][data-block-type="prose"]'),
+      ).toHaveLength(1);
+      expect(menu().hidden).toBe(true);
+    });
+
+    test("arrow keys move between items and wrap", () => {
+      document.body.innerHTML = "";
+      mount(
+        PAGE_MARKUP.replace(
+          '<button type="button" role="menuitem" data-block-add="prose">Prose</button>',
+          `<button type="button" role="menuitem" data-block-add="prose">Prose</button>
+           <button type="button" role="menuitem" data-block-add="quote">Quote</button>`,
+        ),
+      );
+      openAddMenu();
+      expect(document.activeElement).toBe(addItem("prose"));
+      key(addItem("prose"), "ArrowDown");
+      expect(document.activeElement).toBe(addItem("quote"));
+      key(addItem("quote"), "ArrowDown");
+      expect(document.activeElement).toBe(addItem("prose"));
+      key(addItem("prose"), "ArrowUp");
+      expect(document.activeElement).toBe(addItem("quote"));
+    });
+
+    test("Escape closes it and returns focus to Add block", () => {
+      openAddMenu();
+      key(addItem("prose"), "Escape");
+      expect(menu().hidden).toBe(true);
+      expect(addToggle().getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(addToggle());
+    });
+
+    test("a click outside closes it", () => {
+      openAddMenu();
+      const outside = document.createElement("p");
+      document.body.append(outside);
+      click(outside);
+      expect(menu().hidden).toBe(true);
+      expect(addToggle().getAttribute("aria-expanded")).toBe("false");
+    });
+
+    test("picking an item adds the block and closes the menu", () => {
+      pickBlock("prose");
+      expect(menu().hidden).toBe(true);
+      expect(addToggle().getAttribute("aria-expanded")).toBe("false");
+      expect(
+        document.querySelectorAll('[data-cms-block][data-block-type="prose"]'),
+      ).toHaveLength(1);
+    });
+  });
+
   describe("Add at the page type's maximum", () => {
     const LIMITED = PAGE_MARKUP.replace(
-      '<button type="button" data-block-add="prose">Add prose</button>',
-      `<button type="button" data-block-add="prose" data-block-max="2" aria-describedby="limit-prose">Add prose</button>
-        <span id="limit-prose" hidden>Only 2 prose blocks per page</span>`,
+      '<button type="button" role="menuitem" data-block-add="prose">Prose</button>',
+      '<button type="button" role="menuitem" data-block-add="prose" data-block-max="2">Prose</button>',
     );
-    const add = () => document.querySelector("[data-block-add]") as Element;
-    const hint = () => document.getElementById("limit-prose") as HTMLElement;
     const proseCount = () =>
       document.querySelectorAll('[data-cms-block][data-block-type="prose"]')
         .length;
+    const area = () =>
+      document.querySelector("[data-block-add-area]") as HTMLElement;
+    const menu = () =>
+      document.querySelector("[data-block-add-menu]") as HTMLElement;
 
     beforeEach(() => {
       document.body.innerHTML = "";
       mount(LIMITED);
     });
 
-    test("greys out after adding to the max, and a click then adds nothing", () => {
-      expect(add().hasAttribute("aria-disabled")).toBe(false);
-      click(add());
-      expect(add().hasAttribute("aria-disabled")).toBe(false);
-      click(add());
-      expect(add().getAttribute("aria-disabled")).toBe("true");
-      expect(hint().hasAttribute("hidden")).toBe(false);
-      click(add());
+    test("drops the type at the max, and a click then adds nothing", () => {
+      expect(addItem("prose").hidden).toBe(false);
+      pickBlock("prose");
+      expect(addItem("prose").hidden).toBe(false);
+      pickBlock("prose");
+      // At its two, the type is out of the menu and the control hides.
+      expect(addItem("prose").hidden).toBe(true);
+      expect(area().hidden).toBe(true);
+
+      openAddMenu();
+      expect(menu().hidden).toBe(true);
+      // A programmatic click on the hidden item is refused.
+      click(addItem("prose"));
       expect(proseCount()).toBe(2);
     });
 
     test("comes back when a block is removed", () => {
-      click(add());
-      click(add());
+      pickBlock("prose");
+      pickBlock("prose");
+      expect(area().hidden).toBe(true);
+
       const remove = document.createElement("button");
       remove.setAttribute("data-block-remove", "");
       document
         .querySelector('[data-cms-block][data-block-type="prose"]')
         ?.append(remove);
       click(remove);
-      expect(add().hasAttribute("aria-disabled")).toBe(false);
-      expect(hint().hasAttribute("hidden")).toBe(true);
+
+      expect(addItem("prose").hidden).toBe(false);
+      expect(area().hidden).toBe(false);
       expect(proseCount()).toBe(1);
     });
 
@@ -1246,10 +1360,17 @@ describe("page block editor", () => {
           'data-block-type="prose"',
         ).replace('data-block-max="2"', 'data-block-max="1"'),
       );
-      expect(add().getAttribute("aria-disabled")).toBe("true");
+      // The flagged block counts against the type until its removal is marked.
+      expect(addItem("prose").hidden).toBe(true);
+      expect(
+        document.querySelector("[data-block-add-area]")?.hasAttribute("hidden"),
+      ).toBe(true);
       const flagged = document.querySelector("[data-block-unavailable]");
       click(flagged?.querySelector("[data-block-remove]") as Element);
-      expect(add().hasAttribute("aria-disabled")).toBe(false);
+      expect(addItem("prose").hidden).toBe(false);
+      expect(
+        document.querySelector("[data-block-add-area]")?.hasAttribute("hidden"),
+      ).toBe(false);
     });
   });
 
@@ -1270,8 +1391,11 @@ describe("page block editor", () => {
               <button type="button" data-block-remove>Remove</button>
             </fieldset>
           </template>
-          <div class="cms-block-add">
-            <button type="button" data-block-add="prose">Add prose</button>
+          <div class="cms-block-add" data-block-add-area>
+            <button type="button" data-block-add-toggle aria-expanded="false">Add block</button>
+            <div data-block-add-menu hidden>
+              <button type="button" role="menuitem" data-block-add="prose">Prose</button>
+            </div>
           </div>
         </div>
       </form>
@@ -1289,7 +1413,7 @@ describe("page block editor", () => {
     });
 
     test("hides when a block is added and comes back when it is removed", () => {
-      click(document.querySelector("[data-block-add]") as Element);
+      pickBlock("prose");
       expect(empty().hidden).toBe(true);
 
       click(
@@ -1837,11 +1961,16 @@ describe("long text fields", () => {
               </div>
             </fieldset>
           </template>
-          <div><button type="button" data-block-add="prose">Add prose</button></div>
+          <div data-block-add-area>
+            <button type="button" data-block-add-toggle aria-expanded="false">Add block</button>
+            <div data-block-add-menu hidden>
+              <button type="button" role="menuitem" data-block-add="prose">Prose</button>
+            </div>
+          </div>
         </div>
       </form>
     `);
-    click(input("[data-block-add]"));
+    pickBlock("prose");
     expect(
       form()
         .querySelector("[data-cms-block] textarea")

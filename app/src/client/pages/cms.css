@@ -1052,7 +1052,6 @@ h1 {
 
 .cms-block-move,
 .cms-block-remove,
-.cms-block-add-button,
 .cms-delete-button {
   align-items: center;
   background: var(--surface);
@@ -1073,8 +1072,6 @@ h1 {
 .cms-block-move:focus,
 .cms-block-remove:hover,
 .cms-block-remove:focus,
-.cms-block-add-button:hover,
-.cms-block-add-button:focus,
 .cms-delete-button:hover,
 .cms-delete-button:focus {
   background: var(--surface-hover);
@@ -1097,39 +1094,73 @@ h1 {
   color: var(--danger);
 }
 
-.cms-block-add-button[aria-disabled="true"] {
-  background: var(--surface-subtle);
-  border-color: var(--border);
-  color: var(--text-disabled);
-  cursor: default;
-  opacity: 0.6;
+/* One Add block control under the last block. It is a secondary button — the
+   base `button` box, full label — not the row of 12.5px per-type chips it
+   replaced. The menu anchors to its bottom-left. */
+.cms-block-add {
+  padding-top: var(--space-2);
+  position: relative;
 }
 
-/* One Add control and its hint, kept on the same line: the hint names the
-   button ("Add hero is off: only one hero per page") and sits beside it, so it
-   cannot be read as a note about the next row. It wraps under its own button
-   on a narrow screen rather than pushing the button off the row. */
-.cms-block-add-row {
-  align-items: center;
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.cms-block-add-hint {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.cms-block-add-hint[hidden] {
+.cms-block-add[hidden] {
   display: none;
 }
 
-.cms-block-add {
+.cms-block-add-button {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+  font-size: 13px;
+  height: var(--control-height);
+  padding: 0 var(--space-3);
+}
+
+/* The menu floats — the one place DESIGN.md allows a shadow: popovers and
+   menus. Items are full-width so the label, not a slug, is what reads. */
+.cms-block-add-menu {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  padding-top: var(--space-1);
+  flex-direction: column;
+  gap: 1px;
+  left: 0;
+  margin: 0;
+  min-width: 200px;
+  padding: var(--space-1);
+  position: absolute;
+  top: 100%;
+  z-index: 10;
+}
+
+.cms-block-add-menu[hidden] {
+  display: none;
+}
+
+.cms-block-add-item {
+  background: transparent;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  height: var(--control-height);
+  justify-content: flex-start;
+  padding: 0 var(--space-2);
+  text-align: left;
+  width: 100%;
+}
+
+.cms-block-add-item:hover,
+.cms-block-add-item:focus {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+
+/* Author display rules beat the UA `[hidden]` rule, and this button is flex. */
+.cms-block-add-item[hidden] {
+  display: none;
 }
 
 .cms-blocks-empty {
