@@ -17,8 +17,6 @@
  * `fetch`, no navigation. Keep it that way.
  */
 
-import { narrowImageWarning } from "@shared/image-guidance";
-
 interface RichTextMark {
   type: "bold" | "italic" | "link";
   attrs?: { href?: string; target?: string };
@@ -632,94 +630,6 @@ const markBlockRemoved = (form: HTMLFormElement, block: Element): void => {
 };
 
 /**
- * Fill an image picker from the form's one reuse-list template.
- *
- * The server renders the upload options once, in a `<template
- * data-media-options>`, rather than in every image field: a page with many
- * image fields (and several list rows of them) would otherwise repeat the whole
- * library per control. A picker is filled the first time it is focused, so the
- * cost is paid only for a picker the editor actually reached. Its current image
- * is already an option there and may be older than the newest ones the template
- * lists; when the template does carry it, the option is relabelled from the
- * template so the picker shows a real label rather than a bare id, and the
- * stored value is not duplicated. A current image the editor gave a per-use alt
- * keeps that label — it is what the site renders for this use, and the library's
- * own alt would quietly replace it. The server marks such an option with
- * `data-media-keep-label`.
- */
-const fillPickerFromOptions = (
-  form: HTMLFormElement,
-  picker: HTMLSelectElement,
-): void => {
-  if (picker.hasAttribute("data-media-filled")) return;
-  const template = form.querySelector<HTMLTemplateElement>(
-    "template[data-media-options]",
-  );
-  if (!template) return;
-  picker.setAttribute("data-media-filled", "");
-
-  const present = new Map(
-    Array.from(
-      picker.querySelectorAll("option"),
-      (option) => [option.value, option] as const,
-    ),
-  );
-  for (const option of Array.from(
-    template.content.querySelectorAll("option"),
-  )) {
-    const existing = present.get(option.value);
-    if (existing) {
-      if (existing.hasAttribute("data-media-keep-label")) continue;
-      existing.textContent = option.textContent;
-      continue;
-    }
-    picker.append(option.cloneNode(true));
-  }
-};
-
-/**
- * Show or clear an image field's too-narrow warning for the picked upload.
- *
- * Two numbers the server already rendered — the fieldset's `data-image-min-width`
- * and the option's `data-media-width` — are compared and a fixed sentence is
- * written into the slot beside the field. Nothing is fetched, parsed or built:
- * with JavaScript off the warning simply isn't shown while picking, and the
- * save's own notice (server-rendered after the redirect) still says it.
- */
-const updateImageWarning = (
-  field: Element,
-  picker: HTMLSelectElement,
-): void => {
-  const warning = field.querySelector<HTMLElement>("[data-image-warning]");
-  if (!warning) return;
-  const minWidth = Number.parseInt(
-    field.getAttribute("data-image-min-width") ?? "",
-    10,
-  );
-  // `selectedOptions` rather than `value`, because an option's own width is what
-  // matters and the picker's value can be an id the list no longer holds (a
-  // hand-typed one, a deleted upload) with no option behind it.
-  const option = Array.from(picker.options).find(
-    (candidate) => candidate.value === picker.value,
-  );
-  const width = Number.parseInt(
-    option?.getAttribute("data-media-width") ?? "",
-    10,
-  );
-  if (
-    !Number.isSafeInteger(minWidth) ||
-    !Number.isSafeInteger(width) ||
-    width >= minWidth
-  ) {
-    warning.hidden = true;
-    warning.textContent = "";
-    return;
-  }
-  warning.textContent = narrowImageWarning(width, minWidth);
-  warning.hidden = false;
-};
-
-/**
  * Wire the rich text toolbars and the repeatable lists through one delegated
  * listener on the form.
  *
@@ -737,53 +647,6 @@ const wireControls = (form: HTMLFormElement): void => {
   for (const list of Array.from(form.querySelectorAll("[data-list]"))) {
     syncListAdd(list);
   }
-
-  // The image picker is a convenience over the media-id input, which stays the
-  // field's value: choosing an upload writes its id there, and a hand-typed id
-  // works exactly the same. With JavaScript off the picker isn't read at all.
-  // `focusin` bubbles, so a picker cloned into a list row later is covered too;
-  // it fills itself from the form's one options template the first time it is
-  // focused.
-  form.addEventListener("focusin", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const picker = target.closest("[data-image-picker]");
-    if (picker instanceof HTMLSelectElement) {
-      fillPickerFromOptions(form, picker);
-    }
-  });
-
-  form.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-
-    // Switching a link's type needs no handling: every type's input is already
-    // on the page, each keeps its own value, and only the checked one is read.
-    // Clearing the others would lose what a mis-click switched away from.
-    const picker = target.closest("[data-image-picker]");
-    if (!(picker instanceof HTMLSelectElement)) return;
-    const field = picker.closest("[data-field]");
-    if (!field) return;
-    const input = field.querySelector<HTMLInputElement>("[data-image-id]");
-    if (input) input.value = picker.value;
-    updateImageWarning(field, picker);
-  });
-
-  // A hand-typed id carries no width, so whatever the picker said about the
-  // image it had no longer describes the field. Clearing it is the honest
-  // state; the save's own check still runs on the id that was typed.
-  form.addEventListener("input", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const input = target.closest("[data-image-id]");
-    if (!(input instanceof HTMLInputElement)) return;
-    const field = input.closest("[data-field]");
-    const warning = field?.querySelector<HTMLElement>("[data-image-warning]");
-    if (warning) {
-      warning.hidden = true;
-      warning.textContent = "";
-    }
-  });
 
   form.addEventListener("click", (event) => {
     const target = event.target;

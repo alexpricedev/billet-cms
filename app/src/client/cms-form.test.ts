@@ -21,7 +21,7 @@ const markup = `
       </div>
     </div>
     <div data-field data-field-kind="image" data-field-name="photo">
-      <input type="text" data-image-id value="${MEDIA_ID}">
+      <input type="hidden" data-image-id value="${MEDIA_ID}">
       <input type="text" data-image-alt value="Alt text">
     </div>
     <div data-field data-field-kind="link" data-field-name="cta">
@@ -1388,232 +1388,68 @@ describe("page block editor", () => {
   });
 });
 
-describe("media picker", () => {
-  test("choosing an upload writes its id into the media-id input", () => {
+describe("image fields", () => {
+  test("a slot field saves the picker's hidden id", () => {
     mount(`
       <form data-cms-form>
         <div data-field data-field-kind="image" data-field-name="photo">
-          <select data-image-picker>
-            <option value="">Choose an image…</option>
-            <option value="${MEDIA_ID}">A photo (800×400)</option>
-          </select>
-          <input type="text" data-image-id value="">
-          <input type="text" data-image-alt value="">
+          <fieldset class="cms-image-picker" data-image-picker-field>
+            <input type="hidden" data-image-picker-value data-image-id value="${MEDIA_ID}">
+          </fieldset>
         </div>
       </form>
     `);
 
-    const picker = document.querySelector<HTMLSelectElement>(
-      "[data-image-picker]",
-    );
-    if (!picker) throw new Error("no picker");
-    picker.value = MEDIA_ID;
-    picker.dispatchEvent(new Event("change", { bubbles: true }));
-
-    expect(
-      form().querySelector<HTMLInputElement>("[data-image-id]")?.value,
-    ).toBe(MEDIA_ID);
     expect(buildContent(form()).photo).toEqual({ mediaId: MEDIA_ID });
   });
 
-  test("picking a narrow image warns beside the field; a wide one clears it", () => {
-    mount(`
-      <form data-cms-form>
-        <div data-field data-field-kind="image" data-field-name="photo" data-image-min-width="1600">
-          <select data-image-picker>
-            <option value="">Choose an image…</option>
-            <option value="small" data-media-width="800">Small (800×400)</option>
-            <option value="big" data-media-width="2000">Big (2000×1000)</option>
-          </select>
-          <input type="text" data-image-id value="">
-          <input type="text" data-image-alt value="">
-          <p class="cms-field-warning" data-image-warning hidden></p>
-        </div>
-      </form>
-    `);
-
-    const picker = document.querySelector<HTMLSelectElement>(
-      "[data-image-picker]",
-    );
-    const warning = document.querySelector<HTMLElement>("[data-image-warning]");
-    if (!picker || !warning) throw new Error("missing picker or warning");
-
-    picker.value = "small";
-    picker.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(warning.hidden).toBe(false);
-    expect(warning.textContent).toContain("800px");
-    expect(warning.textContent).toContain("1600px");
-
-    picker.value = "big";
-    picker.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(warning.hidden).toBe(true);
-    expect(warning.textContent).toBe("");
-  });
-
-  test("a field with no minimum width never warns, whatever the picker's width", () => {
+  test("keeps the per-use alt override beside the picked id", () => {
     mount(`
       <form data-cms-form>
         <div data-field data-field-kind="image" data-field-name="photo">
-          <select data-image-picker>
-            <option value="">Choose an image…</option>
-            <option value="small" data-media-width="100">Small (100×100)</option>
-          </select>
-          <input type="text" data-image-id value="">
-          <p class="cms-field-warning" data-image-warning hidden></p>
+          <fieldset class="cms-image-picker" data-image-picker-field>
+            <input type="hidden" data-image-picker-value data-image-id value="${MEDIA_ID}">
+          </fieldset>
+          <input type="text" data-image-alt value="The pier at dusk">
         </div>
       </form>
     `);
 
-    const picker = document.querySelector<HTMLSelectElement>(
-      "[data-image-picker]",
-    );
-    const warning = document.querySelector<HTMLElement>("[data-image-warning]");
-    if (!picker || !warning) throw new Error("missing picker or warning");
-
-    picker.value = "small";
-    picker.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(warning.hidden).toBe(true);
+    // The picker writes the id; the alt box is the editor's own words for this
+    // use and is read as it stands.
+    expect(buildContent(form()).photo).toEqual({
+      mediaId: MEDIA_ID,
+      alt: "The pier at dusk",
+    });
   });
 
-  test("typing a media id clears the picker's warning", () => {
+  test("drops an image the picker removed", () => {
     mount(`
       <form data-cms-form>
-        <div data-field data-field-kind="image" data-field-name="photo" data-image-min-width="1600">
-          <select data-image-picker>
-            <option value="small" data-media-width="800" selected>Small (800×400)</option>
-          </select>
-          <input type="text" data-image-id value="small">
-          <input type="text" data-image-alt value="">
-          <p class="cms-field-warning" data-image-warning>already shown</p>
-        </div>
-      </form>
-    `);
-
-    const input = document.querySelector<HTMLInputElement>("[data-image-id]");
-    const warning = document.querySelector<HTMLElement>("[data-image-warning]");
-    if (!input || !warning) throw new Error("missing input or warning");
-    expect(warning.hidden).toBe(false);
-
-    input.value = "some-other-id";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    expect(warning.hidden).toBe(true);
-    expect(warning.textContent).toBe("");
-  });
-
-  test("fills a picker from the form's options template on first focus", () => {
-    mount(`
-      <form data-cms-form>
-        <template data-media-options>
-          <option value="${MEDIA_ID}">A photo (800×400)</option>
-        </template>
         <div data-field data-field-kind="image" data-field-name="photo">
-          <select data-image-picker>
-            <option value="">Choose an image…</option>
-          </select>
-          <input type="text" data-image-id value="">
-          <input type="text" data-image-alt value="">
+          <fieldset class="cms-image-picker" data-image-picker-field>
+            <input type="hidden" data-image-picker-value data-image-id value="">
+          </fieldset>
+          <input type="text" data-image-alt value="Still typed">
         </div>
       </form>
     `);
 
-    const picker = document.querySelector<HTMLSelectElement>(
-      "[data-image-picker]",
-    );
-    if (!picker) throw new Error("no picker");
-    expect(picker.options.length).toBe(1);
-
-    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
-    expect(picker.options.length).toBe(2);
-    expect(
-      picker.querySelector(`option[value="${MEDIA_ID}"]`)?.textContent,
-    ).toBe("A photo (800×400)");
-
-    // Filling twice does not duplicate the options.
-    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
-    expect(picker.options.length).toBe(2);
+    expect(buildContent(form()).photo).toBeUndefined();
   });
 
-  // The server renders a current image with only a fallback label; when the
-  // template lists that same image, filling relabels the existing option from
-  // it rather than skipping it and leaving the fallback (review round 1, item 2).
-  test("relabels a current image that is also in the newest uploads", () => {
+  test("saves an image picked in a list row added after load", () => {
     mount(`
       <form data-cms-form>
-        <template data-media-options>
-          <option value="${MEDIA_ID}">A photo (800×400)</option>
-        </template>
-        <div data-field data-field-kind="image" data-field-name="photo">
-          <select data-image-picker>
-            <option value="">Choose an image…</option>
-            <option value="${MEDIA_ID}" selected>Current image</option>
-          </select>
-          <input type="text" data-image-id value="${MEDIA_ID}">
-          <input type="text" data-image-alt value="">
-        </div>
-      </form>
-    `);
-
-    const picker = document.querySelector<HTMLSelectElement>(
-      "[data-image-picker]",
-    );
-    if (!picker) throw new Error("no picker");
-    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
-
-    expect(picker.options.length).toBe(2);
-    expect(
-      picker.querySelector(`option[value="${MEDIA_ID}"]`)?.textContent,
-    ).toBe("A photo (800×400)");
-    expect(picker.value).toBe(MEDIA_ID);
-  });
-
-  // A current image with a per-use alt keeps the editor's label: that alt is
-  // what the site renders for this use, so the library's own alt must not
-  // quietly replace it when the picker is focused.
-  test("keeps a per-use alt on the current image's option", () => {
-    mount(`
-      <form data-cms-form>
-        <template data-media-options>
-          <option value="${MEDIA_ID}">A photo (800×400)</option>
-        </template>
-        <div data-field data-field-kind="image" data-field-name="photo">
-          <select data-image-picker>
-            <option value="">Choose an image…</option>
-            <option value="${MEDIA_ID}" selected data-media-keep-label>Stored alt</option>
-          </select>
-          <input type="text" data-image-id value="${MEDIA_ID}">
-          <input type="text" data-image-alt value="Stored alt">
-        </div>
-      </form>
-    `);
-
-    const picker = document.querySelector<HTMLSelectElement>(
-      "[data-image-picker]",
-    );
-    if (!picker) throw new Error("no picker");
-    picker.dispatchEvent(new Event("focusin", { bubbles: true }));
-
-    expect(picker.options.length).toBe(2);
-    expect(
-      picker.querySelector(`option[value="${MEDIA_ID}"]`)?.textContent,
-    ).toBe("Stored alt");
-    expect(picker.value).toBe(MEDIA_ID);
-  });
-
-  test("fills a picker in a list row added after the page loaded", () => {
-    mount(`
-      <form data-cms-form>
-        <template data-media-options>
-          <option value="${MEDIA_ID}">A photo (800×400)</option>
-        </template>
         <div data-field data-field-kind="list" data-field-name="gallery" data-list>
           <div data-list-items></div>
           <template data-list-template>
             <div data-list-item>
               <div data-field data-field-kind="image" data-field-name="item">
-                <select data-image-picker>
-                  <option value="">Choose an image…</option>
-                </select>
-                <input type="text" data-image-id value="">
+                <fieldset class="cms-image-picker" data-image-picker-field>
+                  <input type="hidden" data-image-picker-value data-image-id value="">
+                </fieldset>
+                <input type="text" data-image-alt value="">
               </div>
               <button type="button" data-list-remove>Remove</button>
             </div>
@@ -1627,13 +1463,71 @@ describe("media picker", () => {
     if (!add) throw new Error("no add button");
     click(add);
 
+    const row = document.querySelector<HTMLElement>("[data-list-item]");
+    if (!row) throw new Error("no cloned row");
+    const id = row.querySelector<HTMLInputElement>("[data-image-id]");
+    const alt = row.querySelector<HTMLInputElement>("[data-image-alt]");
+    if (!id || !alt) throw new Error("no image controls in the row");
+    id.value = MEDIA_ID;
+    alt.value = "A photo in a row";
+
+    expect(buildContent(form()).gallery).toEqual([
+      { mediaId: MEDIA_ID, alt: "A photo in a row" },
+    ]);
+  });
+
+  // The old reuse dropdown was filled from a shared <template> on first focus.
+  // That path is gone with the select itself; a leftover template in a page
+  // (there is none, but a cached one would be) must not grow a picker.
+  test("no longer fills a picker from a media options template", () => {
+    mount(`
+      <form data-cms-form>
+        <template data-media-options>
+          <option value="${MEDIA_ID}">A photo</option>
+        </template>
+        <div data-field data-field-kind="image" data-field-name="photo">
+          <select data-image-picker>
+            <option value="">Choose an image…</option>
+          </select>
+          <input type="hidden" data-image-id value="">
+        </div>
+      </form>
+    `);
+
     const picker = document.querySelector<HTMLSelectElement>(
       "[data-image-picker]",
     );
     if (!picker) throw new Error("no picker");
     picker.dispatchEvent(new Event("focusin", { bubbles: true }));
-    expect(picker.options.length).toBe(2);
-    expect(picker.querySelector(`option[value="${MEDIA_ID}"]`)).not.toBeNull();
+
+    expect(picker.options.length).toBe(1);
+  });
+
+  // The removed select handler used to copy its value into the hidden id. Now
+  // the hidden field is the picker's own value, and nothing else writes it.
+  test("no longer copies a legacy select's value into the image", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="image" data-field-name="photo">
+          <select data-image-picker>
+            <option value="">Choose an image…</option>
+            <option value="${MEDIA_ID}">A photo</option>
+          </select>
+          <input type="hidden" data-image-id value="">
+        </div>
+      </form>
+    `);
+
+    const picker = document.querySelector<HTMLSelectElement>(
+      "[data-image-picker]",
+    );
+    if (!picker) throw new Error("no picker");
+    picker.value = MEDIA_ID;
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(
+      form().querySelector<HTMLInputElement>("[data-image-id]")?.value,
+    ).toBe("");
   });
 });
 

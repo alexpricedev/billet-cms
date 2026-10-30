@@ -37,8 +37,9 @@ const NETWORK_AND_MARKUP_ALLOWED = new Set([
 // on the client that belongs on the server.
 const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 
-// Minified bytes for the block editor, `cms-form.ts`. It is 14,509 bytes
-// (14.17 KiB) at the time of writing. This is the one recorded exception to "the
+// Minified bytes for the block editor, `cms-form.ts`. It is 12,840 bytes
+// (12.54 KiB) at the time of writing, after the shared image picker replaced the
+// reuse `<select>`, its options template and the image-field handlers. This is the one recorded exception to "the
 // client is presentation only" (AGENTS.md): a contenteditable rich-text field,
 // repeatable rows and the media focal picker need client JS, and the script is
 // kept to walking the server-rendered DOM back into the hidden `content` field.
@@ -73,18 +74,20 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // the same arithmetic written down.
 const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_600;
 
-// Minified bytes for the shared image picker, `image-picker.ts`. It is 7,912
-// bytes (7.73 KiB) at the time of writing.
+// Minified bytes for the shared image picker, `image-picker.ts`. It is 9,404
+// bytes (9.18 KiB) at the time of writing.
 //
 // This is the third recorded exception (AGENTS.md): the picker has to read the
 // options route, upload with progress and build tiles from JSON, which no
 // server-rendered form can do. The budget is a fence around that job, not room
 // to grow: it holds the modal, focus trap, paging, search, drop zone and the
-// closed-field update and nothing else. 10,000 bytes leaves roughly 2 KB for a
-// fix without a deliberate decision — about the size of the smaller additions
-// listed above — and raising it is the signal to ask whether a feature belongs
-// in the picker or in the server that renders the field. See
-// `image-picker.test.ts` for what the client is expected to do.
+// closed-field update and nothing else. Using it for block `image` fields added
+// the too-narrow warning (the picker knows the chosen width) and binding for
+// pickers cloned into list rows after load, which took it from 7,912 to 9,404.
+// 10,000 bytes still holds, but the headroom is now one small fix: raising it
+// is the signal to ask whether a feature belongs in the picker or in the server
+// that renders the field. See `image-picker.test.ts` for what the client is
+// expected to do.
 const IMAGE_PICKER_BUNDLE_BUDGET_BYTES = 10_000;
 
 const sources = (root: string): string[] =>
