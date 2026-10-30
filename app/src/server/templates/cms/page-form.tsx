@@ -882,5 +882,10 @@ export const PageUnavailable = ({
         </>
       }
     />
+    {/* Without a published type there is no form and no settings box, so the
+        page's only remaining action sits here, under the warning. */}
+    <a className="cms-delete-button" href={`/cms/pages/${page.id}/delete`}>
+      Delete page
+    </a>
   </Layout>
 );
