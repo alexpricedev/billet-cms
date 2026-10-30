@@ -384,26 +384,16 @@ export const PageForm = ({
       )}
 
       {uneditable && (
-        <>
-          <Flash
-            tone="warning"
-            title={
-              <>
-                The page type <code>{page.pageType}</code> is no longer
-                published, so this page can't be edited until it is declared
-                again. Its content is kept.
-              </>
-            }
-          />
-          {/* The form and its settings don't render without a page type, so
-              the page's only remaining action sits here, under the warning. */}
-          <a
-            className="cms-delete-button"
-            href={`/cms/pages/${page.id}/delete`}
-          >
-            Delete page
-          </a>
-        </>
+        <Flash
+          tone="warning"
+          title={
+            <>
+              The page type <code>{page.pageType}</code> is no longer published,
+              so this page can't be edited until it is declared again. Its
+              content is kept.
+            </>
+          }
+        />
       )}
 
       {contentIssues && contentIssues.length > 0 && (
