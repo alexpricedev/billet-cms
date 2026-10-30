@@ -475,6 +475,122 @@ describe("cms.css group headings", () => {
   });
 });
 
+describe("cms.css editor field rhythm", () => {
+  // Both sizes are tokens so a field box and the space between fields move
+  // together: the height the link field already used, and one gap for every
+  // field list instead of four different space steps.
+  test("defines one field height and one field gap", () => {
+    const root = /:root\s*\{([\s\S]*?)\n\}/.exec(baseCss)?.[1];
+    expect(root).toContain("--field-height: 44px");
+    expect(root).toContain("--field-gap: var(--space-4)");
+  });
+
+  // A text(), an image alt and the link field's boxes are the same control.
+  // The rule has to reach every single-line input and select inside a field,
+  // while leaving checkboxes, radios, hidden and file inputs alone; textareas
+  // keep their own three-row/auto-grown size and stay out of the selector.
+  test("sizes every single-line field control from the token", () => {
+    const rule = rules(css).find(
+      ([selector, body]) =>
+        /\.cms-field\s+input:not\(/.test(selector) &&
+        /height:\s*var\(--field-height\)/.test(body),
+    );
+    expect(rule).toBeDefined();
+
+    const selector = (rule?.[0] ?? "").replace(/\s+/g, " ");
+    expect(selector).toContain('[type="checkbox"]');
+    expect(selector).toContain('[type="radio"]');
+    expect(selector).toContain('[type="hidden"]');
+    expect(selector).toContain('[type="file"]');
+    expect(selector).toContain(".cms-field select");
+    expect(selector).not.toContain("textarea");
+  });
+
+  // The link field's hard-coded 44px was the only field-box height; every
+  // field control now takes the token. A literal left on a field or link rule
+  // is the thing that drifts when the token changes.
+  test("leaves no literal field-box height in cms.css", () => {
+    const fieldRules = rules(css).filter(([selector]) =>
+      /\.cms-(?:field|link)\b/.test(selector),
+    );
+    expect(fieldRules.length).toBeGreaterThan(0);
+    for (const [selector, body] of fieldRules) {
+      expect(body, selector).not.toMatch(/\b44px\b/);
+    }
+  });
+
+  // Four lists used to space their fields at --space-5, --space-4 and
+  // --space-3; they all answer to the one gap token now.
+  test("spaces every editor field list from the gap token", () => {
+    for (const wanted of [
+      ".cms-fields",
+      ".cms-new-page-form",
+      ".cms-page-settings",
+      ".cms-field-group [data-group-fields]",
+    ]) {
+      const rule = rules(css).find(
+        ([selector, body]) =>
+          selector.trim() === wanted && /gap:\s*var\(--field-gap\)/.test(body),
+      );
+      expect(rule, wanted).toBeDefined();
+    }
+  });
+
+  // Inside a field the label sits 6px above its control, and the help,
+  // character count, errors and warnings sit that same 6px below it: the
+  // field's own grid gap is the whole rhythm, so none of them may add a
+  // margin or padding of their own.
+  test("keeps help, count, errors and warnings on the field's 6px rhythm", () => {
+    const field = rules(css).find(
+      ([selector]) => selector.trim() === ".cms-field",
+    );
+    expect(field?.[1]).toContain("gap: 6px");
+
+    for (const name of [
+      ".cms-field-help",
+      ".cms-char-count",
+      ".cms-field-errors",
+      ".cms-field-warning",
+    ]) {
+      const rule = rules(css).find(([selector]) => selector.trim() === name);
+      expect(rule?.[1], name).toContain("margin: 0");
+      expect(rule?.[1], name).not.toContain("padding");
+    }
+  });
+
+  // The image field is composite: its parts are spaced like separate fields,
+  // while each part keeps the 6px label-to-control rhythm. A fieldset's legend
+  // is out of flow, so the wrapper carries the heading's --space-3 itself
+  // unless field help sits between the two and the field's gap already does.
+  // The heading titles the parts, so it is weighted like a group heading
+  // rather than a second label stacked on "Reuse an upload".
+  test("spaces the image field's parts like separate fields", () => {
+    const parts = /\.cms-image-parts\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(parts).toContain("gap: var(--field-gap)");
+    expect(parts).toContain("margin-top: var(--space-3)");
+
+    const afterHelp =
+      /\.cms-field-help \+ \.cms-image-parts\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(afterHelp).toContain("margin-top: 0");
+
+    const part = /\.cms-image-part\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(part).toContain("gap: 6px");
+
+    const label =
+      /\.cms-field\[data-field-kind="image"\] > \.cms-field-label\s*\{([^}]*)\}/.exec(
+        css,
+      )?.[1];
+    expect(label).toContain("font-weight: 600");
+  });
+
+  // The type icon inside the link destination is vertically centred on the
+  // control, so it has to take the same token as the control it sits in.
+  test("centres the link icon on the field height", () => {
+    const icon = /\.cms-link-icon\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(icon).toContain("height: var(--field-height)");
+  });
+});
+
 describe("cms.css long text fields", () => {
   // A `text()` field over 120 characters renders a textarea, and the client
   // grows it to its text and only then adds `cms-textarea-grown`. Hiding the
