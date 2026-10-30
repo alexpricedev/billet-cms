@@ -114,8 +114,9 @@ const seed = async (actorId: string): Promise<Inserted> => {
   `;
 
   const pageRows = (await db`
-    INSERT INTO cms_pages (page_type, url, title, seo_description)
-    VALUES ('landing', '/about', 'About', 'About us')
+    INSERT INTO cms_pages
+      (page_type, url, title, seo_description, social_image_id)
+    VALUES ('landing', '/about', 'About', 'About us', ${mediaId})
     RETURNING id
   `) as { id: string }[];
   const pageId = pageRows[0].id;
@@ -192,6 +193,8 @@ describe("export document", () => {
     expect(document.pages[0].publishedRevisionId).toBe(
       ids.publishedPageRevision,
     );
+    // The social image travels as the media id the plugin resolves on the site.
+    expect(document.pages[0].socialImageId).toBe(ids.mediaId);
 
     // Only the published slot.
     expect(document.slots.map((slot) => slot.name)).toEqual(["home.hero"]);

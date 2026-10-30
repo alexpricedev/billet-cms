@@ -27,6 +27,7 @@ const writeBundles = () => {
   mkdirSync(FIXTURE_DIR, { recursive: true });
   writeFileSync(`${FIXTURE_DIR}/main.js`, "console.log('test')");
   writeFileSync(`${FIXTURE_DIR}/cms-form.js`, "console.log('cms')");
+  writeFileSync(`${FIXTURE_DIR}/image-picker.js`, "console.log('picker')");
   writeFileSync(`${FIXTURE_DIR}/main.css`, "body { color: red }");
 };
 
@@ -152,6 +153,7 @@ describe("isBundleFilename", () => {
     expect(isBundleFilename("main.css")).toBe(true);
     expect(isBundleFilename("main.js")).toBe(true);
     expect(isBundleFilename("cms-form.js")).toBe(true);
+    expect(isBundleFilename("image-picker.js")).toBe(true);
   });
 
   test("rejects anything else under /assets/", () => {

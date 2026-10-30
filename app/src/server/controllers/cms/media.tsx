@@ -8,9 +8,10 @@
  * back into the form.
  */
 import { MAX_UPLOAD_BYTES } from "@alexpricedev/billet-cms/contract";
+import { CSRF_HEADER } from "@shared/protocol";
 import type { BunRequest } from "bun";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
-import { checkCsrf } from "../../middleware/csrf";
+import { checkCsrf, isRecoverableCsrfFailure } from "../../middleware/csrf";
 import { createCsrfToken } from "../../services/csrf";
 import {
   createMedia,
@@ -18,6 +19,8 @@ import {
   getMediaById,
   getMediaUsage,
   listMedia,
+  listMediaOptionsPage,
+  MEDIA_PICKER_LIMIT,
   type MediaIssue,
   type MediaRecord,
   updateMedia,
@@ -27,10 +30,22 @@ import {
   MediaDeleteConfirm,
   MediaDetail,
   MediaList,
+  pickerOptionJson,
 } from "../../templates/cms/media";
 import { render404 } from "../../utils/errors";
 import { redirect, render } from "../../utils/response";
 import { nonEmpty, UUID_PATTERN } from "./params";
+
+/**
+ * Whether the caller asked for JSON rather than a page.
+ *
+ * The picker's drop zone posts the same multipart form the library page does,
+ * but it can't use a redirect: each file's outcome has to land on that file's
+ * tile. `Accept` is the contract, so a browser form post — which sends
+ * `text/html` — keeps the redirect it always had.
+ */
+const acceptsJson = (req: BunRequest): boolean =>
+  (req.headers.get("accept") ?? "").toLowerCase().includes("application/json");
 
 const listNotice = (params: URLSearchParams): string | null => {
   if (params.get("uploaded") === "1") return "Image uploaded.";
@@ -132,23 +147,86 @@ export const media = {
     });
   },
 
+  /**
+   * The picker's options, as JSON: one page of uploads newest first.
+   *
+   * Same guard as every other media route, so a signed-out request is sent to
+   * sign in. `q` filters the alt text and `after` is the opaque cursor the
+   * previous page returned; see `listMediaOptionsPage`.
+   */
+  async options(req: BunRequest): Promise<Response> {
+    const { redirect: authRedirect, ctx } = await context(req);
+    if (authRedirect || !ctx) return authRedirect ?? render404();
+
+    const params = new URL(req.url).searchParams;
+    const page = await listMediaOptionsPage({
+      q: params.get("q"),
+      after: params.get("after"),
+      limit: MEDIA_PICKER_LIMIT,
+    });
+
+    return Response.json({
+      items: page.items.map(pickerOptionJson),
+      next: page.next,
+    });
+  },
+
   /** Accept one upload. */
   async upload(req: BunRequest): Promise<Response> {
     const { redirect: authRedirect, ctx } = await context(req);
     if (authRedirect || !ctx) return authRedirect ?? render404();
 
+    const json = acceptsJson(req);
     const csrf = await checkCsrf(req, { method: "POST", path: "/cms/media" });
-    if (!csrf.ok) return csrf.response;
+    if (!csrf.ok) {
+      // The picker's token is minted with the page that rendered it and can go
+      // stale while the editor works. A stale-but-authentic token gets a fresh
+      // one in the header the client retries with, plus a JSON reason so a
+      // retry that also fails still says something on the file's tile.
+      if (json && isRecoverableCsrfFailure(csrf) && ctx.sessionId) {
+        return new Response(
+          JSON.stringify({
+            errors: [
+              {
+                field: "file",
+                message: "This page expired. Reload it and try again.",
+              },
+            ],
+          }),
+          {
+            status: 403,
+            headers: {
+              [CSRF_HEADER]: await createCsrfToken(
+                ctx.sessionId,
+                "POST",
+                "/cms/media",
+              ),
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store",
+            },
+          },
+        );
+      }
+      return csrf.response;
+    }
 
     const formData = await req.formData();
     const alt = nonEmpty(formData.get("alt")) ?? "";
     const file = formData.get("file");
 
-    const fail = (message: string): Promise<Response> =>
-      renderList(ctx, {
-        errors: [{ field: "file", message }],
-        values: { alt },
-      });
+    // The page answers a refused upload by re-rendering the library with the
+    // message; the picker can't be navigated to, so it gets the same issue as
+    // JSON and puts it on the file's own tile.
+    const fail = (message: string): Response | Promise<Response> =>
+      json
+        ? Response.json(
+            { errors: [{ field: "file", message }] },
+            { status: 400 },
+          )
+        : renderList(ctx, {
+            errors: [{ field: "file", message }],
+            values: { alt },
+          });
 
     if (!(file instanceof File) || file.size === 0) {
       return fail("Choose an image to upload.");
@@ -167,10 +245,14 @@ export const media = {
     });
 
     if (!result.ok) {
-      return renderList(ctx, { errors: result.issues, values: { alt } });
+      return json
+        ? Response.json({ errors: result.issues }, { status: 400 })
+        : renderList(ctx, { errors: result.issues, values: { alt } });
     }
 
-    return redirect("/cms/media?uploaded=1");
+    return json
+      ? Response.json(pickerOptionJson(result.media))
+      : redirect("/cms/media?uploaded=1");
   },
 
   /** One image's detail: alt, focal point, uses and delete. */
@@ -192,7 +274,7 @@ export const media = {
           ? {
               kind: "warning" as const,
               message:
-                "That image is used by published content, so it wasn't deleted.",
+                "That image is used by published content or a page's social image, so it wasn't deleted.",
             }
           : null;
 

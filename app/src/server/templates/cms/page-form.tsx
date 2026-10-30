@@ -1,6 +1,10 @@
 import type { JSX } from "preact";
 import type { FieldError } from "../../components/cms/field-control";
 import { MediaOptionsTemplate } from "../../components/cms/field-control";
+import {
+  ImagePicker,
+  type PickerImage,
+} from "../../components/cms/image-picker";
 import { Flash, type FlashField } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
@@ -64,6 +68,10 @@ export interface PageFormProps {
   media: MediaOption[];
   /** Whether the reuse list was capped, so the picker's help line is true. */
   pickerCapped: boolean;
+  /** The current social image, read on the server for the picker's closed field. */
+  socialImage?: PickerImage | null;
+  /** The CSRF token bound to `POST /cms/media`, for the picker's drop zone. */
+  uploadCsrfToken: string;
   /** Validation messages for the settings fields, keyed by field name. */
   settingsErrors?: Map<string, FieldError[]>;
   /** Validation messages for a block's fields, keyed by the block's index. */
@@ -241,6 +249,8 @@ export const PageForm = ({
   pages,
   media,
   pickerCapped,
+  socialImage,
+  uploadCsrfToken,
   settingsErrors,
   blockErrors,
   blockAlerts,
@@ -256,7 +266,7 @@ export const PageForm = ({
     url: page.draftUrl ?? page.url,
     title: page.title,
     seoDescription: page.seoDescription,
-    socialImage: page.socialImage,
+    socialImageId: page.socialImageId,
   };
   const hasDraft = latestRevisionId !== null;
   const upToDate =
@@ -585,12 +595,14 @@ export const PageForm = ({
                 errors={settingsErrors?.get("seoDescription")}
                 textarea
               />
-              <SettingsControl
-                name="socialImage"
-                label="Social image URL"
-                help="An absolute or site-relative image URL for social cards."
-                value={settings.socialImage ?? ""}
-                errors={settingsErrors?.get("socialImage")}
+              <ImagePicker
+                name="socialImageId"
+                label="Social image"
+                help="Shown when this page is shared on social media. Choose an upload, or drop in a new one."
+                value={settings.socialImageId ?? null}
+                image={socialImage}
+                errors={settingsErrors?.get("socialImageId")}
+                uploadCsrfToken={uploadCsrfToken}
               />
               {/* Deleting goes through a confirm step that names the page, its
                   redirects and the pages linking to it, rather than deleting
@@ -690,7 +702,10 @@ export const PageForm = ({
       </section>
 
       {!uneditable && (
-        <script type="module" src={getAssetUrl("/assets/cms-form.js")} />
+        <>
+          <script type="module" src={getAssetUrl("/assets/cms-form.js")} />
+          <script type="module" src={getAssetUrl("/assets/image-picker.js")} />
+        </>
       )}
     </Layout>
   );
@@ -706,9 +721,13 @@ export interface NewPageFormProps {
     url: string;
     title: string;
     seoDescription: string;
-    socialImage: string;
+    socialImageId: string;
   };
   errors?: FieldError[];
+  /** The current social image, when a failed create kept one. */
+  socialImage?: PickerImage | null;
+  /** The CSRF token bound to `POST /cms/media`, for the picker's drop zone. */
+  uploadCsrfToken: string;
 }
 
 /** The create form: a page type and the settings it starts with. */
@@ -719,6 +738,8 @@ export const NewPageForm = ({
   pageTypes,
   values,
   errors,
+  socialImage,
+  uploadCsrfToken,
 }: NewPageFormProps) => {
   const errorsByField = new Map<string, FieldError[]>();
   for (const error of errors ?? []) {
@@ -817,17 +838,22 @@ export const NewPageForm = ({
             errors={errorsByField.get("seoDescription")}
             textarea
           />
-          <SettingsControl
-            name="socialImage"
-            label="Social image URL"
-            help="An absolute or site-relative image URL for social cards."
-            value={values.socialImage}
-            errors={errorsByField.get("socialImage")}
+          <ImagePicker
+            name="socialImageId"
+            label="Social image"
+            help="Shown when this page is shared on social media. Choose an upload, or drop in a new one."
+            value={values.socialImageId}
+            image={socialImage}
+            errors={errorsByField.get("socialImageId")}
+            uploadCsrfToken={uploadCsrfToken}
           />
           <button type="submit" className="cms-save btn btn-primary">
             Create page
           </button>
         </form>
+      )}
+      {pageTypes.length > 0 && (
+        <script type="module" src={getAssetUrl("/assets/image-picker.js")} />
       )}
     </Layout>
   );

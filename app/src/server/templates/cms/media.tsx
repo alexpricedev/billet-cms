@@ -1,4 +1,5 @@
 import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
+import type { PickerImage } from "../../components/cms/image-picker";
 import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
@@ -47,7 +48,7 @@ const formatBytes = (bytes: number): string => {
  * gets the smallest it does have rather than nothing.
  */
 export const variantForDisplay = (
-  media: MediaRecord,
+  media: Pick<MediaRecord, "variants">,
   displayWidth: number,
   maxWidth?: number,
 ): MediaVariant | undefined => {
@@ -64,7 +65,23 @@ export const variantForDisplay = (
 };
 
 /** The CSS display width in pixels of each surface, at a 16px root. */
-const GRID_THUMBNAIL_WIDTH = 12 * 16;
+export const GRID_THUMBNAIL_WIDTH = 12 * 16;
+
+/**
+ * The picker's shape for one upload: what a library card and the closed field
+ * both show. Shared by the options route, the JSON upload answer and the page
+ * form, so a pick looks the same wherever it is drawn.
+ */
+export const pickerOptionJson = (
+  media: Pick<MediaRecord, "id" | "alt" | "width" | "height" | "variants">,
+): PickerImage => ({
+  id: media.id,
+  alt: media.alt,
+  width: media.width,
+  height: media.height,
+  thumbnailUrl:
+    variantForDisplay(media, GRID_THUMBNAIL_WIDTH)?.fallbackUrl ?? null,
+});
 const FOCAL_PICKER_WIDTH = 32 * 16;
 // The picker is a click target, not a full-bleed image, so it stops at the 960
 // rendition rather than pulling the 1600/2400 one the 2x rule would pick.
@@ -359,7 +376,7 @@ export const MediaDetail = ({
       <section className="cms-media-uses" aria-label="Image usage">
         <h2>Uses</h2>
         {usage.length === 0 ? (
-          <p>Not used by any published page or slot.</p>
+          <p>Not used by any page, slot or social image.</p>
         ) : (
           <ul className="cms-media-usage">
             {usage.map((entry) => (
@@ -377,8 +394,9 @@ export const MediaDetail = ({
         <p className="cms-media-delete">
           {usage.length > 0 ? (
             <>
-              This image is used by published content, so it can't be deleted.
-              Remove it from the pages and slots above first.
+              This image is used by published content or a page's social image,
+              so it can't be deleted. Remove it from the pages and slots above
+              first.
             </>
           ) : (
             <a

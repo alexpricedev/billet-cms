@@ -43,7 +43,7 @@ interface PageRow {
   url: string;
   title: string;
   seo_description: string | null;
-  social_image: string | null;
+  social_image_id: string | null;
   published_revision_id: string | null;
   created_at: Date;
   updated_at: Date;
@@ -99,7 +99,7 @@ const toPage = (row: PageRow): ExportedPage => ({
   url: row.url,
   title: row.title,
   seoDescription: row.seo_description,
-  socialImage: row.social_image,
+  socialImageId: row.social_image_id,
   publishedRevisionId: row.published_revision_id,
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
@@ -209,7 +209,7 @@ export const buildExport = async (sql: SQL = db): Promise<CmsExport> =>
     const meta = await readMeta(tx);
 
     const pageRows = (await tx`
-      SELECT id, page_type, url, title, seo_description, social_image,
+      SELECT id, page_type, url, title, seo_description, social_image_id,
              published_revision_id, created_at, updated_at
       FROM cms_pages
       WHERE published_revision_id IS NOT NULL

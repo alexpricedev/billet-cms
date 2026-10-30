@@ -66,7 +66,7 @@ export interface CmsPage {
   url: string;
   title: string;
   seoDescription: string | null;
-  socialImage: string | null;
+  socialImageId: string | null;
   pageType: string;
   blocks: CmsPageBlock[];
   /** When the page row last changed, for a sitemap `lastmod`. */
@@ -143,14 +143,14 @@ interface PageRow {
   url: string;
   title: string;
   seo_description: string | null;
-  social_image: string | null;
+  social_image_id: string | null;
   published_revision_id: string | null;
   updated_at: Date;
 }
 
 // The columns both page reads select. Shared so the published read and the
 // preview read cannot drift into selecting different fields.
-const PAGE_COLUMNS = `id, page_type, url, title, seo_description, social_image,
+const PAGE_COLUMNS = `id, page_type, url, title, seo_description, social_image_id,
               published_revision_id, updated_at`;
 
 interface BlockTypeRow {
@@ -372,7 +372,7 @@ export const createCmsPages = (options: CmsPagesOptions): CmsPagesReader => {
       url: page.url,
       title: page.title,
       seoDescription: optionalText(page.seo_description),
-      socialImage: page.social_image,
+      socialImageId: page.social_image_id,
       pageType: page.page_type,
       blocks: rendered,
       lastModified: page.updated_at,

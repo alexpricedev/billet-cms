@@ -12,8 +12,15 @@ import { Glob } from "bun";
 const CLIENT = "src/client";
 const SERVER = "src/server";
 
-// The one place the client talks to the server and parses what comes back.
-const NETWORK_AND_MARKUP_ALLOWED = new Set([`${CLIENT}/reactive/request.ts`]);
+// The places the client talks to the server and parses what comes back. The
+// request helper is the enhanced-form protocol; the image picker is the third
+// recorded exception (AGENTS.md) — a library grid, alt search, paging and a
+// drop zone cannot be a server-rendered form. It is confined to the two media
+// routes and builds every tile with createElement/textContent.
+const NETWORK_AND_MARKUP_ALLOWED = new Set([
+  `${CLIENT}/reactive/request.ts`,
+  `${CLIENT}/image-picker.ts`,
+]);
 
 // Minified bytes for the main entry point. It is 5,292 bytes (5.17 KiB) at the
 // time of writing, and an application component costs 1–2 KiB — contact-directory
@@ -65,6 +72,20 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // headroom; the number moving is still the signal, so raise it again only with
 // the same arithmetic written down.
 const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_600;
+
+// Minified bytes for the shared image picker, `image-picker.ts`. It is 7,912
+// bytes (7.73 KiB) at the time of writing.
+//
+// This is the third recorded exception (AGENTS.md): the picker has to read the
+// options route, upload with progress and build tiles from JSON, which no
+// server-rendered form can do. The budget is a fence around that job, not room
+// to grow: it holds the modal, focus trap, paging, search, drop zone and the
+// closed-field update and nothing else. 10,000 bytes leaves roughly 2 KB for a
+// fix without a deliberate decision — about the size of the smaller additions
+// listed above — and raising it is the signal to ask whether a feature belongs
+// in the picker or in the server that renders the field. See
+// `image-picker.test.ts` for what the client is expected to do.
+const IMAGE_PICKER_BUNDLE_BUDGET_BYTES = 10_000;
 
 const sources = (root: string): string[] =>
   Array.from(new Glob("**/*.{ts,tsx}").scanSync(root))
@@ -236,5 +257,24 @@ describe("client boundaries", () => {
       bundle?.size ?? Number.POSITIVE_INFINITY,
       "cms-form.js is over budget — it is the one client-JS exception, kept to walking server-rendered DOM rather than a client application.",
     ).toBeLessThan(CMS_FORM_BUNDLE_BUDGET_BYTES);
+  });
+
+  test("the image picker bundle stays under its byte budget", async () => {
+    // Built in memory with the same flags as `build:client`, so the number is
+    // the one that ships. Nothing is written to dist/.
+    const result = await Bun.build({
+      entrypoints: [`${CLIENT}/image-picker.ts`],
+      minify: true,
+      target: "browser",
+    });
+    expect(result.success).toBe(true);
+    const bundle = result.outputs.find(
+      (output) => output.kind === "entry-point",
+    );
+    expect(bundle).toBeDefined();
+    expect(
+      bundle?.size ?? Number.POSITIVE_INFINITY,
+      "image-picker.js is over budget — the picker is a library grid and a drop zone, not a second application.",
+    ).toBeLessThan(IMAGE_PICKER_BUNDLE_BUDGET_BYTES);
   });
 });

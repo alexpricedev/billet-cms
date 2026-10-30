@@ -34,7 +34,11 @@ import {
   saveSlotDraft,
   validatePageContent,
 } from "../../services/content";
-import { checkImageGuidance, type ImageGuidance } from "../../services/media";
+import {
+  checkImageGuidance,
+  getMediaById,
+  type ImageGuidance,
+} from "../../services/media";
 import type { McpActor } from "../auth";
 import {
   errorResult,
@@ -393,7 +397,7 @@ export const registerWriteTools = (
             url: z.string().optional(),
             title: z.string().optional(),
             seoDescription: z.string().nullable().optional(),
-            socialImage: z.string().nullable().optional(),
+            socialImageId: z.string().nullable().optional(),
           })
           .optional(),
         blocks: z
@@ -420,6 +424,23 @@ export const registerWriteTools = (
           return errorResult(`No page for ${id ?? url}.`, {
             reason: "not-found",
           });
+        }
+
+        // A social image is a media id now, not a URL. The service re-checks
+        // this before writing, but naming the missing upload here is the
+        // difference between "no media for that id" and a field issue on a save
+        // that never needed the rest of its settings validated.
+        const socialImageId = settings?.socialImageId?.trim();
+        if (socialImageId) {
+          if (
+            !UUID_PATTERN.test(socialImageId) ||
+            (await getMediaById(socialImageId)) === null
+          ) {
+            return errorResult(
+              `No media for "${socialImageId}". Use list_media to get an image id.`,
+              { reason: "not-found" },
+            );
+          }
         }
 
         const latest = await getLatestRevision("page", page.id);
@@ -492,10 +513,10 @@ export const registerWriteTools = (
               settings?.seoDescription !== undefined
                 ? settings.seoDescription
                 : page.seoDescription,
-            socialImage:
-              settings?.socialImage !== undefined
-                ? settings.socialImage
-                : page.socialImage,
+            socialImageId:
+              settings?.socialImageId !== undefined
+                ? settings.socialImageId
+                : page.socialImageId,
           },
           content,
           baseRevisionId,
