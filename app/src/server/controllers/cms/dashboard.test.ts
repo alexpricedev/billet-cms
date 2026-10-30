@@ -93,6 +93,19 @@ describe("Dashboard controller", () => {
     }
   });
 
+  // The empty dashboard is a state, not a result: the banner names what is
+  // missing and closing it would leave the page blank until a reload brought
+  // it back. No ×.
+  test("the empty dashboard has no dismiss button", async () => {
+    const identity = await seedIdentity(db, "editor@example.com");
+    const session = await createAuthenticatedSession(identity.id);
+
+    const html = await (await dashboard.index(get(session))).text();
+
+    expect(html).toContain("No slots are published yet.");
+    expect(html).not.toContain("data-flash-dismiss");
+  });
+
   test("explains the page types and points at Pages", async () => {
     await seedBlockType(db, hero);
     await seedPageType(

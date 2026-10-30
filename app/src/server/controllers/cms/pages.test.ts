@@ -205,6 +205,20 @@ describe("Pages controller", () => {
     expect(location).toContain(created?.id ?? "missing");
   });
 
+  // With no page types the banner is the whole page: closing it would leave a
+  // header and a reload would bring it back. It is a state banner, so it ships
+  // no × at all.
+  test("the New page without page types has no dismiss button", async () => {
+    await db`UPDATE cms_page_types SET removed_at = NOW()`;
+
+    const res = await pages.newPage(get("/cms/pages/new"));
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("No page types are published yet.");
+    expect(html).not.toContain("data-flash-dismiss");
+  });
+
   test("re-renders the new-page form with the failing field", async () => {
     const res = await pages.create(
       await post(
