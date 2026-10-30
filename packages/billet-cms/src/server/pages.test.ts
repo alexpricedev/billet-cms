@@ -97,13 +97,27 @@ const fakeSql = (
       }
       if (query.includes("cms_pages")) {
         if (query.includes("WHERE id = $1")) {
+          // Pin the two projections that reach a page by id: `resolveLink`'s
+          // preview read selects `url` alone, and a page read selects the full
+          // column list. An unrecognised query rejects rather than falling back
+          // to a full row, so a reworded production query cannot pass merely
+          // because `rows[0]?.url` still reads.
+          const normalised = query.replace(/\s+/g, " ").trim();
+          const urlOnly = /^SELECT url FROM \S+ WHERE id = \$1$/.test(
+            normalised,
+          );
+          const fullRow =
+            /^SELECT id, page_type, url, title, seo_description, social_image, published_revision_id, updated_at FROM \S+ WHERE id = \$1$/.test(
+              normalised,
+            );
+          if (!urlOnly && !fullRow) {
+            return Promise.reject(
+              new Error(`unexpected by-id query: ${query}`),
+            );
+          }
           const row = rows.find((candidate) => candidate.id === params[0]);
           if (!row) return Promise.resolve([]);
-          // `resolveLink`'s preview read selects only `url`; the page read
-          // selects every column. Answer in the shape the query asked for.
-          return Promise.resolve(
-            /SELECT\s+url\s+FROM/i.test(query) ? [{ url: row.url }] : [row],
-          );
+          return Promise.resolve(urlOnly ? [{ url: row.url }] : [row]);
         }
         // The sitemap query is the only one that reads `updated_at`.
         if (query.includes("updated_at")) {
@@ -226,6 +240,38 @@ describe("createCmsPages", () => {
           { preview: pagePreview },
         ),
       ).toBe("/marketing-page");
+    });
+
+    // A page can link the same draft many times; the per-access memo means the
+    // render reads it once rather than once per link.
+    test("reads a draft once per preview access", async () => {
+      const { sql } = fakeSql({ draft: DRAFT_PAGE });
+      const inner = sql as unknown as {
+        unsafe: (query: string, params?: unknown[]) => Promise<unknown>;
+      };
+      let draftReads = 0;
+      const counting = {
+        unsafe: (query: string, params?: unknown[]) => {
+          if (/^SELECT url FROM/.test(query.trim())) draftReads += 1;
+          return inner.unsafe(query, params);
+        },
+      } as unknown as SQL;
+      const pages = createCmsPages({ sql: counting, onSkip: () => {} });
+      const link = { type: "page" as const, pageId: "page-2" };
+
+      expect(await pages.resolveLink(link, { preview: pagePreview })).toBe(
+        "/marketing-page",
+      );
+      expect(await pages.resolveLink(link, { preview: pagePreview })).toBe(
+        "/marketing-page",
+      );
+      expect(draftReads).toBe(1);
+
+      // Another access is another preview and reads again.
+      expect(
+        await pages.resolveLink(link, { preview: { ...pagePreview } }),
+      ).toBe("/marketing-page");
+      expect(draftReads).toBe(2);
     });
 
     test("resolves a published target from the cache, unchanged", async () => {

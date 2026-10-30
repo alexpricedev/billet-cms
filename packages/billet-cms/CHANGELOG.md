@@ -11,9 +11,10 @@ URL instead of `null`, so the site renders the button. Any valid access (a
 page's or a slot's token) resolves every draft; following a cross-link to a
 draft without its own token still 404s.
 
-A published target keeps resolving from the published route cache; only a draft
-costs one direct, uncached read, so no draft URL enters that cache. Without
-preview access nothing changes: a link to a draft still resolves to `null`.
+A published target keeps resolving from the published route cache; a draft
+costs one direct, uncached read per access (memoised, so repeated links to the
+same draft read it once), so no draft URL enters that cache. Without preview
+access nothing changes: a link to a draft still resolves to `null`.
 
 ## 0.3.0
 

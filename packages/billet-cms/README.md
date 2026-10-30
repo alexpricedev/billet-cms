@@ -116,8 +116,9 @@ unpublished page resolves to that page's URL, including a link to the page being
 previewed. Any valid access (a page's or a slot's token) resolves every draft,
 so a cross-link between two drafts has an href; following it still needs the
 target's own token or it 404s, which is more honest than a missing button. A
-published target keeps resolving from the published route cache; only a draft
-costs one direct read, and no draft URL ever enters that cache.
+published target keeps resolving from the published route cache; a draft costs
+one direct read, memoised per access so a page linking it repeatedly reads it
+once, and no draft URL ever enters that cache.
 
 The banner names when the draft was saved (`draftSavedAt`, read in the same
 query as the token). That line is doing a job: an editor who types, hits Preview
