@@ -370,11 +370,15 @@ describe("Pages controller", () => {
         new RegExp(`<button[^>]*data-block-add="${name}"[^>]*>`),
       )?.[0] ?? "";
 
-    /** The menu's labels, in the order the page type offers them. */
+    /** The menu's visible labels, in the order the page type offers them. */
     const menuLabels = (html: string): string[] =>
       Array.from(
-        html.matchAll(/<button[^>]*role="menuitem"[^>]*>([^<]*)<\/button>/g),
-      ).map((match) => match[1] ?? "");
+        html.matchAll(
+          /<button([^>]*)role="menuitem"([^>]*)>([^<]*)<\/button>/g,
+        ),
+      )
+        .filter((match) => !/\bhidden\b/.test(`${match[1]}${match[2]}`))
+        .map((match) => match[3] ?? "");
 
     /** Whether the whole Add control is hidden on this render. */
     const addAreaHidden = (html: string): boolean =>
@@ -425,9 +429,10 @@ describe("Pages controller", () => {
 
     test("a type at its limit is not offered, and Add block hides when nothing is left", async () => {
       const html = await withBlocks("landing", pageContent("Hi").blocks);
-      // The hero is on the page, so it is not a menu item and nothing
-      // explains a limit.
-      expect(menuItem(html, "hero")).toBe("");
+      // The hero is on the page, so its item is rendered but hidden; the
+      // client brings it back if that block is removed. Nothing explains a
+      // limit.
+      expect(menuItem(html, "hero")).toContain("hidden");
       expect(menuLabels(html)).toEqual([]);
       expect(addAreaHidden(html)).toBe(true);
       expect(html).not.toContain("only one hero per page");
@@ -472,7 +477,8 @@ describe("Pages controller", () => {
         { type: "prose", body: document },
         { type: "prose", body: document },
       ]);
-      expect(menuItem(two, "prose")).toBe("");
+      expect(menuItem(two, "prose")).toContain("hidden");
+      expect(menuLabels(two)).toEqual([]);
       expect(addAreaHidden(two)).toBe(true);
     });
 

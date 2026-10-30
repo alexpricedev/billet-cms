@@ -1116,21 +1116,24 @@ h1 {
 }
 
 /* The menu floats — the one place DESIGN.md allows a shadow: popovers and
-   menus. Items are full-width so the label, not a slug, is what reads. */
+   menus. It opens upward. The Add control sits at the end of the form, and the
+   editor's save bar is sticky over the bottom of the viewport, so a menu below
+   the button would be clipped by it at every width. Items are full-width so the
+   label, not a slug, is what reads. */
 .cms-block-add-menu {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  bottom: 100%;
   box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 1px;
   left: 0;
-  margin: 0;
+  margin: 0 0 var(--space-1);
   min-width: 200px;
   padding: var(--space-1);
   position: absolute;
-  top: 100%;
   z-index: 10;
 }
 

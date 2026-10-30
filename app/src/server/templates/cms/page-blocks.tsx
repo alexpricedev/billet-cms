@@ -226,6 +226,9 @@ export const PageBlocks = ({
     unavailable.map((entry) => [entry.index, entry]),
   );
   const allowed = allowedBlockTypes(pageType, blockTypes);
+  // Every allowed type gets a menu item. One already at its maximum is rendered
+  // `hidden` rather than left out, so removing that block in this tab can bring
+  // it back without a round trip; the control itself hides when all are full.
   const addable = allowed.filter(
     (blockType) => !atLimit(pageType, blocks, blockType.name),
   );
@@ -308,10 +311,10 @@ export const PageBlocks = ({
           The page type doesn't allow any blocks.
         </p>
       ) : (
-        // One Add control for every type the page can still take. The menu is
-        // always rendered — `cms-form.ts` keeps it in step with the blocks the
-        // editor adds and removes — and the whole control is hidden when no
-        // type is left, so nothing says "off" or explains a limit.
+        // One Add control for every type the page can take. The menu is always
+        // rendered — `cms-form.ts` keeps it in step with the blocks the editor
+        // adds and removes — and the whole control is hidden when no type is
+        // left, so nothing says "off" or explains a limit.
         <div
           className="cms-block-add"
           hidden={addable.length === 0}
@@ -336,13 +339,14 @@ export const PageBlocks = ({
             data-block-add-menu
             hidden
           >
-            {addable.map((blockType) => (
+            {allowed.map((blockType) => (
               <button
                 type="button"
                 role="menuitem"
                 className="cms-block-add-item"
                 data-block-add={blockType.name}
                 data-block-max={blockMax(pageType, blockType.name)}
+                hidden={atLimit(pageType, blocks, blockType.name)}
                 key={blockType.name}
               >
                 {blockType.label}

@@ -1352,6 +1352,30 @@ describe("page block editor", () => {
       expect(proseCount()).toBe(1);
     });
 
+    // The server renders a type already at its maximum `hidden` rather than
+    // leaving it out, so removing that stored block brings it straight back.
+    test("returns an item the server hid at load when its block is removed", () => {
+      document.body.innerHTML = "";
+      mount(
+        PAGE_MARKUP.replace(
+          '<button type="button" role="menuitem" data-block-add="prose">Prose</button>',
+          `<button type="button" role="menuitem" data-block-add="hero" data-block-max="1">Hero</button>
+           <button type="button" role="menuitem" data-block-add="prose">Prose</button>`,
+        ),
+      );
+      // The stored hero makes the hero item full on the first sync.
+      expect(addItem("hero").hidden).toBe(true);
+
+      const remove = document.createElement("button");
+      remove.setAttribute("data-block-remove", "");
+      document
+        .querySelector('[data-cms-block][data-block-type="hero"]')
+        ?.append(remove);
+      click(remove);
+
+      expect(addItem("hero").hidden).toBe(false);
+    });
+
     test("a flagged block marked removed stops counting", () => {
       document.body.innerHTML = "";
       mount(
