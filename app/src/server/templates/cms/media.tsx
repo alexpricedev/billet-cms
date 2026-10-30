@@ -64,7 +64,7 @@ export const variantForDisplay = (
 };
 
 /** The CSS display width in pixels of each surface, at a 16px root. */
-const GRID_THUMBNAIL_WIDTH = 12 * 16;
+export const GRID_THUMBNAIL_WIDTH = 12 * 16;
 const FOCAL_PICKER_WIDTH = 32 * 16;
 // The picker is a click target, not a full-bleed image, so it stops at the 960
 // rendition rather than pulling the 1600/2400 one the 2x rule would pick.

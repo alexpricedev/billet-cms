@@ -26,6 +26,7 @@ import {
 } from "../../services/media";
 import type { SessionContext } from "../../services/sessions";
 import {
+  GRID_THUMBNAIL_WIDTH,
   MediaDeleteConfirm,
   MediaDetail,
   MediaList,
@@ -36,15 +37,12 @@ import { redirect, render } from "../../utils/response";
 import { nonEmpty, UUID_PATTERN } from "./params";
 
 /**
- * The width a picker's grid card renders at, at a 16px root.
+ * The JSON shape a picker sees for one upload.
  *
- * The options endpoint hands back a thumbnail sized for the same card the
- * library page uses (`GRID_THUMBNAIL_WIDTH` in `templates/cms/media`), so the
- * picker doesn't download a full rendition per tile.
+ * The thumbnail is sized for the same card the library page uses
+ * (`GRID_THUMBNAIL_WIDTH` in `templates/cms/media`), so the picker doesn't
+ * download a full rendition per tile.
  */
-const OPTION_THUMBNAIL_WIDTH = 12 * 16;
-
-/** The JSON shape a picker sees for one upload. */
 const optionJson = (
   option: Pick<MediaRecord, "id" | "alt" | "width" | "height" | "variants">,
 ) => ({
@@ -53,7 +51,7 @@ const optionJson = (
   width: option.width,
   height: option.height,
   thumbnailUrl:
-    variantForDisplay(option, OPTION_THUMBNAIL_WIDTH)?.fallbackUrl ?? null,
+    variantForDisplay(option, GRID_THUMBNAIL_WIDTH)?.fallbackUrl ?? null,
 });
 
 /**
