@@ -505,11 +505,15 @@ describe("cms.css editor field rhythm", () => {
       expect(selector).toContain(`[type="${type}"]`);
     }
     // No `type` means `text` in the browser, so it is in the allow-list too.
-    expect(selector).toContain("input:not([type]");
-    expect(selector).toContain(".cms-field select");
+    // Pin the whole branch: `input:not([type]` alone would also match
+    // `input:not([type="checkbox"])`, a broad exclusion.
+    expect(selector).toContain("input:not([type], .cms-picker-overlay *)");
+    expect(selector).toContain(".cms-field select:not(.cms-picker-overlay *)");
     // The image picker's dialog sits inside the fieldset; its own controls
-    // (the search box) are not field boxes and keep the base size.
-    expect(selector).toContain(":not(.cms-picker-overlay *)");
+    // (the search box) are not field boxes and keep the base size. Every
+    // branch carries the exclusion — one dropped branch stretches the search
+    // box again — so count them rather than finding it somewhere.
+    expect(selector.match(/\.cms-picker-overlay \*/g) ?? []).toHaveLength(3);
     expect(selector).not.toContain("textarea");
     // Not a broad exclusion that would catch every other input type.
     expect(selector).not.toContain('[type="checkbox"]');

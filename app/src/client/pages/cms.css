@@ -210,10 +210,14 @@ h1 {
    it moves no layout, but it is modal chrome rather than one of the field's
    boxes: its search input keeps the base control size, like the dialog's
    buttons. The exclusion is on the overlay, not on that one input, so
-   anything the dialog grows later is not stretched either. */
+   anything the dialog grows later is not stretched either.
+
+   The typed branch's allow-list is `:where()` rather than `:is()` so it
+   contributes no specificity: all three branches stay (0,2,1) and an override
+   cannot beat the no-type input while losing to the typed ones. */
 .cms-field input:not([type], .cms-picker-overlay *),
 .cms-field
-  input:is(
+  input:where(
     [type="text"],
     [type="url"],
     [type="email"],
