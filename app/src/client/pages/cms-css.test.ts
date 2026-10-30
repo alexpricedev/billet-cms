@@ -489,7 +489,9 @@ describe("cms.css editor field rhythm", () => {
   // The rule is an allow-list of single-line text-like inputs (plus selects),
   // so a checkbox, radio, hidden input, file, button, colour or range control
   // keeps its own size; textareas keep their own three-row/auto-grown size and
-  // stay out of the selector.
+  // stay out of the selector. The image picker's modal is rendered inside the
+  // fieldset but is chrome rather than a field box, so the whole overlay is
+  // excluded: its search input keeps the base control size.
   test("sizes every single-line field control from the token", () => {
     const rule = rules(css).find(
       ([selector, body]) =>
@@ -503,8 +505,11 @@ describe("cms.css editor field rhythm", () => {
       expect(selector).toContain(`[type="${type}"]`);
     }
     // No `type` means `text` in the browser, so it is in the allow-list too.
-    expect(selector).toContain("input:not([type])");
+    expect(selector).toContain("input:not([type]");
     expect(selector).toContain(".cms-field select");
+    // The image picker's dialog sits inside the fieldset; its own controls
+    // (the search box) are not field boxes and keep the base size.
+    expect(selector).toContain(":not(.cms-picker-overlay *)");
     expect(selector).not.toContain("textarea");
     // Not a broad exclusion that would catch every other input type.
     expect(selector).not.toContain('[type="checkbox"]');

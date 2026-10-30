@@ -204,8 +204,14 @@ h1 {
    boxes all line up. The input half is an allow-list, not an exclusion: only
    text-like types — and an input with no `type`, which is `text` — are matched,
    so a checkbox, radio, hidden input, file, button, colour or range control
-   keeps its own size. Textareas and the rich text editor are not matched. */
-.cms-field input:not([type]),
+   keeps its own size. Textareas and the rich text editor are not matched.
+
+   The image picker's dialog is rendered inside a `.cms-field` so that opening
+   it moves no layout, but it is modal chrome rather than one of the field's
+   boxes: its search input keeps the base control size, like the dialog's
+   buttons. The exclusion is on the overlay, not on that one input, so
+   anything the dialog grows later is not stretched either. */
+.cms-field input:not([type], .cms-picker-overlay *),
 .cms-field
   input:is(
     [type="text"],
@@ -213,8 +219,8 @@ h1 {
     [type="email"],
     [type="tel"],
     [type="search"]
-  ),
-.cms-field select {
+  ):not(.cms-picker-overlay *),
+.cms-field select:not(.cms-picker-overlay *) {
   height: var(--field-height);
 }
 
