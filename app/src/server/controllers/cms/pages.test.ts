@@ -750,6 +750,54 @@ describe("Pages controller", () => {
       expect(bar).toBeGreaterThan(-1);
       expect(html.slice(bar)).not.toContain('class="cms-field"');
     });
+
+    // Delete belongs with the page's other settings, not on a strip of its own
+    // under the bar: it is the last item in the box, and the bar is the last
+    // thing in the flow.
+    test("keeps Delete page last in Page settings, with nothing after the bar", async () => {
+      const pageId = await create();
+      const html = await formHtml(pageId);
+
+      const settings =
+        html.match(
+          /<section[^>]*class="cms-page-settings"[^>]*>([\s\S]*?)<\/section>/,
+        )?.[1] ?? "";
+      expect(settings).not.toBe("");
+
+      const link = `<a class="cms-delete-button" href="/cms/pages/${pageId}/delete">Delete page</a>`;
+      const at = settings.indexOf(link);
+      expect(at).toBeGreaterThan(-1);
+      // After Social image URL, and last: only the section's close follows.
+      expect(at).toBeGreaterThan(settings.indexOf('name="socialImage"'));
+      expect(settings.slice(at + link.length).trim()).toBe("");
+
+      const bar = html.indexOf('aria-label="Publishing"');
+      expect(bar).toBeGreaterThan(-1);
+      const afterBar = html.slice(bar);
+      expect(afterBar).not.toContain("cms-delete-button");
+      expect(afterBar).not.toContain('class="cms-page-settings"');
+      expect(afterBar).not.toContain('class="cms-danger"');
+    });
+
+    // A page whose type a deploy removed has no form and no settings box, but
+    // it must still be deletable: the link renders directly under the warning.
+    test("still offers Delete when the page type is no longer published", async () => {
+      const pageId = await create();
+      await db`UPDATE cms_page_types SET removed_at = now() WHERE name = 'landing'`;
+      const html = await formHtml(pageId);
+
+      expect(html).toContain("no longer published");
+      // No form and no settings box in this state.
+      expect(html).not.toContain('id="cms-page-form"');
+      expect(html).not.toContain('class="cms-page-settings"');
+
+      const link = `<a class="cms-delete-button" href="/cms/pages/${pageId}/delete">Delete page</a>`;
+      const at = html.indexOf(link);
+      expect(at).toBeGreaterThan(-1);
+      // Directly under the warning; there is no Publishing bar on this page.
+      expect(at).toBeGreaterThan(html.indexOf("no longer published"));
+      expect(html).not.toContain('aria-label="Publishing"');
+    });
   });
 
   test("an invalid content save writes neither settings nor a redirect", async () => {
