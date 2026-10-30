@@ -66,7 +66,7 @@ const prose = block(
 );
 const quote = block(
   "quote",
-  { label: "Quote" },
+  { label: "Pull quote" },
   { body: richText() },
   () => null,
 );
@@ -85,7 +85,7 @@ const notes: PageTypeDefinition = pageType("notes", { allowedBlocks: [prose] });
 // then has to carry.
 const photos = block(
   "photos",
-  { label: "Photos" },
+  { label: "Photo gallery" },
   { photo: image() },
   () => null,
 );
@@ -335,7 +335,7 @@ describe("Pages controller", () => {
     );
   });
 
-  describe("Add buttons and the page type's limits", () => {
+  describe("the Add block menu and the page type's limits", () => {
     const article: PageTypeDefinition = pageType("article", {
       allowedBlocks: [prose, quote, photos],
     });
@@ -356,11 +356,29 @@ describe("Pages controller", () => {
       return res.text();
     };
 
-    /** The opening tag of the Add button for a block type. */
-    const addButton = (html: string, name: string): string =>
+    /** The opening tag of the Add block toggle. */
+    const addToggle = (html: string): string =>
+      html.match(/<button[^>]*data-block-add-toggle[^>]*>/)?.[0] ?? "";
+
+    /** The opening tag of the Add block menu. */
+    const addMenu = (html: string): string =>
+      html.match(/<div[^>]*data-block-add-menu[^>]*>/)?.[0] ?? "";
+
+    /** The opening tag of a block type's menu item. */
+    const menuItem = (html: string, name: string): string =>
       html.match(
         new RegExp(`<button[^>]*data-block-add="${name}"[^>]*>`),
       )?.[0] ?? "";
+
+    /** The menu's labels, in the order the page type offers them. */
+    const menuLabels = (html: string): string[] =>
+      Array.from(
+        html.matchAll(/<button[^>]*role="menuitem"[^>]*>([^<]*)<\/button>/g),
+      ).map((match) => match[1] ?? "");
+
+    /** Whether the whole Add control is hidden on this render. */
+    const addAreaHidden = (html: string): boolean =>
+      /class="cms-block-add"[^>]*\bhidden\b/.test(html);
 
     const withBlocks = async (
       type: string,
@@ -382,7 +400,7 @@ describe("Pages controller", () => {
       return formHtml(created.page.id);
     };
 
-    test("a Landing page without a hero offers Add hero", async () => {
+    test("a Landing page without a hero offers Hero in the Add block menu", async () => {
       const created = await createPage({
         pageType: "landing",
         url: "/l",
@@ -390,22 +408,33 @@ describe("Pages controller", () => {
       });
       if (!created.ok) throw new Error("create failed");
       const html = await formHtml(created.page.id);
-      expect(addButton(html, "hero")).not.toContain("aria-disabled");
-      expect(html).toContain('data-block-max="1"');
+      const toggle = addToggle(html);
+      expect(toggle).toContain('aria-haspopup="menu"');
+      expect(toggle).toContain('aria-expanded="false"');
+      expect(toggle).toContain('aria-controls="cms-block-add-menu"');
+      expect(html).toContain(">Add block<");
+      expect(addMenu(html)).toContain('role="menu"');
+      expect(addMenu(html)).toContain("hidden");
+      expect(menuItem(html, "hero")).toContain('data-block-max="1"');
+      expect(menuLabels(html)).toEqual(["Hero"]);
+      // The old per-type buttons and their limit message are gone.
+      expect(html).not.toContain("Add hero");
+      expect(html).not.toContain("cms-block-add-hint");
+      expect(addAreaHidden(html)).toBe(false);
     });
 
-    test("a Landing page with a hero greys Add hero and says why", async () => {
+    test("a type at its limit is not offered, and Add block hides when nothing is left", async () => {
       const html = await withBlocks("landing", pageContent("Hi").blocks);
-      expect(addButton(html, "hero")).toContain('aria-disabled="true"');
-      expect(addButton(html, "hero")).toContain(
-        'aria-describedby="block-add-limit-hero"',
-      );
-      expect(html).toMatch(
-        /<span[^>]*id="block-add-limit-hero"(?![^>]*hidden)[^>]*>Add hero is off: only one hero per page/,
-      );
+      // The hero is on the page, so it is not a menu item and nothing
+      // explains a limit.
+      expect(menuItem(html, "hero")).toBe("");
+      expect(menuLabels(html)).toEqual([]);
+      expect(addAreaHidden(html)).toBe(true);
+      expect(html).not.toContain("only one hero per page");
+      expect(html).not.toContain("cms-block-add-hint");
     });
 
-    test("an Article page offers only its blocks, all enabled", async () => {
+    test("an Article page offers only its blocks, by label and in allowed order", async () => {
       await seedBlockType(db, prose);
       await seedBlockType(db, quote);
       await seedBlockType(db, photos);
@@ -415,30 +444,73 @@ describe("Pages controller", () => {
       ]);
       expect(html).not.toContain('data-block-add="hero"');
       expect(html).not.toContain('data-block-add="cta"');
+      expect(menuLabels(html)).toEqual([
+        "Prose",
+        "Pull quote",
+        "Photo gallery",
+      ]);
       for (const name of ["prose", "quote", "photos"]) {
-        expect(addButton(html, name)).toContain(`data-block-add="${name}"`);
-        expect(addButton(html, name)).not.toContain("aria-disabled");
+        expect(menuItem(html, name)).toContain(`data-block-add="${name}"`);
       }
     });
 
-    test("a max above one says how many", async () => {
+    test("a max above one keeps the type on offer at one block", async () => {
       await seedBlockType(db, prose);
       await seedPageType(db, capped);
       const one = await withBlocks("capped", [
         { type: "prose", body: document },
       ]);
-      expect(addButton(one, "prose")).not.toContain("aria-disabled");
-      expect(one).toContain("Add prose is off: only 2 prose blocks per page");
+      expect(menuItem(one, "prose")).not.toBe("");
+      expect(menuLabels(one)).toEqual(["Prose"]);
+      expect(addAreaHidden(one)).toBe(false);
     });
 
-    test("a max of two greys the button at two blocks", async () => {
+    test("a type at a max of two drops out at two blocks", async () => {
       await seedBlockType(db, prose);
       await seedPageType(db, capped);
       const two = await withBlocks("capped", [
         { type: "prose", body: document },
         { type: "prose", body: document },
       ]);
-      expect(addButton(two, "prose")).toContain('aria-disabled="true"');
+      expect(menuItem(two, "prose")).toBe("");
+      expect(addAreaHidden(two)).toBe(true);
+    });
+
+    test("block legends use the type's label, never its slug", async () => {
+      await seedBlockType(db, quote);
+      await seedPageType(db, article);
+      const html = await withBlocks("article", [
+        { type: "quote", body: document },
+      ]);
+      expect(html).toContain("<code>Pull quote</code>");
+      expect(html).not.toContain("<code>Quote</code>");
+      expect(html).not.toContain("<code>quote</code>");
+    });
+
+    test("a flagged block reads Unavailable block, with no slug or label", async () => {
+      await seedBlockType(db, prose);
+      await seedPageType(db, notes);
+      const created = await createPage({
+        pageType: "notes",
+        url: "/notes",
+        title: "Notes",
+      });
+      if (!created.ok) throw new Error("create failed");
+      // A hero on a page type that no longer allows it is flagged rather than
+      // rendered as an editable block.
+      const saved = await savePageDraft({
+        pageId: created.page.id,
+        content: pageContent("Hello"),
+        baseRevisionId: null,
+        actorId: editorId,
+      });
+      if (!saved.ok) throw new Error("save failed");
+
+      const html = await formHtml(created.page.id);
+      expect(html).toContain("<code>Unavailable block</code>");
+      expect(html).not.toContain("<code>Hero</code>");
+      expect(html).not.toContain("<code>hero</code>");
+      expect(html).toContain('aria-label="Remove the unavailable block"');
     });
   });
 
