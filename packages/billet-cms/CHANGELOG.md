@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+A page’s social image is an upload, pageSeo is async, and the contract moves to 0.10.0, so deploy the CMS and the site together.
 
 ### A page's social image is an upload, and `pageSeo` is async
 
