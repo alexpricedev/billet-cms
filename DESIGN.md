@@ -186,16 +186,31 @@ designed tints stay exact in both themes.
 A banner has a title (14/20, 600, ending in a full stop), and optionally a
 detail line, a wrapping row of underlined action links (`margin-top: 8px`,
 16px apart), and an error field list whose entries link to the invalid
-control. The × is an icon-only button with `aria-label="Dismiss"`, a 44×44 hit
-area and a negative block margin so it does not make the banner taller.
+control. The × is opt-in (`dismissible` on `Flash`, off by default) and only
+a banner reporting the result of an action the editor just took — a save, a
+publish, an upload, a copy — carries it. It is an icon-only button with
+`aria-label="Dismiss"`, a 44×44 hit area and a negative block margin so it
+does not make the banner taller. A banner with the button keeps `4px` right
+padding, its hit area supplying the rest; a banner without one gets `14px` on
+the right, to match the left.
+
+Banners that describe the page's own state — no page types published, a page
+type or slot no longer declared, a block type no longer published, a
+cookie-failure on handoff or consent — never carry a ×: closing one would
+leave the page empty, and a reload brings it back.
 
 Success, info and warning are `role="status"`; error is `role="alert"`. In the
 page and slot editors the banner sits inline below the title, above Blocks; on
-other pages it stays where that page's notice already sat. It stays until the
-× closes it — no auto-hide — and nothing is remembered across loads. The ×
+other pages it stays where that page's notice already sat. A banner with a ×
+stays until the × closes it — no auto-hide — and nothing is remembered across
+loads; a state banner without one stays for as long as its state does. The ×
 ships hidden and is revealed by the client script, so with JavaScript off the
 banner still renders unchanged, just without a close button. There is no
 shadow.
+
+**Decision (2026-10-30).** The × is opt-in for banners that report the result
+of an action; state banners have none, and take `14px` of right padding in its
+place.
 
 ### Empty states
 

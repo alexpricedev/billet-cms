@@ -53,7 +53,7 @@ export const PageHistory = ({
       }
     />
 
-    {notice && <Flash tone="warning" title={notice} />}
+    {notice && <Flash tone="warning" title={notice} dismissible />}
 
     {revisions.length === 0 ? (
       <p className="cms-history-empty">This page has no saved revisions yet.</p>

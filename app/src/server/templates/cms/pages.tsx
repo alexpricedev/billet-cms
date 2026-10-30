@@ -52,7 +52,7 @@ export const PagesList = ({
       }
     />
 
-    {notice && <Flash tone="success" title={notice} />}
+    {notice && <Flash tone="success" title={notice} dismissible />}
 
     {pages.length === 0 ? (
       <div className="cms-empty-card" role="status">
