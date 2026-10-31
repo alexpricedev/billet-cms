@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 Every block type carries a required human label, which the CMS shows instead of
 the developer slug, and the page editor's row of per-type add buttons is one
