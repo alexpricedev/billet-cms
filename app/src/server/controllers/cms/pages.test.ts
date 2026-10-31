@@ -416,7 +416,7 @@ describe("Pages controller", () => {
       expect(toggle).toContain('aria-haspopup="menu"');
       expect(toggle).toContain('aria-expanded="false"');
       expect(toggle).toContain('aria-controls="cms-block-add-menu"');
-      expect(html).toContain(">Add block<");
+      expect(html).toContain('<span aria-hidden="true">+</span> Add block');
       expect(addMenu(html)).toContain('role="menu"');
       expect(addMenu(html)).toContain("hidden");
       expect(menuItem(html, "hero")).toContain('data-block-max="1"');

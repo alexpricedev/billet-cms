@@ -329,7 +329,7 @@ export const PageBlocks = ({
             aria-expanded="false"
             aria-controls="cms-block-add-menu"
           >
-            Add block
+            <span aria-hidden="true">+</span> Add block
           </button>
           <div
             className="cms-block-add-menu"

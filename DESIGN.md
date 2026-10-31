@@ -169,9 +169,10 @@ and the block type's **label** in `--text` at 13.5/500 — one heading, never th
 developer slug and never a second type scale. The move and remove controls ride
 at the right of the band.
 
-**Add block** is the one action under the last block: a secondary button on
-`--surface` with a `--border` hairline, `--control-height` (32px) and a 13px
-label, not a 12.5px chip in a row of per-type buttons. It opens a menu of the
+**Add block** is the one action under the last block: full width of the blocks
+column at `--field-height` (44px), on `--surface` with a dashed
+`--border-strong` edge and a leading `+`, secondary-button hover and focus, and
+a 13px label — not a 12.5px chip in a row of per-type buttons. It opens a menu of the
 page type's allowed block types in their declared order, each item full width
 and left-aligned at 13px, on `--surface` with `--surface-hover` for hover and
 focus and no visible border of its own. The menu is a popover — `--surface`, a

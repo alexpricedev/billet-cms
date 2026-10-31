@@ -1094,9 +1094,10 @@ h1 {
   color: var(--danger);
 }
 
-/* One Add block control under the last block. It is a secondary button — the
-   base `button` box, full label — not the row of 12.5px per-type chips it
-   replaced. The menu anchors to its bottom-left. */
+/* One Add block control under the last block. It is the page's main action on
+   an empty or short page, so it spans the blocks column as a dashed drop
+   target at field height — not the row of 12.5px per-type chips it replaced.
+   The menu anchors to its bottom-left. */
 .cms-block-add {
   padding-top: var(--space-2);
   position: relative;
@@ -1108,11 +1109,12 @@ h1 {
 
 .cms-block-add-button {
   background: var(--surface);
-  border-color: var(--border);
+  border: 1px dashed var(--border-strong);
   color: var(--text);
   font-size: 13px;
-  height: var(--control-height);
+  height: var(--field-height);
   padding: 0 var(--space-3);
+  width: 100%;
 }
 
 /* The menu floats — the one place DESIGN.md allows a shadow: popovers and
