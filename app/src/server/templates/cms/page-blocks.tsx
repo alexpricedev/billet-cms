@@ -178,7 +178,7 @@ const EditableBlock = ({
           without an index stored in the markup. */}
       <code>{blockType.label}</code>
     </legend>
-    <BlockActions label={blockType.name} />
+    <BlockActions label={blockType.label} />
     {alert && (
       <p className="cms-block-alert-message" role="alert">
         {alert}

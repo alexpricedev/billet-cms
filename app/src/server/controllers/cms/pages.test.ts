@@ -491,6 +491,11 @@ describe("Pages controller", () => {
       expect(html).toContain("<code>Pull quote</code>");
       expect(html).not.toContain("<code>Quote</code>");
       expect(html).not.toContain("<code>quote</code>");
+      // The block's own controls name it the same way: a screen-reader user
+      // hears the label, never the slug.
+      expect(html).toContain('aria-label="Move the Pull quote block up"');
+      expect(html).toContain('aria-label="Remove the Pull quote block"');
+      expect(html).not.toContain('aria-label="Remove the quote block"');
     });
 
     test("a flagged block reads Unavailable block, with no slug or label", async () => {
