@@ -161,6 +161,32 @@ and a link's text input are the same height; a textarea keeps its own height.
 Fields are `--field-gap` (16px) apart, from one token, and a field's label,
 control, help and error stay 6px apart.
 
+### Page editor blocks
+
+A block is a bordered card. Its 44px legend band is `--surface-subtle` across
+the top, a hairline `--border` below, carrying "Block N · " in `--text-muted`
+and the block type's **label** in `--text` at 13.5/500 — one heading, never the
+developer slug and never a second type scale. The move and remove controls ride
+at the right of the band.
+
+**Add block** is the one action under the last block: a secondary button on
+`--surface` with a `--border` hairline, `--control-height` (32px) and a 13px
+label, not a 12.5px chip in a row of per-type buttons. It opens a menu of the
+page type's allowed block types in their declared order, each item full width
+and left-aligned at 13px, on `--surface` with `--surface-hover` for hover and
+focus and no visible border of its own. The menu is a popover — `--surface`, a
+hairline `--border`, `--radius` and `--shadow-sm` — and it opens **upward** from
+the button: the editor's save bar is sticky over the bottom of the viewport and
+would clip a downward menu at every width. The button carries `aria-haspopup`,
+`aria-expanded` and `aria-controls`; the menu is `role="menu"` and its items
+`role="menuitem"`. Arrow keys move, Enter picks, Escape closes and returns focus
+to the button, and a click outside closes it.
+
+A type the page already holds at its `max` is left out of the menu, and the
+button is hidden when no type is left. There is no disabled item and no "off"
+sentence: a limit is expressed by absence. The empty state, "This page has no
+blocks yet. Add one below.", is muted 13px directly above the button.
+
 ### Image picker
 
 A field that holds one library image: a bordered `--surface` row with a 75×56

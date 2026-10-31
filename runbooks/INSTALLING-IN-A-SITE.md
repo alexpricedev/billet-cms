@@ -65,6 +65,7 @@ import { renderRichText } from "@alexpricedev/billet-cms/server";
 
 export const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ max: 80, label: "Heading" }),
     body: richText({ required: false, label: "Body" }),
@@ -108,8 +109,17 @@ root:
 export { blocks, pageTypes, slots } from "./src/server/cms/definitions";
 ```
 
-Three rules that are easy to get wrong:
+Rules that are easy to get wrong:
 
+- **Every block has a required label.** It is the second argument, between the
+  name and the fields: `block("hero", { label: "Hero" }, { … })`. The CMS shows
+  it wherever the block type appears to an editor — a block's legend and the
+  page editor's Add block menu — so write "Full-width image", not `fullImage`.
+  A missing or blank label throws where the module loads. The label is published
+  with the definition and is part of its schema hash, so renaming it and
+  redeploying republishes the block. The contract version is `0.11.0`: an older
+  site's publish is refused, and a site upgrading has to add a label to every
+  block.
 - **`render` is never published, and it is optional.** The CMS serialises the
   field vocabulary to JSON Schema; the render function is for the site only, and
   nothing in the package ever calls it. A block can return a Preact element, a
@@ -320,6 +330,7 @@ import {
 
 export const feature = block(
   "feature",
+  { label: "Feature" },
   { heading: text({ max: 80, label: "Heading" }), photo: image() },
   // Rendered by the site: the image row is read first. See the template below.
   (content) => content,

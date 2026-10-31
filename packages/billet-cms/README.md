@@ -8,19 +8,29 @@ those rows and never imports site code.
 ```ts
 import { block, group, list, slot, text } from "@alexpricedev/billet-cms/fields";
 
-export const hero = block("hero", {
-  heading: text({ max: 80 }),
-  // A repeated pair: `list()` repeats one field, `group()` holds several.
-  steps: list(group({ title: text({ max: 60 }), body: text({ max: 200 })})),
-});
+export const hero = block(
+  "hero",
+  { label: "Hero" },
+  {
+    heading: text({ max: 80 }),
+    // A repeated pair: `list()` repeats one field, `group()` holds several.
+    steps: list(group({ title: text({ max: 60 }), body: text({ max: 200 })})),
+  },
+);
 
 export const homeHero = slot("home.hero", hero);
 ```
 
-A block takes an optional third argument, a render function, for a site that
-keeps its markup next to the declaration. Nothing in this package calls it —
-the CMS builds its form from the published metadata — so a site that renders in
-templates should leave it out.
+`block()` takes the block's name, an options object, its fields, and an optional
+render function. The one option is `label`, the human name the CMS shows — a
+block's legend and its Add block menu read "Full-width image", never
+`fullImage` — and it is required: a missing or blank label throws where the block
+is declared. The label is published to the CMS with the rest of the definition,
+so changing it takes a deploy.
+
+The render function is optional, for a site that keeps its markup next to the
+declaration. Nothing in this package calls it — the CMS builds its form from the
+published metadata — so a site that renders in templates should leave it out.
 
 ## Reading published content on the site
 
@@ -211,6 +221,7 @@ auto-install peers leaves it out, and the server will not boot without it.
 
    export const hero = block(
      "hero",
+     { label: "Hero" },
      { heading: text({ max: 80, label: "Heading" }), photo: image() },
      (content) => `<h1>${content.heading}</h1>`,
    );
