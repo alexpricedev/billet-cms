@@ -1722,6 +1722,122 @@ describe("focal point picker", () => {
   });
 });
 
+describe("server field errors", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  const textField = (name: string, value: string, error: string) => `
+    <div data-field data-field-kind="text" data-field-name="${name}">
+      <input type="text" data-text-input value="${value}" aria-invalid="true" aria-describedby="${name}-error">
+      <ul class="cms-field-errors" id="${name}-error"><li>${error}</li></ul>
+    </div>`;
+
+  const type = (selector: string, value: string) => {
+    const control = form().querySelector<HTMLInputElement>(selector);
+    if (!control) throw new Error(`no ${selector} in the form`);
+    control.value = value;
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    return control;
+  };
+
+  test("clears the error on the field once its value changes", () => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        ${textField("heading", "", "Enter a heading.")}
+        ${textField("standfirst", "", "Enter a standfirst.")}
+      </form>
+    `);
+
+    const heading = type(
+      '[data-field-name="heading"] [data-text-input]',
+      "Hello",
+    );
+
+    const headingField = form().querySelector('[data-field-name="heading"]');
+    expect(headingField?.querySelector(".cms-field-errors")).toBeNull();
+    expect(heading.hasAttribute("aria-invalid")).toBe(false);
+
+    // The field the editor has not touched keeps its own error.
+    const other = form().querySelector('[data-field-name="standfirst"]');
+    expect(other?.querySelector(".cms-field-errors")).not.toBeNull();
+    expect(
+      other?.querySelector("[data-text-input]")?.getAttribute("aria-invalid"),
+    ).toBe("true");
+  });
+
+  test("waits for a length error to come back within the limit", () => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <div data-field data-field-kind="text" data-field-name="quote">
+          <input type="text" data-text-input value="abcdef" aria-invalid="true" aria-describedby="quote-error">
+          <p class="cms-field-help cms-char-count" data-char-count data-char-max="5" aria-live="polite">6 / 5</p>
+          <ul class="cms-field-errors" id="quote-error"><li>Use 5 characters or fewer.</li></ul>
+        </div>
+      </form>
+    `);
+
+    const field = form().querySelector('[data-field-name="quote"]');
+    const error = () => field?.querySelector(".cms-field-errors") ?? null;
+    const count = field?.querySelector<HTMLElement>("[data-char-count]");
+
+    // Still over the limit: the server's message is still the true one.
+    const input = type("[data-text-input]", "abcdefg");
+    expect(error()).not.toBeNull();
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+
+    // Back within the limit, the message and the mark go.
+    type("[data-text-input]", "abc");
+    expect(error()).toBeNull();
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+
+    // Passing the limit again is now the counter's job.
+    type("[data-text-input]", "abcdef");
+    expect(error()).toBeNull();
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(count?.classList.contains("cms-char-count-over")).toBe(true);
+  });
+
+  test("clears only the link part that was edited", () => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <fieldset data-field data-field-kind="link" data-field-name="cta">
+          <div class="cms-link-text">
+            <input type="text" data-link-label value="" aria-invalid="true">
+            <ul class="cms-field-errors"><li>Add button text.</li></ul>
+          </div>
+          <div class="cms-link-destination" data-link-destination="url">
+            <input type="text" data-link-url value="" aria-invalid="true">
+            <ul class="cms-field-errors"><li>Enter a URL.</li></ul>
+          </div>
+          <div class="cms-link-title">
+            <input type="text" data-link-title value="">
+          </div>
+        </fieldset>
+      </form>
+    `);
+
+    type("[data-link-url]", "https://example.com");
+
+    const destination = form().querySelector('[data-link-destination="url"]');
+    expect(destination?.querySelector(".cms-field-errors")).toBeNull();
+    expect(
+      destination
+        ?.querySelector("[data-link-url]")
+        ?.hasAttribute("aria-invalid"),
+    ).toBe(false);
+
+    const label = form().querySelector(".cms-link-text");
+    expect(label?.querySelector(".cms-field-errors")).not.toBeNull();
+    expect(
+      label?.querySelector("[data-link-label]")?.getAttribute("aria-invalid"),
+    ).toBe("true");
+  });
+});
+
 describe("character count", () => {
   beforeEach(() => {
     mount(`

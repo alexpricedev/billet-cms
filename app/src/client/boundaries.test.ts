@@ -80,7 +80,15 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // replaced the per-type button loop and its hint state, so the bundle measures
 // 14,322 even with the menu in it — inside the existing budget, and no rise was
 // needed.
-const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_600;
+//
+// This rise, 14,600 → 15,300, is clearing a field's server error as the editor
+// fixes it: the control group the change landed in drops its `aria-invalid` and
+// the server's message once the value changes, and a length error waits for the
+// count to come back within the limit before the counter takes over again. It
+// measures 15,135, so the old budget had no room for this. 15,300 keeps a few
+// lines' headroom; the number moving is still the signal, so raise it again
+// only with the same arithmetic written down.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 15_300;
 
 // Minified bytes for the shared image picker, `image-picker.ts`, including the
 // `upload-shared.ts` it imports. It is 9,708 bytes at the time of writing,
