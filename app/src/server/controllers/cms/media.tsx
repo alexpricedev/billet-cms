@@ -48,11 +48,8 @@ import { nonEmpty, UUID_PATTERN } from "./params";
 const acceptsJson = (req: BunRequest): boolean =>
   (req.headers.get("accept") ?? "").toLowerCase().includes("application/json");
 
-const listNotice = (params: URLSearchParams): string | null => {
-  if (params.get("uploaded") === "1") return "Image uploaded.";
-  if (params.get("deleted") === "1") return "Image deleted.";
-  return null;
-};
+const listNotice = (params: URLSearchParams): string | null =>
+  params.get("deleted") === "1" ? "Image deleted." : null;
 
 /**
  * A focal fraction from the form, or `null` when the field is absent or isn't a
