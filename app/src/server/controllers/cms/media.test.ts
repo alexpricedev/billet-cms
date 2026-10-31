@@ -142,18 +142,20 @@ describe("Media controller", () => {
     expect(res.headers.get("location")).toBe("/sign-in");
   });
 
-  test("lists the uploads", async () => {
+  test("lists the uploads under the staged-upload drop zone", async () => {
     await upload("A red field");
     const res = await media.index(get("/cms/media"));
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("A red field");
-    expect(html).toContain("Upload");
+    expect(html).toContain("data-media-upload");
+    expect(html).toContain("Choose file");
+    expect(html).toContain('src="/assets/media-upload.js"');
   });
 
-  test("uploads a JPEG and redirects to the list", async () => {
+  test("answers an upload without Accept: application/json with 406", async () => {
     const form = new FormData();
-    form.set("alt", "From the form");
+    form.set("alt", "From a form");
     form.set(
       "file",
       file(await makeJpeg(1200, 800), "photo.jpg", "image/jpeg"),
@@ -162,40 +164,79 @@ describe("Media controller", () => {
     const res = await media.upload(
       await post("/cms/media", form, "/cms/media"),
     );
-    expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe("/cms/media?uploaded=1");
-
-    const rows = (await db`
-      SELECT alt FROM cms_media
-    `) as { alt: string }[];
-    expect(rows).toHaveLength(1);
-    expect(rows[0].alt).toBe("From the form");
+    expect(res.status).toBe(406);
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    expect(await res.text()).toContain("application/json");
+    expect(await db`SELECT id FROM cms_media`).toHaveLength(0);
   });
 
-  test("re-renders with a message when alt is missing", async () => {
+  test("a JSON upload without alt answers with the alt error", async () => {
     const form = new FormData();
     form.set("alt", "");
     form.set("file", file(await makeJpeg(800, 400), "photo.jpg", "image/jpeg"));
 
     const res = await media.upload(
-      await post("/cms/media", form, "/cms/media"),
+      await post("/cms/media", form, "/cms/media", {}, JSON_ACCEPT),
     );
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Enter alt text.");
+    expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    const body = (await res.json()) as {
+      errors: { field: string; message: string }[];
+    };
+    expect(body.errors[0]?.message).toContain("Enter alt text.");
     const rows = (await db`SELECT id FROM cms_media`) as { id: string }[];
     expect(rows).toHaveLength(0);
   });
 
-  test("refuses an SVG upload with a clear message", async () => {
+  test("a JSON upload of an SVG is refused with a clear message", async () => {
     const form = new FormData();
     form.set("alt", "A logo");
     form.set("file", file(svgBytes(), "logo.svg", "image/svg+xml"));
 
     const res = await media.upload(
-      await post("/cms/media", form, "/cms/media"),
+      await post("/cms/media", form, "/cms/media", {}, JSON_ACCEPT),
     );
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("SVG uploads aren't supported");
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      errors: { field: string; message: string }[];
+    };
+    expect(body.errors[0]?.message).toContain("SVG uploads aren't supported");
+  });
+
+  test("redirects an anonymous JSON upload to sign in", async () => {
+    const form = new FormData();
+    form.set("alt", "Anonymous");
+    form.set("file", file(await makeJpeg(60, 40), "photo.jpg", "image/jpeg"));
+
+    const res = await media.upload(
+      createBunRequest(`${ORIGIN}/cms/media`, {
+        method: "POST",
+        headers: JSON_ACCEPT,
+        body: form,
+      }),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/sign-in");
+  });
+
+  test("a JSON upload without a CSRF token is refused", async () => {
+    const form = new FormData();
+    form.set("alt", "No token");
+    form.set("file", file(await makeJpeg(60, 40), "photo.jpg", "image/jpeg"));
+
+    const res = await media.upload(
+      createBunRequest(`${ORIGIN}/cms/media`, {
+        method: "POST",
+        headers: {
+          ...JSON_ACCEPT,
+          Origin: ORIGIN,
+          cookie: `cms_session=${sessionId}`,
+        },
+        body: form,
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(await db`SELECT id FROM cms_media`).toHaveLength(0);
   });
 
   test("saves the alt text and the focal point", async () => {

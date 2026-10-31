@@ -59,67 +59,128 @@ describe("variantForDisplay", () => {
   });
 });
 
-// r2-1: the upload form's labels and inputs used to be bare grid items of
-// `.cms-media-upload`, so its 1.5rem gap left "Image file" and "Alt text"
-// floating about 30px above their own controls. Wrapping each pair in
-// `.cms-field` restores the 0.4rem gap between a label and its control while
-// the fields themselves keep the 1.5rem gap.
-describe("MediaList upload form", () => {
-  const html = renderToString(
+const ALT_HELP = `Up to ${MAX_ALT_LENGTH} characters.`;
+
+const listHtml = (items: MediaRecord[] = []): string =>
+  renderToString(
     <MediaList
       user={{ id: "u1", email: "editor@example.com", role: "editor" }}
-      csrfToken="csrf-token"
-      items={[media([480, 960])]}
+      csrfToken="upload-token"
+      items={items}
     />,
   );
 
-  const form = (): Element | null => {
-    // Parsed rather than assigned to `document.body`, so the layout's module
-    // scripts are never loaded by happy-dom.
-    const parsed = new DOMParser().parseFromString(html, "text/html");
-    return parsed.querySelector("form.cms-media-upload");
-  };
+/** Parsed rather than assigned to `document.body`, so layout scripts never load. */
+const listDocument = (items: MediaRecord[] = []): Document =>
+  new DOMParser().parseFromString(listHtml(items), "text/html");
 
-  test("puts every upload input inside a .cms-field", () => {
-    const inputs = form()?.querySelectorAll(
-      'input:not([type="hidden"])',
-    ) as NodeListOf<Element>;
-    expect(inputs.length).toBe(2);
-    for (const input of inputs) {
-      expect(input.closest(".cms-field")).not.toBeNull();
-    }
+// The page's one-file form is gone: the picker's drop zone stages several files
+// and `media-upload.ts` asks for alt text per tile before anything is sent.
+describe("MediaList uploader", () => {
+  test("renders the picker's drop zone instead of an upload form", () => {
+    const doc = listDocument();
+    expect(doc.querySelector("form.cms-media-upload")).toBeNull();
+
+    const drop = doc.querySelector("[data-media-upload] [data-media-drop]");
+    expect(drop?.classList.contains("cms-picker-drop")).toBe(true);
+    expect(drop?.textContent).toContain("Drop images here");
+    expect(drop?.textContent).toContain("Choose file");
+    expect(drop?.textContent).toContain("JPEG, PNG or WebP up to 20 MB");
+    // The page cannot upload without its script and says so.
+    expect(drop?.textContent).toContain("Uploading needs JavaScript");
   });
 
-  test("keeps each label with the input it names", () => {
-    for (const id of ["cms-media-file", "cms-media-alt"]) {
-      const field = form()?.querySelector(`#${id}`)?.closest(".cms-field");
-      expect(field?.querySelector(`label[for="${id}"]`)).not.toBeNull();
-    }
+  test("takes several files at once and carries the upload token", () => {
+    const doc = listDocument();
+    const uploader = doc.querySelector("[data-media-upload]");
+    expect(uploader?.getAttribute("data-media-upload-csrf")).toBe(
+      "upload-token",
+    );
+
+    const file = doc.querySelector<HTMLInputElement>("[data-media-file]");
+    expect(file?.multiple).toBe(true);
+    expect(file?.getAttribute("accept")).toBe(
+      "image/jpeg,image/png,image/webp",
+    );
+    expect(file?.closest("label")?.textContent).toContain("Choose file");
+  });
+
+  test("keeps Upload all hidden until the client stages several files", () => {
+    const doc = listDocument();
+    const uploadAll = doc.querySelector("[data-media-upload-all]");
+    expect(uploadAll).not.toBeNull();
+    expect(uploadAll?.hasAttribute("hidden")).toBe(true);
+    // The client adds one tile per file here.
+    expect(doc.querySelector("[data-media-staged]")).not.toBeNull();
+  });
+
+  test("loads the staged upload client", () => {
+    expect(listHtml()).toContain('src="/assets/media-upload.js"');
   });
 });
 
-// r1-22: the alt input carries `maxlength`, but the reason it stops at 1000 is
-// only in the rendered help. Both alt inputs — the upload's own alt here and
-// the detail's — name the limit, and the input points at it for a screen
-// reader.
+describe("MediaList grid", () => {
+  test("renders the grid and the empty state when there are no images", () => {
+    const doc = listDocument([]);
+    const grid = doc.querySelector("[data-media-grid]");
+    expect(grid).not.toBeNull();
+    expect(grid?.children).toHaveLength(0);
+
+    const empty = doc.querySelector("[data-media-empty]");
+    expect(empty).not.toBeNull();
+    expect(empty?.hasAttribute("hidden")).toBe(false);
+    expect(empty?.textContent).toContain("No images yet");
+  });
+
+  test("hides the empty state once there is a card", () => {
+    const doc = listDocument([media([480, 960])]);
+    expect(
+      doc.querySelector("[data-media-empty]")?.hasAttribute("hidden"),
+    ).toBe(true);
+  });
+
+  // The picker's card shape: thumbnail, alt and W×H only, with the whole card
+  // linked to the detail.
+  test("shows a card with a thumbnail, alt text and dimensions", () => {
+    const doc = listDocument([media([480, 960])]);
+    const card = doc.querySelector(".cms-media-card");
+    expect(card).not.toBeNull();
+
+    const href = `/cms/media/${media([480, 960]).id}`;
+    expect(card?.querySelector("a")?.getAttribute("href")).toBe(href);
+    expect(card?.querySelector(".cms-media-alt")?.getAttribute("href")).toBe(
+      href,
+    );
+    expect(card?.querySelector(".cms-media-alt")?.textContent).toBe("A field");
+
+    // variantForDisplay(192) picks the 480px rendition.
+    const img = card?.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("https://media.test/media/480.jpg");
+    expect(img?.getAttribute("alt")).toBe("A field");
+    expect(img?.getAttribute("loading")).toBe("lazy");
+
+    expect(card?.querySelector(".cms-media-meta")?.textContent).toBe("960×1");
+    // No file size or type line on the picker-shaped card.
+    expect(card?.textContent).not.toContain("JPEG");
+    expect(card?.textContent).not.toContain("1 B");
+  });
+
+  test("uses the picker's placeholder when there is no thumbnail", () => {
+    const doc = listDocument([media([])]);
+    const card = doc.querySelector(".cms-media-card");
+    expect(card?.querySelector("img")).toBeNull();
+    expect(card?.querySelector(".cms-media-placeholder")?.textContent).toBe(
+      "A field",
+    );
+  });
+});
+
+// r1-22: the detail's alt input carries `maxlength`, but the reason it stops at
+// 1000 is only in the rendered help; the input points at it for a screen
+// reader. (The upload's alt box is built by the client, whose own test pins
+// the same help text.)
 const altInput = (html: string): string =>
   /<input[^>]*id="cms-media-alt"[^>]*>/.exec(html)?.[0] ?? "";
-
-describe("MediaList alt help", () => {
-  const html = renderToString(
-    <MediaList
-      user={{ id: "u1", email: "editor@example.com", role: "editor" }}
-      csrfToken="csrf-token"
-      items={[]}
-    />,
-  );
-
-  test("describes the upload's alt input with its length limit", () => {
-    expect(altInput(html)).toContain('aria-describedby="cms-media-alt-help"');
-    expect(html).toContain('id="cms-media-alt-help"');
-    expect(html).toContain(`Up to ${MAX_ALT_LENGTH} characters.`);
-  });
-});
 
 describe("MediaDetail alt help", () => {
   const html = renderToString(
@@ -134,6 +195,6 @@ describe("MediaDetail alt help", () => {
   test("describes the detail's alt input with its length limit", () => {
     expect(altInput(html)).toContain('aria-describedby="cms-media-alt-help"');
     expect(html).toContain('id="cms-media-alt-help"');
-    expect(html).toContain(`Up to ${MAX_ALT_LENGTH} characters.`);
+    expect(html).toContain(ALT_HELP);
   });
 });

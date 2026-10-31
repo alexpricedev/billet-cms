@@ -37,12 +37,13 @@ import { redirect, render } from "../../utils/response";
 import { nonEmpty, UUID_PATTERN } from "./params";
 
 /**
- * Whether the caller asked for JSON rather than a page.
+ * Whether the caller asked for JSON.
  *
- * The picker's drop zone posts the same multipart form the library page does,
- * but it can't use a redirect: each file's outcome has to land on that file's
- * tile. `Accept` is the contract, so a browser form post — which sends
- * `text/html` — keeps the redirect it always had.
+ * The picker's drop zone and the Media page's staged tiles both post one file
+ * here and need each file's outcome to land on that file's tile, so the route
+ * answers JSON only: `Accept: application/json` is the contract, and anything
+ * else is a 406 rather than a page or a redirect. The page's own upload form is
+ * gone; there is no non-JSON representation left to serve.
  */
 const acceptsJson = (req: BunRequest): boolean =>
   (req.headers.get("accept") ?? "").toLowerCase().includes("application/json");
@@ -71,11 +72,7 @@ const focalFraction = (value: FormDataEntryValue | null): number | null => {
 /** Render the library, with a fresh token and whatever the caller wants shown. */
 const renderList = async (
   ctx: SessionContext,
-  extras: {
-    notice?: string | null;
-    errors?: MediaIssue[];
-    values?: { alt: string };
-  } = {},
+  extras: { notice?: string | null } = {},
 ): Promise<Response> => {
   const sessionId = ctx.sessionId as string;
   const [items, csrfToken, navCsrfToken] = await Promise.all([
@@ -91,8 +88,6 @@ const renderList = async (
       navCsrfToken={navCsrfToken}
       items={items}
       notice={extras.notice ?? null}
-      errors={extras.errors}
-      values={extras.values}
     />,
   );
 };
@@ -171,19 +166,31 @@ export const media = {
     });
   },
 
-  /** Accept one upload. */
+  /** Accept one upload. JSON only — see `acceptsJson`. */
   async upload(req: BunRequest): Promise<Response> {
     const { redirect: authRedirect, ctx } = await context(req);
     if (authRedirect || !ctx) return authRedirect ?? render404();
 
-    const json = acceptsJson(req);
+    if (!acceptsJson(req)) {
+      return new Response(
+        "POST /cms/media answers JSON only. Send Accept: application/json.",
+        {
+          status: 406,
+          headers: {
+            "Content-Type": "text/plain;charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
     const csrf = await checkCsrf(req, { method: "POST", path: "/cms/media" });
     if (!csrf.ok) {
-      // The picker's token is minted with the page that rendered it and can go
+      // The page's upload token is minted when the page renders and can go
       // stale while the editor works. A stale-but-authentic token gets a fresh
       // one in the header the client retries with, plus a JSON reason so a
       // retry that also fails still says something on the file's tile.
-      if (json && isRecoverableCsrfFailure(csrf) && ctx.sessionId) {
+      if (isRecoverableCsrfFailure(csrf) && ctx.sessionId) {
         return new Response(
           JSON.stringify({
             errors: [
@@ -214,19 +221,10 @@ export const media = {
     const alt = nonEmpty(formData.get("alt")) ?? "";
     const file = formData.get("file");
 
-    // The page answers a refused upload by re-rendering the library with the
-    // message; the picker can't be navigated to, so it gets the same issue as
-    // JSON and puts it on the file's own tile.
-    const fail = (message: string): Response | Promise<Response> =>
-      json
-        ? Response.json(
-            { errors: [{ field: "file", message }] },
-            { status: 400 },
-          )
-        : renderList(ctx, {
-            errors: [{ field: "file", message }],
-            values: { alt },
-          });
+    // Every refusal is the same issue the client puts on the file's tile; the
+    // file and the alt text stay in the browser for a retry.
+    const fail = (message: string): Response =>
+      Response.json({ errors: [{ field: "file", message }] }, { status: 400 });
 
     if (!(file instanceof File) || file.size === 0) {
       return fail("Choose an image to upload.");
@@ -245,14 +243,10 @@ export const media = {
     });
 
     if (!result.ok) {
-      return json
-        ? Response.json({ errors: result.issues }, { status: 400 })
-        : renderList(ctx, { errors: result.issues, values: { alt } });
+      return Response.json({ errors: result.issues }, { status: 400 });
     }
 
-    return json
-      ? Response.json(pickerOptionJson(result.media))
-      : redirect("/cms/media?uploaded=1");
+    return Response.json(pickerOptionJson(result.media));
   },
 
   /** One image's detail: alt, focal point, uses and delete. */
