@@ -1178,10 +1178,22 @@ const wireFieldErrors = (form: HTMLFormElement): void => {
       target.closest(".cms-field");
     if (!scope) return;
 
-    const input = scope.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+    // A group or a list is a `[data-field]` whose children are fields of their
+    // own. Only the elements this scope owns — the ones whose nearest field is
+    // the scope itself — belong to the change; a nested child's error is the
+    // child's, and editing a sibling must leave it alone. A link part is not a
+    // field of its own, so it keeps looking at everything inside it.
+    const owns = (element: Element): boolean =>
+      !scope.matches("[data-field]") ||
+      (element.closest("[data-field]") ?? element.closest(".cms-field")) ===
+        scope;
+    const within = <E extends Element>(selector: string): E[] =>
+      Array.from(scope.querySelectorAll<E>(selector)).filter(owns);
+
+    const input = within<HTMLInputElement | HTMLTextAreaElement>(
       "[data-text-input]",
-    );
-    const count = scope.querySelector<HTMLElement>("[data-char-count]");
+    )[0];
+    const count = within<HTMLElement>("[data-char-count]")[0];
     const max = Number(count?.dataset.charMax);
     if (input && Number.isSafeInteger(max)) {
       // The same string the save stores and the live counter shows.
@@ -1196,12 +1208,9 @@ const wireFieldErrors = (form: HTMLFormElement): void => {
     // The counter's own over-limit line is a `.cms-field-errors` too, and the
     // server does not render it beside a server error — so this clears the
     // server's list even after the count has already dropped `aria-invalid`.
-    const errors = Array.from(
-      scope.querySelectorAll(".cms-field-errors:not([data-char-over])"),
-    );
-    const invalid = scope.hasAttribute("aria-invalid")
-      ? [scope, ...Array.from(scope.querySelectorAll("[aria-invalid]"))]
-      : Array.from(scope.querySelectorAll("[aria-invalid]"));
+    const errors = within(".cms-field-errors:not([data-char-over])");
+    const invalid = scope.hasAttribute("aria-invalid") ? [scope] : [];
+    invalid.push(...within("[aria-invalid]"));
     if (errors.length === 0 && invalid.length === 0) return;
     for (const error of errors) error.remove();
     for (const control of invalid) control.removeAttribute("aria-invalid");

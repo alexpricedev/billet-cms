@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   block,
+  image,
   pageType,
   richText,
   text,
@@ -31,6 +32,7 @@ import {
   savePageDraft,
   updatePageSettings,
 } from "./index";
+import { HISTORY_PAGE_SIZE } from "./publishing";
 
 const hero = block(
   "hero",
@@ -201,12 +203,13 @@ describe("the site reading a published page", () => {
     const page = await getPageById(pageId);
     if (!page) throw new Error("page missing");
     const history = await listPageHistory(page);
-    const oldest = history[history.length - 1];
+    const revisions = history.revisions;
+    const oldest = revisions[revisions.length - 1];
     if (!oldest) throw new Error("no history");
 
     // The row's excerpt is the page title and the first block's first text
     // field, so the two saves read as different versions.
-    expect(history.map((entry) => entry.excerpt)).toEqual([
+    expect(revisions.map((entry) => entry.excerpt)).toEqual([
       "About us · Second",
       "About us · First",
     ]);
@@ -220,8 +223,73 @@ describe("the site reading a published page", () => {
     if (!restored.ok) return;
 
     const latest = await listPageHistory(page);
-    expect(latest[0]?.isPublished).toBe(false);
-    expect(latest[0]?.id).toBe(restored.revision.id);
+    expect(latest.revisions[0]?.isPublished).toBe(false);
+    expect(latest.revisions[0]?.id).toBe(restored.revision.id);
+  });
+
+  test("reads the first block with text, not an opening image-only block", async () => {
+    const figure = block(
+      "figure",
+      { label: "Figure" },
+      { photo: image({ required: false }) },
+      () => null,
+    );
+    const gallery = pageType("gallery", {
+      allowedBlocks: [figure, hero],
+      requiredBlocks: [figure],
+    });
+    await seedBlockType(connection, figure);
+    await seedPageType(connection, gallery);
+
+    const created = await createPage({
+      pageType: "gallery",
+      url: "/gallery",
+      title: "Gallery page",
+    });
+    if (!created.ok) throw new Error("page create failed");
+
+    const saved = await savePageDraft({
+      pageId: created.page.id,
+      content: {
+        blocks: [
+          { type: "figure" },
+          { type: "hero", heading: "A caption", body: document },
+        ],
+      },
+      baseRevisionId: null,
+      actorId: editorId,
+    });
+    if (!saved.ok) throw new Error(`save failed: ${JSON.stringify(saved)}`);
+    const published = await publishPage({ pageId: created.page.id });
+    if (!published.ok) throw new Error("publish failed");
+
+    const page = await getPageById(created.page.id);
+    if (!page) throw new Error("page missing");
+    const history = await listPageHistory(page);
+    expect(history.revisions[0]?.excerpt).toBe("Gallery page · A caption");
+  });
+
+  test("pages through a long history", async () => {
+    const total = HISTORY_PAGE_SIZE + 3;
+    for (let index = 0; index < total; index += 1) {
+      await publish(`Version ${index}`);
+    }
+
+    const page = await getPageById(pageId);
+    if (!page) throw new Error("page missing");
+
+    const first = await listPageHistory(page);
+    expect(first.revisions).toHaveLength(HISTORY_PAGE_SIZE);
+    expect(first.hasOlder).toBe(true);
+    expect(first.revisions[0]?.isLatest).toBe(true);
+
+    const oldest = first.revisions[first.revisions.length - 1];
+    if (!oldest) throw new Error("no revision to page from");
+    const second = await listPageHistory(page, { before: oldest.id });
+    expect(second.revisions).toHaveLength(total - HISTORY_PAGE_SIZE);
+    expect(second.hasOlder).toBe(false);
+    // Only the first page's first row is the current draft.
+    expect(second.revisions[0]?.isLatest).toBe(false);
   });
 
   test("skips a page whose block type a deploy removed, and logs it", async () => {

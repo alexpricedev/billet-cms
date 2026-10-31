@@ -1767,6 +1767,39 @@ describe("server field errors", () => {
     ).toBe("true");
   });
 
+  test("leaves the other fields in a group alone", () => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <fieldset data-field data-field-kind="group" data-field-name="hero">
+          <ul class="cms-field-errors"><li>Fill in the hero.</li></ul>
+          <div data-field data-field-kind="text" data-field-name="heading">
+            <input type="text" data-text-input value="" aria-invalid="true">
+            <ul class="cms-field-errors"><li>Enter a heading.</li></ul>
+          </div>
+          <div data-field data-field-kind="text" data-field-name="standfirst">
+            <input type="text" data-text-input value="" aria-invalid="true">
+            <ul class="cms-field-errors"><li>Enter a standfirst.</li></ul>
+          </div>
+        </fieldset>
+      </form>
+    `);
+
+    type('[data-field-name="heading"] [data-text-input]', "Hello");
+
+    const heading = form().querySelector('[data-field-name="heading"]');
+    expect(heading?.querySelector(".cms-field-errors")).toBeNull();
+
+    // The group's own error and the untouched sibling's error stay.
+    const group = form().querySelector('[data-field-name="hero"]');
+    expect(group?.querySelector(":scope > .cms-field-errors")).not.toBeNull();
+    const sibling = form().querySelector('[data-field-name="standfirst"]');
+    expect(sibling?.querySelector(".cms-field-errors")).not.toBeNull();
+    expect(
+      sibling?.querySelector("[data-text-input]")?.hasAttribute("aria-invalid"),
+    ).toBe(true);
+  });
+
   test("waits for a length error to come back within the limit", () => {
     mount(`
       <form data-cms-form>

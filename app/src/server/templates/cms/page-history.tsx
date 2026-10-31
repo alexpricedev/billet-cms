@@ -15,6 +15,8 @@ export interface PageHistoryProps {
   user: User;
   page: PageRecord;
   revisions: PageRevisionSummary[];
+  /** Where "Show older" points, when older revisions remain; null on the last page. */
+  olderHref?: string | null;
   /** The CSRF token bound to the restore POST. */
   restoreCsrfToken: string;
   navCsrfToken?: string;
@@ -29,6 +31,7 @@ export const PageHistory = ({
   user,
   page,
   revisions,
+  olderHref,
   restoreCsrfToken,
   navCsrfToken,
   notice,
@@ -61,7 +64,11 @@ export const PageHistory = ({
     {notice && <Flash tone="warning" title={notice} dismissible />}
 
     {revisions.length === 0 ? (
-      <p className="cms-history-empty">This page has no saved revisions yet.</p>
+      <p className="cms-history-empty">
+        {olderHref
+          ? "No revisions on this page."
+          : "This page has no saved revisions yet."}
+      </p>
     ) : (
       <ol className="cms-history">
         {revisions.map((revision) => (
@@ -115,6 +122,12 @@ export const PageHistory = ({
           </li>
         ))}
       </ol>
+    )}
+
+    {olderHref && (
+      <p className="cms-history-older">
+        <a href={olderHref}>Show older</a>
+      </p>
     )}
   </Layout>
 );

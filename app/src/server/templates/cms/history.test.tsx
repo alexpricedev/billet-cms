@@ -188,8 +188,12 @@ describe("history excerpts", () => {
       {
         type: "paragraph",
         content: [
-          { type: "text", text: "Three recent" },
-          { type: "text", text: "projects." },
+          { type: "text", text: "Three recent " },
+          // A mark splits a word into sibling inline nodes; they are not two
+          // words and must not gain a space between them.
+          { type: "text", text: "projects.", marks: [{ type: "bold" }] },
+          { type: "text", text: " A link" },
+          { type: "text", text: "." },
         ],
       },
       {
@@ -224,8 +228,48 @@ describe("history excerpts", () => {
       { name: "body", kind: "richText", required: true },
     ];
     expect(firstTextField(ordered, { lead: "   ", body: document })).toBe(
-      "Three recent projects. A second line.",
+      "Three recent projects. A link. A second line.",
     );
+  });
+
+  test("separates blocks but not inline runs, and turns a line break into a space", () => {
+    const split = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Hel" },
+            { type: "text", text: "lo", marks: [{ type: "bold" }] },
+            { type: "hardBreak" },
+            { type: "text", text: "world" },
+          ],
+        },
+        {
+          type: "heading",
+          content: [{ type: "text", text: "Next" }],
+        },
+      ],
+    };
+    expect(
+      firstTextField([{ name: "body", kind: "richText", required: true }], {
+        body: split,
+      }),
+    ).toBe("Hello world Next");
+  });
+
+  test("cuts between characters, never through a surrogate pair", () => {
+    const long = buildExcerpt([`${"a".repeat(78)}😀bb`]);
+    expect(long).toBe(`${"a".repeat(78)}😀…`);
+    expect(Array.from(long)).toHaveLength(EXCERPT_LENGTH);
+    expect(
+      Array.from(long).some(
+        (character) =>
+          character.length === 1 &&
+          (character.codePointAt(0) ?? 0) >= 0xd800 &&
+          (character.codePointAt(0) ?? 0) <= 0xdfff,
+      ),
+    ).toBe(false);
   });
 
   test("looks inside a group", () => {

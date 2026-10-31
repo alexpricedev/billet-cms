@@ -29,6 +29,24 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const oneLine = (value: string): string => value.replace(/\s+/g, " ").trim();
 
 /**
+ * Node types that sit on their own line. Siblings of one of these are separate
+ * blocks and need a separator; inline siblings — the text nodes a bold run or a
+ * link splits a word into — do not, or "Hel" + bold "lo" reads as "Hel lo".
+ */
+const BLOCK_NODE_TYPES = new Set([
+  "paragraph",
+  "heading",
+  "blockquote",
+  "bulletList",
+  "orderedList",
+  "listItem",
+  "codeBlock",
+  "table",
+  "tableRow",
+  "horizontalRule",
+]);
+
+/**
  * The text of a stored rich text document.
  *
  * The document is structured JSON (a `doc` of paragraphs, headings and lists
@@ -37,17 +55,34 @@ const oneLine = (value: string): string => value.replace(/\s+/g, " ").trim();
  * an older shape should still read as something rather than disappearing from
  * the list.
  */
-const richTextValue = (value: unknown): string => {
+function richTextValue(value: unknown): string {
   if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map(richTextValue).join(" ");
+  if (Array.isArray(value)) return richTextNodes(value);
   if (!isRecord(value)) return "";
 
+  // A line break is a word boundary, not a run-on.
+  if (value.type === "hardBreak") return " ";
+
+  // Not collapsed per node: an inline run's trailing space is what separates
+  // it from its sibling. The caller collapses the finished document instead.
   const own = typeof value.text === "string" ? value.text : "";
   const children = Array.isArray(value.content)
-    ? value.content.map(richTextValue).join(" ")
+    ? richTextNodes(value.content)
     : "";
-  return oneLine(`${own} ${children}`);
-};
+  return [own, children].filter(Boolean).join(" ");
+}
+
+/** Join sibling nodes, separating them only when they are block-level. */
+function richTextNodes(nodes: readonly unknown[]): string {
+  const texts = nodes.map(richTextValue).filter(Boolean);
+  const separate = nodes.some(
+    (node) =>
+      isRecord(node) &&
+      typeof node.type === "string" &&
+      BLOCK_NODE_TYPES.has(node.type),
+  );
+  return texts.join(separate ? " " : "");
+}
 
 /**
  * The first text field in a content record, in the order the block declares
@@ -101,8 +136,14 @@ export const buildExcerpt = (
       .filter(Boolean)
       .join(EXCERPT_SEPARATOR),
   );
-  if (text.length <= EXCERPT_LENGTH) return text;
-  return `${text.slice(0, EXCERPT_LENGTH - 1).trimEnd()}…`;
+  // Count code points, not UTF-16 units: cutting at index 79 of an emoji's
+  // surrogate pair would leave half of it before the ellipsis.
+  const characters = Array.from(text);
+  if (characters.length <= EXCERPT_LENGTH) return text;
+  return `${characters
+    .slice(0, EXCERPT_LENGTH - 1)
+    .join("")
+    .trimEnd()}…`;
 };
 
 /**

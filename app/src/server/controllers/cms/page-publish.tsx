@@ -210,13 +210,27 @@ export const pagePublish = {
     const page = await getPageById(pageId);
     if (!page) return render404();
 
-    const revisions = await listPageHistory(page);
+    // `?before=<revision id>` pages back through older revisions. A malformed
+    // value is treated as "first page" rather than crashing the UUID cast.
+    const params = new URL(req.url).searchParams;
+    const beforeParam = params.get("before");
+    const before =
+      beforeParam && UUID_PATTERN.test(beforeParam) ? beforeParam : null;
+    const pageHistory = await listPageHistory(page, { before });
+
     const [restoreCsrfToken, navCsrfToken] = await Promise.all([
       createCsrfToken(ctx.sessionId, "POST", `/cms/pages/${page.id}/restore`),
       createCsrfToken(ctx.sessionId, "POST", "/auth/logout"),
     ]);
 
-    const params = new URL(req.url).searchParams;
+    // "Show older" continues from the last revision on this page, so the next
+    // page is exactly the revisions below it.
+    const oldest = pageHistory.revisions[pageHistory.revisions.length - 1];
+    const olderHref =
+      pageHistory.hasOlder && oldest
+        ? `/cms/pages/${page.id}/history?before=${oldest.id}`
+        : null;
+
     const error = params.get("error");
     const notice =
       error === "missing"
@@ -229,7 +243,8 @@ export const pagePublish = {
       <PageHistory
         user={ctx.user}
         page={page}
-        revisions={revisions}
+        revisions={pageHistory.revisions}
+        olderHref={olderHref}
         restoreCsrfToken={restoreCsrfToken}
         navCsrfToken={navCsrfToken}
         notice={notice}

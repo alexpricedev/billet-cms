@@ -59,7 +59,11 @@ import {
   SocialImageMissingError,
   validatePageSettings,
 } from "./pages";
-import { bumpContentVersion, readContentVersion } from "./publishing";
+import {
+  bumpContentVersion,
+  HISTORY_PAGE_SIZE,
+  readContentVersion,
+} from "./publishing";
 import {
   createRevision,
   getLatestRevision,
@@ -715,9 +719,25 @@ export interface PageRevisionSummary {
   excerpt: string;
 }
 
+/** One page of a page's history, and whether older revisions remain. */
+export interface PageHistoryPage {
+  revisions: PageRevisionSummary[];
+  /** True when revisions older than this page exist. */
+  hasOlder: boolean;
+}
+
+/**
+ * The revisions of one page, newest first, in pages.
+ *
+ * The content is read in the same query only to build each row's excerpt, so
+ * the page is bounded to `HISTORY_PAGE_SIZE` rather than loading every revision
+ * (and its full content) a page has ever had.
+ */
 export const listPageHistory = async (
   page: PageRecord,
-): Promise<PageRevisionSummary[]> => {
+  options: { before?: string | null } = {},
+): Promise<PageHistoryPage> => {
+  const before = options.before ?? null;
   const rows = (await db`
     SELECT r.id, r.created_at, r.content, i.email AS author_email,
       src.created_at AS restored_from_at
@@ -725,7 +745,17 @@ export const listPageHistory = async (
     LEFT JOIN cms_identities i ON i.id = r.created_by
     LEFT JOIN cms_revisions src ON src.id = r.restored_from
     WHERE r.target_type = 'page' AND r.target_id = ${page.id}
+      AND (
+        ${before}::uuid IS NULL
+        OR (r.created_at, r.id) < (
+          SELECT b.created_at, b.id
+          FROM cms_revisions b
+          WHERE b.id = ${before}::uuid
+            AND b.target_type = 'page' AND b.target_id = ${page.id}
+        )
+      )
     ORDER BY r.created_at DESC, r.id DESC
+    LIMIT ${HISTORY_PAGE_SIZE + 1}
   `) as {
     id: string;
     created_at: Date;
@@ -736,23 +766,33 @@ export const listPageHistory = async (
 
   // The field metadata names the block's text fields, so the excerpt reads the
   // first *text* field rather than whichever value happens to be first (an
-  // image id is a string too). One read for the whole list, not one per row.
+  // image id is a string too). One read for the whole page of revisions, not
+  // one per row.
   const blockTypes = new Map(
     (await listBlockTypes()).map((blockType) => [blockType.name, blockType]),
   );
 
+  // The first block with something to read, not merely the first block: an
+  // opening image-only block would otherwise give every row the page title and
+  // nothing else, and two same-day revisions would still look identical.
   const firstBlockText = (content: Record<string, unknown>): string | null => {
-    const [firstBlock] = asPageContent(content).blocks;
-    if (!firstBlock) return null;
-    const blockType = blockTypes.get(firstBlock.type);
-    if (!blockType) return null;
-    const { type: _type, ...fields } = firstBlock;
-    return firstTextField(blockType.fields, fields);
+    for (const block of asPageContent(content).blocks) {
+      const blockType = blockTypes.get(block.type);
+      if (!blockType) continue;
+      const { type: _type, ...fields } = block;
+      const text = firstTextField(blockType.fields, fields);
+      if (text) return text;
+    }
+    return null;
   };
 
-  return rows.map((row, index) => {
+  // One extra row is fetched only to answer "is there an older page?"; it is
+  // not shown. The page itself is the newest `HISTORY_PAGE_SIZE`.
+  const hasOlder = rows.length > HISTORY_PAGE_SIZE;
+  const revisions = rows.slice(0, HISTORY_PAGE_SIZE).map((row, index) => {
     const isPublished = row.id === page.publishedRevisionId;
-    const isLatest = index === 0;
+    // Only the first page holds the newest revision.
+    const isLatest = before === null && index === 0;
     return {
       id: row.id,
       createdAt: row.created_at,
@@ -764,6 +804,8 @@ export const listPageHistory = async (
       excerpt: pageExcerpt(page.title, firstBlockText(row.content)),
     };
   });
+
+  return { revisions, hasOlder };
 };
 
 export type RestorePageResult =
