@@ -19,33 +19,20 @@
  */
 
 import { narrowImageWarning } from "@shared/image-guidance";
-import { CSRF_FIELD, CSRF_HEADER } from "@shared/protocol";
+import {
+  imagePreview,
+  isOption,
+  type MediaOption,
+  revokePreview,
+  type UploadResult,
+  uploadFile,
+} from "./upload-shared";
 
 /** One page's worth of uploads, as the options route returns them. */
-interface PickerOption {
-  id: string;
-  alt: string;
-  width: number;
-  height: number;
-  /** Null when the upload has no rendition the card can show. */
-  thumbnailUrl: string | null;
-}
-
 interface OptionsPage {
-  items: PickerOption[];
+  items: MediaOption[];
   next: string | null;
 }
-
-const isOption = (value: unknown): value is PickerOption => {
-  if (typeof value !== "object" || value === null) return false;
-  const option = value as Record<string, unknown>;
-  return (
-    typeof option.id === "string" &&
-    typeof option.alt === "string" &&
-    typeof option.width === "number" &&
-    typeof option.height === "number"
-  );
-};
 
 /**
  * Alt text for a dropped file.
@@ -111,7 +98,7 @@ const elementsFor = (root: HTMLElement): PickerElements => ({
 });
 
 /** A thumbnail tile: an image when there is one, alt text otherwise. */
-const thumbnail = (option: PickerOption): HTMLElement => {
+const thumbnail = (option: MediaOption): HTMLElement => {
   if (option.thumbnailUrl) {
     const image = document.createElement("img");
     image.src = option.thumbnailUrl;
@@ -127,10 +114,7 @@ const thumbnail = (option: PickerOption): HTMLElement => {
   return placeholder;
 };
 
-const optionCard = (
-  option: PickerOption,
-  selectedId: string,
-): HTMLLIElement => {
+const optionCard = (option: MediaOption, selectedId: string): HTMLLIElement => {
   const item = document.createElement("li");
   item.className = "cms-picker-card";
 
@@ -198,54 +182,12 @@ const uploadTile = (file: File): UploadTile => {
   return { item, state, bar, preview };
 };
 
-/** A local preview of a file being uploaded, with the URL to release afterwards. */
-interface UploadPreview {
-  image: HTMLImageElement;
-  url: string;
-}
-
-const imagePreview = (file: File): UploadPreview | null => {
-  if (typeof URL.createObjectURL !== "function") return null;
-  const url = URL.createObjectURL(file);
-  const image = document.createElement("img");
-  image.src = url;
-  image.alt = "";
-  return { image, url };
-};
-
-/** Release a preview's object URL once the tile shows something else. */
-const revokePreview = (preview: UploadPreview | null): void => {
-  if (preview && typeof URL.revokeObjectURL === "function") {
-    URL.revokeObjectURL(preview.url);
-  }
-};
-
-type UploadResult =
-  | { ok: true; option: PickerOption }
-  | { ok: false; message: string };
-
-const messageFrom = (body: unknown): string => {
-  if (typeof body === "object" && body !== null) {
-    const errors = (body as { errors?: unknown }).errors;
-    if (Array.isArray(errors)) {
-      const first = errors.find(
-        (error): error is { message: string } =>
-          typeof error === "object" &&
-          error !== null &&
-          typeof (error as { message?: unknown }).message === "string",
-      );
-      if (first) return first.message;
-    }
-  }
-  return "Couldn't upload this file.";
-};
-
 /** Wire every picker the page rendered. */
 const wirePicker = (root: HTMLElement): void => {
   const el = elementsFor(root);
   // Replaced when the server hands back a fresh token after an expired one.
   let token = root.dataset.imagePickerCsrf ?? "";
-  const options = new Map<string, PickerOption>();
+  const options = new Map<string, MediaOption>();
 
   let next: string | null = null;
   let query = "";
@@ -303,7 +245,7 @@ const wirePicker = (root: HTMLElement): void => {
    * upload changes. A missing thumbnail becomes the placeholder with its alt
    * text — `src` is removed rather than emptied, so no request is made.
    */
-  const showChoice = (option: PickerOption | null): void => {
+  const showChoice = (option: MediaOption | null): void => {
     const before = el.value.value;
     el.value.value = option?.id ?? "";
     if (option) {
@@ -349,7 +291,7 @@ const wirePicker = (root: HTMLElement): void => {
     el.more.hidden = value === null;
   };
 
-  const appendOptions = (items: PickerOption[], replace: boolean): void => {
+  const appendOptions = (items: MediaOption[], replace: boolean): void => {
     if (replace) {
       el.grid.replaceChildren();
       options.clear();
@@ -399,7 +341,7 @@ const wirePicker = (root: HTMLElement): void => {
   };
 
   /** A newly uploaded image goes to the front of the grid, whatever the search. */
-  const prependOption = (option: PickerOption): void => {
+  const prependOption = (option: MediaOption): void => {
     options.set(option.id, option);
     for (const existing of Array.from(
       el.grid.querySelectorAll<HTMLElement>("[data-image-picker-option]"),
@@ -534,92 +476,44 @@ const wirePicker = (root: HTMLElement): void => {
     const preview = imagePreview(file);
     if (preview) tile.preview.append(preview.image);
 
-    return await new Promise<UploadResult>((resolve) => {
-      const send = (csrfToken: string, allowRetry: boolean): void => {
-        const form = new FormData();
-        form.append(CSRF_FIELD, csrfToken);
-        form.append("alt", altFromFilename(file.name));
-        form.append("file", file, file.name);
-
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/cms/media");
-        xhr.setRequestHeader("Accept", "application/json");
-        xhr.setRequestHeader(CSRF_HEADER, csrfToken);
-
-        xhr.upload.addEventListener("progress", (event) => {
-          if (!event.lengthComputable) return;
-          const percent = Math.round((event.loaded / event.total) * 100);
-          tile.bar.style.width = `${percent}%`;
-        });
-
-        const fail = (message: string): void => {
-          tile.item.dataset.state = "error";
-          tile.state.textContent = message;
-          // A refused file may not be an image at all, and the object URL's
-          // broken-image icon is not a preview. Drop it so the tile shows only
-          // the file name and the server's message.
-          tile.preview.replaceChildren();
-          revokePreview(preview);
-          resolve({ ok: false, message });
-        };
-
-        xhr.addEventListener("load", () => {
-          // The page's upload token can be older than the page by the time the
-          // drop zone is used. The server answers an expired-but-authentic
-          // token with a fresh one in the CSRF header; spend it once rather
-          // than making the editor reload and lose the form.
-          if (
-            xhr.status === 403 &&
-            allowRetry &&
-            typeof xhr.getResponseHeader === "function"
-          ) {
-            const fresh = xhr.getResponseHeader(CSRF_HEADER);
-            if (fresh) {
-              token = fresh;
-              send(fresh, false);
-              return;
-            }
-          }
-          let body: unknown = null;
-          try {
-            body = JSON.parse(xhr.responseText);
-          } catch {
-            body = null;
-          }
-          if (xhr.status >= 200 && xhr.status < 300 && isOption(body)) {
-            const option = body;
-            tile.item.dataset.state = "done";
-            tile.state.textContent = "Uploaded";
-            tile.bar.style.width = "100%";
-            if (preview) {
-              if (option.thumbnailUrl) {
-                preview.image.src = option.thumbnailUrl;
-              } else {
-                tile.preview.replaceChildren(thumbnail(option));
-              }
-              // The tile now shows the stored rendition (or the placeholder),
-              // so the local blob is no longer needed.
-              revokePreview(preview);
-            } else {
-              tile.preview.append(thumbnail(option));
-            }
-            resolve({ ok: true, option });
-            return;
-          }
-          fail(messageFrom(body));
-        });
-
-        xhr.addEventListener("error", () =>
-          fail(
-            "Couldn't upload this file. Check the connection and try again.",
-          ),
-        );
-
-        xhr.send(form);
-      };
-
-      send(token, true);
+    const answer = await uploadFile({
+      file,
+      alt: altFromFilename(file.name),
+      token,
+      onProgress: (percent) => {
+        tile.bar.style.width = `${percent}%`;
+      },
     });
+    token = answer.token;
+
+    if (answer.result.ok) {
+      const option = answer.result.option;
+      tile.item.dataset.state = "done";
+      tile.state.textContent = "Uploaded";
+      tile.bar.style.width = "100%";
+      if (preview) {
+        if (option.thumbnailUrl) {
+          preview.image.src = option.thumbnailUrl;
+        } else {
+          tile.preview.replaceChildren(thumbnail(option));
+        }
+        // The tile now shows the stored rendition (or the placeholder), so the
+        // local blob is no longer needed.
+        revokePreview(preview);
+      } else {
+        tile.preview.append(thumbnail(option));
+      }
+      return answer.result;
+    }
+
+    tile.item.dataset.state = "error";
+    tile.state.textContent = answer.result.message;
+    // A refused file may not be an image at all, and the object URL's
+    // broken-image icon is not a preview. Drop it so the tile shows only the
+    // file name and the server's message.
+    tile.preview.replaceChildren();
+    revokePreview(preview);
+    return answer.result;
   };
 
   const uploadFiles = async (files: File[]): Promise<void> => {
