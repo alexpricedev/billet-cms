@@ -287,6 +287,8 @@ describe("history and restore", () => {
     expect(history[1].isLatest).toBe(false);
     expect(history[1].isPublished).toBe(true);
     expect(history[1].authorEmail).toBe("editor@example.com");
+    // Each row's own words, so two saves on one day are not the same row.
+    expect(history.map((entry) => entry.excerpt)).toEqual(["Second", "First"]);
   });
 
   // Part 5. After a restore-then-publish the newest revision is live, so it is

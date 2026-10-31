@@ -37,3 +37,17 @@ export const formatDayShort = (date: Date): string =>
     month: "short",
     timeZone: "UTC",
   });
+
+/**
+ * A clock time alone, in the same 24-hour UTC style as `formatWhen`: "14:32".
+ *
+ * History's Restore buttons name a revision as "the 11 Jan 14:32 version" — a
+ * day alone is not enough to tell two revisions on the same day apart, and the
+ * row's own line already carries the year and the UTC suffix.
+ */
+export const formatTime = (date: Date): string =>
+  date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });

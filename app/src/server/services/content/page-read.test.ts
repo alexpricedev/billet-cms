@@ -204,6 +204,13 @@ describe("the site reading a published page", () => {
     const oldest = history[history.length - 1];
     if (!oldest) throw new Error("no history");
 
+    // The row's excerpt is the page title and the first block's first text
+    // field, so the two saves read as different versions.
+    expect(history.map((entry) => entry.excerpt)).toEqual([
+      "About us · Second",
+      "About us · First",
+    ]);
+
     const restored = await restorePageRevision({
       pageId,
       revisionId: oldest.id,

@@ -36,6 +36,7 @@ import {
   listBlockTypes,
 } from "./definitions";
 import type { FieldIssue, RevisionConflict } from "./drafts";
+import { firstTextField, pageExcerpt } from "./history-excerpt";
 import {
   asPageContent,
   findUnavailableBlocks,
@@ -706,13 +707,19 @@ export interface PageRevisionSummary {
   isDraft: boolean;
   /** When the revision this one restored was saved; null if not a restore. */
   restoredFromAt: Date | null;
+  /**
+   * One line of the revision's words — the page title and the first block's
+   * first text field — so two same-day versions can be told apart. Empty when
+   * the revision has no text field to show.
+   */
+  excerpt: string;
 }
 
 export const listPageHistory = async (
   page: PageRecord,
 ): Promise<PageRevisionSummary[]> => {
   const rows = (await db`
-    SELECT r.id, r.created_at, i.email AS author_email,
+    SELECT r.id, r.created_at, r.content, i.email AS author_email,
       src.created_at AS restored_from_at
     FROM cms_revisions r
     LEFT JOIN cms_identities i ON i.id = r.created_by
@@ -722,9 +729,26 @@ export const listPageHistory = async (
   `) as {
     id: string;
     created_at: Date;
+    content: Record<string, unknown>;
     author_email: string | null;
     restored_from_at: Date | null;
   }[];
+
+  // The field metadata names the block's text fields, so the excerpt reads the
+  // first *text* field rather than whichever value happens to be first (an
+  // image id is a string too). One read for the whole list, not one per row.
+  const blockTypes = new Map(
+    (await listBlockTypes()).map((blockType) => [blockType.name, blockType]),
+  );
+
+  const firstBlockText = (content: Record<string, unknown>): string | null => {
+    const [firstBlock] = asPageContent(content).blocks;
+    if (!firstBlock) return null;
+    const blockType = blockTypes.get(firstBlock.type);
+    if (!blockType) return null;
+    const { type: _type, ...fields } = firstBlock;
+    return firstTextField(blockType.fields, fields);
+  };
 
   return rows.map((row, index) => {
     const isPublished = row.id === page.publishedRevisionId;
@@ -737,6 +761,7 @@ export const listPageHistory = async (
       isLatest,
       isDraft: isLatest && !isPublished,
       restoredFromAt: row.restored_from_at,
+      excerpt: pageExcerpt(page.title, firstBlockText(row.content)),
     };
   });
 };

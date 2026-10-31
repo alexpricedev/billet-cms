@@ -858,6 +858,23 @@ h1 {
   gap: var(--space-2);
 }
 
+/* The meta line and the excerpt share the row's first column, so the excerpt
+   sits under the time rather than forming a third grid cell beside the button.
+   `min-width: 0` lets the column shrink below the nowrap excerpt, which is what
+   turns a long one into an ellipsis instead of widening the row. */
+.cms-history-entry {
+  min-width: 0;
+}
+
+.cms-history-excerpt {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* A long author email is one unbroken token; without this it overflows its
    `minmax(0, 1fr)` track and widens the row past a 390px viewport. */
 .cms-history-author {

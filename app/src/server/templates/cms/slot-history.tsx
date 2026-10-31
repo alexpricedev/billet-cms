@@ -8,7 +8,12 @@ import type {
 } from "../../services/content";
 import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
-import { formatDay, formatDayShort, formatWhen } from "../../utils/format";
+import {
+  formatDay,
+  formatDayShort,
+  formatTime,
+  formatWhen,
+} from "../../utils/format";
 import { humanise } from "../../utils/humanise";
 import { slotTitle } from "../../utils/slot-title";
 
@@ -87,27 +92,32 @@ export const SlotHistory = ({
       <ol className="cms-history">
         {revisions.map((revision) => (
           <li className="cms-history-item" key={revision.id}>
-            <div className="cms-history-meta">
-              <span className="cms-history-when">
-                {formatWhen(revision.createdAt)} UTC
-              </span>
-              <span className="cms-history-author">
-                {revision.authorEmail ?? "Unknown"}
-              </span>
-              {revision.isPublished && (
-                <span className="cms-history-badge cms-history-published">
-                  Published
+            <div className="cms-history-entry">
+              <div className="cms-history-meta">
+                <span className="cms-history-when">
+                  {formatWhen(revision.createdAt)} UTC
                 </span>
-              )}
-              {revision.restoredFromAt && (
-                <span className="cms-history-badge cms-history-restored">
-                  Restored from {formatDay(revision.restoredFromAt)}
+                <span className="cms-history-author">
+                  {revision.authorEmail ?? "Unknown"}
                 </span>
-              )}
-              {revision.isDraft && (
-                <span className="cms-history-badge cms-history-draft">
-                  Current draft
-                </span>
+                {revision.isPublished && (
+                  <span className="cms-history-badge cms-history-published">
+                    Published
+                  </span>
+                )}
+                {revision.restoredFromAt && (
+                  <span className="cms-history-badge cms-history-restored">
+                    Restored from {formatDay(revision.restoredFromAt)}
+                  </span>
+                )}
+                {revision.isDraft && (
+                  <span className="cms-history-badge cms-history-draft">
+                    Current draft
+                  </span>
+                )}
+              </div>
+              {revision.excerpt && (
+                <p className="cms-history-excerpt">{revision.excerpt}</p>
               )}
             </div>
             {!revision.isLatest && (
@@ -123,7 +133,8 @@ export const SlotHistory = ({
                   className="cms-restore-button"
                   aria-label={`Restore the ${formatDayShort(revision.createdAt)} version, saved ${formatWhen(revision.createdAt)} UTC by ${revision.authorEmail ?? "an unknown author"} as draft`}
                 >
-                  Restore the {formatDayShort(revision.createdAt)} version
+                  Restore the {formatDayShort(revision.createdAt)}{" "}
+                  {formatTime(revision.createdAt)} version
                 </button>
               </form>
             )}
