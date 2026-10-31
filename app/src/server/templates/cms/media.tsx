@@ -21,16 +21,7 @@ export interface MediaListProps {
   navCsrfToken?: string;
   items: MediaRecord[];
   notice?: string | null;
-  errors?: MediaIssue[];
-  /** What the editor typed before a failed upload, so it isn't discarded. */
-  values?: { alt: string };
 }
-
-const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
 
 /**
  * The smallest rendition at least twice `displayWidth` pixels wide.
@@ -90,11 +81,18 @@ const FOCAL_PREVIEW_WIDTH = 10 * 16;
 const DELETE_PREVIEW_WIDTH = 24 * 16;
 
 /**
- * The uploads library: the reuse list, and the one upload form.
+ * The uploads library: the staged-upload drop zone and the reuse list.
+ *
+ * The page cannot upload without JavaScript (the third recorded client
+ * exception in AGENTS.md): `client/media-upload.ts` turns dropped or chosen
+ * files into tiles that ask for alt text before sending anything, and adds a
+ * finished upload to the front of the grid without a reload. This template
+ * renders the drop zone and the grid the script binds to, and the note that
+ * says the script is needed.
  *
  * The list is deliberately flat (no folders yet): every upload, newest first,
- * with a thumbnail, its alt text, its size and its dimensions. Clicking one
- * opens its detail, where the alt and the focal point are edited.
+ * with a thumbnail, its alt text and its dimensions. Clicking one opens its
+ * detail, where the alt and the focal point are edited.
  */
 export const MediaList = ({
   user,
@@ -102,8 +100,6 @@ export const MediaList = ({
   navCsrfToken,
   items,
   notice,
-  errors,
-  values,
 }: MediaListProps) => (
   <Layout
     title={`Media - ${SITE_NAME}`}
@@ -126,87 +122,89 @@ export const MediaList = ({
 
     {notice && <Flash tone="success" title={notice} dismissible />}
 
-    {errors?.map((error) => (
-      <Flash
-        key={`${error.field}:${error.message}`}
-        tone="error"
-        title={error.message}
-        dismissible
-      />
-    ))}
-
-    <form
-      method="POST"
-      action="/cms/media"
-      encType="multipart/form-data"
-      className="cms-media-upload"
+    {/* The drop zone, the batch action and the staged tiles. The client finds
+        these by `data-media-*`; it builds one tile per file and nothing is
+        sent until that tile has alt text and its Upload is pressed. */}
+    <section
+      className="cms-media-uploader"
+      data-media-upload
+      data-media-upload-csrf={csrfToken}
+      aria-label="Upload images"
     >
-      <input type="hidden" name="_csrf" value={csrfToken} />
-      <div className="cms-field">
-        <label className="cms-field-label" htmlFor="cms-media-file">
-          Image file
+      <div className="cms-picker-drop" data-media-drop>
+        <p className="cms-picker-drop-text">
+          Drop images here, or choose a file.
+        </p>
+        <label className="btn btn-secondary btn-sm cms-picker-file">
+          Choose file
+          <input
+            type="file"
+            className="sr-only"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            data-media-file
+          />
         </label>
-        <input
-          type="file"
-          id="cms-media-file"
-          name="file"
-          accept="image/jpeg,image/png,image/webp"
-        />
+        <p className="cms-field-help">
+          JPEG, PNG or WebP up to 20 MB. Uploading needs JavaScript.
+        </p>
       </div>
-      <div className="cms-field">
-        <label className="cms-field-label" htmlFor="cms-media-alt">
-          Alt text <span className="cms-required">*</span>
-        </label>
-        <input
-          type="text"
-          id="cms-media-alt"
-          name="alt"
-          required
-          maxLength={MAX_ALT_LENGTH}
-          value={values?.alt ?? ""}
-          aria-describedby="cms-media-alt-help"
-        />
-        <span className="cms-field-help" id="cms-media-alt-help">
-          Up to {MAX_ALT_LENGTH} characters.
-        </span>
-      </div>
-      <button type="submit" className="cms-save btn btn-primary">
-        Upload
+      <button
+        type="button"
+        className="btn btn-primary btn-sm cms-media-upload-all"
+        data-media-upload-all
+        hidden
+      >
+        Upload all
       </button>
-    </form>
+      <ul className="cms-media-tiles" data-media-staged />
+    </section>
 
-    {items.length === 0 ? (
-      <div className="empty-state" role="status">
+    <div className="cms-media-library">
+      <div
+        className="empty-state"
+        role="status"
+        data-media-empty
+        hidden={items.length > 0}
+      >
         <span className="empty-state-title">No images yet</span>
         <span>Upload one above to use it in an image field.</span>
       </div>
-    ) : (
-      <ul className="cms-media-grid">
-        {items.map((media) => (
-          <li className="cms-media-card" key={media.id}>
-            <a href={`/cms/media/${media.id}`}>
-              <img
-                src={
-                  variantForDisplay(media, GRID_THUMBNAIL_WIDTH)?.fallbackUrl ??
-                  ""
-                }
-                alt={media.alt}
-                width={media.width}
-                height={media.height}
-                loading="lazy"
-              />
-            </a>
-            <a className="cms-media-alt" href={`/cms/media/${media.id}`}>
-              {media.alt}
-            </a>
-            <span className="cms-media-meta">
-              {media.width}×{media.height} · {formatBytes(media.byteSize)} ·{" "}
-              {media.contentType.replace("image/", "").toUpperCase()}
-            </span>
-          </li>
-        ))}
+
+      {/* Rendered even when empty: the client prepends a finished upload here
+          without a reload, and hides the empty state above with it. */}
+      <ul className="cms-media-grid" data-media-grid>
+        {items.map((media) => {
+          const thumbnail =
+            variantForDisplay(media, GRID_THUMBNAIL_WIDTH)?.fallbackUrl ?? null;
+          return (
+            <li className="cms-media-card" key={media.id}>
+              <a href={`/cms/media/${media.id}`}>
+                {thumbnail ? (
+                  <img
+                    src={thumbnail}
+                    alt={media.alt}
+                    width={media.width}
+                    height={media.height}
+                    loading="lazy"
+                  />
+                ) : (
+                  <span className="cms-media-placeholder">{media.alt}</span>
+                )}
+              </a>
+              <a className="cms-media-alt" href={`/cms/media/${media.id}`}>
+                {media.alt}
+              </a>
+              <span className="cms-media-meta">
+                {media.width}×{media.height}
+              </span>
+            </li>
+          );
+        })}
       </ul>
-    )}
+    </div>
+
+    <script type="module" src={getAssetUrl("/assets/media-upload.js")} />
   </Layout>
 );
 

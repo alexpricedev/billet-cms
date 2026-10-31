@@ -392,18 +392,30 @@ describe("cms.css media layout", () => {
     expect(css).toMatch(/\.cms-media-uses\s*\{[^}]*display:\s*grid/);
   });
 
-  test("spaces the upload and detail forms at 1.5rem", () => {
-    expect(css).toMatch(/\.cms-media-upload\s*\{[^}]*gap:\s*1\.5rem/);
+  // The ticket's review put --field-gap between the drop zone, Upload all and
+  // the staged tiles, and between tiles; the detail form keeps its 1.5rem.
+  test("spaces the uploader's parts and tiles at the field gap", () => {
+    expect(css).toMatch(
+      /\.cms-media-uploader\s*\{[^}]*gap:\s*var\(--field-gap\)/,
+    );
+    expect(css).toMatch(/\.cms-media-tiles\s*\{[^}]*gap:\s*var\(--field-gap\)/);
     expect(css).toMatch(/\.cms-media-detail\s*\{[^}]*gap:\s*1\.5rem/);
   });
 
-  test("keeps the Upload and Save buttons at their natural width", () => {
+  test("keeps Upload all and Save at their natural width", () => {
     expect(css).toMatch(
-      /\.cms-media-upload \.cms-save\s*\{[^}]*justify-self:\s*start/,
+      /\.cms-media-upload-all\s*\{[^}]*justify-self:\s*start/,
     );
     expect(css).toMatch(
       /\.cms-media-detail \.cms-save\s*\{[^}]*justify-self:\s*start/,
     );
+  });
+
+  // A tile's preview is fixed and its body grows; without min-width: 0 the
+  // body's text and input push the tile past a 320px viewport.
+  test("lets the staged tile and its body shrink", () => {
+    expect(css).toMatch(/\.cms-media-tile\s*\{[^}]*min-width:\s*0/);
+    expect(css).toMatch(/\.cms-media-tile-body\s*\{[^}]*min-width:\s*0/);
   });
 
   test("strips the focal legend padding and trims the help margin", () => {

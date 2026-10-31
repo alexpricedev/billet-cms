@@ -1217,15 +1217,129 @@ h1 {
 
 /* ---- Media ------------------------------------------------------------- */
 
-.cms-media-upload {
+/* The uploader is the drop zone, the batch action and the staged tiles, each
+   one row with the editor's field gap between them. The drop zone keeps the
+   picker's own box; there is no panel around the whole thing. */
+.cms-media-uploader {
+  display: grid;
+  gap: var(--field-gap);
+  margin: 0 0 var(--space-6);
+  max-width: 40rem;
+}
+
+/* Author `display` rules beat the UA `[hidden]` rule, so the batch button and
+   the library's empty state need hiding spelled out. */
+.cms-media-uploader [hidden],
+.cms-media-library [hidden] {
+  display: none;
+}
+
+.cms-media-upload-all {
+  justify-self: start;
+}
+
+/* Staged tiles: the gap between tiles is the same gap between the uploader's
+   parts, so a list of them reads as one flow. */
+.cms-media-tiles {
+  display: grid;
+  gap: var(--field-gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cms-media-tiles:empty {
+  display: none;
+}
+
+/* One staged file: its real preview (a blob: URL), the name and size, the alt
+   box, the state and the actions. The preview is fixed and the body shrinks,
+   so a long file name or a phone's width cannot push the tile wider. */
+.cms-media-tile {
+  align-items: start;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+}
+
+.cms-media-tile[data-state="done"] {
+  border-color: var(--success-border);
+}
+
+.cms-media-tile[data-state="error"] {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+}
+
+.cms-media-tile-preview {
+  aspect-ratio: 4 / 3;
+  background: var(--surface-subtle);
+  border-radius: var(--radius-sm);
+  flex: none;
+  overflow: hidden;
+  width: 96px;
+}
+
+.cms-media-tile-preview img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.cms-media-tile-placeholder {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 11px;
+  height: 100%;
+  justify-content: center;
+  overflow-wrap: anywhere;
+  padding: var(--space-1);
+  text-align: center;
+}
+
+.cms-media-tile-body {
   display: grid;
-  gap: 1.5rem;
-  margin: 0 0 var(--space-6);
-  max-width: 32rem;
-  padding: var(--space-5);
+  flex: 1;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.cms-media-tile-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.cms-media-tile-name {
+  font-size: 12.5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cms-media-tile-meta {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.cms-media-tile-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cms-media-tile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 /* Export: the create form reads as a panel and keeps its button compact. */
@@ -1239,10 +1353,6 @@ h1 {
   justify-self: start;
 }
 
-.cms-media-upload .cms-save {
-  justify-self: start;
-}
-
 /* A grid item's default minimum is its content; `min(12rem, 100%)` floors the
    track at the viewport so a long unbroken alt can't widen it past a phone. */
 .cms-media-grid {
@@ -1253,13 +1363,15 @@ h1 {
   padding: 0;
 }
 
+/* The library card is the picker card's shape (the tokens, padding, gap and
+   line heights below match `.cms-picker-card-button`): thumbnail, alt, size. */
 .cms-media-card {
   align-content: start;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   /* Lets the card shrink below its content's min-content width. */
   min-width: 0;
   padding: var(--space-2);
@@ -1273,14 +1385,14 @@ h1 {
 .cms-media-card > a:first-child {
   display: block;
   overflow: hidden;
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
 }
 
 /* A long unbroken alt text wraps inside the card rather than spilling out. */
 .cms-media-alt {
   color: var(--text);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
   text-decoration: none;
 
@@ -1291,19 +1403,35 @@ h1 {
   }
 }
 
-.cms-media-card img {
+.cms-media-card img,
+.cms-media-card .cms-media-placeholder {
   aspect-ratio: 4 / 3;
   background: var(--surface-subtle);
+  border-radius: 4px;
   height: auto;
   object-fit: cover;
   width: 100%;
 }
 
+/* An upload with no rendition the card can show carries its alt text instead
+   of an `<img>` with an empty `src` — the picker's placeholder, restated for
+   the library card. */
+.cms-media-card .cms-media-placeholder {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 11.5px;
+  justify-content: center;
+  overflow-wrap: anywhere;
+  padding: var(--space-1);
+  text-align: center;
+}
+
 .cms-media-meta {
   color: var(--text-muted);
   display: block;
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 /* The detail form: the focal point, its previews, the alt and Save, each a
@@ -1545,7 +1673,6 @@ h1 {
     margin-left: 0;
   }
 
-  .cms-media-upload,
   .cms-media-detail {
     padding: var(--space-4);
   }

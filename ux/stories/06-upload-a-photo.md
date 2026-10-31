@@ -1,6 +1,6 @@
 # Upload a photo
 
-As an editor (Leo) on a phone, I want to upload a photo, write its alt text and set its focal point so that it crops well everywhere.
+As an editor (Leo) on a phone, I want to drop several photos onto the Media page, write each one's alt text and upload them, so that the library fills up without a reload and every image ships with real alt text.
 Starting from `/cms/media`, signed in as Leo.
-Done when the new image is in the library with alt text and a focal point, and can be picked in the hero.
-I expect missing alt text to be refused with the reason, an SVG or GIF refused with the allowed types named, and a warning when an image is too narrow for the hero.
+Done when the dropped images are in the library with alt text and a focal point, and can be picked in the hero.
+I expect to drop or choose several files at once and have each wait as a tile with its own preview, file name and size until I have typed its alt text — Upload stays disabled while that box is blank, Enter in the box uploads that tile, and Upload all waits until every tile has text. Removing a tile before it is sent drops the file, and leaving the page with unsent tiles asks first. A file the browser can see is the wrong type or over 20 MB is refused on its tile straight away. An upload shows its progress and locks the tile; once its card is in the grid the tile clears itself. A server refusal keeps the file and the alt text I typed so I can fix it and press Upload again. Missing alt text is refused with the reason, an SVG or GIF refused with the allowed types named, and a warning shown when an image is too narrow for the hero. The page needs JavaScript, as the picker does.

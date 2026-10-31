@@ -9,6 +9,7 @@ export const BUNDLE_FILENAMES = [
   "main.js",
   "cms-form.js",
   "image-picker.js",
+  "media-upload.js",
   "main.css",
 ];
 // Where the built bundles live. Deliberately not an env var: `--outdir

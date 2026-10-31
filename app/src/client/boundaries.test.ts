@@ -15,11 +15,14 @@ const SERVER = "src/server";
 // The places the client talks to the server and parses what comes back. The
 // request helper is the enhanced-form protocol; the image picker is the third
 // recorded exception (AGENTS.md) — a library grid, alt search, paging and a
-// drop zone cannot be a server-rendered form. It is confined to the two media
-// routes and builds every tile with createElement/textContent.
+// drop zone cannot be a server-rendered form. `upload-shared.ts` holds that
+// exception's upload half for the picker and the Media page's staged tiles; it
+// is confined to `POST /cms/media`. Both build every tile with
+// createElement/textContent.
 const NETWORK_AND_MARKUP_ALLOWED = new Set([
   `${CLIENT}/reactive/request.ts`,
   `${CLIENT}/image-picker.ts`,
+  `${CLIENT}/upload-shared.ts`,
 ]);
 
 // Minified bytes for the main entry point. It is 5,292 bytes (5.17 KiB) at the
@@ -79,8 +82,9 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // needed.
 const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_600;
 
-// Minified bytes for the shared image picker, `image-picker.ts`. It is 9,404
-// bytes (9.18 KiB) at the time of writing.
+// Minified bytes for the shared image picker, `image-picker.ts`, including the
+// `upload-shared.ts` it imports. It is 9,708 bytes at the time of writing,
+// after the upload wire format was split out for the Media page's tiles.
 //
 // This is the third recorded exception (AGENTS.md): the picker has to read the
 // options route, upload with progress and build tiles from JSON, which no
@@ -94,6 +98,20 @@ const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_600;
 // that renders the field. See `image-picker.test.ts` for what the client is
 // expected to do.
 const IMAGE_PICKER_BUNDLE_BUDGET_BYTES = 10_000;
+
+// Minified bytes for the Media page's staged upload tiles, `media-upload.ts`,
+// including the `upload-shared.ts` it imports. It is 8,551 bytes at the time of
+// writing.
+//
+// This is the same third recorded exception (AGENTS.md), not a fourth: a
+// dropped or chosen file has to become a tile holding its own alt text before
+// anything is sent, which a server-rendered form cannot do. The budget is a
+// fence around staging, progress and retry around the shared upload — not room
+// for the Media page to grow into an application. 10,000 bytes leaves room for
+// a small fix; raising it is the signal to ask whether a feature belongs in
+// this script or in the server that renders the page. See
+// `media-upload.test.ts` for what the client is expected to do.
+const MEDIA_UPLOAD_BUNDLE_BUDGET_BYTES = 10_000;
 
 const sources = (root: string): string[] =>
   Array.from(new Glob("**/*.{ts,tsx}").scanSync(root))
@@ -284,5 +302,24 @@ describe("client boundaries", () => {
       bundle?.size ?? Number.POSITIVE_INFINITY,
       "image-picker.js is over budget — the picker is a library grid and a drop zone, not a second application.",
     ).toBeLessThan(IMAGE_PICKER_BUNDLE_BUDGET_BYTES);
+  });
+
+  test("the media upload bundle stays under its byte budget", async () => {
+    // Built in memory with the same flags as `build:client`, so the number is
+    // the one that ships. Nothing is written to dist/.
+    const result = await Bun.build({
+      entrypoints: [`${CLIENT}/media-upload.ts`],
+      minify: true,
+      target: "browser",
+    });
+    expect(result.success).toBe(true);
+    const bundle = result.outputs.find(
+      (output) => output.kind === "entry-point",
+    );
+    expect(bundle).toBeDefined();
+    expect(
+      bundle?.size ?? Number.POSITIVE_INFINITY,
+      "media-upload.js is over budget — the Media page's tiles stage one shared upload, not a second application.",
+    ).toBeLessThan(MEDIA_UPLOAD_BUNDLE_BUDGET_BYTES);
   });
 });
