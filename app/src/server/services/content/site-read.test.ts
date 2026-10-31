@@ -29,6 +29,7 @@ import {
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ max: 80 }),
     body: richText(),
@@ -126,7 +127,12 @@ describe("site content reader", () => {
     expect(matched?.body).toEqual(doc("Hello"));
 
     // This definition expects an image where the stored revision holds text.
-    const expectsImage = block("hero", { heading: image() }, () => null);
+    const expectsImage = block(
+      "hero",
+      { label: "Hero" },
+      { heading: image() },
+      () => null,
+    );
     const skipped: string[] = [];
     const stale = await reader((message) => skipped.push(message)).getSlot(
       "home.hero",

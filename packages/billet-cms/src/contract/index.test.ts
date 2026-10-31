@@ -134,10 +134,11 @@ describe("stored schema format", () => {
   // proves the interface compiles. This is the contract both sides depend on:
   // the format marker, the JSON Schema the CMS validates against, the field
   // metadata tree it renders a form from, and the hash a re-publish compares.
-  test("a real block's published document carries the JSON Schema, the field metadata tree and a schema hash", () => {
+  test("a real block's published document carries the label, the JSON Schema, the field metadata tree and a schema hash", () => {
     const stored = blockStoredSchema(
       block(
         "hero",
+        { label: "Hero" },
         {
           heading: text({ label: "Heading", max: 80 }),
           links: list(link(), { min: 1, max: 6 }),
@@ -149,6 +150,8 @@ describe("stored schema format", () => {
     expect(stored.format).toBe(STORED_SCHEMA_FORMAT);
     expect(stored.version).toBe(STORED_SCHEMA_FORMAT_VERSION);
     expect(stored.name).toBe("hero");
+    // The human name the CMS shows for the block type, never the slug.
+    expect(stored.label).toBe("Hero");
     // The JSON Schema is what the CMS rebuilds a validator from.
     expect(stored.jsonSchema).toMatchObject({ type: "object" });
     expect(stored.fields).toEqual([
@@ -171,6 +174,23 @@ describe("stored schema format", () => {
       },
     ]);
     expect(stored.schemaHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  // The hash is what a re-publish compares against; if the label lived outside
+  // it, renaming a block would write nothing and the CMS would keep showing the
+  // old name.
+  test("a label-only change moves the schema hash", () => {
+    const fields = { heading: text({ label: "Heading" }) };
+    const before = blockStoredSchema(
+      block("hero", { label: "Hero" }, fields, () => null),
+    );
+    const after = blockStoredSchema(
+      block("hero", { label: "Full-width hero" }, fields, () => null),
+    );
+
+    expect(after.jsonSchema).toEqual(before.jsonSchema);
+    expect(after.fields).toEqual(before.fields);
+    expect(after.schemaHash).not.toBe(before.schemaHash);
   });
 });
 

@@ -21,7 +21,12 @@ import { EXPORT_RATE_LIMIT, exportApi } from "./export";
 
 const ORIGIN = process.env.APP_URL as string;
 
-const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+const hero = block(
+  "hero",
+  { label: "Hero" },
+  { heading: text({ max: 80 }) },
+  () => null,
+);
 
 const get = (authorization?: string) =>
   createBunRequest(`${ORIGIN}/export`, {

@@ -72,6 +72,11 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // 14,509, so the old budget had no room for this. 14,600 keeps a few lines'
 // headroom; the number moving is still the signal, so raise it again only with
 // the same arithmetic written down.
+//
+// The Add block menu (open/close, arrows, Enter/Space, Escape, outside click)
+// replaced the per-type button loop and its hint state, so the bundle measures
+// 14,322 even with the menu in it — inside the existing budget, and no rise was
+// needed.
 const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_600;
 
 // Minified bytes for the shared image picker, `image-picker.ts`. It is 9,404

@@ -13,22 +13,48 @@ import { richText, text } from "./field";
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   { heading: text({ max: 80 }) },
   (content) => content.heading,
 );
-const prose = block("prose", { body: richText() }, () => null);
+const prose = block(
+  "prose",
+  { label: "Prose" },
+  { body: richText() },
+  () => null,
+);
 
 describe("block", () => {
-  test("keeps the fields and the render function", () => {
+  test("keeps the label, the fields and the render function", () => {
     const definition = block(
       "hero",
+      { label: "Hero" },
       { heading: text() },
       (content) => content.heading,
     );
     expect(definition.kind).toBe("block");
     expect(definition.name).toBe("hero");
+    expect(definition.label).toBe("Hero");
     expect(definition.fields).toHaveProperty("heading");
     expect(definition.render({ heading: "Hi" })).toBe("Hi");
+  });
+
+  test("refuses a missing or empty label", () => {
+    const fields = { heading: text() };
+
+    // @ts-expect-error the options slot and its label are required.
+    expect(() => block("hero", {}, fields)).toThrow(/non-empty label/);
+    // @ts-expect-error the options slot itself is required.
+    expect(() => block("hero", undefined, fields)).toThrow(/non-empty label/);
+    for (const label of ["", "   ", "\n\t"]) {
+      expect(() => block("hero", { label }, fields)).toThrow(/non-empty label/);
+    }
+  });
+
+  test("trims surrounding whitespace from the label", () => {
+    expect(
+      block("hero", { label: "  Hero  " }, { heading: text() }).label,
+    ).toBe("Hero");
   });
 
   test("validates content against its fields", () => {
@@ -76,9 +102,9 @@ describe("block", () => {
   });
 
   test('rejects a field named "type", which collides with the page discriminator', () => {
-    expect(() => block("weird", { type: text() }, () => null)).toThrow(
-      /field named "type"/,
-    );
+    expect(() =>
+      block("weird", { label: "Weird" }, { type: text() }, () => null),
+    ).toThrow(/field named "type"/);
   });
 });
 
@@ -97,10 +123,20 @@ describe("blockStoredSchema", () => {
 
   test("hashes the same definition the same, and a changed one differently", () => {
     const same = blockStoredSchema(
-      block("hero", { heading: text({ max: 80 }) }, () => null),
+      block(
+        "hero",
+        { label: "Hero" },
+        { heading: text({ max: 80 }) },
+        () => null,
+      ),
     );
     const changed = blockStoredSchema(
-      block("hero", { heading: text({ max: 40 }) }, () => null),
+      block(
+        "hero",
+        { label: "Hero" },
+        { heading: text({ max: 40 }) },
+        () => null,
+      ),
     );
 
     expect(same.schemaHash).toBe(blockStoredSchema(hero).schemaHash);
@@ -267,13 +303,22 @@ describe("pageType", () => {
 
 describe("name validation", () => {
   test("accepts valid block, field and page type names", () => {
-    expect(() => block("hero", { heading: text() }, () => null)).not.toThrow();
     expect(() =>
-      block("hero-2", { heroBanner_1: text() }, () => null),
+      block("hero", { label: "Hero" }, { heading: text() }, () => null),
     ).not.toThrow();
-    expect(() => block("a", { a: text() }, () => null)).not.toThrow();
     expect(() =>
-      block("a".repeat(64), { heading: text() }, () => null),
+      block(
+        "hero-2",
+        { label: "Hero 2" },
+        { heroBanner_1: text() },
+        () => null,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      block("a", { label: "A" }, { a: text() }, () => null),
+    ).not.toThrow();
+    expect(() =>
+      block("a".repeat(64), { label: "A" }, { heading: text() }, () => null),
     ).not.toThrow();
     expect(() => pageType("landing", {})).not.toThrow();
     expect(() => pageType("blogPost", {})).not.toThrow();
@@ -289,17 +334,17 @@ describe("name validation", () => {
       "",
       "a".repeat(65),
     ]) {
-      expect(() => block(name, { heading: text() }, () => null)).toThrow(
-        /Invalid block name/,
-      );
+      expect(() =>
+        block(name, { label: "Hero" }, { heading: text() }, () => null),
+      ).toThrow(/Invalid block name/);
     }
   });
 
   test("rejects an invalid field name, naming the block it is in", () => {
     for (const field of ["Heading", "1heading", "head ing", "héad", ""]) {
-      expect(() => block("hero", { [field]: text() }, () => null)).toThrow(
-        /Invalid field name .* in block "hero"/,
-      );
+      expect(() =>
+        block("hero", { label: "Hero" }, { [field]: text() }, () => null),
+      ).toThrow(/Invalid field name .* in block "hero"/);
     }
   });
 

@@ -21,6 +21,7 @@ import {
 
 export const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ max: 120, label: "Heading" }),
     // `minWidth` guidance is enforced by the CMS when the draft is saved, so the
@@ -37,12 +38,14 @@ export const homeHero = slot("home.hero", hero, {
 
 export const textBlock = block(
   "text",
+  { label: "Rich text" },
   { body: richText({ label: "Body" }) },
   (content) => ({ body: content.body }),
 );
 
 export const gallery = block(
   "gallery",
+  { label: "Gallery" },
   {
     images: list(image({ label: "Image", minWidth: 400 }), {
       label: "Images",
@@ -55,6 +58,7 @@ export const gallery = block(
 
 export const quote = block(
   "quote",
+  { label: "Quote" },
   {
     text: text({ max: 400, label: "Quote" }),
     attribution: text({ max: 120, label: "Attribution" }),
@@ -69,6 +73,7 @@ export const quote = block(
 
 export const cta = block(
   "cta",
+  { label: "Call to action" },
   {
     heading: text({ max: 120, label: "Heading" }),
     link: link({ label: "Button link" }),
@@ -86,16 +91,20 @@ export const footerCta = slot("footer.cta", cta, {
  * carries a `group` through real Postgres — the metadata tree, the nested
  * JSON Schema and the schema hash — rather than only through unit tests.
  */
-export const steps = block("steps", {
-  heading: text({ max: 120, label: "Heading" }),
-  items: list(
-    group({
-      title: text({ max: 60, label: "Title" }),
-      body: text({ max: 200, label: "Body" }),
-    }),
-    { label: "Steps", min: 1, max: 4 },
-  ),
-});
+export const steps = block(
+  "steps",
+  { label: "Steps" },
+  {
+    heading: text({ max: 120, label: "Heading" }),
+    items: list(
+      group({
+        title: text({ max: 60, label: "Title" }),
+        body: text({ max: 200, label: "Body" }),
+      }),
+      { label: "Steps", min: 1, max: 4 },
+    ),
+  },
+);
 
 /**
  * A button whose words live in the link itself.
@@ -104,9 +113,13 @@ export const steps = block("steps", {
  * Button text inside the group, so the block is a banner with a call to action
  * and nothing to fill in twice.
  */
-export const banner = block("banner", {
-  link: link({ label: "Button link" }),
-});
+export const banner = block(
+  "banner",
+  { label: "Banner" },
+  {
+    link: link({ label: "Button link" }),
+  },
+);
 
 export const landing = pageType("landing", {
   label: "Landing",

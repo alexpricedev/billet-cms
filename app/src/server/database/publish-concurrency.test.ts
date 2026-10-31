@@ -8,7 +8,7 @@ import type { SQL } from "bun";
 import { createTempDatabase } from "../test-utils/migration-helpers";
 import { runMigrations } from "./migrate";
 
-const hero = block("hero", { heading: text() }, () => null);
+const hero = block("hero", { label: "Hero" }, { heading: text() }, () => null);
 const definitions: SiteDefinitions = {
   blocks: [hero],
   slots: [slot("home.hero", hero)],

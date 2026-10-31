@@ -58,7 +58,22 @@ export interface BlockDefinitionShape {
   readonly kind: "block";
   /** The block type name, unique within its kind. */
   readonly name: string;
+  /**
+   * The block type's human name, shown to editors instead of the slug. Never
+   * empty: `block()` refuses a missing or blank label where it is declared.
+   */
+  readonly label: string;
   readonly fields: BlockFields;
+}
+
+/** The options `block()` takes between its name and its fields. */
+export interface BlockOptions {
+  /**
+   * The human name the CMS shows for this block type ("Full-width image"),
+   * in the editor's legends and its Add block menu. Required, and must not be
+   * blank.
+   */
+  label: string;
 }
 
 /**
@@ -73,6 +88,11 @@ const noRender: BlockRender<BlockFields> = () => undefined;
 /**
  * Define a block type.
  *
+ * `label` is the human name the CMS shows wherever the block type appears to
+ * an editor. It is required and must not be blank: a slug is not a name an
+ * editor should have to decode, and a missing label would otherwise reach the
+ * CMS as an empty caption.
+ *
  * `render` is optional. The publish step, `slot()` and `pageType()` never call
  * it, and the CMS builds its form from the published metadata, so a site that
  * renders its blocks in templates — most of them — has nothing to put there and
@@ -80,10 +100,15 @@ const noRender: BlockRender<BlockFields> = () => undefined;
  */
 export const block = <F extends BlockFields>(
   name: string,
+  options: BlockOptions,
   fields: F,
   render: BlockRender<F> = noRender,
 ): BlockDefinition<F> => {
   assertName(name, "block");
+  const label = options?.label;
+  if (typeof label !== "string" || label.trim() === "") {
+    throw new Error(`Block "${name}" must have a non-empty label`);
+  }
   for (const fieldName of Object.keys(fields)) {
     assertName(fieldName, "field", { context: `in block "${name}"` });
   }
@@ -96,7 +121,7 @@ export const block = <F extends BlockFields>(
       `Block "${name}" declares a field named "type", which collides with the block's page-content discriminator`,
     );
   }
-  return { kind: "block", name, fields, render };
+  return { kind: "block", name, label: label.trim(), fields, render };
 };
 
 export interface SlotOptions {
@@ -324,9 +349,12 @@ export const blockStoredSchema = (
     format: STORED_SCHEMA_FORMAT,
     version: STORED_SCHEMA_FORMAT_VERSION,
     name: definition.name,
+    label: definition.label,
     jsonSchema,
     fields,
-    schemaHash: hashJson({ jsonSchema, fields }),
+    // The label is part of the hash: renaming a block changes what the CMS
+    // shows, so a deploy that only renames it must still re-publish the row.
+    schemaHash: hashJson({ jsonSchema, fields, label: definition.label }),
   };
 };
 

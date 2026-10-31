@@ -37,7 +37,12 @@ const authInfo: AuthInfo = {
   extra: { actor, grantId: "test-grant" },
 };
 
-const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+const hero = block(
+  "hero",
+  { label: "Hero" },
+  { heading: text({ max: 80 }) },
+  () => null,
+);
 const landing = pageType("landing", { allowedBlocks: [hero] });
 
 /** Call one tool and return its JSON-RPC result. */

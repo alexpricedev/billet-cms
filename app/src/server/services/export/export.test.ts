@@ -36,6 +36,7 @@ import {
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   { heading: text({ max: 80 }), photo: image() },
   () => null,
 );

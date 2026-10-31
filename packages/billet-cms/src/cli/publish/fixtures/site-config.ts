@@ -6,7 +6,12 @@
  */
 import { block, pageType, slot, text } from "../../../fields";
 
-export const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+export const hero = block(
+  "hero",
+  { label: "Hero" },
+  { heading: text({ max: 80 }) },
+  () => null,
+);
 
 export const blocks = [hero];
 export const slots = [slot("home.hero", hero)];

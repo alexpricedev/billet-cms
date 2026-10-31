@@ -15,6 +15,7 @@ const MEDIA_ID = "11111111-1111-4111-8111-111111111111";
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ max: 80 }),
     body: richText(),

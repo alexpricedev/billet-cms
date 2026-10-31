@@ -564,14 +564,62 @@ const syncListsIn = (root: Element | null): void => {
   for (const list of lists) syncListAdd(list);
 };
 
+const blockAddToggle = (area: Element): HTMLButtonElement | null =>
+  area.querySelector<HTMLButtonElement>("[data-block-add-toggle]");
+
+const blockAddMenu = (area: Element): HTMLElement | null =>
+  area.querySelector<HTMLElement>("[data-block-add-menu]");
+
+/** The menu's items the editor can currently pick. */
+const blockAddItems = (menu: Element): HTMLButtonElement[] =>
+  Array.from(
+    menu.querySelectorAll<HTMLButtonElement>("[data-block-add]"),
+  ).filter((item) => !item.hidden);
+
+const closeBlockAddMenu = (area: Element, returnFocus = false): void => {
+  const menu = blockAddMenu(area);
+  if (menu) menu.hidden = true;
+  const toggle = blockAddToggle(area);
+  toggle?.setAttribute("aria-expanded", "false");
+  if (returnFocus) toggle?.focus();
+};
+
 /**
- * Grey out the Add button of every block type at its page-type maximum.
+ * Open the menu on its first item.
+ *
+ * A type at its page-type maximum has been hidden by `syncBlockAdds`, so an
+ * empty menu means nothing can be added: the toggle does nothing rather than
+ * opening an empty panel.
+ */
+const openBlockAddMenu = (area: Element): void => {
+  const menu = blockAddMenu(area);
+  const toggle = blockAddToggle(area);
+  if (!menu || !toggle) return;
+  const items = blockAddItems(menu);
+  if (items.length === 0) return;
+  menu.hidden = false;
+  toggle.setAttribute("aria-expanded", "true");
+  items[0]?.focus();
+};
+
+const toggleBlockAddMenu = (area: Element): void => {
+  if (blockAddToggle(area)?.getAttribute("aria-expanded") === "true") {
+    closeBlockAddMenu(area);
+  } else {
+    openBlockAddMenu(area);
+  }
+};
+
+/**
+ * Keep the Add block menu in step with the blocks on the page.
  *
  * The server counts every stored block, so the count here is every
- * `[data-cms-block]` of the type except one marked removed. The hint is
- * rendered by the server and only toggled with `hidden`. The "no blocks yet"
- * line follows the list the same way, so a block added in this tab hides it
- * before anything is saved.
+ * `[data-cms-block]` of the type except one marked removed. A type at its
+ * page-type maximum is hidden rather than removed, because removing the last
+ * block of that type has to bring it back. When no item is left the whole
+ * control is hidden, so nothing explains a limit. The "no blocks yet" line
+ * follows the list the same way, so a block added in this tab hides it before
+ * anything is saved.
  */
 const syncBlockAdds = (container: Element | null): void => {
   const list = container?.querySelector(":scope > [data-cms-blocks]");
@@ -581,25 +629,30 @@ const syncBlockAdds = (container: Element | null): void => {
   ).filter((block) => !block.hasAttribute("data-block-removed"));
   const empty = container.querySelector<HTMLElement>("[data-cms-blocks-empty]");
   if (empty) empty.hidden = blocks.length > 0;
-  for (const button of Array.from(
-    container.querySelectorAll("[data-block-add][data-block-max]"),
+
+  const area = container.querySelector<HTMLElement>("[data-block-add-area]");
+  const menu = area ? blockAddMenu(area) : null;
+  if (!area || !menu) return;
+
+  let addable = 0;
+  for (const item of Array.from(
+    menu.querySelectorAll<HTMLElement>("[data-block-add]"),
   )) {
-    const max = Number(button.getAttribute("data-block-max"));
-    if (!Number.isFinite(max)) continue;
-    const type = button.getAttribute("data-block-add");
+    const type = item.getAttribute("data-block-add");
+    const maxText = item.getAttribute("data-block-max");
+    const max = maxText === null ? null : Number.parseInt(maxText, 10);
     const count = blocks.filter(
       (block) => block.getAttribute("data-block-type") === type,
     ).length;
-    const full = count >= max;
-    if (full) button.setAttribute("aria-disabled", "true");
-    else button.removeAttribute("aria-disabled");
-    const hintId = button.getAttribute("aria-describedby");
-    const hint = hintId ? document.getElementById(hintId) : null;
-    if (hint) {
-      if (full) hint.removeAttribute("hidden");
-      else hint.setAttribute("hidden", "");
-    }
+    const full = max !== null && Number.isSafeInteger(max) && count >= max;
+    item.hidden = full;
+    if (!full) addable += 1;
   }
+
+  // An open menu must not outlive the item that had focus, and a control with
+  // nothing left to offer is hidden entirely.
+  if (addable === 0) closeBlockAddMenu(area);
+  area.hidden = addable === 0;
 };
 
 /**
@@ -695,6 +748,14 @@ const wireControls = (form: HTMLFormElement): void => {
       return;
     }
 
+    const toggle = target.closest("[data-block-add-toggle]");
+    if (toggle) {
+      event.preventDefault();
+      const area = toggle.closest("[data-block-add-area]");
+      if (area) toggleBlockAddMenu(area);
+      return;
+    }
+
     const addBlock = target.closest("[data-block-add]");
     if (addBlock) {
       event.preventDefault();
@@ -702,9 +763,9 @@ const wireControls = (form: HTMLFormElement): void => {
       const list = container?.querySelector(":scope > [data-cms-blocks]");
       const type = addBlock.getAttribute("data-block-add");
       if (!container || !list || !type) return;
-      // aria-disabled changes nothing on its own, so a click at the maximum
-      // is refused here.
-      if (addBlock.getAttribute("aria-disabled") === "true") return;
+      // A type at its maximum is hidden from the menu, but a programmatic
+      // click ignores `hidden` as it did `aria-disabled`, so the guard stays.
+      if (addBlock.hasAttribute("hidden")) return;
 
       // Matched by attribute rather than a selector: the block name could
       // contain a character a CSS selector would read as syntax, and iterating
@@ -724,6 +785,10 @@ const wireControls = (form: HTMLFormElement): void => {
       // with an enabled Add.
       syncListsIn(added);
       growTextAreasIn(added);
+      // The picked type may now be at its maximum: close the menu and drop it
+      // from the list before focus moves into the new block.
+      const area = addBlock.closest("[data-block-add-area]");
+      if (area) closeBlockAddMenu(area);
       syncBlockAdds(container);
       // `:scope >` so a nested control (a list row) is not what gets focused.
       firstControl(added)?.focus();
@@ -794,6 +859,67 @@ const wireControls = (form: HTMLFormElement): void => {
       // `:scope >` avoids a nested list's Add button.
       list?.querySelector<HTMLElement>(":scope > [data-list-add]");
     nextFocus?.focus();
+  });
+
+  // The menu's own keys. Enter and Space are handled here rather than left to
+  // the browser's button activation, because canceling the keydown is what
+  // keeps a real Enter from also firing the native click and adding twice.
+  form.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const area = target.closest("[data-block-add-area]");
+    if (!area) return;
+    const button = target.closest<HTMLElement>(
+      "[data-block-add-toggle], [data-block-add]",
+    );
+    if (button && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      button.click();
+      return;
+    }
+
+    const menu = blockAddMenu(area);
+    if (!menu || menu.hidden) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeBlockAddMenu(area, true);
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const item = target.closest("[data-block-add]");
+    if (!item) return;
+    const items = blockAddItems(menu);
+    const index = items.indexOf(item as HTMLButtonElement);
+    if (index === -1) return;
+    event.preventDefault();
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    items[(index + step + items.length) % items.length]?.focus();
+  });
+};
+
+/**
+ * Close an open Add block menu when the click lands outside its control.
+ *
+ * One listener for the document rather than one per form: `init` runs again
+ * after any markup replacement, and a per-form listener would pile up. A click
+ * on the toggle or an item is inside the control, so the form's own handler
+ * has already done its work by the time this runs.
+ */
+let outsideClickWired = false;
+const wireOutsideClick = (): void => {
+  if (outsideClickWired) return;
+  outsideClickWired = true;
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    for (const menu of Array.from(
+      document.querySelectorAll<HTMLElement>(
+        "[data-block-add-menu]:not([hidden])",
+      ),
+    )) {
+      const area = menu.closest("[data-block-add-area]");
+      if (area && !area.contains(target)) closeBlockAddMenu(area);
+    }
   });
 };
 
@@ -1042,6 +1168,7 @@ const wireForm = (form: HTMLFormElement): void => {
 };
 
 export const init = (): void => {
+  wireOutsideClick();
   for (const form of Array.from(
     document.querySelectorAll<HTMLFormElement>("[data-cms-form]"),
   )) {

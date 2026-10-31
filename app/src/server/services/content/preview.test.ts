@@ -44,6 +44,7 @@ import {
 
 const hero = block(
   "hero",
+  { label: "Hero" },
   { heading: text({ max: 80 }), body: richText() },
   () => null,
 );

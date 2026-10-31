@@ -31,7 +31,12 @@ import {
 } from "./pages";
 import { createRevision } from "./revisions";
 
-const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+const hero = block(
+  "hero",
+  { label: "Hero" },
+  { heading: text({ max: 80 }) },
+  () => null,
+);
 const landing = pageType("landing", { allowedBlocks: [hero] });
 const article = pageType("article", { allowedBlocks: [hero] });
 

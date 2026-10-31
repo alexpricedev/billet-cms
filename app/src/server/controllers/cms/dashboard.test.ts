@@ -23,7 +23,7 @@ import { dashboard } from "./dashboard";
 
 const ORIGIN = process.env.APP_URL as string;
 
-const hero = block("hero", { heading: text() }, () => null);
+const hero = block("hero", { label: "Hero" }, { heading: text() }, () => null);
 
 describe("Dashboard controller", () => {
   beforeEach(async () => {

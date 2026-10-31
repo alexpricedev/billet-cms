@@ -3,7 +3,7 @@ import type { PageTypeDefinition } from "../../fields";
 import { block, pageType, slot, text } from "../../fields";
 import { type SiteDefinitions, validateDefinitions } from "./publish";
 
-const hero = block("hero", { heading: text() }, () => null);
+const hero = block("hero", { label: "Hero" }, { heading: text() }, () => null);
 
 describe("validateDefinitions", () => {
   test("accepts a well-formed set", () => {
@@ -61,14 +61,14 @@ describe("validateDefinitions", () => {
   });
 
   test("rejects two definitions with the same name", () => {
-    const duplicate = block("hero", {}, () => null);
+    const duplicate = block("hero", { label: "Hero" }, {}, () => null);
     expect(() => validateDefinitions({ blocks: [hero, duplicate] })).toThrow(
       /Duplicate block type "hero"/,
     );
   });
 
   test("rejects a slot filled by a block this publish doesn't declare", () => {
-    const other = block("other", {}, () => null);
+    const other = block("other", { label: "Other" }, {}, () => null);
     expect(() =>
       validateDefinitions({
         blocks: [hero],
@@ -80,7 +80,7 @@ describe("validateDefinitions", () => {
   });
 
   test("rejects a page type that allows an undeclared block", () => {
-    const other = block("other", {}, () => null);
+    const other = block("other", { label: "Other" }, {}, () => null);
     expect(() =>
       validateDefinitions({
         blocks: [hero],
@@ -92,7 +92,7 @@ describe("validateDefinitions", () => {
   });
 
   test("rejects a page type that requires an undeclared block", () => {
-    const other = block("other", {}, () => null);
+    const other = block("other", { label: "Other" }, {}, () => null);
     // `pageType()` won't build this (a required block must be allowed), but a
     // config is plain data by the time the publish sees it — the validator has
     // to check the required list too, not just the allowed one.

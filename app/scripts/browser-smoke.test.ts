@@ -343,6 +343,7 @@ const startSite = (): void => {
 // text input, an image's alt input and the link's Button text.
 const hero = block(
   "hero",
+  { label: "Hero" },
   {
     heading: text({ label: "Heading", max: 80 }),
     body: richText({ label: "Body", required: false }),

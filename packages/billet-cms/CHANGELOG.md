@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased
+
+Every block type carries a required human label, which the CMS shows instead of
+the developer slug, and the page editor's row of per-type add buttons is one
+**Add block** menu that leaves out a type already at its limit. The contract
+version moves to `0.11.0`, so deploy the CMS and the site together.
+
+### Every `block()` takes a required label
+
+`block()` now takes an options object between its name and its fields, and a
+`label` is required there:
+
+```ts
+export const hero = block(
+  "hero",
+  { label: "Hero" },
+  { heading: text({ max: 80 }), photo: image() },
+);
+```
+
+The label is the name an editor reads — "Full-width image", not `fullImage` —
+and is what the CMS shows in a block's legend and in its Add block menu. A
+missing or blank label throws where the block is declared, the same way a bad
+name does. The publish step writes it to `cms_block_types.label` (the CMS adds
+that column when it boots), and it is part of the schema hash, so renaming a
+block's label republishes it even when its fields are unchanged.
+
+**This is a breaking change for every site.** Add a `label` to every `block()`
+call. The contract version is `0.11.0`; an older site publishes documents
+without a label and is refused by the version check, so deploy the CMS and the
+site together.
+
+### The page editor adds blocks from one menu
+
+A row of small "Add hero", "Add prose", "Add fullImage" chips is now one **Add
+block** button under the last block. It opens a menu of the page type's allowed
+block types in their declared order, each by label. Arrow keys move between
+items, Enter picks, Escape closes and returns focus to the button, and a click
+outside closes it. The menu is the editor's existing client script, not a new
+bundle; the button, menu and the block templates are still server-rendered, so a
+page that has not yet enabled JavaScript submits unchanged.
+
+A type already at its `max` on the page is not offered, and removing one brings
+it back without a reload. When nothing is left to add the button is hidden. The
+"only one hero per page" hint beside a disabled chip is gone: a limit is now
+expressed by absence rather than by an explanation.
+
+**No site change beyond the label.** The menu is CMS chrome; block definitions
+gain only the required `label` above.
+
 ## 0.4.0
 
 A page’s social image is an upload, pageSeo is async, and the contract moves to 0.10.0, so deploy the CMS and the site together.

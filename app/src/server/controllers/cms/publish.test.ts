@@ -34,7 +34,12 @@ import { slotPublish } from "./publish";
 
 const ORIGIN = process.env.APP_URL as string;
 
-const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+const hero = block(
+  "hero",
+  { label: "Hero" },
+  { heading: text({ max: 80 }) },
+  () => null,
+);
 const content = (heading: string) => ({ heading });
 
 const publishPath = (id: string) => `/cms/slots/${id}/publish`;
@@ -155,6 +160,7 @@ describe("slot publish and history controllers", () => {
     test("publishes a too-narrow image and says so", async () => {
       const narrow = block(
         "narrowHero",
+        { label: "Narrow hero" },
         { photo: image({ minWidth: 1600 }) },
         () => null,
       );

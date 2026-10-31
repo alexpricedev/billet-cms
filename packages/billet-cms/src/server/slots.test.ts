@@ -143,7 +143,12 @@ describe("createContentReader", () => {
 });
 
 describe("getSlot with the site's own block", () => {
-  const hero = block("hero", { heading: text() }, () => null);
+  const hero = block(
+    "hero",
+    { label: "Hero" },
+    { heading: text() },
+    () => null,
+  );
 
   test("parses the content against the block's own Zod schema", async () => {
     const { sql } = fakeSql();
@@ -163,7 +168,12 @@ describe("getSlot with the site's own block", () => {
 
     // The stored contract accepts `heading` as anything; the site's `image`
     // field does not, which is what a deploy that changed the field produces.
-    const expectsImage = block("hero", { heading: image() }, () => null);
+    const expectsImage = block(
+      "hero",
+      { label: "Hero" },
+      { heading: image() },
+      () => null,
+    );
     const content = await reader.getSlot("home.hero", { block: expectsImage });
 
     expect(content).toBeNull();
@@ -573,7 +583,12 @@ describe("slot query counts", () => {
 // at the limit still reads; one each character past it is refused (the upgrade
 // note in `.context/`).
 describe("getSlot stored-schema image alt", () => {
-  const photo = block("hero", { photo: image() }, () => null);
+  const photo = block(
+    "hero",
+    { label: "Hero" },
+    { photo: image() },
+    () => null,
+  );
   const storedSchema = blockStoredSchema(photo).jsonSchema;
   const mediaId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
   const contentWithAlt = (length: number) => ({

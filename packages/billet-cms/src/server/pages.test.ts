@@ -1020,7 +1020,12 @@ describe("the catch-all's render context", () => {
    * render function the preview access so the page can forward it to `getSlot`.
    */
   test("a slot token renders that slot's draft inside a CMS page", async () => {
-    const hero = block("hero", { heading: text({ max: 80 }) }, () => null);
+    const hero = block(
+      "hero",
+      { label: "Hero" },
+      { heading: text({ max: 80 }) },
+      () => null,
+    );
     const tokens = {
       [hashPreviewToken("good")]: {
         subject_type: "slot" as const,
