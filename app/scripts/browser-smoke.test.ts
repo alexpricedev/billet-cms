@@ -32,6 +32,7 @@ import {
   seedIdentity,
 } from "../src/server/test-utils/helpers";
 import { prepareDatabase } from "../src/server/test-utils/prepare-databases";
+import { jsonbValue } from "../src/server/utils/sql";
 
 // Real-browser smoke tests, run via `bun run test:browser`. CI runs them in a
 // job of their own — the repository-root `.github/workflows/ci.yml`, "Browser
@@ -71,6 +72,9 @@ let adminId = "";
 let slotId = "";
 // The page whose editor carries the settings fields (URL, page type).
 let pageId = "";
+// An upload row for the media detail's phone layout. No bucket is configured,
+// so the row is inserted rather than uploaded.
+let mediaId = "";
 
 // The site's read side: the plugin helper the stand-in site renders the
 // published slot through, exactly the way a real site would.
@@ -422,6 +426,17 @@ beforeAll(async () => {
     label: "Hero",
   });
 
+  // One image for the media detail's phone layout. No bucket is configured in
+  // the smoke run, so this is an insert rather than an upload; the detail page
+  // only needs the row to render its form.
+  mediaId = crypto.randomUUID();
+  await sql`
+    INSERT INTO cms_media
+      (id, object_key, content_type, byte_size, width, height, alt, variants)
+    VALUES (${mediaId}, ${`media/${mediaId}/original.jpg`}, ${"image/jpeg"},
+            ${2048}, ${800}, ${600}, ${"A smoke-test photo"}, ${jsonbValue([])})
+  `;
+
   // A page and its type, for the settings fields the height and gap checks
   // measure. `createPage` is the same service the New page form calls, so the
   // row is what a real page create leaves behind.
@@ -756,6 +771,65 @@ describe("browser smoke", () => {
     // `view.url` can lag the form POST above, so read the live document.
     const url = await view.evaluate<string>("location.href");
     expect(url.startsWith(`${CMS_BASE}/cms`)).toBe(true);
+  });
+
+  test("the media detail's Save bar sticks to the bottom on a phone", async () => {
+    // Continues signed in from the journey above.
+    await goto(`${CMS_BASE}/cms/media/${mediaId}`);
+    const present = await until(
+      () =>
+        view.evaluate<boolean>(
+          `document.querySelector(".cms-media-actions .cms-save") !== null`,
+        ),
+      (found) => found,
+    );
+    expect(present).toBe(true);
+
+    // At 1280 Save stays the form's last block: no sticky rule applies.
+    const wide = await view.evaluate<string>(
+      `getComputedStyle(document.querySelector(".cms-media-actions")).position`,
+    );
+    expect(wide).toBe("static");
+
+    // The media form is long on a phone — focal picker, three previews, alt —
+    // so Save's natural place is below the fold.
+    await view.resize(390, 844);
+
+    const bar = await until(
+      () =>
+        view.evaluate<{
+          position: string;
+          bottom: number;
+          viewport: number;
+        } | null>(
+          `(() => {
+            const el = document.querySelector(".cms-media-actions");
+            if (!el) return null;
+            return {
+              position: getComputedStyle(el).position,
+              bottom: Math.round(el.getBoundingClientRect().bottom),
+              viewport: window.innerHeight,
+            };
+          })()`,
+        ),
+      (value) => value?.position === "sticky",
+    );
+    expect(bar?.position).toBe("sticky");
+    // Sticky with `bottom: 0` pins the bar to the scrollport's bottom edge.
+    expect(
+      Math.abs((bar?.bottom ?? 0) - (bar?.viewport ?? 0)),
+    ).toBeLessThanOrEqual(2);
+
+    // The button itself is on screen, not merely its wrapper.
+    const saveInView = await view.evaluate<boolean>(
+      `(() => {
+        const button = document.querySelector(".cms-media-actions .cms-save");
+        if (!button) return false;
+        const rect = button.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= window.innerHeight + 1;
+      })()`,
+    );
+    expect(saveInView).toBe(true);
   });
 
   test("no page threw or hit a CSP violation across the run", () => {

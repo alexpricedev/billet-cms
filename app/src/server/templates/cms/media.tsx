@@ -392,9 +392,14 @@ export const MediaDetail = ({
           </span>
         </div>
 
-        <button type="submit" className="cms-save btn btn-primary">
-          Save
-        </button>
+        {/* On a phone this wrapper is the sticky bar that keeps Save within
+            thumb reach while the picker and previews scroll; at wider widths
+            it stays in the flow as the form's last block. */}
+        <div className="cms-media-actions">
+          <button type="submit" className="cms-save btn btn-primary">
+            Save
+          </button>
+        </div>
       </form>
 
       <script type="module" src={getAssetUrl("/assets/cms-form.js")} />

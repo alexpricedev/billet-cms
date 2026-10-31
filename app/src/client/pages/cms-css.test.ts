@@ -766,3 +766,41 @@ describe("cms.css image picker", () => {
     expect(card?.[1]).toContain("padding: var(--space-2)");
   });
 });
+
+describe("cms.css media action bar", () => {
+  // The media detail form leaves Save at the end of a long phone page — below
+  // the focal picker and its three previews. At the phone breakpoint it moves
+  // into a bar pinned to the bottom of the viewport, the same pattern as the
+  // editors' `.cms-actions`.
+  const mobileBlock = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
+    css,
+  );
+  const mobile = mobileBlock?.[1] ?? "";
+
+  test("pins the media Save bar to the bottom on a phone", () => {
+    const rule = /\.cms-media-actions\s*\{([^}]*)\}/.exec(mobile)?.[1] ?? "";
+    expect(rule).toMatch(/position:\s*sticky/);
+    expect(rule).toMatch(/bottom:\s*0/);
+    // A bar over scrolling pictures needs its own surface and a hairline, or
+    // the picker shows through it.
+    expect(rule).toContain("background: var(--surface)");
+    expect(rule).toContain("border-top: 1px solid var(--border)");
+  });
+
+  // The form carries `--space-4` padding at this width; the bar has to cancel
+  // it on both sides and at the bottom or its surface floats inside the form
+  // rather than reaching the edges.
+  test("bleeds the bar across the form's phone padding", () => {
+    const rule = /\.cms-media-actions\s*\{([^}]*)\}/.exec(mobile)?.[1] ?? "";
+    expect(rule).toMatch(/margin:[^;]*calc\(-1 \* var\(--space-4\)\)/);
+    expect(rule).toMatch(/padding:[^;]*env\(safe-area-inset-bottom/);
+  });
+
+  // At 1280 Save stays the form's last block in the flow.
+  test("leaves the bar in the flow above the phone breakpoint", () => {
+    const full = mobileBlock?.[0] ?? "";
+    const wide = css.replace(full, "");
+    const rule = /\.cms-media-actions\s*\{([^}]*)\}/.exec(wide)?.[1];
+    expect(rule ?? "").not.toMatch(/position:\s*sticky/);
+  });
+});
