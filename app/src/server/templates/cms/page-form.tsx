@@ -109,9 +109,10 @@ export interface PageFormProps {
  * the hero-first rule and the rich text nesting bound are the two that land
  * there — so it names the block (position and type) and links to the block,
  * which at 390 sits several screens below the banner (review round 2). A field
- * issue links to the control the field renders, whose anchor is the block's id
- * prefix plus the field name. Anything else, or a block that isn't on the page,
- * has nothing to link to and stays plain text.
+ * issue names the block the same way — position and the block's human label —
+ * then the field, and links to the control the field renders, whose anchor is
+ * the block's id prefix plus the field name. Anything else, or a block that
+ * isn't on the page, has nothing to link to and stays plain text.
  */
 const contentIssueField = (
   issue: FieldIssue,
@@ -134,9 +135,15 @@ const contentIssueField = (
   }
   const field = match[2].split(".")[0];
   const definition = blockTypes.find((candidate) => candidate.name === type);
-  const label =
+  const fieldLabel =
     definition?.fields.find((candidate) => candidate.name === field)?.label ??
     field;
+  // The block's human label, never its slug. A row written before labels were
+  // required may have none, and there is deliberately no fallback to the type
+  // name; the line then keeps only the field label.
+  const label = definition?.label
+    ? `Block ${index + 1} (${definition.label}): ${fieldLabel}`
+    : fieldLabel;
   return { id: `cms-block-${index}-${type}-${field}`, label };
 };
 
