@@ -317,6 +317,19 @@ h1 {
   margin: 0;
 }
 
+/* Every editor ends in the sticky `.cms-actions` bar, so either line can open
+   underneath it — the picker's narrow-image warning just below the field the
+   editor picked into, an error after a refused save. Reserving at least the
+   bar's height as scroll margin is what lets `scrollIntoView({ block:
+   "nearest" })` stop above the bar rather than behind it; `nearest` then
+   counts the margin box, so it scrolls only when the bar (or the fold)
+   actually covers the line. 12rem covers the stacked phone bar: status, two
+   button rows, a reason line and the safe-area inset. */
+.cms-field-errors,
+.cms-field-warning {
+  scroll-margin-bottom: 12rem;
+}
+
 /* The image field is composite, like a group: its heading titles the parts
    rather than being a second label stacked on the picker's own legend (which
    is visually hidden, its weight is set with the other group headings below).
