@@ -109,20 +109,34 @@ repo. This file is only the invariants.
   stored content unchanged. Keep it to that: no fetching, no `JSON.parse`, no
   markup built from data — the same rules `client/boundaries.test.ts` enforces.
 
-  The third: **the shared image picker.** `src/client/image-picker.ts` backs
-  `components/cms/image-picker.tsx`, the picker a page's social image and every
-  block `image` field use. A library the editor searches, pages through
-  and uploads into cannot be a plain form: it fetches `GET /cms/media/options`,
-  XHRs files to `POST /cms/media` to report progress, and builds the grid's
-  tiles from the JSON answer. It talks to those two routes and nothing else,
-  builds every node with `createElement`/`textContent` (never `innerHTML`), and
-  parses only those answers. The server still renders the closed field, the
-  hidden media-id input and the dialog skeleton, so with JavaScript off the
-  stored id submits unchanged. Inside an `image` field it also compares the
-  width it reports with the field's rendered minimum and shows the field's
-  warning line; it writes no state of its own beyond that. `boundaries.test.ts`
-  allows the three departures in that one file, under its own byte budget; keep
-  it there.
+  The third: **the shared image picker and the Media page's uploader.**
+  `src/client/image-picker.ts` backs `components/cms/image-picker.tsx`, the
+  picker a page's social image and every block `image` field use. A library the
+  editor searches, pages through and uploads into cannot be a plain form: it
+  fetches `GET /cms/media/options`, XHRs files to `POST /cms/media` to report
+  progress, and builds the grid's tiles from the JSON answer. It talks to those
+  two routes and nothing else, builds every node with
+  `createElement`/`textContent` (never `innerHTML`), and parses only those
+  answers. The server still renders the closed field, the hidden media-id input
+  and the dialog skeleton, so with JavaScript off the stored id submits
+  unchanged. Inside an `image` field it also compares the width it reports with
+  the field's rendered minimum and shows the field's warning line; it writes no
+  state of its own beyond that.
+
+  `src/client/upload-shared.ts` is that exception's upload half, shared by the
+  picker and the Media page: one XHR to `POST /cms/media`, the CSRF retry and
+  the JSON answer.
+
+  `src/client/media-upload.ts` is the Media page's half of the same exception.
+  A dropped or chosen file becomes a staged tile with a local preview and its
+  own alt box, and nothing is sent until the editor uploads that tile or all of
+  them; the tile shows progress, keeps the file and alt text on a refusal, and
+  clears itself once its card is in the grid. The Media page's one-file form is
+  gone, so like the picker it needs JavaScript, and the template says so. Every
+  node is built with `createElement`/`textContent` and it adds no new departure
+  of its own — it is the staged-tile state around `upload-shared.ts`.
+  `boundaries.test.ts` allows those departures in those files under their own
+  byte budgets; keep them there.
 - **Preview is a token row, not an API.** `cms_preview_tokens` holds a hashed,
   30-minute, single-subject token (a page or a slot). The CMS mints one and opens
   `<SITE_APP_URL><path>?cms_preview=…`; the plugin
