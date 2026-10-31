@@ -377,7 +377,16 @@ const wireUploader = (root: HTMLElement): void => {
     meta.className = "cms-media-meta";
     meta.textContent = `${option.width}×${option.height}`;
 
-    card.append(imageLink, altLink, meta);
+    // A card added by this visit is the one the editor is looking for, so it
+    // says where the focal point is set rather than making them find the
+    // thumbnail's own link. Cards the server rendered keep their shape. The
+    // link's styling sits with the library card's in pages/cms.css.
+    const focalLink = document.createElement("a");
+    focalLink.className = "cms-media-focal-link";
+    focalLink.href = href;
+    focalLink.textContent = "Set focal point";
+
+    card.append(imageLink, altLink, meta, focalLink);
     list.prepend(card);
     // The empty state stops being true the moment a card exists.
     const empty = document.querySelector<HTMLElement>("[data-media-empty]");

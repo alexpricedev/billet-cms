@@ -1434,6 +1434,17 @@ h1 {
   line-height: 1.4;
 }
 
+/* An upload's new card points at its own focal point, below the size line. It
+   is a plain link like the alt above it, at helper size rather than the
+   browser default; the accent and its hover/focus come from the base `a`. */
+.cms-media-focal-link {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 /* The detail form: the focal point, its previews, the alt and Save, each a
    block with a consistent gap between them. */
 .cms-media-detail {
@@ -1441,10 +1452,6 @@ h1 {
   gap: 1.5rem;
   margin: 0 0 var(--space-6);
   max-width: 40rem;
-}
-
-.cms-media-detail .cms-save {
-  justify-self: start;
 }
 
 /* The click-to-set focal point: a picture with a marker, and the same crop
@@ -1675,6 +1682,27 @@ h1 {
 
   .cms-media-detail {
     padding: var(--space-4);
+  }
+
+  /* Save stays within thumb reach on a phone the way the editors' `.cms-actions`
+     bar does: it pins to the bottom of the viewport while the focal picker and
+     its previews scroll under it. The negative margins cancel the form's own
+     padding so the bar's surface reaches the form's edges, and the bottom inset
+     clears a home indicator. At wider widths the bar is not sticky and Save
+     stays the last block of the form. */
+  .cms-media-actions {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    bottom: 0;
+    margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+    padding: var(--space-3) var(--space-4)
+      calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    position: sticky;
+    z-index: 10;
+  }
+
+  .cms-media-actions .cms-save {
+    width: 100%;
   }
 }
 

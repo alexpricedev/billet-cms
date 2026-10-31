@@ -402,12 +402,9 @@ describe("cms.css media layout", () => {
     expect(css).toMatch(/\.cms-media-detail\s*\{[^}]*gap:\s*1\.5rem/);
   });
 
-  test("keeps Upload all and Save at their natural width", () => {
+  test("keeps Upload all at its natural width", () => {
     expect(css).toMatch(
       /\.cms-media-upload-all\s*\{[^}]*justify-self:\s*start/,
-    );
-    expect(css).toMatch(
-      /\.cms-media-detail \.cms-save\s*\{[^}]*justify-self:\s*start/,
     );
   });
 
@@ -764,5 +761,53 @@ describe("cms.css image picker", () => {
     );
     expect(card?.[1]).toContain("gap: var(--space-2)");
     expect(card?.[1]).toContain("padding: var(--space-2)");
+  });
+});
+
+describe("cms.css media action bar", () => {
+  // The media detail form leaves Save at the end of a long phone page — below
+  // the focal picker and its three previews. At the phone breakpoint it moves
+  // into a bar pinned to the bottom of the viewport, the same pattern as the
+  // editors' `.cms-actions`.
+  const mobileBlock = /@media\s*\(width <= 640px\)\s*\{([\s\S]*?)\n\}/.exec(
+    css,
+  );
+  const mobile = mobileBlock?.[1] ?? "";
+
+  test("pins the media Save bar to the bottom on a phone", () => {
+    const rule = /\.cms-media-actions\s*\{([^}]*)\}/.exec(mobile)?.[1] ?? "";
+    expect(rule).toMatch(/position:\s*sticky/);
+    expect(rule).toMatch(/bottom:\s*0/);
+    // A bar over scrolling pictures needs its own surface and a hairline, or
+    // the picker shows through it.
+    expect(rule).toContain("background: var(--surface)");
+    expect(rule).toContain("border-top: 1px solid var(--border)");
+  });
+
+  // The form carries `--space-4` padding at this width; the bar has to cancel
+  // it on both sides and at the bottom or its surface floats inside the form
+  // rather than reaching the edges.
+  test("bleeds the bar across the form's phone padding", () => {
+    const rule = /\.cms-media-actions\s*\{([^}]*)\}/.exec(mobile)?.[1] ?? "";
+    expect(rule).toMatch(/margin:[^;]*calc\(-1 \* var\(--space-4\)\)/);
+    expect(rule).toMatch(/padding:[^;]*env\(safe-area-inset-bottom/);
+  });
+
+  // At 1280 Save stays the form's last block in the flow, so the stylesheet
+  // can't grow a wide `.cms-media-actions` rule. The browser smoke asserts the
+  // computed `position` at that width; this keeps the stylesheet honest.
+  test("has no media action bar rule outside the phone breakpoint", () => {
+    expect(css.match(/\.cms-media-actions\s*\{/g) ?? []).toHaveLength(1);
+    expect(mobile).toContain(".cms-media-actions {");
+  });
+});
+
+describe("cms.css media focal link", () => {
+  // A card prepended by an upload carries "Set focal point"; without a rule it
+  // would render as a default browser link instead of the CMS's helper size.
+  test("styles the uploaded card's focal link from the tokens", () => {
+    const rule = /\.cms-media-focal-link\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("color: var(--accent)");
+    expect(rule).toContain("font-size: 12px");
   });
 });

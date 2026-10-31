@@ -473,6 +473,15 @@ describe("media page uploader", () => {
     );
     expect(first.querySelector(".cms-media-alt")?.textContent).toBe(OPTION.alt);
     expect(first.textContent).toContain("1600×900");
+    // The card an upload just added points at its own focal point, below the
+    // size line; the older card the server rendered keeps its shape.
+    const focalLink = first.querySelector<HTMLAnchorElement>(
+      ".cms-media-focal-link",
+    );
+    expect(focalLink?.textContent).toBe("Set focal point");
+    expect(focalLink?.getAttribute("href")).toBe(`/cms/media/${OPTION.id}`);
+    expect(focalLink?.previousElementSibling?.className).toBe("cms-media-meta");
+    expect(existing.querySelector(".cms-media-focal-link")).toBeNull();
     expect(el.grid().children[1]).toBe(existing);
     expect(el.empty().hidden).toBe(true);
 

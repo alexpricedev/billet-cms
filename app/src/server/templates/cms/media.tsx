@@ -73,6 +73,24 @@ export const pickerOptionJson = (
   thumbnailUrl:
     variantForDisplay(media, GRID_THUMBNAIL_WIDTH)?.fallbackUrl ?? null,
 });
+
+/**
+ * The one-line usage summary under the heading: "1 page", "2 pages",
+ * "2 pages and 1 slot".
+ *
+ * A kind with no uses is dropped rather than printed as "0 slots", so an
+ * image used by one page never reads "1 pages and 0 slots".
+ */
+const usageSummary = (usage: MediaUsage[]): string => {
+  const pages = usage.filter((entry) => entry.kind === "page").length;
+  const slots = usage.filter((entry) => entry.kind === "slot").length;
+  return [
+    pages > 0 ? `${pages} ${pages === 1 ? "page" : "pages"}` : null,
+    slots > 0 ? `${slots} ${slots === 1 ? "slot" : "slots"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" and ");
+};
 const FOCAL_PICKER_WIDTH = 32 * 16;
 // The picker is a click target, not a full-bleed image, so it stops at the 960
 // rendition rather than pulling the 1600/2400 one the 2x rule would pick.
@@ -266,6 +284,16 @@ export const MediaDetail = ({
           </>
         }
         title="Image"
+        description={
+          usage.length === 0 ? (
+            "Not used anywhere."
+          ) : (
+            <>
+              <a href="#uses">Used on {usageSummary(usage)}</a>, so it can't be
+              deleted.
+            </>
+          )
+        }
         after={
           // The reuse lists in the page and slot forms list only the newest
           // uploads, and an editor who needs an older one pastes its id here.
@@ -364,14 +392,19 @@ export const MediaDetail = ({
           </span>
         </div>
 
-        <button type="submit" className="cms-save btn btn-primary">
-          Save
-        </button>
+        {/* On a phone this wrapper is the sticky bar that keeps Save within
+            thumb reach while the picker and previews scroll; at wider widths
+            it stays in the flow as the form's last block. */}
+        <div className="cms-media-actions">
+          <button type="submit" className="cms-save btn btn-primary">
+            Save
+          </button>
+        </div>
       </form>
 
       <script type="module" src={getAssetUrl("/assets/cms-form.js")} />
 
-      <section className="cms-media-uses" aria-label="Image usage">
+      <section id="uses" className="cms-media-uses" aria-label="Image usage">
         <h2>Uses</h2>
         {usage.length === 0 ? (
           <p>Not used by any page, slot or social image.</p>
