@@ -379,7 +379,8 @@ const wireUploader = (root: HTMLElement): void => {
 
     // A card added by this visit is the one the editor is looking for, so it
     // says where the focal point is set rather than making them find the
-    // thumbnail's own link. Cards the server rendered keep their shape.
+    // thumbnail's own link. Cards the server rendered keep their shape. The
+    // link's styling sits with the library card's in pages/cms.css.
     const focalLink = document.createElement("a");
     focalLink.className = "cms-media-focal-link";
     focalLink.href = href;

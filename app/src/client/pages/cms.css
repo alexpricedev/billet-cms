@@ -1434,6 +1434,17 @@ h1 {
   line-height: 1.4;
 }
 
+/* An upload's new card points at its own focal point, below the size line. It
+   is a plain link like the alt above it, at helper size rather than the
+   browser default; the accent and its hover/focus come from the base `a`. */
+.cms-media-focal-link {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 /* The detail form: the focal point, its previews, the alt and Save, each a
    block with a consistent gap between them. */
 .cms-media-detail {
@@ -1441,10 +1452,6 @@ h1 {
   gap: 1.5rem;
   margin: 0 0 var(--space-6);
   max-width: 40rem;
-}
-
-.cms-media-detail .cms-save {
-  justify-self: start;
 }
 
 /* The click-to-set focal point: a picture with a marker, and the same crop
