@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { MediaVariant } from "@alexpricedev/billet-cms/contract";
 import { renderToString } from "preact-render-to-string";
-import { MAX_ALT_LENGTH, type MediaRecord } from "../../services/media";
+import {
+  MAX_ALT_LENGTH,
+  type MediaRecord,
+  type MediaUsage,
+} from "../../services/media";
 import { MediaDetail, MediaList, variantForDisplay } from "./media";
 
 // The grid, picker and previews are all a fraction of the full-size original,
@@ -172,6 +176,80 @@ describe("MediaList grid", () => {
     expect(card?.querySelector(".cms-media-placeholder")?.textContent).toBe(
       "A field",
     );
+  });
+});
+
+const usageEntry = (kind: "page" | "slot", id: string): MediaUsage => ({
+  kind,
+  id,
+  label: `${kind} ${id}`,
+  detail: `/detail-${id}`,
+});
+
+const detailDocument = (usage: MediaUsage[]): Document =>
+  new DOMParser().parseFromString(
+    renderToString(
+      <MediaDetail
+        user={{ id: "u1", email: "editor@example.com", role: "editor" }}
+        csrfToken="csrf-token"
+        media={{ ...media([480, 960]), alt: "A field" }}
+        usage={usage}
+      />,
+    ),
+    "text/html",
+  );
+
+/** The intro line under the heading, with JSX line breaks collapsed. */
+const usageLine = (usage: MediaUsage[]): string =>
+  (
+    detailDocument(usage).querySelector(".page-header .cms-intro")
+      ?.textContent ?? ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+
+// The in-use answer used to sit ~1300px down a phone page, after the focal
+// picker, its previews and the alt form. The line under the heading says it
+// first, and links to the full list.
+describe("MediaDetail usage line", () => {
+  test("says not used anywhere when nothing references the image", () => {
+    const line = detailDocument([]).querySelector(".page-header .cms-intro");
+    expect(usageLine([])).toBe("Not used anywhere.");
+    expect(line?.querySelector("a")).toBeNull();
+  });
+
+  test("counts pages and drops the empty slot half", () => {
+    expect(usageLine([usageEntry("page", "1"), usageEntry("page", "2")])).toBe(
+      "Used on 2 pages, so it can't be deleted.",
+    );
+    expect(usageLine([usageEntry("page", "1")])).toBe(
+      "Used on 1 page, so it can't be deleted.",
+    );
+    expect(usageLine([usageEntry("page", "1")])).not.toContain("0 slot");
+  });
+
+  test("counts pages and slots together", () => {
+    expect(
+      usageLine([
+        usageEntry("page", "1"),
+        usageEntry("page", "2"),
+        usageEntry("slot", "1"),
+      ]),
+    ).toBe("Used on 2 pages and 1 slot, so it can't be deleted.");
+  });
+
+  test("pluralises a lone slot", () => {
+    expect(usageLine([usageEntry("slot", "1")])).toBe(
+      "Used on 1 slot, so it can't be deleted.",
+    );
+  });
+
+  test("links the count to the Uses section below", () => {
+    const doc = detailDocument([usageEntry("page", "1")]);
+    expect(
+      doc.querySelector(".page-header .cms-intro a")?.getAttribute("href"),
+    ).toBe("#uses");
+    expect(doc.querySelector("section#uses.cms-media-uses")).not.toBeNull();
   });
 });
 
