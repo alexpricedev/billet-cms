@@ -261,8 +261,10 @@ const wireUploader = (root: HTMLElement): void => {
   const grid = (): HTMLElement | null =>
     document.querySelector<HTMLElement>("[data-media-grid]");
 
+  // A file the browser already refused can never upload, so it is not work
+  // that would be lost by leaving; only staged, sending and retryable tiles are.
   const hasUnsent = (): boolean =>
-    tiles.some((tile) => tile.item.dataset.state !== "done");
+    tiles.some((tile) => !tile.invalid && tile.item.dataset.state !== "done");
 
   const onBeforeUnload = (event: Event): void => {
     // A test (or a page rebuilt in place) can leave a listener behind; the
@@ -304,9 +306,15 @@ const wireUploader = (root: HTMLElement): void => {
     const uploadable = tiles.filter(
       (tile) => !tile.invalid && tile.item.dataset.state !== "done",
     );
+    // A single tile's Upload disables the batch too: the two must not send
+    // concurrently and race on the shared CSRF token.
+    const sending = tiles.some(
+      (tile) => tile.item.dataset.state === "uploading",
+    );
     el.uploadAll.hidden = tiles.length < 2;
     el.uploadAll.disabled =
       batch ||
+      sending ||
       uploadable.length === 0 ||
       !uploadable.every((tile) => hasAlt(tile));
   };
@@ -394,6 +402,7 @@ const wireUploader = (root: HTMLElement): void => {
     tile.bar.style.width = "0%";
     tile.state.textContent = "Uploading…";
     syncTile(tile);
+    syncUploadAll();
     updateLeaveGuard();
 
     const answer = await uploadFile({
@@ -412,6 +421,7 @@ const wireUploader = (root: HTMLElement): void => {
       tile.progress.hidden = true;
       tile.state.textContent = "Uploaded";
       syncTile(tile);
+      syncUploadAll();
       prependCard(answer.result.option);
       updateLeaveGuard();
       clearWhenDone(tile);
@@ -425,6 +435,7 @@ const wireUploader = (root: HTMLElement): void => {
     tile.state.textContent = "";
     setError(tile, answer.result.message);
     syncTile(tile);
+    syncUploadAll();
     updateLeaveGuard();
   };
 
@@ -439,7 +450,9 @@ const wireUploader = (root: HTMLElement): void => {
         syncUploadAll();
       });
       tile.alt.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter") return;
+        // Enter that confirms an IME composition (Japanese, Chinese, Korean)
+        // belongs to the composition, not to this tile's Upload.
+        if (event.isComposing || event.key !== "Enter") return;
         // Enter is this tile's Upload; it must not do anything else.
         event.preventDefault();
         void uploadTile(tile);

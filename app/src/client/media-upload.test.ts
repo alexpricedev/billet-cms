@@ -388,6 +388,22 @@ describe("media page uploader", () => {
     expect(FakeXhr.instances[0]?.sent?.get("_csrf")).toBe("upload-token");
   });
 
+  test("Enter that confirms an IME composition does not upload", () => {
+    setFiles([image("one.png")]);
+    typeAlt(0, "ピア");
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(event, "isComposing", { value: true });
+    alt(0).dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(FakeXhr.instances).toHaveLength(0);
+  });
+
   test("Remove drops a staged file and releases its preview", () => {
     const created: string[] = [];
     const revoked: string[] = [];
@@ -513,6 +529,36 @@ describe("media page uploader", () => {
     expect(tiles()).toHaveLength(0);
   });
 
+  test("Upload all is disabled while a single tile uploads, then refreshed", async () => {
+    setFiles([image("one.png"), image("two.png")]);
+    typeAlt(0, "One");
+    typeAlt(1, "Two");
+    uploads.push({
+      status: 400,
+      body: {
+        errors: [{ field: "file", message: "That image is too large." }],
+      },
+    });
+
+    upload(0).click();
+    expect(tile(0).dataset.state).toBe("uploading");
+    expect(el.uploadAll().disabled).toBe(true);
+
+    await flush();
+    // The refused tile keeps a retry, so the batch is offered again.
+    expect(tile(0).dataset.state).toBe("error");
+    expect(el.uploadAll().disabled).toBe(false);
+
+    uploads.push(
+      { status: 200, body: OPTION },
+      { status: 200, body: SECOND_OPTION },
+    );
+    el.uploadAll().click();
+    await flush();
+
+    expect(FakeXhr.instances).toHaveLength(3);
+  });
+
   test("Upload all sends every staged tile, in order", async () => {
     setFiles([image("one.png"), image("two.png")]);
     typeAlt(0, "One");
@@ -582,6 +628,27 @@ describe("media page uploader", () => {
     setFiles([image("two.png")]);
     expect(leavePrompted()).toBe(true);
     remove(0).click();
+    expect(leavePrompted()).toBe(false);
+  });
+
+  test("a file the browser refused does not keep the leave prompt up", async () => {
+    const tooBig = image("huge.png");
+    Object.defineProperty(tooBig, "size", {
+      configurable: true,
+      value: MAX_UPLOAD_BYTES + 1,
+    });
+    setFiles([image("one.png"), tooBig]);
+    expect(leavePrompted()).toBe(true);
+
+    typeAlt(0, "A pier at dusk");
+    uploads.push({ status: 200, body: OPTION });
+    upload(0).click();
+    await flush();
+
+    // The valid tile uploaded and cleared itself; only the refused file is
+    // left, and it can never be sent, so leaving would lose nothing.
+    expect(tiles()).toHaveLength(1);
+    expect(tile(0).dataset.invalid).toBe("true");
     expect(leavePrompted()).toBe(false);
   });
 });
