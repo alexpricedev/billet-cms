@@ -50,7 +50,14 @@ export const publishReason = (
   return null;
 };
 
-/** Why Preview draft is greyed out, or null when it is enabled. */
+/**
+ * Why Preview draft is greyed out, or null when it is enabled.
+ *
+ * This is the clean-page state. The preview guard enables the button and
+ * drops this line as soon as the form is dirty, because unsaved edits are an
+ * unpublished change and its click saves them before opening the preview.
+ * With JavaScript off the server's disabled state and reason are what stays.
+ */
 export const previewReason = (
   hasDraft: boolean,
   upToDate: boolean,

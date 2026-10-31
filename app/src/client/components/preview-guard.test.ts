@@ -25,6 +25,22 @@ const MARKUP = `
   </form>
 `;
 
+// The server's no-draft state: Preview is disabled and the reason line says
+// why. The guard may only open it once the editor has typed something.
+const NO_DRAFT_MARKUP = `
+  <form method="POST" action="/cms/slots/s1" data-cms-form>
+    <input type="text" data-text-input value="">
+    <input type="hidden" name="after" value="" data-save-after>
+  </form>
+  <form method="POST" action="/cms/slots/s1/preview" target="_blank">
+    <button type="submit" data-preview-submit disabled aria-describedby="preview-reason">Preview draft</button>
+  </form>
+  <p class="cms-action-reason">
+    <span id="publish-reason">Nothing to publish: no draft saved yet.</span>
+    <span id="preview-reason" data-preview-reason>No draft to preview.</span>
+  </p>
+`;
+
 const form = () => document.querySelector("[data-cms-form]") as HTMLFormElement;
 const preview = () =>
   document.querySelector("[data-preview-submit]") as HTMLButtonElement;
@@ -45,8 +61,9 @@ const clickPreview = () =>
 let submitted = 0;
 let teardown = () => {};
 
-beforeEach(() => {
-  document.body.innerHTML = MARKUP;
+const start = (markup: string) => {
+  teardown();
+  document.body.innerHTML = markup;
   asked = null;
   answer = true;
   submitted = 0;
@@ -64,6 +81,10 @@ beforeEach(() => {
     },
   );
   teardown = init();
+};
+
+beforeEach(() => {
+  start(MARKUP);
 });
 
 afterEach(() => {
@@ -126,5 +147,62 @@ describe("preview guard", () => {
     document.body.innerHTML = "<p>no form here</p>";
 
     expect(() => init()()).not.toThrow();
+  });
+});
+
+// With no draft (or a draft already live) the server renders Preview disabled:
+// from a clean page there is nothing unpublished to show. Unsaved edits are
+// something to preview, so the guard opens the button and drops the reason
+// until a submit makes the form clean again.
+describe("preview guard on a form with nothing to preview", () => {
+  const reason = () =>
+    document.querySelector<HTMLElement>("[data-preview-reason]");
+
+  test("leaves the server's disabled Preview alone until the form is edited", () => {
+    start(NO_DRAFT_MARKUP);
+
+    expect(preview().disabled).toBe(true);
+    expect(preview().getAttribute("aria-describedby")).toBe("preview-reason");
+    expect(reason()?.textContent).toBe("No draft to preview.");
+  });
+
+  test("opens Preview and drops the reason on the first edit", () => {
+    start(NO_DRAFT_MARKUP);
+
+    type("changed");
+
+    expect(preview().disabled).toBe(false);
+    expect(preview().hasAttribute("aria-describedby")).toBe(false);
+    expect(reason()?.textContent).toBe("");
+  });
+
+  test("a click after editing asks to save first", () => {
+    start(NO_DRAFT_MARKUP);
+    type("changed");
+
+    expect(clickPreview()).toBe(false);
+    expect(asked).toMatchObject({ confirmLabel: "Save and preview" });
+  });
+
+  test("saves a first draft and carries the preview intent", async () => {
+    start(NO_DRAFT_MARKUP);
+    type("first words");
+
+    clickPreview();
+    await Promise.resolve();
+
+    expect(afterField().value).toBe("preview");
+    expect(submitted).toBe(1);
+  });
+
+  test("puts the disabled state and reason back when a submit makes it clean", () => {
+    start(NO_DRAFT_MARKUP);
+    type("changed");
+
+    form().dispatchEvent(new Event("submit", { bubbles: true }));
+
+    expect(preview().disabled).toBe(true);
+    expect(preview().getAttribute("aria-describedby")).toBe("preview-reason");
+    expect(reason()?.textContent).toBe("No draft to preview.");
   });
 });

@@ -659,8 +659,10 @@ export const PageForm = ({
           {/* Preview mints a short-lived token and opens the site in a new tab
               with it, so the editor sees the draft without leaving the CMS.
               Disabled with no draft, and when the draft is already the live
-              revision: there is no unpublished change to preview. Matches
-              Publish, which is disabled in the same two cases. */}
+              revision: from a clean page there is no unpublished change to
+              preview. The preview guard enables it on the first edit — unsaved
+              edits are an unpublished change — and that click saves first.
+              Publish stays disabled in the same two cases. */}
           <form
             method="POST"
             action={`/cms/pages/${page.id}/preview`}
@@ -690,7 +692,11 @@ export const PageForm = ({
           <p className="cms-action-reason">
             {publishWhy && <span id="publish-reason">{publishWhy}</span>}
             {publishWhy && previewWhy && " "}
-            {previewWhy && <span id="preview-reason">{previewWhy}</span>}
+            {previewWhy && (
+              <span id="preview-reason" data-preview-reason>
+                {previewWhy}
+              </span>
+            )}
           </p>
         )}
       </section>

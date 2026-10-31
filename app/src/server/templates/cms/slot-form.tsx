@@ -320,8 +320,11 @@ export const SlotForm = ({
           {/* Preview mints a short-lived token and opens the slot's declared
               page on the site in a new tab, so the editor sees the draft inside
               the real page. Disabled with no draft, and when the draft is
-              already the live revision: there is no unpublished change to
-              preview. Matches Publish, which is disabled in the same two cases. */}
+              already the live revision: from a clean page there is no
+              unpublished change to preview. The preview guard enables it on
+              the first edit — unsaved edits are an unpublished change — and
+              that click saves first. Publish stays disabled in the same two
+              cases. */}
           <form
             method="POST"
             action={`/cms/slots/${slot.id}/preview`}
@@ -351,7 +354,11 @@ export const SlotForm = ({
           <p className="cms-action-reason">
             {publishWhy && <span id="publish-reason">{publishWhy}</span>}
             {publishWhy && previewWhy && " "}
-            {previewWhy && <span id="preview-reason">{previewWhy}</span>}
+            {previewWhy && (
+              <span id="preview-reason" data-preview-reason>
+                {previewWhy}
+              </span>
+            )}
           </p>
         )}
       </section>
