@@ -27,12 +27,32 @@ import { db } from "../database";
 import { buildExport } from "./export";
 import {
   createExportToken,
+  createExportTokenNonce,
   ExportTokenLabelError,
+  hashExportTokenNonce,
   listExportTokens,
   MAX_EXPORT_TOKEN_LABEL_LENGTH,
   revokeExportToken,
   verifyExportToken,
 } from "./tokens";
+
+/**
+ * Create with a fresh nonce, failing loudly rather than narrowing at every
+ * call site. Tests about the nonce itself call `createExportToken` directly.
+ */
+const create = async (label: string, actorId: string) => {
+  const created = await createExportToken({
+    label,
+    nonce: createExportTokenNonce(),
+    actorId,
+  });
+  if (!created.ok) {
+    throw new Error(
+      `createExportToken refused a fresh nonce: ${created.reason}`,
+    );
+  }
+  return created;
+};
 
 const hero = block(
   "hero",
@@ -280,7 +300,7 @@ describe("export document", () => {
 
   test("exports no user, session or token rows", async () => {
     await seed(actorId);
-    await createExportToken({ label: "laptop", actorId });
+    await create("laptop", actorId);
 
     const document = await buildExport();
     const json = JSON.stringify(document);
@@ -300,10 +320,7 @@ describe("export tokens", () => {
   });
 
   test("creates a token, returns the raw value once, and stores only its hash", async () => {
-    const created = await createExportToken({
-      label: "Alex's laptop",
-      actorId,
-    });
+    const created = await create("Alex's laptop", actorId);
     expect(created.rawToken).toMatch(/^[A-Za-z0-9_-]{40,}$/);
     expect(created.token.label).toBe("Alex's laptop");
 
@@ -320,7 +337,7 @@ describe("export tokens", () => {
   });
 
   test("verifies a live token, stamps last-used, and refuses a revoked one", async () => {
-    const created = await createExportToken({ label: "laptop", actorId });
+    const created = await create("laptop", actorId);
 
     const verified = await verifyExportToken(created.rawToken);
     expect(verified?.id).toBe(created.token.id);
@@ -341,23 +358,106 @@ describe("export tokens", () => {
 
   test("refuses an empty or over-long label before writing", async () => {
     await expect(
-      createExportToken({ label: "   ", actorId }),
+      createExportToken({
+        label: "   ",
+        nonce: createExportTokenNonce(),
+        actorId,
+      }),
     ).rejects.toBeInstanceOf(ExportTokenLabelError);
     await expect(
       createExportToken({
         label: "x".repeat(MAX_EXPORT_TOKEN_LABEL_LENGTH + 1),
+        nonce: createExportTokenNonce(),
         actorId,
       }),
     ).rejects.toBeInstanceOf(ExportTokenLabelError);
 
     // A label of exactly the limit is fine, and nothing was written by the
     // refusals above.
-    const allowed = await createExportToken({
-      label: "x".repeat(MAX_EXPORT_TOKEN_LABEL_LENGTH),
+    const allowed = await create(
+      "x".repeat(MAX_EXPORT_TOKEN_LABEL_LENGTH),
       actorId,
-    });
+    );
     expect(allowed.token.label).toHaveLength(MAX_EXPORT_TOKEN_LABEL_LENGTH);
     expect(await listExportTokens()).toHaveLength(1);
+  });
+
+  // Migration 022's column and index. The service catches the violation by the
+  // index name, so the name is part of the contract between the two.
+  test("stores the nonce's HMAC in a uniquely indexed column", async () => {
+    const nonce = createExportTokenNonce();
+    await createExportToken({ label: "laptop", nonce, actorId });
+
+    const columns = (await db`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'cms_export_tokens'
+    `) as { column_name: string }[];
+    expect(columns.map((column) => column.column_name)).toContain(
+      "create_nonce_hash",
+    );
+
+    const indexes = (await db`
+      SELECT indexname FROM pg_indexes
+      WHERE tablename = 'cms_export_tokens'
+    `) as { indexname: string }[];
+    expect(indexes.map((index) => index.indexname)).toContain(
+      "cms_export_tokens_create_nonce_hash_idx",
+    );
+
+    // The raw nonce is not stored; only its HMAC is.
+    const rows = (await db`
+      SELECT create_nonce_hash FROM cms_export_tokens
+    `) as { create_nonce_hash: string }[];
+    expect(rows[0].create_nonce_hash).toBe(hashExportTokenNonce(nonce));
+    expect(JSON.stringify(rows)).not.toContain(nonce);
+  });
+
+  test("a replayed nonce creates nothing and writes no audit row", async () => {
+    const nonce = createExportTokenNonce();
+    const first = await createExportToken({ label: "first", nonce, actorId });
+    expect(first.ok).toBe(true);
+
+    const replay = await createExportToken({
+      label: "second",
+      nonce,
+      actorId,
+    });
+    expect(replay).toEqual({ ok: false, reason: "nonce-used" });
+
+    // Exactly the one token and one created-audit row from the first post.
+    expect(await listExportTokens()).toHaveLength(1);
+    expect((await listExportTokens())[0].label).toBe("first");
+    const audit = (await db`
+      SELECT action FROM cms_audit WHERE action = 'export_token.created'
+    `) as { action: string }[];
+    expect(audit).toHaveLength(1);
+  });
+
+  // A reload is a replay, but two requests can also arrive together. The unique
+  // index settles that race; a pre-check SELECT would let both through.
+  test("two concurrent creates with one nonce insert one row", async () => {
+    const nonce = createExportTokenNonce();
+    const results = await Promise.all([
+      createExportToken({ label: "first", nonce, actorId }),
+      createExportToken({ label: "second", nonce, actorId }),
+    ]);
+
+    const outcomes = results
+      .map((result) => (result.ok ? "created" : result.reason))
+      .sort();
+    expect(outcomes).toEqual(["created", "nonce-used"]);
+    expect(await listExportTokens()).toHaveLength(1);
+  });
+
+  test("refuses a missing or blank nonce before writing", async () => {
+    expect(
+      await createExportToken({ label: "laptop", nonce: "", actorId }),
+    ).toEqual({ ok: false, reason: "nonce-missing" });
+    expect(
+      await createExportToken({ label: "laptop", nonce: "   ", actorId }),
+    ).toEqual({ ok: false, reason: "nonce-missing" });
+
+    expect(await listExportTokens()).toHaveLength(0);
   });
 });
 

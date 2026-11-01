@@ -1372,6 +1372,32 @@ h1 {
   margin-top: var(--space-1);
 }
 
+/* Export: the one-time token gets its own row so Copy sits beside it. `code`
+   already wraps anywhere (base.css), which is what keeps a 43-character string
+   inside a phone's width; `min-width: 0` lets the flex item actually shrink to
+   that wrapped width. The button ships hidden and `copy-token.ts` reveals it. */
+.cms-token-row {
+  align-items: baseline;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.cms-token-row code {
+  min-width: 0;
+}
+
+/* The fallback label is longer than "Copy"; let it grow the 28px control
+   rather than spill out of the button on a phone. */
+.cms-token-row .btn {
+  height: auto;
+  min-height: 28px;
+}
+
+/* Author display rules beat the UA `[hidden]` rule, and `.btn` is flex. */
+.cms-token-row [hidden] {
+  display: none;
+}
+
 /* Export: the create form reads as a panel and keeps its button compact. */
 .cms-export-create {
   display: grid;

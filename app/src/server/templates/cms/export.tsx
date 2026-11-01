@@ -1,4 +1,4 @@
-import { Flash } from "../../components/flash";
+import { Flash, type FlashTone } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { ExportTokenRecord } from "../../services/export";
@@ -11,6 +11,8 @@ export interface ExportPageProps {
   navCsrfToken?: string;
   /** The CSRF token bound to the create form's POST. */
   createCsrfToken: string;
+  /** The create form's one-use code; a second post of this form writes nothing. */
+  nonce: string;
   /** One token per revoke form, keyed by token id. */
   revokeCsrfTokens: Record<string, string>;
   tokens: ExportTokenRecord[];
@@ -18,6 +20,8 @@ export interface ExportPageProps {
   newToken?: string | null;
   /** A one-line outcome, e.g. after a revoke. */
   notice?: string | null;
+  /** How `notice` is announced: a revoke is success, a spent nonce a warning. */
+  noticeTone?: FlashTone;
   /** Shown beside the create form when the label is missing. */
   error?: string | null;
 }
@@ -28,16 +32,20 @@ export interface ExportPageProps {
  *
  * The raw token is rendered into this response and nowhere else: only its hash
  * is stored, so a reload loses it and a new token has to be created. That is
- * the point, not an oversight, and the copy says as much.
+ * the point, not an oversight, and the copy says as much. The create form's
+ * hidden nonce is spent by the create, so the reload re-posts a spent form and
+ * is answered with a note rather than a second token.
  */
 export const ExportPage = ({
   user,
   navCsrfToken,
   createCsrfToken,
+  nonce,
   revokeCsrfTokens,
   tokens,
   newToken,
   notice,
+  noticeTone = "success",
   error,
 }: ExportPageProps) => (
   <Layout
@@ -66,7 +74,7 @@ export const ExportPage = ({
       }
     />
 
-    {notice && <Flash tone="success" title={notice} dismissible />}
+    {notice && <Flash tone={noticeTone} title={notice} dismissible />}
 
     {newToken && (
       <Flash
@@ -75,8 +83,16 @@ export const ExportPage = ({
         detail="It is shown once and only its hash is stored, so it can't be shown again."
         dismissible
       >
-        <p>
+        <p className="cms-token-row" data-token-row>
           <code data-export-token>{newToken}</code>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            data-copy-token
+            hidden
+          >
+            Copy
+          </button>
         </p>
       </Flash>
     )}
@@ -145,6 +161,7 @@ export const ExportPage = ({
         className="panel cms-export-create"
       >
         <input type="hidden" name="_csrf" value={createCsrfToken} />
+        <input type="hidden" name="nonce" value={nonce} />
         <div className="form-field">
           <label htmlFor="export-label">Name</label>
           <input

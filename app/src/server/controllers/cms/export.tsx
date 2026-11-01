@@ -5,7 +5,9 @@
  * Every write goes through `services/export/tokens`, so the same rules the
  * screen shows — a required label, a revocable token, the one-time raw value —
  * hold whatever the form posted. The raw token is rendered into the create
- * response and never stored, so a reload serendipitously loses it.
+ * response and never stored. The form carries a one-use nonce, so reloading
+ * that response re-posts a spent nonce: it creates nothing and says the token
+ * was shown once, instead of quietly minting a second one.
  */
 import type { BunRequest } from "bun";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
@@ -13,6 +15,7 @@ import { checkCsrf } from "../../middleware/csrf";
 import { createCsrfToken } from "../../services/csrf";
 import {
   createExportToken,
+  createExportTokenNonce,
   ExportTokenLabelError,
   listExportTokens,
   revokeExportToken,
@@ -28,6 +31,8 @@ const renderPage = async (
   extras: {
     newToken?: string | null;
     notice?: string | null;
+    /** Defaults to success; a spent nonce is a warning, not an outcome. */
+    noticeTone?: "success" | "warning";
     error?: string | null;
     /** Response headers the page itself needs, e.g. `no-store`. */
     headers?: Record<string, string>;
@@ -54,10 +59,14 @@ const renderPage = async (
       user={ctx.user as NonNullable<SessionContext["user"]>}
       navCsrfToken={navCsrfToken}
       createCsrfToken={createCsrfToken_}
+      // Fresh on every render, so a page re-rendered after a label error still
+      // has an unspent form and the service refuses only a genuine replay.
+      nonce={createExportTokenNonce()}
       revokeCsrfTokens={revokeCsrfTokens}
       tokens={tokens}
       newToken={extras.newToken ?? null}
       notice={extras.notice ?? null}
+      noticeTone={extras.noticeTone}
       error={extras.error ?? null}
     />,
     extras.headers,
@@ -92,6 +101,9 @@ export const exportTokens = {
    *
    * Deliberately not a redirect: the raw token exists only in this response, so
    * a POST-redirect-GET would throw it away before the admin could copy it.
+   * The form's nonce is what makes a reload of this response safe: the second
+   * post replays a spent nonce, writes nothing and shows the page with a note
+   * instead of a second token.
    */
   async create(req: BunRequest): Promise<Response> {
     const { redirect: authRedirect, ctx } = await context(req);
@@ -102,11 +114,13 @@ export const exportTokens = {
 
     const formData = await req.formData();
     const label = nonEmpty(formData.get("label"))?.trim() ?? "";
+    const nonce = String(formData.get("nonce") ?? "");
 
     let created: Awaited<ReturnType<typeof createExportToken>>;
     try {
       created = await createExportToken({
         label,
+        nonce,
         actorId: ctx.user?.id ?? null,
       });
     } catch (error) {
@@ -114,6 +128,18 @@ export const exportTokens = {
         return renderPage(ctx, { error: error.message });
       }
       throw error;
+    }
+
+    if (!created.ok) {
+      if (created.reason === "nonce-used") {
+        return renderPage(ctx, {
+          notice: "This token was shown once. Create another if you lost it.",
+          noticeTone: "warning",
+        });
+      }
+      return renderPage(ctx, {
+        error: "This form is out of date. Reload the page and try again.",
+      });
     }
 
     // The raw token is in this body and nowhere else, so the response must not
