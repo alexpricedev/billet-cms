@@ -139,7 +139,7 @@ h1 {
 .cms-slot-meta code {
   background: var(--surface-subtle);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 11.5px;
@@ -693,7 +693,7 @@ h1 {
 .cms-list-remove {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 12.5px;
@@ -1441,7 +1441,7 @@ h1 {
 .cms-media-card > a:first-child {
   display: block;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 /* A long unbroken alt text wraps inside the card rather than spilling out. */
@@ -1463,7 +1463,7 @@ h1 {
 .cms-media-card .cms-media-placeholder {
   aspect-ratio: 4 / 3;
   background: var(--surface-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   height: auto;
   object-fit: cover;
   width: 100%;
@@ -1962,7 +1962,7 @@ h1 {
 }
 
 .cms-picker-upload-preview img {
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   height: 100%;
   object-fit: cover;
   width: 100%;
@@ -2080,7 +2080,7 @@ h1 {
 .cms-picker-card-button img,
 .cms-picker-card-button .cms-picker-placeholder {
   aspect-ratio: 4 / 3;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   height: auto;
   object-fit: cover;
   width: 100%;
