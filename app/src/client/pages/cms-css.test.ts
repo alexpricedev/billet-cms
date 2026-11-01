@@ -837,16 +837,45 @@ describe("base.css tap targets", () => {
 
   // Growing the target is a coarse-pointer rule: a mouse keeps the 32px
   // control height, a phone gets the 44px minimum. `min-height` beats the
-  // explicit heights smaller controls set (.btn-sm, .btn-lg, .btn-icon), and
-  // `min-width` is what widens the icon-only ones. The rendered height is the
-  // browser smoke's job; this fails if the rule goes missing or moves out of
-  // the media query.
+  // explicit heights smaller controls set (.btn-sm, .btn-lg, .btn-icon). The
+  // rendered height is the browser smoke's job; this fails if the rule goes
+  // missing or moves out of the media query.
   test("grows buttons to the tap target only on a coarse pointer", () => {
     const coarse =
       /@media\s*\(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(baseCss)?.[1] ??
       "";
     const rule = /button,\s*\n\s*\.btn\s*\{([^}]*)\}/.exec(coarse)?.[1] ?? "";
     expect(rule).toContain("min-height: var(--tap-target)");
+  });
+
+  // `min-width` is only for a control with no label to widen it. A labelled
+  // button keeps its natural width, so dense toolbars don't overflow on a
+  // phone; the icon-only controls are the ones that need the target's width.
+  test("widens only the icon-only control on a coarse pointer", () => {
+    const coarse =
+      /@media\s*\(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(baseCss)?.[1] ??
+      "";
+    const buttons =
+      /button,\s*\n\s*\.btn\s*\{([^}]*)\}/.exec(coarse)?.[1] ?? "";
+    expect(buttons).not.toContain("min-width");
+    const icon = /\.btn-icon\s*\{([^}]*)\}/.exec(coarse)?.[1] ?? "";
+    expect(icon).toContain("min-width: var(--tap-target)");
+  });
+});
+
+describe("cms.css tap targets", () => {
+  // The rich-text toolbar, the block move arrows and the media tile's × show a
+  // glyph and nothing else, so they have no label to make them 44px wide.
+  // base.css gives every button the height; this names the glyph-only controls
+  // that also need the width. A labelled control (Remove, Add item) is already
+  // wider.
+  test("widens the glyph-only controls on a coarse pointer", () => {
+    const coarse =
+      /@media\s*\(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+    const rule =
+      /\.cms-rte-toolbar button,\s*\n\s*\.cms-block-move,\s*\n\s*\.cms-media-tile-actions \.btn-ghost\s*\{([^}]*)\}/.exec(
+        coarse,
+      )?.[1] ?? "";
     expect(rule).toContain("min-width: var(--tap-target)");
   });
 });

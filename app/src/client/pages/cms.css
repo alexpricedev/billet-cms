@@ -1124,6 +1124,18 @@ h1 {
   color: var(--danger);
 }
 
+/* Glyph-only controls have no label to widen them, so on a coarse pointer
+   they get the tap target's width as well as its height (base.css sets the
+   height for every button). A labelled control is already wider than the
+   target and is left alone. */
+@media (pointer: coarse) {
+  .cms-rte-toolbar button,
+  .cms-block-move,
+  .cms-media-tile-actions .btn-ghost {
+    min-width: var(--tap-target);
+  }
+}
+
 /* One Add block control under the last block. It is the page's main action on
    an empty or short page, so it spans the blocks column as a dashed drop
    target at field height — not the row of 12.5px per-type chips it replaced.

@@ -197,7 +197,7 @@ const touchTarget = (selector: string): Promise<number> =>
         })()`,
       ),
     (value) => value?.minHeight === "44px",
-  ).then((value) => value?.height ?? 0);
+  ).then((value) => (value?.minHeight === "44px" ? value.height : 0));
 
 /**
  * The vertical space between consecutive `.cms-field` boxes that are direct

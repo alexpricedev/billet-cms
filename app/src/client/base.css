@@ -567,12 +567,17 @@ button,
    `min-height` wins over the `height` an explicit size sets (.btn-sm 28,
    .btn-lg 40, .btn-icon and the legacy .cms-* buttons 26–32), so a control
    only grows where it was smaller than the target — never shrinks. `min-width`
-   is what widens an icon-only button: the move ↑↓ and × controls carry none of
-   the size classes of their own. */
+   is only for a control with no label to widen it: a labelled button is
+   already wider than the target, and forcing it there would make dense
+   toolbars overflow. `.btn-icon` is the generic one; pages/cms.css names the
+   CMS's own glyph-only controls. */
 @media (pointer: coarse) {
   button,
   .btn {
     min-height: var(--tap-target);
+  }
+
+  .btn-icon {
     min-width: var(--tap-target);
   }
 }
