@@ -101,6 +101,10 @@
   --content-max: 1120px;
   --bar-height: 56px;
   --control-height: 32px;
+  /* The smallest comfortable tap target. A coarse pointer (touch) grows
+     buttons and inline link targets to this; a mouse keeps their designed
+     height. */
+  --tap-target: 44px;
   /* Editor field boxes: one height for every single-line input and select, and
      one gap between consecutive fields in a field list. */
   --field-height: 44px;
@@ -557,6 +561,20 @@ button,
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+/* Touch screens get a 44px target; a mouse keeps the 32px control height.
+   `min-height` wins over the `height` an explicit size sets (.btn-sm 28,
+   .btn-lg 40, .btn-icon and the legacy .cms-* buttons 26–32), so a control
+   only grows where it was smaller than the target — never shrinks. `min-width`
+   is what widens an icon-only button: the move ↑↓ and × controls carry none of
+   the size classes of their own. */
+@media (pointer: coarse) {
+  button,
+  .btn {
+    min-height: var(--tap-target);
+    min-width: var(--tap-target);
+  }
 }
 
 /* ---- Form primitives ---------------------------------------------------- */

@@ -72,6 +72,17 @@
   }
 }
 
+/* A breadcrumb link is 12px text on a 1.4 line — about 17px tall, well under
+   the smallest comfortable tap target. Only a coarse pointer grows it; the
+   type size and the desktop layout are untouched. */
+@media (pointer: coarse) {
+  .cms-breadcrumb a {
+    align-items: center;
+    display: inline-flex;
+    min-height: var(--tap-target);
+  }
+}
+
 /* ---- Descriptions and metadata ----------------------------------------- */
 
 .cms-intro {

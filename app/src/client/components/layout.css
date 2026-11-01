@@ -124,6 +124,17 @@ body[data-shell="app"] > footer {
   }
 }
 
+/* The footer links are bare inline text, so each one is only as tall as its
+   12px line. A coarse pointer grows the box to the tap target without changing
+   the type or the desktop layout. */
+@media (pointer: coarse) {
+  [data-component="layout"] > footer a {
+    align-items: center;
+    display: inline-flex;
+    min-height: var(--tap-target);
+  }
+}
+
 @media (width <= 900px) {
   body[data-shell="app"][data-component="layout"] {
     display: block;
