@@ -108,6 +108,10 @@ describe("Export tokens controller", () => {
       /data-export-token(?:="[^"]*")?>([^<]+)</,
     )?.[1];
     expect(raw).toBeTruthy();
+    // The Copy button is in the same row as the token, which is what
+    // `copy-token.ts` walks back from; it ships hidden for a page without JS.
+    expect(createdHtml).toContain("data-token-row");
+    expect(createdHtml).toMatch(/data-copy-token[^>]*hidden/);
 
     // A fresh list does not carry the raw value: it is shown once.
     const list = await exportTokens.index(get("/cms/export"));

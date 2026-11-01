@@ -80,8 +80,16 @@ export const ExportPage = ({
         detail="It is shown once and only its hash is stored, so it can't be shown again."
         dismissible
       >
-        <p>
+        <p className="cms-token-row" data-token-row>
           <code data-export-token>{newToken}</code>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            data-copy-token
+            hidden
+          >
+            Copy
+          </button>
         </p>
       </Flash>
     )}
