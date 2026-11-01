@@ -3,6 +3,10 @@ import { init } from "./copy-token";
 
 const TOKEN = "cms_export_3f9a1c7e5b2d8f4061a9c4e7b0d2f6a8c1e5b9d3";
 
+// What the button says when the clipboard refuses: the token is selected, and
+// the label points at the platform's own Copy instead of claiming one.
+const REFUSED_LABEL = "Selected — press ⌘C or Ctrl+C";
+
 // The create response's banner: the raw token in a <code> with Copy beside it.
 // Copy ships hidden, as the server renders it, and the script reveals it.
 const markup = `
@@ -90,7 +94,7 @@ describe("copy token", () => {
 
   // A refused write (permission denied, or a page that is not a secure
   // context) must still leave the editor able to copy: select the token so
-  // their own Copy shortcut or long press finishes the job.
+  // their own Copy shortcut or long press finishes the job, and say so.
   test("selects the token text when the clipboard is refused", async () => {
     start(() => Promise.reject(new Error("clipboard denied")));
 
@@ -98,7 +102,12 @@ describe("copy token", () => {
     await flush();
 
     expect(window.getSelection()?.toString()).toBe(TOKEN);
-    // It was not copied, so it must not claim to have been.
+    // It was not copied, so it must not claim to have been; it says how to
+    // finish the job by hand.
+    expect(button()?.textContent).toBe(REFUSED_LABEL);
+
+    jest.advanceTimersByTime(2000);
+
     expect(button()?.textContent).toBe("Copy");
   });
 
@@ -111,7 +120,7 @@ describe("copy token", () => {
     button()?.click();
 
     expect(window.getSelection()?.toString()).toBe(TOKEN);
-    expect(button()?.textContent).toBe("Copy");
+    expect(button()?.textContent).toBe(REFUSED_LABEL);
   });
 
   test("stops listening once the page is torn down", () => {

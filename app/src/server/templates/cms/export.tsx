@@ -1,4 +1,4 @@
-import { Flash } from "../../components/flash";
+import { Flash, type FlashTone } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type { ExportTokenRecord } from "../../services/export";
@@ -20,6 +20,8 @@ export interface ExportPageProps {
   newToken?: string | null;
   /** A one-line outcome, e.g. after a revoke. */
   notice?: string | null;
+  /** How `notice` is announced: a revoke is success, a spent nonce a warning. */
+  noticeTone?: FlashTone;
   /** Shown beside the create form when the label is missing. */
   error?: string | null;
 }
@@ -43,6 +45,7 @@ export const ExportPage = ({
   tokens,
   newToken,
   notice,
+  noticeTone = "success",
   error,
 }: ExportPageProps) => (
   <Layout
@@ -71,7 +74,7 @@ export const ExportPage = ({
       }
     />
 
-    {notice && <Flash tone="success" title={notice} dismissible />}
+    {notice && <Flash tone={noticeTone} title={notice} dismissible />}
 
     {newToken && (
       <Flash

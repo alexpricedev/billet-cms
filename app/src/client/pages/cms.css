@@ -1386,6 +1386,18 @@ h1 {
   min-width: 0;
 }
 
+/* The fallback label is longer than "Copy"; let it grow the 28px control
+   rather than spill out of the button on a phone. */
+.cms-token-row .btn {
+  height: auto;
+  min-height: 28px;
+}
+
+/* Author display rules beat the UA `[hidden]` rule, and `.btn` is flex. */
+.cms-token-row [hidden] {
+  display: none;
+}
+
 /* Export: the create form reads as a panel and keeps its button compact. */
 .cms-export-create {
   display: grid;

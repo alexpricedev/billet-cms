@@ -194,6 +194,8 @@ describe("Export tokens controller", () => {
     expect(replayHtml).toContain(
       "This token was shown once. Create another if you lost it.",
     );
+    // Nothing was created, so the note is advisory, not a green success.
+    expect(replayHtml).toContain('data-tone="warning"');
     expect(replayHtml).not.toContain("Copy this token now");
     expect(replayHtml).not.toContain(raw as string);
     expect(await listExportTokens()).toHaveLength(1);

@@ -31,6 +31,8 @@ const renderPage = async (
   extras: {
     newToken?: string | null;
     notice?: string | null;
+    /** Defaults to success; a spent nonce is a warning, not an outcome. */
+    noticeTone?: "success" | "warning";
     error?: string | null;
     /** Response headers the page itself needs, e.g. `no-store`. */
     headers?: Record<string, string>;
@@ -64,6 +66,7 @@ const renderPage = async (
       tokens={tokens}
       newToken={extras.newToken ?? null}
       notice={extras.notice ?? null}
+      noticeTone={extras.noticeTone}
       error={extras.error ?? null}
     />,
     extras.headers,
@@ -131,6 +134,7 @@ export const exportTokens = {
       if (created.reason === "nonce-used") {
         return renderPage(ctx, {
           notice: "This token was shown once. Create another if you lost it.",
+          noticeTone: "warning",
         });
       }
       return renderPage(ctx, {
