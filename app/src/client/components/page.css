@@ -72,6 +72,22 @@
   }
 }
 
+/* A breadcrumb link is 12px text on a 1.4 line — about 17px tall, well under
+   the smallest comfortable tap target. Only a coarse pointer grows it; the
+   type size and the desktop layout are untouched. The padding makes the hit
+   area 44px tall and the matching negative margin takes it back out of the
+   flow, so a trail that wraps at 390px keeps its 17px rows and the header its
+   height instead of stacking 44px rows. */
+@media (pointer: coarse) {
+  .cms-breadcrumb a {
+    align-items: center;
+    display: inline-flex;
+    margin-block: calc((1.4em - var(--tap-target)) / 2);
+    min-height: var(--tap-target);
+    padding-block: calc((var(--tap-target) - 1.4em) / 2);
+  }
+}
+
 /* ---- Descriptions and metadata ----------------------------------------- */
 
 .cms-intro {

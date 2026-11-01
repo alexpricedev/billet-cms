@@ -110,6 +110,23 @@ micro-label is uppercased.
 - Icons: 16px inline, 18px in the sidebar, 20px for the mobile toggle. Stroke
   width 1.75; no emoji, no mixed icon families.
 
+**Decision (2026-11-01).** On a coarse pointer (phones and tablets) every
+`<button>` and every `.btn` link is at least `--tap-target` (44px) tall, and a
+glyph-only control — `.btn-icon`, the rich-text format buttons, the block move
+↑↓ arrows, the media upload tile's × — is also 44px wide; the breadcrumb crumbs
+and the footer's GitHub
+and alexprice.dev links get a 44px-tall hit area, under
+`@media (pointer: coarse)`. On a mouse nothing changes: controls keep
+`--control-height` (32px) and links keep their line box, so desktop layout and
+type sizes are the ones already designed. The target is a hit area, not a
+visual size: the breadcrumb text stays 12px and its rows keep their height, and
+a `.btn-sm` keeps its padding and type while the box around it grows. It is
+expressed as `min-height` — and `min-width` only where there is no label to
+widen the control — so it beats a variant's explicit height (`.btn-lg` 40px,
+`.btn-icon`, the 26px list move/remove controls) rather than replacing it. A
+labelled button is already wider than 44px, so it takes only the height;
+widening every button would make dense toolbars overflow on a phone.
+
 ## Elevation
 
 `--shadow-sm` is for popovers and menus, `--shadow-lg` for dialogs. Nothing

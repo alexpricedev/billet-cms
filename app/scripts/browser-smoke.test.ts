@@ -173,6 +173,33 @@ const renderedHeight = (selector: string): Promise<number | null> =>
   );
 
 /**
+ * The rendered height of `selector` once a coarse-pointer rule has applied, or
+ * 0 if it never does.
+ *
+ * Chrome's emulated touch input reaches `matchMedia("(pointer: coarse)")` a
+ * beat before the cascade is re-resolved, so the first measurement after a
+ * navigation can still be the mouse height. Waiting for the rule's own
+ * `min-height` to land makes the height below the real result; a missing rule
+ * never settles, and the caller's assertion then fails on 0 rather than
+ * passing on whichever way the race went.
+ */
+const touchTarget = (selector: string): Promise<number> =>
+  until(
+    () =>
+      view.evaluate<{ height: number; minHeight: string } | null>(
+        `(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return null;
+          return {
+            height: Math.round(el.getBoundingClientRect().height),
+            minHeight: getComputedStyle(el).minHeight,
+          };
+        })()`,
+      ),
+    (value) => value?.minHeight === "44px",
+  ).then((value) => (value?.minHeight === "44px" ? value.height : 0));
+
+/**
  * The vertical space between consecutive `.cms-field` boxes that are direct
  * children of `root`, in pixels.
  *
@@ -529,6 +556,69 @@ describe("browser smoke", () => {
     const url = await view.evaluate<string>("location.href");
     expect(url.startsWith(`${CMS_BASE}/cms`)).toBe(true);
   });
+
+  // The tap target is a `@media (pointer: coarse)` rule, so it can only be
+  // proved in a browser: happy-dom has no media queries and the unit tests can
+  // only see that the rule exists. The sign-in page is the control the ticket
+  // names, and the breadcrumb is the smallest link target in the CMS. Touch
+  // emulation is Chrome's CDP, so this skips the macOS WebKit run — the CI
+  // browser job is Chrome, which is where it counts.
+  test.skipIf(process.platform === "darwin")(
+    "buttons and breadcrumb links meet the tap target on touch screens",
+    async () => {
+      // A signed-in visitor is bounced from /handoff to /cms, so start signed
+      // out. (The journey test above leaves the browser signed in.)
+      await goto(`${CMS_BASE}/cms`);
+      await clickThrough("form[action='/auth/logout'] button");
+      await until(bodyText, (text) => text.includes("Sign in"));
+
+      // Mint a handoff token the way the site's own sign-in route does, rather
+      // than walking the whole journey again. The GET only shows the confirm
+      // button; the token is spent by the POST below.
+      const minted = await Bun.fetch(`${SITE_BASE}/cms/sign-in`, {
+        headers: { cookie: `site_session=${encodeURIComponent(adminId)}` },
+        redirect: "manual",
+      });
+      const handoff = minted.headers.get("location") ?? "";
+      expect(handoff).toContain(`${CMS_BASE}/handoff?token=`);
+
+      // A mouse keeps today's 32px control height: no emulation, desktop width.
+      await goto(handoff);
+      await until(
+        () => renderedHeight(".login-submit"),
+        (height) => height !== null,
+      );
+      expect(await renderedHeight(".login-submit")).toBe(32);
+
+      // A phone gets the 44px target. Enable touch emulation, then navigate:
+      // Chrome derives `pointer: coarse` from the emulated touch input.
+      await view.resize(390, 844);
+      await view.cdp("Emulation.setTouchEmulationEnabled", {
+        enabled: true,
+        maxTouchPoints: 5,
+      });
+      await view.cdp("Emulation.setEmitTouchEventsForMouse", {
+        enabled: true,
+        configuration: "mobile",
+      });
+      await goto(handoff);
+      expect(await touchTarget(".login-submit")).toBeGreaterThanOrEqual(44);
+
+      // Sign in so the CMS's own chrome is reachable, then measure a breadcrumb
+      // link on the slot editor — 12px text that was about 17px tall on its
+      // own and had no padding.
+      await clickThrough("form button.login-submit");
+      await until(bodyText, (text) => text.includes("Sign out"));
+      await goto(`${CMS_BASE}/cms/slots/${slotId}`);
+      expect(await touchTarget(".cms-breadcrumb a")).toBeGreaterThanOrEqual(44);
+
+      // Leave the shared view as the tests below expect it: no touch
+      // emulation, desktop size.
+      await view.cdp("Emulation.setEmitTouchEventsForMouse", { enabled: false });
+      await view.cdp("Emulation.setTouchEmulationEnabled", { enabled: false });
+      await view.resize(1280, 900);
+    },
+  );
 
   test("a CMS page renders with a title and an applied stylesheet", async () => {
     // Continues signed in from the journey above: /cms is the CMS's own page.
