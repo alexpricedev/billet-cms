@@ -58,6 +58,24 @@ describe("Export tokens controller", () => {
     );
   };
 
+  /** The one-use code the create form rendered, as the browser would post it. */
+  const nonceFrom = (html: string): string => {
+    const nonce = html.match(
+      /<input[^>]*name="nonce"[^>]*value="([^"]+)"/,
+    )?.[1];
+    if (!nonce) throw new Error("the create form carried no nonce");
+    return nonce;
+  };
+
+  /** A create form as the GET page renders it: label plus that page's nonce. */
+  const createForm = async (label: string): Promise<FormData> => {
+    const page = await exportTokens.index(get("/cms/export"));
+    const form = new FormData();
+    form.set("label", label);
+    form.set("nonce", nonceFrom(await page.text()));
+    return form;
+  };
+
   test("redirects an anonymous visitor to sign in", async () => {
     const res = await exportTokens.index(
       createBunRequest(`${ORIGIN}/cms/export`, { method: "GET" }),
@@ -69,16 +87,21 @@ describe("Export tokens controller", () => {
   test("lists tokens, creates one showing the raw value once, and revokes it", async () => {
     const empty = await exportTokens.index(get("/cms/export"));
     expect(empty.status).toBe(200);
-    expect(await empty.text()).toContain("No export tokens yet");
+    const emptyHtml = await empty.text();
+    expect(emptyHtml).toContain("No export tokens yet");
+    // The create form carries the one-use code that makes a reload a no-op.
+    expect(nonceFrom(emptyHtml)).toBeTruthy();
 
-    const form = new FormData();
-    form.set("label", "Alex's laptop");
+    const form = await createForm("Alex's laptop");
     const created = await exportTokens.create(
       await post("/cms/export", form, "/cms/export"),
     );
     expect(created.status).toBe(200);
     // The raw token is in this body; it must never sit in a cache.
     expect(created.headers.get("cache-control")).toBe("no-store");
+    // Nor anywhere but the body: not in a redirect, not in a cookie.
+    expect(created.headers.get("location")).toBeNull();
+    expect(created.headers.get("set-cookie")).toBeNull();
     const createdHtml = await created.text();
     expect(createdHtml).toContain("Copy this token now");
     const raw = createdHtml.match(
@@ -138,6 +161,70 @@ describe("Export tokens controller", () => {
     expect(await res.text()).toContain("Use 100 characters or fewer.");
 
     // Nothing was written: the length is checked before the insert.
+    expect(await listExportTokens()).toHaveLength(0);
+  });
+
+  test("re-posting the same nonce writes no second token and says it was shown once", async () => {
+    const form = await createForm("Replay me");
+    const nonce = form.get("nonce") as string;
+
+    const created = await exportTokens.create(
+      await post("/cms/export", form, "/cms/export"),
+    );
+    const createdHtml = await created.text();
+    const raw = createdHtml.match(
+      /data-export-token(?:="[^"]*")?>([^<]+)</,
+    )?.[1];
+    expect(raw).toBeTruthy();
+    expect(await listExportTokens()).toHaveLength(1);
+
+    // A browser reload re-posts the same form: same nonce, same label.
+    const replayForm = new FormData();
+    replayForm.set("label", "Replay me");
+    replayForm.set("nonce", nonce);
+    const replay = await exportTokens.create(
+      await post("/cms/export", replayForm, "/cms/export"),
+    );
+    expect(replay.status).toBe(200);
+    const replayHtml = await replay.text();
+    expect(replayHtml).toContain(
+      "This token was shown once. Create another if you lost it.",
+    );
+    expect(replayHtml).not.toContain("Copy this token now");
+    expect(replayHtml).not.toContain(raw as string);
+    expect(await listExportTokens()).toHaveLength(1);
+  });
+
+  test("refuses a create that carries no nonce", async () => {
+    const form = new FormData();
+    form.set("label", "No code");
+    const res = await exportTokens.create(
+      await post("/cms/export", form, "/cms/export"),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain(
+      "This form is out of date. Reload the page and try again.",
+    );
+    expect(await listExportTokens()).toHaveLength(0);
+  });
+
+  test("rejects a create carrying another session's CSRF token", async () => {
+    const otherId = (await seedIdentity(db, "other@example.com")).id;
+    const otherSessionId = await createAuthenticatedSession(otherId);
+
+    const form = await createForm("Cross-session");
+    form.set(
+      "_csrf",
+      await createCsrfToken(otherSessionId, "POST", "/cms/export"),
+    );
+    const res = await exportTokens.create(
+      createBunRequest(`${ORIGIN}/cms/export`, {
+        method: "POST",
+        headers: { Origin: ORIGIN, cookie: `cms_session=${sessionId}` },
+        body: form,
+      }),
+    );
+    expect(res.status).toBe(403);
     expect(await listExportTokens()).toHaveLength(0);
   });
 });

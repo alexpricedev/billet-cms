@@ -11,6 +11,8 @@ export interface ExportPageProps {
   navCsrfToken?: string;
   /** The CSRF token bound to the create form's POST. */
   createCsrfToken: string;
+  /** The create form's one-use code; a second post of this form writes nothing. */
+  nonce: string;
   /** One token per revoke form, keyed by token id. */
   revokeCsrfTokens: Record<string, string>;
   tokens: ExportTokenRecord[];
@@ -28,12 +30,15 @@ export interface ExportPageProps {
  *
  * The raw token is rendered into this response and nowhere else: only its hash
  * is stored, so a reload loses it and a new token has to be created. That is
- * the point, not an oversight, and the copy says as much.
+ * the point, not an oversight, and the copy says as much. The create form's
+ * hidden nonce is spent by the create, so the reload re-posts a spent form and
+ * is answered with a note rather than a second token.
  */
 export const ExportPage = ({
   user,
   navCsrfToken,
   createCsrfToken,
+  nonce,
   revokeCsrfTokens,
   tokens,
   newToken,
@@ -145,6 +150,7 @@ export const ExportPage = ({
         className="panel cms-export-create"
       >
         <input type="hidden" name="_csrf" value={createCsrfToken} />
+        <input type="hidden" name="nonce" value={nonce} />
         <div className="form-field">
           <label htmlFor="export-label">Name</label>
           <input
