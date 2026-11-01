@@ -13,6 +13,7 @@ import { checkCsrf } from "../../middleware/csrf";
 import { createCsrfToken } from "../../services/csrf";
 import {
   createExportToken,
+  createExportTokenNonce,
   ExportTokenLabelError,
   listExportTokens,
   revokeExportToken,
@@ -107,6 +108,9 @@ export const exportTokens = {
     try {
       created = await createExportToken({
         label,
+        // A fresh code per request: nothing here replays one, and the service
+        // only writes a token for a nonce it has not seen before.
+        nonce: createExportTokenNonce(),
         actorId: ctx.user?.id ?? null,
       });
     } catch (error) {
@@ -114,6 +118,12 @@ export const exportTokens = {
         return renderPage(ctx, { error: error.message });
       }
       throw error;
+    }
+
+    if (!created.ok) {
+      return renderPage(ctx, {
+        error: "Could not create the token. Try again.",
+      });
     }
 
     // The raw token is in this body and nowhere else, so the response must not

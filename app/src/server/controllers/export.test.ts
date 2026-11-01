@@ -16,7 +16,11 @@ mock.module("../services/database", () => ({
 
 import { clearRateLimitLog } from "../middleware/rate-limit";
 import { db } from "../services/database";
-import { createExportToken, revokeExportToken } from "../services/export";
+import {
+  createExportToken,
+  createExportTokenNonce,
+  revokeExportToken,
+} from "../services/export";
 import { EXPORT_RATE_LIMIT, exportApi } from "./export";
 
 const ORIGIN = process.env.APP_URL as string;
@@ -36,6 +40,18 @@ const get = (authorization?: string) =>
 
 describe("GET /export", () => {
   let actorId: string;
+
+  const createToken = async (label: string) => {
+    const created = await createExportToken({
+      label,
+      nonce: createExportTokenNonce(),
+      actorId,
+    });
+    if (!created.ok) {
+      throw new Error(`createExportToken refused: ${created.reason}`);
+    }
+    return created;
+  };
 
   beforeEach(async () => {
     // The rate limiter's log outlives a test; without this the 429 case would
@@ -66,7 +82,7 @@ describe("GET /export", () => {
   });
 
   test("refuses a revoked token", async () => {
-    const created = await createExportToken({ label: "laptop", actorId });
+    const created = await createToken("laptop");
     await revokeExportToken(created.token.id, actorId);
 
     const response = await exportApi.index(get(`Bearer ${created.rawToken}`));
@@ -75,7 +91,7 @@ describe("GET /export", () => {
   });
 
   test("returns the export document and records the read", async () => {
-    const created = await createExportToken({ label: "laptop", actorId });
+    const created = await createToken("laptop");
 
     const response = await exportApi.index(get(`Bearer ${created.rawToken}`));
     expect(response.status).toBe(200);
@@ -97,7 +113,7 @@ describe("GET /export", () => {
   });
 
   test("returns 429 once the per-IP export limit is exceeded", async () => {
-    const created = await createExportToken({ label: "laptop", actorId });
+    const created = await createToken("laptop");
 
     for (let i = 0; i < EXPORT_RATE_LIMIT; i++) {
       const response = await exportApi.index(get(`Bearer ${created.rawToken}`));
