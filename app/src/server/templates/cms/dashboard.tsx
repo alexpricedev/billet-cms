@@ -1,11 +1,7 @@
 import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
-import type {
-  PageTypeRecord,
-  SlotPageGroup,
-  SlotState,
-} from "../../services/content";
+import type { SlotPageGroup, SlotState } from "../../services/content";
 import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
 import { humanise } from "../../utils/humanise";
@@ -15,7 +11,6 @@ export interface DashboardProps {
   navCsrfToken?: string;
   groups: SlotPageGroup[];
   slotStates?: Map<string, SlotState>;
-  pageTypes: PageTypeRecord[];
 }
 
 const formatDate = (date: Date) =>
@@ -37,13 +32,12 @@ const SlotStateBadge = ({ state }: { state: SlotState }) =>
     <span className="cms-slot-state cms-slot-state-live">Live</span>
   );
 
-/** The CMS home: the pages a site declares, their slots, and its page types. */
+/** The CMS home: the pages a site declares and their slots. */
 export const Dashboard = ({
   user,
   navCsrfToken,
   groups,
   slotStates,
-  pageTypes,
 }: DashboardProps) => (
   <Layout
     title={`Content - ${SITE_NAME}`}
@@ -92,26 +86,6 @@ export const Dashboard = ({
           </ul>
         </section>
       ))
-    )}
-
-    {pageTypes.length > 0 && (
-      <section className="cms-page">
-        <h2>Page types</h2>
-        <p className="cms-intro">
-          Each page you add in <a href="/cms/pages">Pages</a> starts as one of
-          these.
-        </p>
-        <ul className="cms-page-type-list">
-          {pageTypes.map((pageType) => (
-            <li key={pageType.id}>
-              {pageType.label ?? humanise(pageType.name)}
-              {pageType.removedAt && (
-                <span className="cms-removed"> (no longer declared)</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
     )}
   </Layout>
 );

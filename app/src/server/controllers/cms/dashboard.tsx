@@ -2,7 +2,6 @@ import type { BunRequest } from "bun";
 import { getSessionContext, requireAuth } from "../../middleware/auth";
 import {
   groupSlotsByPage,
-  listPageTypes,
   listSlotStates,
   listSlots,
 } from "../../services/content";
@@ -18,10 +17,9 @@ export const dashboard = {
     const ctx = await getSessionContext(req);
     if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
-    const [slots, slotStates, pageTypes] = await Promise.all([
+    const [slots, slotStates] = await Promise.all([
       listSlots(),
       listSlotStates(),
-      listPageTypes(),
     ]);
 
     const navCsrfToken = await createCsrfToken(
@@ -36,7 +34,6 @@ export const dashboard = {
         navCsrfToken={navCsrfToken}
         groups={groupSlotsByPage(slots)}
         slotStates={slotStates}
-        pageTypes={pageTypes}
       />,
     );
   },

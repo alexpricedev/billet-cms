@@ -106,7 +106,9 @@ describe("Dashboard controller", () => {
     expect(html).not.toContain("data-flash-dismiss");
   });
 
-  test("explains the page types and points at Pages", async () => {
+  // Page types live on Pages, where one is chosen; Content no longer repeats
+  // them even when the site declares some.
+  test("does not list the page types", async () => {
     await seedBlockType(db, hero);
     await seedPageType(
       db,
@@ -117,12 +119,10 @@ describe("Dashboard controller", () => {
     const session = await createAuthenticatedSession(identity.id);
 
     const html = await (await dashboard.index(get(session))).text();
-    const section = html.slice(html.indexOf("<h2>Page types</h2>"));
 
-    expect(section).toContain("starts as one of these");
-    expect(section).toContain('href="/cms/pages"');
-    expect(section).toContain("Landing");
-    expect(section).not.toContain("<code>");
+    expect(html).not.toContain("Page types");
+    expect(html).not.toContain("cms-page-type-list");
+    expect(html).not.toContain("Landing");
   });
 
   // The developer's key stays out of the list; an unlabelled slot reads as
