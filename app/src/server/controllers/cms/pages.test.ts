@@ -1216,6 +1216,65 @@ describe("Pages controller", () => {
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 
+  // A field issue inside a block has to say which block it is in, not just
+  // which field. It names the block by position and human label — the label
+  // the editor reads on the block itself — with the field after it, and still
+  // links to the control. The bad block is second, so a summary that always
+  // named block 1 fails.
+  test("names the block and field a field issue belongs to", async () => {
+    const banner = block(
+      "banner",
+      { label: "Banner" },
+      { photo: image({ label: "Photo" }) },
+      () => null,
+    );
+    await seedBlockType(db, banner);
+    await seedPageType(
+      db,
+      pageType("banners", { allowedBlocks: [hero, banner] }),
+    );
+    const created = await createPage({
+      pageType: "banners",
+      url: "/banners",
+      title: "Banners",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "banners",
+          url: "/banners",
+          title: "Banners",
+          content: JSON.stringify({
+            blocks: [
+              {
+                type: "hero",
+                heading: "Hi",
+                body: { type: "doc", content: [] },
+              },
+              { type: "banner", photo: { mediaId: "not-a-uuid" } },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('href="#cms-block-1-banner-photo"');
+    expect(html).toContain("Block 2 (Banner): Photo</a>");
+    // The block type's slug is never the name the editor reads.
+    expect(html).not.toContain("Block 2 (banner)");
+    expect(html).not.toContain("Block 1 (");
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
   // Part 8: the hero-first refusal is shown on the hero itself and says which
   // arrow fixes it; the banner links to the block rather than leaving the
   // editor to find it several screens below at 390.

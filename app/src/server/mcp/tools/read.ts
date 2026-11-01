@@ -454,10 +454,7 @@ export const registerReadTools = (
       const history =
         target === "slot"
           ? await listSlotHistory(subject as SlotRecord)
-          : {
-              revisions: await listPageHistory(subject as PageRecord),
-              hasOlder: false,
-            };
+          : await listPageHistory(subject as PageRecord);
       const shown = history.revisions.slice(0, limit);
 
       return okResult({

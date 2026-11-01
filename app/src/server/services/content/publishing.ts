@@ -24,6 +24,7 @@ import {
 } from "../media/guidance";
 import { type BlockTypeRecord, getBlockTypeByName } from "./definitions";
 import { blockContentIssues, type FieldIssue } from "./drafts";
+import { buildExcerpt, firstTextField } from "./history-excerpt";
 import {
   createRevision,
   getLatestRevision,
@@ -257,6 +258,11 @@ export interface SlotRevisionSummary {
   isDraft: boolean;
   /** When the revision this one restored was saved; null if not a restore. */
   restoredFromAt: Date | null;
+  /**
+   * One line of the revision's words — the slot's first text field — so two
+   * same-day versions can be told apart. Empty when it has no text to show.
+   */
+  excerpt: string;
 }
 
 /** How many revisions one history page shows. */
@@ -282,7 +288,7 @@ export const listSlotHistory = async (
 ): Promise<SlotHistoryPage> => {
   const before = options.before ?? null;
   const rows = (await db`
-    SELECT r.id, r.created_at, i.email AS author_email,
+    SELECT r.id, r.created_at, r.content, i.email AS author_email,
       src.created_at AS restored_from_at
     FROM cms_revisions r
     LEFT JOIN cms_identities i ON i.id = r.created_by
@@ -302,9 +308,16 @@ export const listSlotHistory = async (
   `) as {
     id: string;
     created_at: Date;
+    content: Record<string, unknown>;
     author_email: string | null;
     restored_from_at: Date | null;
   }[];
+
+  // The block's field metadata names its text fields, so the excerpt reads the
+  // first *text* field rather than whichever value happens to be first. One
+  // read for the whole page of revisions, not one per row. A block type the
+  // site no longer publishes has no fields to read, so its rows show no excerpt.
+  const blockType = await getBlockTypeByName(slot.blockName);
 
   // One extra row is fetched only to answer "is there an older page?"; it is not
   // shown. The page itself is the newest `HISTORY_PAGE_SIZE`.
@@ -324,6 +337,9 @@ export const listSlotHistory = async (
         isLatest,
         isDraft: isLatest && !isPublished,
         restoredFromAt: row.restored_from_at,
+        excerpt: blockType
+          ? buildExcerpt([firstTextField(blockType.fields, row.content)])
+          : "",
       };
     }),
     hasOlder,

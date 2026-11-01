@@ -352,7 +352,7 @@ const hero = block(
     heading: text({ label: "Heading", max: 80 }),
     body: richText({ label: "Body", required: false }),
     tags: list(text({ label: "Tag" }), { label: "Tags", max: 5 }),
-    photo: image({ label: "Photo", required: false }),
+    photo: image({ label: "Photo", required: false, minWidth: 1200 }),
     cta: link({ label: "Call to action", required: false }),
   },
   () => null,
@@ -678,6 +678,91 @@ describe("browser smoke", () => {
       (present) => present,
     );
     expect(await fieldGaps(".cms-page-settings")).toEqual([16, 16, 16, 16]);
+  });
+
+  // A phone's editor ends in the sticky action bar, so a warning that opens
+  // after a pick can land behind it. The line carries the bar's height as
+  // `scroll-margin-bottom`, and the picker scrolls it into view with
+  // `block: "nearest"` once the dialog has closed.
+  test("a warning after a pick clears the sticky bar on a phone", async () => {
+    await goto(`${CMS_BASE}/cms/slots/${slotId}`);
+    await until(
+      () =>
+        view.evaluate<boolean>(
+          `document.querySelector("#cms-field-photo [data-image-picker-choose]") !== null`,
+        ),
+      (present) => present,
+    );
+
+    await view.resize(390, 844);
+    // Put the image field against the bottom edge, where the bar covers it, and
+    // open the picker with a plain click: `view.click` would scroll the target
+    // back into reach first and never reproduce the case being tested.
+    await view.evaluate(
+      `document.querySelector("#cms-field-photo").scrollIntoView({ block: "end" })`,
+    );
+    await Bun.sleep(200);
+    await view.evaluate(
+      `document.querySelector("#cms-field-photo [data-image-picker-choose]").click()`,
+    );
+
+    // The library holds one 800×600 row and this field wants 1200px, so the
+    // pick warns. The card is built by the picker, so wait for it to arrive.
+    const option = await until(
+      () =>
+        view.evaluate<string>(
+          `document.querySelector("[data-image-picker-option]")?.dataset.id ?? ""`,
+        ),
+      (id) => id !== "",
+    );
+    expect(option).not.toBe("");
+    await view.evaluate(
+      `document.querySelector("[data-image-picker-option]").click()`,
+    );
+
+    // `nearest` counts the margin box, so once the smooth scroll settles the
+    // line is inside the viewport and above the bar rather than behind it.
+    const measured = await until(
+      () =>
+        view.evaluate<{
+          warningTop: number;
+          warningBottom: number;
+          barTop: number;
+          barHeight: number;
+          margin: number;
+        } | null>(
+          `(() => {
+            const warning = document.querySelector(
+              "#cms-field-photo [data-image-warning]",
+            );
+            const bar = document.querySelector(".cms-actions");
+            if (!warning || warning.hidden || !bar) return null;
+            const line = warning.getBoundingClientRect();
+            const sticky = bar.getBoundingClientRect();
+            return {
+              warningTop: Math.round(line.top),
+              warningBottom: Math.round(line.bottom),
+              barTop: Math.round(sticky.top),
+              barHeight: Math.round(sticky.height),
+              margin: Number.parseFloat(
+                getComputedStyle(warning).scrollMarginBottom,
+              ),
+            };
+          })()`,
+        ),
+      (value) =>
+        value !== null &&
+        value.warningTop >= 0 &&
+        value.warningBottom <= value.barTop,
+    );
+
+    expect(measured).not.toBeNull();
+    // At least the bar's height, so `nearest` can never leave the line behind it.
+    expect(measured?.margin).toBeGreaterThanOrEqual(measured?.barHeight ?? 0);
+    expect(measured?.warningTop).toBeGreaterThanOrEqual(0);
+    expect(measured?.warningBottom).toBeLessThanOrEqual(measured?.barTop ?? 0);
+
+    await view.resize(1280, 900);
   });
 
   test("a published slot renders on the site within seconds", async () => {

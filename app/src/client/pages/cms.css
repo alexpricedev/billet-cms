@@ -317,6 +317,19 @@ h1 {
   margin: 0;
 }
 
+/* Every editor ends in the sticky `.cms-actions` bar, so either line can open
+   underneath it — the picker's narrow-image warning just below the field the
+   editor picked into, an error after a refused save. Reserving at least the
+   bar's height as scroll margin is what lets `scrollIntoView({ block:
+   "nearest" })` stop above the bar rather than behind it; `nearest` then
+   counts the margin box, so it scrolls only when the bar (or the fold)
+   actually covers the line. 12rem covers the stacked phone bar: status, two
+   button rows, a reason line and the safe-area inset. */
+.cms-field-errors,
+.cms-field-warning {
+  scroll-margin-bottom: 12rem;
+}
+
 /* The image field is composite, like a group: its heading titles the parts
    rather than being a second label stacked on the picker's own legend (which
    is visually hidden, its weight is set with the other group headings below).
@@ -843,6 +856,23 @@ h1 {
   flex-wrap: wrap;
   font-size: 12.5px;
   gap: var(--space-2);
+}
+
+/* The meta line and the excerpt share the row's first column, so the excerpt
+   sits under the time rather than forming a third grid cell beside the button.
+   `min-width: 0` lets the column shrink below the nowrap excerpt, which is what
+   turns a long one into an ellipsis instead of widening the row. */
+.cms-history-entry {
+  min-width: 0;
+}
+
+.cms-history-excerpt {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A long author email is one unbroken token; without this it overflows its

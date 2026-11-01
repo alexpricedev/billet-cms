@@ -80,10 +80,18 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // replaced the per-type button loop and its hint state, so the bundle measures
 // 14,322 even with the menu in it — inside the existing budget, and no rise was
 // needed.
-const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_600;
+//
+// This rise, 14,600 → 15,300, is clearing a field's server error as the editor
+// fixes it: the control group the change landed in drops its `aria-invalid` and
+// the server's message once the value changes, and a length error waits for the
+// count to come back within the limit before the counter takes over again. It
+// measures 15,135, so the old budget had no room for this. 15,300 keeps a few
+// lines' headroom; the number moving is still the signal, so raise it again
+// only with the same arithmetic written down.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 15_300;
 
 // Minified bytes for the shared image picker, `image-picker.ts`, including the
-// `upload-shared.ts` it imports. It is 9,708 bytes at the time of writing,
+// `upload-shared.ts` it imports. It is 9,988 bytes at the time of writing,
 // after the upload wire format was split out for the Media page's tiles.
 //
 // This is the third recorded exception (AGENTS.md): the picker has to read the
@@ -91,9 +99,10 @@ const CMS_FORM_BUNDLE_BUDGET_BYTES = 14_600;
 // server-rendered form can do. The budget is a fence around that job, not room
 // to grow: it holds the modal, focus trap, paging, search, drop zone and the
 // closed-field update and nothing else. Using it for block `image` fields added
-// the too-narrow warning (the picker knows the chosen width) and binding for
-// pickers cloned into list rows after load, which took it from 7,912 to 9,404.
-// 10,000 bytes still holds, but the headroom is now one small fix: raising it
+// the too-narrow warning (the picker knows the chosen width), binding for
+// pickers cloned into list rows after load, and scrolling that warning above
+// the sticky action bar after a pick, which took it from 7,912 to 9,988.
+// 10,000 bytes still holds, but there is one line of headroom left: raising it
 // is the signal to ask whether a feature belongs in the picker or in the server
 // that renders the field. See `image-picker.test.ts` for what the client is
 // expected to do.

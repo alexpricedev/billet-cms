@@ -1143,11 +1143,86 @@ const wireCharCount = (form: HTMLFormElement): void => {
   });
 };
 
+/**
+ * Clear a field's server-rendered error as soon as the editor fixes its value.
+ *
+ * A refused save re-renders the offending control with `aria-invalid` and the
+ * server's message under it. Nothing reloads as the editor types, so without
+ * this the red stayed on a field that was now right. The error list belongs to
+ * the control group the change landed in — a link's button text, its hover text
+ * and its destination each carry their own — so fixing one leaves the other
+ * fields' errors alone.
+ *
+ * A length error waits until the count is back within the limit: typing from
+ * one character over to two over has not fixed it, and the counter's own
+ * over-limit state is the honest warning until it is. Once it is within, the
+ * server's message goes and the counter takes over again if the editor passes
+ * the limit once more.
+ */
+const wireFieldErrors = (form: HTMLFormElement): void => {
+  form.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    // A link is one field with three error lists; the nearest wrapping part is
+    // the one the editor changed. The type switch's group has no list of its
+    // own, so flipping it clears nothing.
+    const linkPart = target.closest(
+      ".cms-link-text, .cms-link-title, .cms-link-destination, .cms-link-destination-group",
+    );
+    // A block image field's picker is a `.cms-field` inside the field it
+    // belongs to, so the field wins; a page setting's picker is its own field.
+    const scope =
+      linkPart ??
+      target.closest("[data-field]") ??
+      target.closest(".cms-field");
+    if (!scope) return;
+
+    // A group or a list is a `[data-field]` whose children are fields of their
+    // own. Only the elements this scope owns — the ones whose nearest field is
+    // the scope itself — belong to the change; a nested child's error is the
+    // child's, and editing a sibling must leave it alone. A link part is not a
+    // field of its own, so it keeps looking at everything inside it.
+    const owns = (element: Element): boolean =>
+      !scope.matches("[data-field]") ||
+      (element.closest("[data-field]") ?? element.closest(".cms-field")) ===
+        scope;
+    const within = <E extends Element>(selector: string): E[] =>
+      Array.from(scope.querySelectorAll<E>(selector)).filter(owns);
+
+    const input = within<HTMLInputElement | HTMLTextAreaElement>(
+      "[data-text-input]",
+    )[0];
+    const count = within<HTMLElement>("[data-char-count]")[0];
+    const max = Number(count?.dataset.charMax);
+    if (input && Number.isSafeInteger(max)) {
+      // The same string the save stores and the live counter shows.
+      const length = (
+        input instanceof HTMLTextAreaElement
+          ? singleLine(input.value)
+          : input.value
+      ).length;
+      if (length > max) return;
+    }
+
+    // The counter's own over-limit line is a `.cms-field-errors` too, and the
+    // server does not render it beside a server error — so this clears the
+    // server's list even after the count has already dropped `aria-invalid`.
+    const errors = within(".cms-field-errors:not([data-char-over])");
+    const invalid = scope.hasAttribute("aria-invalid") ? [scope] : [];
+    invalid.push(...within("[aria-invalid]"));
+    if (errors.length === 0 && invalid.length === 0) return;
+    for (const error of errors) error.remove();
+    for (const control of invalid) control.removeAttribute("aria-invalid");
+  });
+};
+
 const wireForm = (form: HTMLFormElement): void => {
   wireControls(form);
   wireFocalPoint(form);
   wireUrlMove(form);
   wireCharCount(form);
+  wireFieldErrors(form);
   wireTextAreas(form);
 
   form.addEventListener("submit", () => {

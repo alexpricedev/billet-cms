@@ -37,14 +37,34 @@ export const init = (): (() => void) => {
   const after = form?.querySelector<HTMLInputElement>("[data-save-after]");
   if (!form || !preview || !after) return () => {};
 
+  // The server renders Preview disabled when there is no draft, and when the
+  // draft is already the live revision: from a clean page there is nothing
+  // unpublished to preview. Unsaved edits *are* an unpublished change, and
+  // Preview is a save followed by a preview, so the first edit opens the
+  // button and drops the server's reason; a submit puts both back. Off, the
+  // button stays disabled and the reason stays as rendered.
+  const reason = document.querySelector<HTMLElement>("[data-preview-reason]");
+  const wasDisabled = preview.disabled;
+  const describedBy = preview.getAttribute("aria-describedby");
+  const reasonText = reason?.textContent ?? "";
+
   let dirty = false;
   const markDirty = () => {
+    if (dirty) return;
     dirty = true;
+    if (!wasDisabled) return;
+    preview.disabled = false;
+    preview.removeAttribute("aria-describedby");
+    if (reason) reason.textContent = "";
   };
   // The save is what makes the form clean again, and this page is on its way
   // out — but a validation failure re-renders it, so the flag has to reset.
   const markClean = () => {
     dirty = false;
+    if (!wasDisabled) return;
+    preview.disabled = true;
+    if (describedBy) preview.setAttribute("aria-describedby", describedBy);
+    if (reason) reason.textContent = reasonText;
   };
 
   const onClick = (event: Event) => {

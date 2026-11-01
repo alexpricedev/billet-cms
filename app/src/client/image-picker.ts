@@ -229,6 +229,29 @@ const wirePicker = (root: HTMLElement): void => {
     warning.hidden = false;
   };
 
+  /**
+   * Bring the field's warning out from under the sticky action bar after a
+   * pick. `scroll-margin-bottom` in cms.css reserves the bar's height, so
+   * `block: "nearest"` scrolls only when the bar or the fold covers the line,
+   * and stops it above the bar. Reduced motion gets an instant jump: an
+   * explicit `smooth` beats the stylesheet's `scroll-behavior: auto`.
+   *
+   * Called after the dialog closes, so returning focus to Choose has already
+   * settled the scroll. A page setting's picker has no warning; nothing happens.
+   */
+  const revealWarning = (): void => {
+    const field = root.closest<HTMLElement>("[data-field]");
+    const warning = field?.querySelector<HTMLElement>("[data-image-warning]");
+    if (!warning || warning.hidden) return;
+    const reduce =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    warning.scrollIntoView({
+      block: "nearest",
+      behavior: reduce ? "auto" : "smooth",
+    });
+  };
+
   const markSelected = (): void => {
     const id = selectedId();
     for (const card of Array.from(
@@ -431,6 +454,7 @@ const wirePicker = (root: HTMLElement): void => {
     if (!option) return;
     showChoice(option);
     close();
+    revealWarning();
   });
 
   /** Run a search the editor has typed but the debounce has not fired for. */
@@ -530,6 +554,7 @@ const wirePicker = (root: HTMLElement): void => {
       if (single && !el.modal.hidden) {
         showChoice(result.option);
         close();
+        revealWarning();
       }
     }
   };
