@@ -811,3 +811,42 @@ describe("cms.css media focal link", () => {
     expect(rule).toContain("font-size: 12px");
   });
 });
+
+describe("cms.css radius scale", () => {
+  // Every corner comes from the shared scale. A literal pixel radius drifts
+  // from the rest of the UI and skips the token that a theme or a later size
+  // change would reach — so the only values allowed are a `--radius-*` token
+  // (or a `calc()` over one) and the two shapes the scale can't express:
+  // pills and circles.
+  test("puts every border-radius on a radius token", () => {
+    const literals = [...css.matchAll(/border-radius:\s*([^;]+);/g)]
+      .map((match) => (match[1] ?? "").trim())
+      .filter((value) => !/var\(--radius(?:-sm|-lg)?\)/.test(value))
+      .filter((value) => value !== "999px" && value !== "50%");
+    expect(literals).toEqual([]);
+  });
+});
+
+describe("base.css tap targets", () => {
+  // The 44px target is a token beside the 32px control height, so the pair
+  // reads together and a rule can take one without spelling the number.
+  test("defines the tap target beside the control height", () => {
+    expect(baseCss).toMatch(/--control-height:\s*32px;/);
+    expect(baseCss).toMatch(/--tap-target:\s*44px;/);
+  });
+
+  // Growing the target is a coarse-pointer rule: a mouse keeps the 32px
+  // control height, a phone gets the 44px minimum. `min-height` beats the
+  // explicit heights smaller controls set (.btn-sm, .btn-lg, .btn-icon), and
+  // `min-width` is what widens the icon-only ones. The rendered height is the
+  // browser smoke's job; this fails if the rule goes missing or moves out of
+  // the media query.
+  test("grows buttons to the tap target only on a coarse pointer", () => {
+    const coarse =
+      /@media\s*\(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(baseCss)?.[1] ??
+      "";
+    const rule = /button,\s*\n\s*\.btn\s*\{([^}]*)\}/.exec(coarse)?.[1] ?? "";
+    expect(rule).toContain("min-height: var(--tap-target)");
+    expect(rule).toContain("min-width: var(--tap-target)");
+  });
+});
