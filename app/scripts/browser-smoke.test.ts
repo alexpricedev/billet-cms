@@ -862,9 +862,17 @@ describe("browser smoke", () => {
 
     // Publish asks first: the click opens the dialog, Cancel leaves the slot
     // unpublished, and only Confirm posts.
+    //
+    // Open state is the platform's: the dialog is a native `<dialog>` (since
+    // billet-dialog 0.2) that `showModal()` promotes, so it is the `open`
+    // attribute — the old `.is-open` class no longer exists, and polling for it
+    // silently burned a full timeout at each wait.
     const dialogOpen = () =>
       view.evaluate<boolean>(
-        `document.querySelector("[data-bd-root]")?.classList.contains("is-open") ?? false`,
+        `(() => {
+          const dialog = document.querySelector("[data-bd-root]");
+          return dialog ? dialog.open && dialog.matches(":modal") : false;
+        })()`,
       );
     await view.scrollTo(".cms-publish-button", { block: "center" });
     await view.click(".cms-publish-button").catch(() => {});
