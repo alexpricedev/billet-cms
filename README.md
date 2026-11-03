@@ -1,6 +1,16 @@
-# billet-cms
+<p align="center">
+  <img src="app/public/favicon.svg" alt="Billet CMS icon" width="64">
+</p>
 
-A headless CMS for [Billet](https://github.com/alexpricedev/Billet) sites. Three things live here:
+<h1 align="center">billet-cms</h1>
+
+A headless CMS for [Billet](https://github.com/alexpricedev/Billet) sites.
+
+<p align="center">
+  <img src="assets/screenshot.png" alt="The Billet CMS admin: the page list, the block editor with its settings panel, and the pages index" width="100%">
+</p>
+
+Three things live here:
 
 | Path | What it is |
 |---|---|
