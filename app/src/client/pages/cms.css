@@ -1664,7 +1664,11 @@ h1 {
   --bd-danger-fg: #ffffff;
   --bd-font: var(--font-sans);
   --bd-radius: var(--radius-lg);
-  --bd-radius-sm: var(--radius-sm);
+  /* The footer buttons have their own radius since billet-dialog 0.2, and a
+     minimum height so they land on the CMS's control height rather than the
+     package's padding. */
+  --bd-btn-radius: var(--radius-sm);
+  --bd-btn-min-height: var(--control-height);
   --bd-shadow: var(--shadow-lg);
 }
 
