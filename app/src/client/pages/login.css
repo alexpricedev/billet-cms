@@ -59,6 +59,12 @@
   font-size: 13px;
   margin-bottom: var(--space-5);
   text-align: center;
+
+  /* The gone-page cards can end on the subtitle when there is no site URL to
+     go back to; the trailing margin would leave a blank band in the card. */
+  &:last-child {
+    margin-bottom: 0;
+  }
 }
 
 /* The banner in the narrow sign-in card takes the card's smaller type. The
