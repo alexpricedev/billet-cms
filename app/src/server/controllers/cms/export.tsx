@@ -116,6 +116,13 @@ export const exportTokens = {
     const label = nonEmpty(formData.get("label"))?.trim() ?? "";
     const nonce = String(formData.get("nonce") ?? "");
 
+    // The ticket's own wording, on the page: the service's message is a
+    // backstop for callers that are not this form. Refuse before the service
+    // so an empty name never reaches the insert, spent nonce or not.
+    if (label === "") {
+      return renderPage(ctx, { error: "Give the token a name." });
+    }
+
     let created: Awaited<ReturnType<typeof createExportToken>>;
     try {
       created = await createExportToken({

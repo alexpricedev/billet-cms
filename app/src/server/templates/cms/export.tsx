@@ -163,12 +163,13 @@ export const ExportPage = ({
         <input type="hidden" name="_csrf" value={createCsrfToken} />
         <input type="hidden" name="nonce" value={nonce} />
         <div className="form-field">
-          <label htmlFor="export-label">Name</label>
+          <label htmlFor="export-label">Name (required)</label>
           <input
             id="export-label"
             name="label"
             type="text"
-            required
+            aria-required="true"
+            aria-invalid={error ? "true" : undefined}
             maxLength={100}
             placeholder="e.g. Alex's laptop"
             aria-describedby="export-label-help"
