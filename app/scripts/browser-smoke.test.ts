@@ -200,6 +200,17 @@ const touchTarget = (selector: string): Promise<number> =>
   ).then((value) => (value?.minHeight === "44px" ? value.height : 0));
 
 /**
+ * How far the page scrolls sideways, in pixels: the document's content width
+ * minus the viewport's. Zero or less means it fits; a positive value means a
+ * control hangs off the right edge, which is the bug phone widths keep
+ * finding on the media pages.
+ */
+const horizontalOverflow = (): Promise<number> =>
+  view.evaluate<number>(
+    "document.documentElement.scrollWidth - document.documentElement.clientWidth",
+  );
+
+/**
  * The vertical space between consecutive `.cms-field` boxes that are direct
  * children of `root`, in pixels.
  *
@@ -1013,6 +1024,44 @@ describe("browser smoke", () => {
       })()`,
     );
     expect(saveInView).toBe(true);
+  });
+
+  test("the media library fits a 320px phone without scrolling sideways", async () => {
+    // Continues signed in from the journey above.
+    await view.resize(320, 720);
+    await goto(`${CMS_BASE}/cms/media`);
+
+    // The upload control and the grid must both be on the page: a redirect to
+    // sign-in would fit any width and prove nothing.
+    const rendered = await view.evaluate<boolean>(
+      `document.querySelector(".cms-media-uploader") !== null &&
+        document.querySelector(".cms-media-grid") !== null`,
+    );
+    expect(rendered).toBe(true);
+
+    await until(
+      () => view.evaluate<number>("window.innerWidth"),
+      (width) => width === 320,
+    );
+    expect(await horizontalOverflow()).toBeLessThanOrEqual(0);
+  });
+
+  test("an image's page fits a 390px phone without scrolling sideways", async () => {
+    // Continues signed in from the journey above. The three focal previews
+    // (16:9, 1:1, 4:5) are the widest thing on an image's page.
+    await view.resize(390, 844);
+    await goto(`${CMS_BASE}/cms/media/${mediaId}`);
+
+    const previews = await view.evaluate<number>(
+      `document.querySelectorAll(".cms-focal-preview").length`,
+    );
+    expect(previews).toBe(3);
+
+    await until(
+      () => view.evaluate<number>("window.innerWidth"),
+      (width) => width === 390,
+    );
+    expect(await horizontalOverflow()).toBeLessThanOrEqual(0);
   });
 
   test("no page threw or hit a CSP violation across the run", () => {
