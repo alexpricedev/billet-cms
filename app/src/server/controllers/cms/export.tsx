@@ -34,6 +34,8 @@ const renderPage = async (
     /** Defaults to success; a spent nonce is a warning, not an outcome. */
     noticeTone?: "success" | "warning";
     error?: string | null;
+    /** Whether `error` names the label field, for `aria-invalid`. */
+    labelInvalid?: boolean;
     /** Response headers the page itself needs, e.g. `no-store`. */
     headers?: Record<string, string>;
   } = {},
@@ -68,6 +70,7 @@ const renderPage = async (
       notice={extras.notice ?? null}
       noticeTone={extras.noticeTone}
       error={extras.error ?? null}
+      labelInvalid={extras.labelInvalid ?? false}
     />,
     extras.headers,
   );
@@ -120,7 +123,10 @@ export const exportTokens = {
     // backstop for callers that are not this form. Refuse before the service
     // so an empty name never reaches the insert, spent nonce or not.
     if (label === "") {
-      return renderPage(ctx, { error: "Give the token a name." });
+      return renderPage(ctx, {
+        error: "Give the token a name.",
+        labelInvalid: true,
+      });
     }
 
     let created: Awaited<ReturnType<typeof createExportToken>>;
@@ -132,7 +138,7 @@ export const exportTokens = {
       });
     } catch (error) {
       if (error instanceof ExportTokenLabelError) {
-        return renderPage(ctx, { error: error.message });
+        return renderPage(ctx, { error: error.message, labelInvalid: true });
       }
       throw error;
     }

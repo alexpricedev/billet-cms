@@ -1044,6 +1044,10 @@ describe("browser smoke", () => {
       (width) => width === 320,
     );
     expect(await horizontalOverflow()).toBeLessThanOrEqual(0);
+
+    // The view is shared by every test in the file: put it back so a test
+    // added after this one does not inherit phone width.
+    await view.resize(1280, 900);
   });
 
   test("an image's page fits a 390px phone without scrolling sideways", async () => {
@@ -1062,6 +1066,9 @@ describe("browser smoke", () => {
       (width) => width === 390,
     );
     expect(await horizontalOverflow()).toBeLessThanOrEqual(0);
+
+    // Restore the shared view for whatever runs after this test.
+    await view.resize(1280, 900);
   });
 
   test("no page threw or hit a CSP violation across the run", () => {

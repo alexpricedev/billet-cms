@@ -24,6 +24,11 @@ export interface ExportPageProps {
   noticeTone?: FlashTone;
   /** Shown beside the create form when the label is missing. */
   error?: string | null;
+  /**
+   * Whether `error` is about the name field. Other errors — a spent form, a
+   * stale nonce — leave the input valid for a screen reader.
+   */
+  labelInvalid?: boolean;
 }
 
 /**
@@ -47,6 +52,7 @@ export const ExportPage = ({
   notice,
   noticeTone = "success",
   error,
+  labelInvalid = false,
 }: ExportPageProps) => (
   <Layout
     title={`Export - ${SITE_NAME}`}
@@ -169,7 +175,7 @@ export const ExportPage = ({
             name="label"
             type="text"
             aria-required="true"
-            aria-invalid={error ? "true" : undefined}
+            aria-invalid={labelInvalid ? "true" : undefined}
             maxLength={100}
             placeholder="e.g. Alex's laptop"
             aria-describedby="export-label-help"

@@ -182,7 +182,10 @@ describe("Export tokens controller", () => {
       await post("/cms/export", form, "/cms/export"),
     );
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Use 100 characters or fewer.");
+    const html = await res.text();
+    expect(html).toContain("Use 100 characters or fewer.");
+    // A name error, so the field itself is marked invalid.
+    expect(html).toContain('aria-invalid="true"');
 
     // Nothing was written: the length is checked before the insert.
     expect(await listExportTokens()).toHaveLength(0);
@@ -228,9 +231,12 @@ describe("Export tokens controller", () => {
       await post("/cms/export", form, "/cms/export"),
     );
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain(
+    const html = await res.text();
+    expect(html).toContain(
       "This form is out of date. Reload the page and try again.",
     );
+    // The error is about the form, not the name: the input stays valid.
+    expect(html).not.toContain('aria-invalid="true"');
     expect(await listExportTokens()).toHaveLength(0);
   });
 
