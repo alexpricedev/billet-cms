@@ -24,6 +24,11 @@ export interface ExportPageProps {
   noticeTone?: FlashTone;
   /** Shown beside the create form when the label is missing. */
   error?: string | null;
+  /**
+   * Whether `error` is about the name field. Other errors — a spent form, a
+   * stale nonce — leave the input valid for a screen reader.
+   */
+  labelInvalid?: boolean;
 }
 
 /**
@@ -47,6 +52,7 @@ export const ExportPage = ({
   notice,
   noticeTone = "success",
   error,
+  labelInvalid = false,
 }: ExportPageProps) => (
   <Layout
     title={`Export - ${SITE_NAME}`}
@@ -163,12 +169,13 @@ export const ExportPage = ({
         <input type="hidden" name="_csrf" value={createCsrfToken} />
         <input type="hidden" name="nonce" value={nonce} />
         <div className="form-field">
-          <label htmlFor="export-label">Name</label>
+          <label htmlFor="export-label">Name (required)</label>
           <input
             id="export-label"
             name="label"
             type="text"
-            required
+            aria-required="true"
+            aria-invalid={labelInvalid ? "true" : undefined}
             maxLength={100}
             placeholder="e.g. Alex's laptop"
             aria-describedby="export-label-help"

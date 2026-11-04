@@ -54,12 +54,18 @@ interface HandoffGoneProps {
 }
 
 const BackToSite = ({ siteUrl }: HandoffGoneProps) =>
-  siteUrl ? <a href={siteUrl}>Back to the site</a> : null;
+  siteUrl ? (
+    <a href={siteUrl} className="btn btn-secondary login-submit">
+      Back to the site
+    </a>
+  ) : null;
 
 /**
  * A handoff link that was already used, has timed out or never existed. The
  * three read the same to the visitor: the way forward is a fresh Edit content
- * link from the site.
+ * link from the site. The way back is a button inside the card rather than a
+ * line of grey text under it — and with no site URL there is nothing, leaving
+ * the card's text as its last child (and therefore no margin under it).
  */
 export const HandoffExpired = ({ siteUrl }: HandoffGoneProps) => (
   <AuthPage
@@ -68,8 +74,10 @@ export const HandoffExpired = ({ siteUrl }: HandoffGoneProps) => (
     canonicalPath={HANDOFF_PATH}
     heading="This link has already been used or has expired"
     subtitle="Go back to the site and tap Edit content again to get a new one."
-    footer={<BackToSite siteUrl={siteUrl} />}
-  />
+    footer={null}
+  >
+    <BackToSite siteUrl={siteUrl} />
+  </AuthPage>
 );
 
 /** The link was fine but the site no longer lists the person as an editor. */
@@ -80,6 +88,8 @@ export const HandoffNoAccount = ({ siteUrl }: HandoffGoneProps) => (
     canonicalPath={HANDOFF_PATH}
     heading="This account can no longer sign in"
     subtitle="Ask a site admin for access to the editor."
-    footer={<BackToSite siteUrl={siteUrl} />}
-  />
+    footer={null}
+  >
+    <BackToSite siteUrl={siteUrl} />
+  </AuthPage>
 );

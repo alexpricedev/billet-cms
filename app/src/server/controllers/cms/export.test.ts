@@ -128,6 +128,13 @@ describe("Export tokens controller", () => {
     expect(listHtml).toContain('data-confirm-label="Revoke"');
     expect(listHtml).toContain('aria-describedby="export-label-help"');
     expect(listHtml).toContain('class="cms-field-help"');
+    // The label says the name is required, but the input has no native
+    // `required`: the browser's bubble would pre-empt the page's own message.
+    expect(listHtml).toContain("Name (required)");
+    expect(listHtml).toMatch(/id="export-label"[^>]*aria-required="true"/);
+    expect(listHtml).not.toMatch(
+      /<input[^>]*id="export-label"[^>]*\srequired\b/,
+    );
 
     const [token] = await listExportTokens();
     const revoked = await exportTokens.revoke(
@@ -145,15 +152,28 @@ describe("Export tokens controller", () => {
     expect(after[0].revokedAt).not.toBeNull();
   });
 
-  test("refuses a token with no name", async () => {
-    const form = new FormData();
-    form.set("label", "   ");
-    const res = await exportTokens.create(
-      await post("/cms/export", form, "/cms/export"),
-    );
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Name this token");
-  });
+  test.each([
+    ["empty", ""],
+    ["whitespace-only", "   "],
+  ])(
+    "refuses a %s name on the page and writes no token",
+    async (_kind, label) => {
+      const form = await createForm(label);
+      const res = await exportTokens.create(
+        await post("/cms/export", form, "/cms/export"),
+      );
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      // The page's own error area, not just the browser's bubble: the input no
+      // longer carries `required`, so this message is the guard a person sees.
+      expect(html).toContain("Give the token a name.");
+      expect(html).toContain('aria-invalid="true"');
+      expect(html).not.toContain("Copy this token now");
+
+      // Nothing was written: the empty name is refused before the insert.
+      expect(await listExportTokens()).toHaveLength(0);
+    },
+  );
 
   test("refuses a label over 100 characters", async () => {
     const form = new FormData();
@@ -162,7 +182,10 @@ describe("Export tokens controller", () => {
       await post("/cms/export", form, "/cms/export"),
     );
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Use 100 characters or fewer.");
+    const html = await res.text();
+    expect(html).toContain("Use 100 characters or fewer.");
+    // A name error, so the field itself is marked invalid.
+    expect(html).toContain('aria-invalid="true"');
 
     // Nothing was written: the length is checked before the insert.
     expect(await listExportTokens()).toHaveLength(0);
@@ -208,9 +231,12 @@ describe("Export tokens controller", () => {
       await post("/cms/export", form, "/cms/export"),
     );
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain(
+    const html = await res.text();
+    expect(html).toContain(
       "This form is out of date. Reload the page and try again.",
     );
+    // The error is about the form, not the name: the input stays valid.
+    expect(html).not.toContain('aria-invalid="true"');
     expect(await listExportTokens()).toHaveLength(0);
   });
 
