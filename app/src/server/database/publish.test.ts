@@ -10,6 +10,7 @@ import {
   image,
   link,
   pageType,
+  section,
   slot,
   text,
 } from "@alexpricedev/billet-cms/fields";
@@ -67,10 +68,20 @@ const landingOnlyHero = pageType("landing", {
   limits: { hero: { max: 1, position: "top" } },
 });
 
+const caseStudies = section("case-studies", {
+  label: "Case studies",
+  paths: ["/case-study-*"],
+});
+const journal = section("journal", {
+  label: "Journal",
+  paths: ["/journal", "/journal/**"],
+});
+
 const definitions: SiteDefinitions = {
   blocks: [hero, cta],
   pageTypes: [landing],
   slots: [slot("home.hero", hero), slot("home.cta", cta)],
+  sections: [caseStudies, journal],
 };
 
 interface BlockTypeRow {
@@ -100,6 +111,10 @@ const snapshot = async (sql: SQL) => ({
     SELECT id, name, block_name, page, removed_at, updated_at
     FROM cms_slots ORDER BY name
   `,
+  sections: await sql`
+    SELECT id, name, label, paths, position, removed_at, updated_at
+    FROM cms_page_sections ORDER BY position
+  `,
   meta: await sql`
     SELECT content_version, updated_at FROM cms_meta WHERE id = 1
   `,
@@ -114,9 +129,11 @@ describe("publish", () => {
         blocks: 2,
         pageTypes: 1,
         slots: 2,
+        sections: 2,
         removedBlocks: 0,
         removedPageTypes: 0,
         removedSlots: 0,
+        removedSections: 0,
         changed: true,
       });
 
@@ -162,6 +179,29 @@ describe("publish", () => {
         required_blocks: ["hero"],
         block_limits: { hero: { max: 1, position: "top" } },
       });
+
+      // Sections keep the config's order in `position`, and the patterns
+      // round-trip as a JSONB array rather than a string.
+      const sections = await sql`
+        SELECT name, label, paths, position, removed_at
+        FROM cms_page_sections ORDER BY position
+      `;
+      expect(sections).toEqual([
+        {
+          name: "case-studies",
+          label: "Case studies",
+          paths: ["/case-study-*"],
+          position: 0,
+          removed_at: null,
+        },
+        {
+          name: "journal",
+          label: "Journal",
+          paths: ["/journal", "/journal/**"],
+          position: 1,
+          removed_at: null,
+        },
+      ]);
     });
   });
 
@@ -177,12 +217,15 @@ describe("publish", () => {
         blocks: 0,
         pageTypes: 0,
         slots: 0,
+        sections: 0,
         removedBlocks: 0,
         removedPageTypes: 0,
         removedSlots: 0,
+        removedSections: 0,
         changed: false,
       });
       expect(await readBlocks(sql)).toEqual([]);
+      expect(await sql`SELECT * FROM cms_page_sections`).toEqual([]);
     });
   });
 
@@ -271,6 +314,116 @@ describe("publish", () => {
       expect(after?.schema_hash).not.toBe(before?.schema_hash);
       expect(after?.label).toBe("Landing page");
       expect(after?.help).toBe("The home page");
+    });
+  });
+
+  test("a changed, relabelled or reordered section rewrites its row and bumps the content version", async () => {
+    await withDatabase("section-changed", async (sql) => {
+      const first = await publish(sql, definitions);
+
+      const relabelled = section("journal", {
+        label: "The journal",
+        paths: ["/journal/**", "/news/**"],
+      });
+      const summary = await publish(sql, {
+        ...definitions,
+        // Swapped order: `position` is part of the stored row.
+        sections: [relabelled, caseStudies],
+      });
+
+      expect(summary.changed).toBe(true);
+      expect(summary.contentVersion).toBe(first.contentVersion + 1);
+      expect(summary).toMatchObject({ sections: 2, removedSections: 0 });
+
+      const sections = await sql`
+        SELECT name, label, paths, position
+        FROM cms_page_sections ORDER BY position
+      `;
+      expect(sections).toEqual([
+        {
+          name: "journal",
+          label: "The journal",
+          paths: ["/journal/**", "/news/**"],
+          position: 0,
+        },
+        {
+          name: "case-studies",
+          label: "Case studies",
+          paths: ["/case-study-*"],
+          position: 1,
+        },
+      ]);
+    });
+  });
+
+  test("a section a deploy drops is marked removed, never deleted, and re-adding restores it", async () => {
+    await withDatabase("section-removed", async (sql) => {
+      await publish(sql, definitions);
+
+      const withoutJournal: SiteDefinitions = {
+        ...definitions,
+        sections: [caseStudies],
+      };
+      const removed = await publish(sql, withoutJournal);
+      expect(removed).toMatchObject({ sections: 1, removedSections: 1 });
+      expect(removed.changed).toBe(true);
+
+      const [journalRow] = (await sql`
+        SELECT removed_at FROM cms_page_sections WHERE name = 'journal'
+      `) as { removed_at: Date | null }[];
+      expect(journalRow?.removed_at).not.toBeNull();
+      const firstRemovedAt = journalRow?.removed_at;
+
+      // A second deploy still without it leaves the original timestamp alone.
+      const removedAgain = await publish(sql, withoutJournal);
+      expect(removedAgain.changed).toBe(false);
+      expect(removedAgain.removedSections).toBe(0);
+      const [journalAgain] = (await sql`
+        SELECT removed_at FROM cms_page_sections WHERE name = 'journal'
+      `) as { removed_at: Date | null }[];
+      expect(journalAgain?.removed_at).toEqual(firstRemovedAt);
+
+      // Re-adding it clears removed_at and puts it back at its config position.
+      const readded = await publish(sql, definitions);
+      expect(readded.changed).toBe(true);
+      expect(readded.removedSections).toBe(0);
+      const [journalBack] = (await sql`
+        SELECT label, paths, position, removed_at
+        FROM cms_page_sections WHERE name = 'journal'
+      `) as {
+        label: string | null;
+        paths: string[];
+        position: number;
+        removed_at: Date | null;
+      }[];
+      expect(journalBack).toEqual({
+        label: "Journal",
+        paths: ["/journal", "/journal/**"],
+        position: 1,
+        removed_at: null,
+      });
+    });
+  });
+
+  test("publishing without a sections key marks every stored section removed", async () => {
+    await withDatabase("section-absent", async (sql) => {
+      await publish(sql, definitions);
+
+      // An absent key is an empty set, not "leave the sections alone": the
+      // publish is the whole truth for the site.
+      const summary = await publish(sql, {
+        blocks: definitions.blocks,
+        pageTypes: definitions.pageTypes,
+        slots: definitions.slots,
+      });
+
+      expect(summary).toMatchObject({ sections: 0, removedSections: 2 });
+      expect(summary.changed).toBe(true);
+
+      const rows = (await sql`
+        SELECT removed_at FROM cms_page_sections ORDER BY name
+      `) as { removed_at: Date | null }[];
+      expect(rows.map((row) => row.removed_at !== null)).toEqual([true, true]);
     });
   });
 
