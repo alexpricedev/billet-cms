@@ -14,8 +14,8 @@ export interface BlockTypeRecord {
   name: string;
   /**
    * The human name the editor sees, published from `block()`'s label. Empty
-   * only for a row written by a site that predates labels; never shown in
-   * place of the slug (Q2: there is no fallback).
+   * only for a row written by a site that predates labels; the editor reads
+   * the humanised `name` until the site republishes (`blockLabel`).
    */
   label: string;
   jsonSchema: Record<string, unknown>;

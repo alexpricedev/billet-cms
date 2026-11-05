@@ -22,6 +22,7 @@ import type {
 import { normalisePageUrl } from "../../services/content/pages";
 import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
+import { blockLabel } from "../../utils/block-title";
 import { formatWhen } from "../../utils/format";
 import {
   previewReason,
@@ -139,10 +140,10 @@ const contentIssueField = (
     definition?.fields.find((candidate) => candidate.name === field)?.label ??
     field;
   // The block's human label, never its slug. A row written before labels were
-  // required may have none, and there is deliberately no fallback to the type
-  // name; the line then keeps only the field label.
-  const label = definition?.label
-    ? `Block ${index + 1} (${definition.label}): ${fieldLabel}`
+  // required may have none; `blockLabel` falls back to the humanised name until
+  // the site republishes.
+  const label = definition
+    ? `Block ${index + 1} (${blockLabel(definition)}): ${fieldLabel}`
     : fieldLabel;
   return { id: `cms-block-${index}-${type}-${field}`, label };
 };
