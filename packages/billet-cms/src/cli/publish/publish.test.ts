@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { PageTypeDefinition } from "../../fields";
-import { block, pageType, slot, text } from "../../fields";
+import type { PageTypeDefinition, SectionDefinition } from "../../fields";
+import { block, pageType, section, slot, text } from "../../fields";
 import { type SiteDefinitions, validateDefinitions } from "./publish";
 
 const hero = block("hero", { label: "Hero" }, { heading: text() }, () => null);
@@ -19,8 +19,55 @@ describe("validateDefinitions", () => {
   test("accepts a set of explicit empty arrays", () => {
     // A site with no blocks exports `blocks = []` rather than omitting the key.
     expect(() =>
+      validateDefinitions({
+        blocks: [],
+        pageTypes: [],
+        slots: [],
+        sections: [],
+      }),
+    ).not.toThrow();
+  });
+
+  test("accepts a well-formed section and omits it from a config that has none", () => {
+    const journal = section("journal", { paths: ["/journal/**"] });
+
+    expect(() =>
+      validateDefinitions({
+        blocks: [],
+        pageTypes: [],
+        slots: [],
+        sections: [journal],
+      }),
+    ).not.toThrow();
+    // Sections are optional: an absent key means the site declares none.
+    expect(() =>
       validateDefinitions({ blocks: [], pageTypes: [], slots: [] }),
     ).not.toThrow();
+  });
+
+  test("rejects two sections with the same name", () => {
+    const one = section("journal", { paths: ["/journal/**"] });
+    const two = section("journal", { paths: ["/news/**"] });
+
+    expect(() =>
+      validateDefinitions({
+        blocks: [],
+        pageTypes: [],
+        slots: [],
+        sections: [one, two],
+      }),
+    ).toThrow(/Duplicate section "journal"/);
+  });
+
+  test("rejects a section in the sections collection that isn't a section", () => {
+    expect(() =>
+      validateDefinitions({
+        blocks: [],
+        pageTypes: [],
+        slots: [],
+        sections: [slot("home.hero", hero)] as unknown as SectionDefinition[],
+      }),
+    ).toThrow(/only section definitions, but found "slot" \("home\.hero"\)/);
   });
 
   test("rejects a config that declares none of blocks, pageTypes or slots", () => {

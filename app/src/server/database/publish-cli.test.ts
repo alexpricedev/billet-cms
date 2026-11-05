@@ -50,7 +50,7 @@ describe("cms:publish CLI", () => {
       const first = await runCli(temp.url);
       expect(first.exitCode).toBe(0);
       expect(first.stdout).toContain(
-        "Published 1 block type, 1 page type, 1 slot.",
+        "Published 1 block type, 1 page type, 1 slot, 2 sections.",
       );
       expect(first.stdout).toContain("Content version 2.");
 
