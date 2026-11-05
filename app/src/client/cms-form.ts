@@ -593,6 +593,9 @@ const closeBlockAddMenu = (area: Element, returnFocus = false): void => {
  * count as a floor, or the menu would open below at every width.
  */
 const stickyTopBarBottom = (): number => {
+  // `body.clientWidth` rather than `innerWidth`: with a classic scrollbar the
+  // latter counts the gutter the bar does not cover.
+  const viewport = document.body.clientWidth || window.innerWidth;
   for (const nav of Array.from(
     document.querySelectorAll('[data-component="nav"]'),
   )) {
@@ -600,7 +603,7 @@ const stickyTopBarBottom = (): number => {
     const { position } = getComputedStyle(nav);
     if (
       (position === "sticky" || position === "fixed") &&
-      rect.width >= window.innerWidth - 1
+      rect.width >= viewport - 1
     ) {
       return rect.bottom;
     }

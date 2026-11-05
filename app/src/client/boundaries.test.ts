@@ -92,7 +92,7 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // This rise, 15,300 → 15,700, is placing the Add block menu where it fits: on
 // open it measures the room between the sticky top bar (only when that bar
 // spans the viewport) and the button, and sets `data-placement="below"` when
-// the menu is taller than that room. It measures 15,551, so the old budget had
+// the menu is taller than that room. It measures 15,586, so the old budget had
 // no room for this. 15,700 keeps a few lines' headroom; the number moving is
 // still the signal, so raise it again only with the same arithmetic written
 // down.
