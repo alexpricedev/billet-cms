@@ -311,6 +311,20 @@ export const PageForm = ({
 
   const uneditable = pageType === null;
 
+  // A site that predates labels has `label = ''` on every block type until it
+  // republishes (migration 021). The editor falls back to the humanised name
+  // (`blockLabel`), so nothing reads blank — but the names are not the site's
+  // own, and this banner says why. Removed types are excluded: they cannot be
+  // added, so they are not the editor's problem.
+  const blockNamesMissing =
+    pageType !== null &&
+    blockTypes.some(
+      (blockType) =>
+        blockType.removedAt === null &&
+        blockType.label === "" &&
+        pageType.allowedBlocks.includes(blockType.name),
+    );
+
   // The error banner lists every issue: a field links to its control, a whole
   // block links to the block, and an issue with neither (a page-limit rule, an
   // unreadable body) keeps its own message. The "Fix these N fields" line only
@@ -409,6 +423,13 @@ export const PageForm = ({
               content is kept.
             </>
           }
+        />
+      )}
+
+      {blockNamesMissing && (
+        <Flash
+          tone="warning"
+          title="Block names are missing. Redeploy the site to publish them."
         />
       )}
 

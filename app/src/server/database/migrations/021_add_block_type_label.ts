@@ -5,9 +5,11 @@
  * what stored content and the site's code refer to. The `label` is the words an
  * editor sees ("Full-width image"), declared on `block()` and published with
  * the rest of the stored schema. Required, so it is NOT NULL, with an empty
- * default so existing rows from an older publish keep their place: nothing
- * reads an empty label as "use the slug", and the contract version check
- * refuses an old site until it republishes with labels (Q2).
+ * default so existing rows from an older publish keep their place: an empty
+ * label reads as the humanised `name` (the editor's `blockLabel` fallback)
+ * until the site republishes, and the page editor warns that the names are
+ * missing. The contract version check refuses an old site until it republishes
+ * with labels (Q2).
  *
  * A column on an existing table, not a new relation, so the only `cms_` object
  * the migration adds is the table's own column.

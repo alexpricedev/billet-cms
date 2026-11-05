@@ -499,6 +499,59 @@ describe("Pages controller", () => {
       expect(html).toContain('aria-label="Remove the Quote block"');
     });
 
+    // The editor also says *why* the names aren't the site's own, so a site
+    // that is a release behind knows the fix is a redeploy. It is the page's
+    // state, not the result of an action, so there is no ×.
+    test("a missing block name raises a warning with no dismissal", async () => {
+      await seedBlockType(db, quote);
+      await seedPageType(db, article);
+      await db`UPDATE cms_block_types SET label = '' WHERE name = 'quote'`;
+      const created = await createPage({
+        pageType: "article",
+        url: "/article",
+        title: "Article",
+      });
+      if (!created.ok) throw new Error("create failed");
+
+      const html = await formHtml(created.page.id);
+      expect(html).toContain(
+        '<p class="flash-title">Block names are missing. Redeploy the site to publish them.</p>',
+      );
+      expect(html).not.toContain("data-flash-dismiss");
+    });
+
+    test("the missing-name warning stays away when every name is published", async () => {
+      await seedBlockType(db, quote);
+      await seedPageType(db, article);
+      const created = await createPage({
+        pageType: "article",
+        url: "/article",
+        title: "Article",
+      });
+      if (!created.ok) throw new Error("create failed");
+
+      const html = await formHtml(created.page.id);
+      expect(html).not.toContain("Block names are missing");
+    });
+
+    test("a removed block type with no name does not raise the warning", async () => {
+      await seedBlockType(db, quote);
+      await seedPageType(db, article);
+      await db`
+        UPDATE cms_block_types SET label = '', removed_at = NOW()
+        WHERE name = 'quote'
+      `;
+      const created = await createPage({
+        pageType: "article",
+        url: "/article",
+        title: "Article",
+      });
+      if (!created.ok) throw new Error("create failed");
+
+      const html = await formHtml(created.page.id);
+      expect(html).not.toContain("Block names are missing");
+    });
+
     test("block legends use the type's label, never its slug", async () => {
       await seedBlockType(db, quote);
       await seedPageType(db, article);
