@@ -1071,6 +1071,83 @@ describe("browser smoke", () => {
     await view.resize(1280, 900);
   });
 
+  test("the export token stacks above Copy on a phone", async () => {
+    // Continues signed in from the journey above. The raw token exists only in
+    // the response to the create POST, so make one through the real form.
+    await view.resize(390, 844);
+    await goto(`${CMS_BASE}/cms/export`);
+
+    await view.scrollTo("#export-label", { block: "center" });
+    await view.click("#export-label");
+    await view.type("Smoke test token");
+    await view.scrollTo(".cms-export-create .cms-save", { block: "center" });
+    await clickThrough(".cms-export-create .cms-save");
+
+    // Copy ships hidden and `copy-token.ts` reveals it once the page runs;
+    // measured before that it has no box and the comparison means nothing.
+    const layout = () =>
+      view.evaluate<{
+        copyVisible: boolean;
+        copyTop: number;
+        tokenBottom: number;
+        tokenWidth: number;
+        rowWidth: number;
+      } | null>(
+        `(() => {
+          const row = document.querySelector(".cms-token-row");
+          const token = row?.querySelector("[data-export-token]");
+          const copy = row?.querySelector("[data-copy-token]");
+          if (!row || !token || !copy) return null;
+          const rowRect = row.getBoundingClientRect();
+          const tokenRect = token.getBoundingClientRect();
+          const copyRect = copy.getBoundingClientRect();
+          return {
+            copyVisible: copy.getClientRects().length > 0,
+            copyTop: Math.round(copyRect.top * 100) / 100,
+            tokenBottom: Math.round(tokenRect.bottom * 100) / 100,
+            tokenWidth: Math.round(tokenRect.width * 100) / 100,
+            rowWidth: Math.round(rowRect.width * 100) / 100,
+          };
+        })()`,
+      );
+
+    await until(
+      () => layout(),
+      (value) => value?.copyVisible,
+    );
+
+    // Phone: the token takes the row's width and Copy sits under it.
+    await until(
+      () => view.evaluate<number>("window.innerWidth"),
+      (width) => width === 390,
+    );
+    const phone = await until(
+      layout,
+      (value) => value !== null && value.copyTop >= value.tokenBottom,
+    );
+    expect(phone?.copyTop ?? 0).toBeGreaterThanOrEqual(phone?.tokenBottom ?? 0);
+    expect(
+      Math.abs((phone?.rowWidth ?? 0) - (phone?.tokenWidth ?? 0)),
+    ).toBeLessThanOrEqual(1);
+
+    // Desktop: the same page load, resized. The row is one line again — Copy's
+    // top is above the token's bottom. No navigation: a reload would lose the
+    // one-time token.
+    await view.resize(1280, 900);
+    await until(
+      () => view.evaluate<number>("window.innerWidth"),
+      (width) => width === 1280,
+    );
+    const wide = await until(
+      layout,
+      (value) => value !== null && value.copyTop < value.tokenBottom,
+    );
+    expect(wide?.copyTop ?? 0).toBeLessThan(wide?.tokenBottom ?? 0);
+
+    // The view is shared by every test in the file: put it back.
+    await view.resize(1280, 900);
+  });
+
   test("no page threw or hit a CSP violation across the run", () => {
     expect(pageErrors).toEqual([]);
   });
