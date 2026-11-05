@@ -1410,6 +1410,19 @@ h1 {
   display: none;
 }
 
+/* On a phone the 43-character token and Copy no longer share a line: give the
+   token the full width and stack Copy under it, left-aligned. */
+@media (width <= 640px) {
+  .cms-token-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cms-token-row code {
+    align-self: stretch;
+  }
+}
+
 /* Export: the create form reads as a panel and keeps its button compact. */
 .cms-export-create {
   display: grid;
