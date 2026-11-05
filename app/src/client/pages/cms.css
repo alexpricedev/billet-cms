@@ -1160,10 +1160,11 @@ h1 {
 }
 
 /* The menu floats — the one place DESIGN.md allows a shadow: popovers and
-   menus. It opens upward. The Add control sits at the end of the form, and the
-   editor's save bar is sticky over the bottom of the viewport, so a menu below
-   the button would be clipped by it at every width. Items are full-width so the
-   label, not a slug, is what reads. */
+   menus. It opens upward by default; the client sets `data-placement="below"`
+   when the room between the sticky top bar and the button is shorter than the
+   menu, as when Add block sits near the top of a phone screen. The save bar can
+   still clip it below, but only in the case where there was no room above to
+   begin with. Items are full-width so the label, not a slug, is what reads. */
 .cms-block-add-menu {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1179,6 +1180,12 @@ h1 {
   padding: var(--space-1);
   position: absolute;
   z-index: 10;
+}
+
+.cms-block-add-menu[data-placement="below"] {
+  bottom: auto;
+  margin: var(--space-1) 0 0;
+  top: 100%;
 }
 
 .cms-block-add-menu[hidden] {

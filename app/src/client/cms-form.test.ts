@@ -1246,6 +1246,71 @@ describe("page block editor", () => {
       expect(document.activeElement).toBe(addItem("prose"));
     });
 
+    // happy-dom reports no layout, so the geometry the placement reads is
+    // stubbed on the elements themselves; the menu's own height is a rect
+    // height, which is what the browser would report.
+    const stubRect = (element: Element, rect: Partial<DOMRect>): void => {
+      element.getBoundingClientRect = () =>
+        ({
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: 0,
+          height: 0,
+          toJSON: () => ({}),
+          ...rect,
+        }) as DOMRect;
+    };
+
+    /** A sticky nav across the top of the viewport. */
+    const topBar = (bottom: number, width = window.innerWidth): void => {
+      const nav = document.createElement("nav");
+      nav.setAttribute("data-component", "nav");
+      nav.style.position = "sticky";
+      document.body.append(nav);
+      stubRect(nav, { bottom, height: bottom, width });
+    };
+
+    test("opens below when the top bar leaves less room than the menu", () => {
+      topBar(64);
+      stubRect(menu(), { height: 200 });
+      stubRect(addToggle(), { top: 100 });
+
+      openAddMenu();
+
+      expect(menu().getAttribute("data-placement")).toBe("below");
+    });
+
+    test("opens above when there is room, and clears a previous below", () => {
+      topBar(64);
+      stubRect(menu(), { height: 200 });
+      stubRect(addToggle(), { top: 100 });
+      openAddMenu();
+      expect(menu().getAttribute("data-placement")).toBe("below");
+
+      click(addToggle());
+      stubRect(addToggle(), { top: 500 });
+      openAddMenu();
+
+      expect(menu().hasAttribute("data-placement")).toBe(false);
+    });
+
+    test("a sticky side rail is not a top bar", () => {
+      // At wide widths the nav is sticky and full height but spans a column,
+      // not the viewport. Counting its bottom as the floor would open the menu
+      // below at every width.
+      topBar(window.innerHeight, 200);
+      stubRect(menu(), { height: 200 });
+      stubRect(addToggle(), { top: 500 });
+
+      openAddMenu();
+
+      expect(menu().hasAttribute("data-placement")).toBe(false);
+    });
+
     test("Enter on a focused item picks it", () => {
       openAddMenu();
       key(addItem("prose"), "Enter");
