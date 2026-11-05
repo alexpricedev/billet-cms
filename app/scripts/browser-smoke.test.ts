@@ -866,6 +866,94 @@ describe("browser smoke", () => {
     await view.resize(1280, 900);
   });
 
+  // The Add block menu opens upward by default. On a phone with Add block near
+  // the top of the screen, upward would put its first items behind the sticky
+  // nav, where a real tap hits the nav's logo link instead (PR #129). The
+  // client measures the room between the bar and the button and opens the menu
+  // below when that is shorter than the menu. Only a real engine has sticky
+  // positioning and the rects the measurement reads, so this proves it here
+  // rather than in happy-dom.
+  test("the Add block menu opens clear of the nav on a phone", async () => {
+    await view.resize(390, 844);
+    await goto(`${CMS_BASE}/cms/pages/${pageId}`);
+    await until(
+      () =>
+        view.evaluate<boolean>(
+          `document.querySelector("[data-block-add-toggle]") !== null`,
+        ),
+      (present) => present,
+    );
+
+    // Put Add block 60px from the top, with the 56px nav over the page above
+    // it — the position the bug was reported at. The page's settings run well
+    // below the button, so there is room to scroll it up there.
+    await view.evaluate(
+      `(() => {
+        const toggle = document.querySelector("[data-block-add-toggle]");
+        const top = toggle.getBoundingClientRect().top + window.scrollY;
+        window.scrollTo(
+          0,
+          Math.max(
+            0,
+            Math.min(
+              document.documentElement.scrollHeight - window.innerHeight,
+              top - 60,
+            ),
+          ),
+        );
+      })()`,
+    );
+
+    // Un-hide the menu by pressing the toggle. Click through the DOM:
+    // `view.click` scrolls the target into "actionable" reach first, which
+    // would move the button away from the position being measured.
+    await view.evaluate(
+      `document.querySelector("[data-block-add-toggle]").click()`,
+    );
+
+    const measured = await until(
+      () =>
+        view.evaluate<{
+          navBottom: number;
+          placement: string | null;
+          items: { label: string; top: number }[];
+        } | null>(
+          `(() => {
+            const nav = document.querySelector('[data-component="nav"]');
+            const menu = document.querySelector("[data-block-add-menu]");
+            if (!nav || !menu || menu.hidden) return null;
+            const items = Array.from(
+              menu.querySelectorAll("[data-block-add]"),
+            )
+              .filter((item) => !item.hidden)
+              .map((item) => ({
+                label: item.textContent.trim(),
+                top: Math.round(item.getBoundingClientRect().top),
+              }));
+            if (items.length === 0) return null;
+            return {
+              navBottom: Math.round(nav.getBoundingClientRect().bottom),
+              placement: menu.getAttribute("data-placement"),
+              items,
+            };
+          })()`,
+        ),
+      (value) => value !== null,
+    );
+
+    expect(measured).not.toBeNull();
+    // There is less room above than the menu needs, so the client must have
+    // chosen below rather than let the first item land under the bar.
+    expect(measured?.placement).toBe("below");
+    expect(measured?.items.length).toBeGreaterThan(0);
+    for (const item of measured?.items ?? []) {
+      expect(item.top).toBeGreaterThanOrEqual(measured?.navBottom ?? 0);
+    }
+
+    // The view is shared by every test in the file: put it back.
+    await view.resize(1280, 900);
+  });
+
   test("a published slot renders on the site within seconds", async () => {
     // Continues signed in from above; the save left a draft whose heading is
     // "Hero heading from the smoke test".
