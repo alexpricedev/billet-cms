@@ -1113,7 +1113,7 @@ describe("browser smoke", () => {
 
     await until(
       () => layout(),
-      (value) => value?.copyVisible,
+      (value) => value?.copyVisible === true,
     );
 
     // Phone: the token takes the row's width and Copy sits under it.
