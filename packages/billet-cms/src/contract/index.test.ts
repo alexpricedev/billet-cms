@@ -24,6 +24,12 @@ describe("CONTRACT_VERSION", () => {
   test("is set and looks like a version", () => {
     expect(CONTRACT_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
+
+  // Phase 12 added `cms_page_sections`; an older CMS cannot store what a newer
+  // site publishes, so both sides move together.
+  test("is the Phase 12 version", () => {
+    expect(CONTRACT_VERSION).toBe("0.12.0");
+  });
 });
 
 describe("CMS_SIGN_IN_PATH", () => {
@@ -61,6 +67,7 @@ describe("TABLES", () => {
       blockTypes: "cms_block_types",
       pageTypes: "cms_page_types",
       slots: "cms_slots",
+      pageSections: "cms_page_sections",
       revisions: "cms_revisions",
       handoffTokens: "cms_handoff_tokens",
       pages: "cms_pages",

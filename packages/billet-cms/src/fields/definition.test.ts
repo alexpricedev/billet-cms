@@ -7,6 +7,7 @@ import {
   pageType,
   pageTypeContentSchema,
   pageTypeStoredSchema,
+  section,
   slot,
 } from "./definition";
 import { richText, text } from "./field";
@@ -298,6 +299,81 @@ describe("pageType", () => {
     expect(relabelled.schemaHash).not.toBe(plain.schemaHash);
     expect(helped.schemaHash).not.toBe(plain.schemaHash);
     expect(relabelled.label).toBe("Landing page");
+  });
+});
+
+describe("section", () => {
+  test("records the name, label and path patterns", () => {
+    expect(
+      section("case-studies", {
+        label: "Case studies",
+        paths: ["/case-study-*"],
+      }),
+    ).toEqual({
+      kind: "section",
+      name: "case-studies",
+      label: "Case studies",
+      paths: ["/case-study-*"],
+    });
+  });
+
+  test("leaves the label absent, so the CMS can humanise the name", () => {
+    const definition = section("journal", {
+      paths: ["/journal", "/journal/**"],
+    });
+
+    expect(definition.label).toBeUndefined();
+    expect(definition.paths).toEqual(["/journal", "/journal/**"]);
+  });
+
+  test("accepts every wildcard form a path pattern allows", () => {
+    for (const path of [
+      "/",
+      "/journal",
+      "/journal/**",
+      "/case-study-*",
+      "/*",
+      "/**",
+      "/blog/*/comments",
+    ]) {
+      expect(() => section("journal", { paths: [path] })).not.toThrow();
+    }
+  });
+
+  test("requires a non-empty array of paths", () => {
+    // @ts-expect-error paths is required.
+    expect(() => section("journal", {})).toThrow(/non-empty array of paths/);
+    expect(() => section("journal", { paths: [] })).toThrow(
+      /non-empty array of paths/,
+    );
+    // @ts-expect-error a single string is not an array of paths.
+    expect(() => section("journal", { paths: "/journal" })).toThrow(
+      /non-empty array of paths/,
+    );
+  });
+
+  // The patterns are matched against page URLs, which are site paths, so one
+  // that could never be a page URL is refused where it is declared.
+  test("refuses a path pattern that isn't a same-origin site path", () => {
+    for (const path of [
+      "journal",
+      "https://evil.example/*",
+      "//evil.example/**",
+      "/\\evil.example",
+      "",
+    ]) {
+      expect(() => section("journal", { paths: [path] })).toThrow(
+        /invalid path pattern/,
+      );
+    }
+  });
+
+  test("refuses an invalid section name", () => {
+    for (const name of ["Journal", "1journal", "journal posts", "héro", ""]) {
+      expect(() => section(name, { paths: ["/journal"] })).toThrow(
+        /Invalid section name/,
+      );
+    }
   });
 });
 
