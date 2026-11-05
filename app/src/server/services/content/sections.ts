@@ -70,7 +70,11 @@ const escapeRegExp = (char: string): string =>
  * `/case-study/harbour`, while `/journal/**` covers everything under
  * `/journal` — although, with the slash it demands, not `/journal` itself.
  */
-export const matchesPattern = (pattern: string, url: string): boolean => {
+export const matchesPattern = (pattern: string, url: string): boolean =>
+  compilePattern(pattern).test(url);
+
+/** Compile one pattern once; `groupPages` reuses these across every page. */
+const compilePattern = (pattern: string): RegExp => {
   let source = "^";
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index];
@@ -83,7 +87,7 @@ export const matchesPattern = (pattern: string, url: string): boolean => {
       source += escapeRegExp(char);
     }
   }
-  return new RegExp(`${source}$`).test(url);
+  return new RegExp(`${source}$`);
 };
 
 export interface PageGroup {
@@ -122,10 +126,16 @@ export const groupPages = (
     pages: [] as PageRecord[],
   }));
 
+  // Compile each section's patterns once, not once per page: the Pages list
+  // can hold a few hundred pages and several sections.
+  const sectionPatterns = liveSections.map((section) =>
+    section.paths.map(compilePattern),
+  );
+
   const byPageType = new Map<string, PageRecord[]>();
   for (const page of pages) {
-    const index = liveSections.findIndex((section) =>
-      section.paths.some((pattern) => matchesPattern(pattern, page.url)),
+    const index = sectionPatterns.findIndex((patterns) =>
+      patterns.some((pattern) => pattern.test(page.url)),
     );
     if (index === -1) {
       const existing = byPageType.get(page.pageType);

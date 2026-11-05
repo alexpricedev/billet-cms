@@ -359,12 +359,25 @@ describe("section", () => {
       "journal",
       "https://evil.example/*",
       "//evil.example/**",
+      "/journal//**",
       "/\\evil.example",
       "",
     ]) {
       expect(() => section("journal", { paths: [path] })).toThrow(
         /invalid path pattern/,
       );
+    }
+  });
+
+  test("refuses a label that is not a non-empty string", () => {
+    for (const label of ["", "   ", 5, null]) {
+      expect(() =>
+        section("journal", {
+          paths: ["/journal"],
+          // @ts-expect-error the label must be a string.
+          label,
+        }),
+      ).toThrow(/non-empty label/);
     }
   });
 

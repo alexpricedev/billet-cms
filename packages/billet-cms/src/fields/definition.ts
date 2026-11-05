@@ -309,6 +309,13 @@ export const section = (
       `Section "${name}" must declare a non-empty array of paths`,
     );
   }
+  const label = options.label;
+  if (
+    label !== undefined &&
+    (typeof label !== "string" || label.trim() === "")
+  ) {
+    throw new Error(`Section "${name}" must have a non-empty label`);
+  }
 
   for (const path of paths) {
     // The CMS matches these against page URLs, which are site paths, so a
@@ -317,8 +324,8 @@ export const section = (
     if (typeof path !== "string" || sameOriginPathPattern(path) === null) {
       throw new Error(
         `Section "${name}" has an invalid path pattern ${JSON.stringify(path)}: ` +
-          'it must be a same-origin path starting with "/" (not "//" and ' +
-          "without a backslash)",
+          'it must be a same-origin path starting with "/" (without "//" or ' +
+          "a backslash)",
       );
     }
   }
@@ -327,7 +334,7 @@ export const section = (
     kind: "section",
     name,
     paths,
-    ...(options.label !== undefined ? { label: options.label } : {}),
+    ...(label !== undefined ? { label } : {}),
   };
 };
 

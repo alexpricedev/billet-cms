@@ -16,21 +16,26 @@
  * that pointed off-site would group nothing, and the declaration should say so
  * rather than store a row the Pages list can never match.
  */
-const sameOriginPathLike = (value: string): string | null => {
+export const sameOriginPath = (value: string): string | null => {
   if (!value.startsWith("/")) return null;
   if (value.startsWith("//")) return null;
   if (value.includes("\\")) return null;
   return value;
 };
 
-/** A path the browser will follow on the site, or `null`. */
-export const sameOriginPath = sameOriginPathLike;
-
 /**
  * A site path pattern a `section()` matches page URLs against, or `null`.
  *
  * `*` (within one path segment) and `**` (across any number of them) are
  * ordinary characters to this check; everything else is literal. The rule is
- * the one a followed path carries, because both name a location on this site.
+ * the one a followed path carries, because both name a location on this site,
+ * plus one of its own: `//` is refused anywhere in the pattern, not only at the
+ * start. An empty segment can never appear in a page URL, so `/journal//**`
+ * would be a pattern that cannot match and a section that silently groups
+ * nothing.
  */
-export const sameOriginPathPattern = sameOriginPathLike;
+export const sameOriginPathPattern = (value: string): string | null => {
+  if (sameOriginPath(value) === null) return null;
+  if (value.includes("//")) return null;
+  return value;
+};
