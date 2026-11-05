@@ -1,8 +1,8 @@
 /**
  * The definitions the e2e site declares and publishes on deploy.
  *
- * This is the "site code" half of the contract: a block, a slot and a page type,
- * written with the plugin's field vocabulary. Deploying is
+ * This is the "site code" half of the contract: blocks, slots, page types and
+ * sections, written with the plugin's field vocabulary. Deploying is
  * `publish(sql, siteDefinitions)` — the same call `bunx billet-cms-publish`
  * makes (see `e2e/e2e.test.ts`) — after which the CMS builds its form from the
  * published metadata and never imports this file.
@@ -15,6 +15,7 @@ import {
   list,
   pageType,
   richText,
+  section,
   slot,
   text,
 } from "../packages/billet-cms/src/fields/index.ts";
@@ -134,8 +135,26 @@ export const article = pageType("article", {
   requiredBlocks: [textBlock],
 });
 
+/**
+ * Two sections over the fixture site's pages, so the Pages list shows both
+ * kinds of grouping: `/work` and any future `/case-study-…` page under "Case
+ * studies", the journal and its article pages under "Journal", and `/about`
+ * left over under its page type ("Landing").
+ */
+export const sections = [
+  section("case-studies", {
+    label: "Case studies",
+    paths: ["/case-study-*", "/work"],
+  }),
+  section("journal", {
+    label: "Journal",
+    paths: ["/journal", "/journal/**", "/draft-*", "/long-title"],
+  }),
+];
+
 export const siteDefinitions = {
   blocks: [hero, textBlock, gallery, quote, cta, steps, banner],
   slots: [homeHero, footerCta],
   pageTypes: [landing, article],
+  sections,
 };

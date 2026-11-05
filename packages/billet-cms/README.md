@@ -1,9 +1,9 @@
 # @alexpricedev/billet-cms
 
 The block plugin a [Billet](https://github.com/alexpricedev/Billet) site installs, and the contract the site and the
-`billet-cms` service share. A site declares its blocks, slots and page types
-with the field vocabulary and publishes them on deploy; the CMS service reads
-those rows and never imports site code.
+`billet-cms` service share. A site declares its blocks, slots, page types and
+sections with the field vocabulary and publishes them on deploy; the CMS service
+reads those rows and never imports site code.
 
 ```ts
 import { block, group, list, slot, text } from "@alexpricedev/billet-cms/fields";
@@ -31,6 +31,34 @@ so changing it takes a deploy.
 The render function is optional, for a site that keeps its markup next to the
 declaration. Nothing in this package calls it — the CMS builds its form from the
 published metadata — so a site that renders in templates should leave it out.
+
+## Sections
+
+Sections are the headings the CMS's Pages list groups pages under. Declare them
+in `cms.config.ts` beside the page types, and publish them with the rest of the
+definitions:
+
+```ts
+import { section } from "@alexpricedev/billet-cms/fields";
+
+export const sections = [
+  section("case-studies", { label: "Case studies", paths: ["/case-study-*"] }),
+  section("journal", { label: "Journal", paths: ["/journal", "/journal/**"] }),
+];
+```
+
+`paths` is required and non-empty. A pattern is a site path: `*` matches within
+one segment (`/case-study-*` matches `/case-study-one` but not
+`/case-study/one`), `**` matches any number of segments (`/journal/**` matches
+`/journal/2026/tides`), and everything else is literal. A page joins the first
+section, in declaration order, whose pattern matches its URL. Pages matching no
+section are grouped under their page type's label, so a site that declares no
+sections groups the whole list by page type. `label` is optional and falls back
+to the humanised name.
+
+A section with no matching pages is not shown. Removing a section from the
+config, or removing a page's last matching section, leaves it to its page type on
+the next publish.
 
 ## Reading published content on the site
 
@@ -207,14 +235,15 @@ bun add @alexpricedev/billet-cms zod
 the site runs in `package.json` — and a package manager that does not
 auto-install peers leaves it out, and the server will not boot without it.
 
-1. **Declare the site's blocks, slots and page types** in a `cms.config.ts`.
-   Export the arrays by name (or from a default export):
+1. **Declare the site's blocks, slots, page types and sections** in a
+   `cms.config.ts`. Export the arrays by name (or from a default export):
 
    ```ts
    import {
      block,
      image,
      pageType,
+     section,
      slot,
      text,
    } from "@alexpricedev/billet-cms/fields";
@@ -230,10 +259,15 @@ auto-install peers leaves it out, and the server will not boot without it.
      allowedBlocks: [hero],
      limits: { hero: { max: 1 } },
    });
+   export const caseStudies = section("case-studies", {
+     label: "Case studies",
+     paths: ["/case-study-*"],
+   });
 
    export const blocks = [hero];
    export const slots = [homeHero];
    export const pageTypes = [landing];
+   export const sections = [caseStudies];
    ```
 
 2. **Publish on deploy**, after the CMS is up (see the deploy order below):

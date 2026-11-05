@@ -25,6 +25,7 @@ import { createPage } from "../src/server/services/content";
 import {
   seedBlockType,
   seedPageType,
+  seedSection,
   seedSlot,
 } from "../src/server/test-utils/content";
 import {
@@ -401,6 +402,12 @@ const landing: PageTypeDefinition = pageType("landing", {
   allowedBlocks: [hero],
 });
 
+// A second page type, so the Pages list has a page-type group after a section
+// group and the spacing check has a heading after the first to measure.
+const article: PageTypeDefinition = pageType("article", {
+  allowedBlocks: [hero],
+});
+
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required (run via bun run test:browser)");
@@ -479,6 +486,15 @@ beforeAll(async () => {
   // measure. `createPage` is the same service the New page form calls, so the
   // row is what a real page create leaves behind.
   await seedPageType(sql, landing);
+  await seedPageType(sql, article);
+  // A section over the first page, so the Pages list exercises both kinds of
+  // group: one section, then the page-type fallbacks.
+  await seedSection(sql, {
+    name: "studio",
+    label: "Studio",
+    paths: ["/smoke-page"],
+    position: 0,
+  });
   const created = await createPage({
     pageType: "landing",
     url: "/smoke-page",
@@ -486,6 +502,15 @@ beforeAll(async () => {
   });
   if (!created.ok) throw new Error("page seed failed");
   pageId = created.page.id;
+  // Two more pages in two page-type groups, so the spacing check has more than
+  // one group heading after the first.
+  for (const page of [
+    { pageType: "article", url: "/smoke-article", title: "Smoke article" },
+    { pageType: "landing", url: "/smoke-other", title: "Smoke other page" },
+  ]) {
+    const result = await createPage(page);
+    if (!result.ok) throw new Error(`page seed failed for ${page.url}`);
+  }
 
   // The site's reader, over the same shared pool. The stand-in site renders
   // through it, so the smoke run exercises the real read path end to end.
@@ -644,6 +669,74 @@ describe("browser smoke", () => {
       "document.styleSheets.length",
     );
     expect(styleSheets).toBeGreaterThan(0);
+  });
+
+  test("the Pages list spaces every group heading from the group above", async () => {
+    // Continues signed in from the journey above. Three groups in display
+    // order: the seeded section, then the page-type fallbacks.
+    await goto(`${CMS_BASE}/cms/pages`);
+
+    // For every group heading after the first, the gap from the previous
+    // group's last card to the heading, and the gap from the heading to its
+    // own first card.
+    const measure = () =>
+      view.evaluate<{
+        width: number;
+        pairs: { above: number; below: number }[];
+      }>(
+        `(() => {
+          const groups = Array.from(
+            document.querySelectorAll(".cms-page-group"),
+          );
+          return {
+            width: window.innerWidth,
+            pairs: groups
+              .slice(1)
+              .map((group, index) => {
+                const cards = groups[index].querySelectorAll(
+                  ".cms-page-list-item",
+                );
+                const lastCard = cards[cards.length - 1];
+                const heading = group.querySelector(
+                  ".cms-page-group-heading",
+                );
+                const firstCard = group.querySelector(
+                  ".cms-page-list-item",
+                );
+                if (!lastCard || !heading || !firstCard) return null;
+                const above =
+                  heading.getBoundingClientRect().top -
+                  lastCard.getBoundingClientRect().bottom;
+                const below =
+                  firstCard.getBoundingClientRect().top -
+                  heading.getBoundingClientRect().bottom;
+                return {
+                  above: Math.round(above * 100) / 100,
+                  below: Math.round(below * 100) / 100,
+                };
+              })
+              .filter(Boolean),
+          };
+        })()`,
+      );
+
+    for (const [width, height] of [
+      [390, 844],
+      [1280, 900],
+    ] as const) {
+      await view.resize(width, height);
+      const measured = await until(
+        measure,
+        (value) => value.width === width && value.pairs.length === 2,
+      );
+      for (const pair of measured.pairs) {
+        // `--space-8` (32px) above a later heading, and at least twice the
+        // 12px below it, so the heading reads as the start of the group that
+        // follows rather than the end of the one above.
+        expect(pair.above).toBeGreaterThanOrEqual(32);
+        expect(pair.above).toBeGreaterThanOrEqual(pair.below * 2);
+      }
+    }
   });
 
   test("the client bundle runs the nav script", async () => {
