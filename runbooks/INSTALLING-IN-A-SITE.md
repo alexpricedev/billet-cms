@@ -172,6 +172,13 @@ Add it to the site's scripts so the deploy command is one line:
 "cms:publish": "billet-cms-publish"
 ```
 
+If your host has a pre-deploy step (Railway's `preDeployCommand`, Render's
+pre-deploy command, Fly's `release_command`), put `bun run cms:publish` there,
+next to the site's own migrations. It then runs once per deploy, before the new
+build takes traffic, and a failed publish (wrong deploy order, mismatched
+contract versions) stops the deploy instead of shipping a site whose
+definitions never reached the CMS.
+
 Two failures it reports by name: the CMS hasn't set the database up yet (deploy
 order), and the contract versions disagree (upgrade the side it names). Anything
 else is printed with its stack, because an operator reading a deploy log needs
