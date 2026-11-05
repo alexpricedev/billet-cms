@@ -1,5 +1,9 @@
 import { humanise } from "./humanise";
 
+/** `fullImage` reads as two words; `humanise` handles `.`, `_` and `-`. */
+const splitCamelCase = (name: string) =>
+  name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+
 /**
  * A block type in an editor's words: its label, else its name humanised.
  *
@@ -8,4 +12,4 @@ import { humanise } from "./humanise";
  * real state and must read as `fullImage` → "Full image", never as a blank.
  */
 export const blockLabel = (blockType: { label: string; name: string }) =>
-  blockType.label || humanise(blockType.name);
+  blockType.label || humanise(splitCamelCase(blockType.name));
