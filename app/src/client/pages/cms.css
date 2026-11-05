@@ -1384,10 +1384,11 @@ h1 {
   margin-top: var(--space-1);
 }
 
-/* Export: the one-time token gets its own row so Copy sits beside it. `code`
-   already wraps anywhere (base.css), which is what keeps a 43-character string
-   inside a phone's width; `min-width: 0` lets the flex item actually shrink to
-   that wrapped width. The button ships hidden and `copy-token.ts` reveals it. */
+/* Export: the one-time token and Copy share a row; the 640px block below stacks
+   Copy under a full-width token. `code` already wraps anywhere (base.css), which
+   is what keeps a 43-character string inside a phone's width; `min-width: 0`
+   lets the flex item actually shrink to that wrapped width. The button ships
+   hidden and `copy-token.ts` reveals it. */
 .cms-token-row {
   align-items: baseline;
   display: flex;
