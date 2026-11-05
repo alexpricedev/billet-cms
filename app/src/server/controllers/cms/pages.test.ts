@@ -482,6 +482,76 @@ describe("Pages controller", () => {
       expect(addAreaHidden(two)).toBe(true);
     });
 
+    // Migration 021 left existing rows with an empty label until the site
+    // republishes; the editor reads the humanised name in every place the
+    // label would appear, never a blank.
+    test("an empty label reads as the humanised name", async () => {
+      await seedBlockType(db, quote);
+      await seedPageType(db, article);
+      await db`UPDATE cms_block_types SET label = '' WHERE name = 'quote'`;
+      const html = await withBlocks("article", [
+        { type: "quote", body: document },
+      ]);
+      expect(menuLabels(html)).toEqual(["Quote"]);
+      expect(html).toContain("<code>Quote</code>");
+      expect(html).not.toContain("<code></code>");
+      expect(html).toContain('aria-label="Move the Quote block up"');
+      expect(html).toContain('aria-label="Remove the Quote block"');
+    });
+
+    // The editor also says *why* the names aren't the site's own, so a site
+    // that is a release behind knows the fix is a redeploy. It is the page's
+    // state, not the result of an action, so there is no ×.
+    test("a missing block name raises a warning with no dismissal", async () => {
+      await seedBlockType(db, quote);
+      await seedPageType(db, article);
+      await db`UPDATE cms_block_types SET label = '' WHERE name = 'quote'`;
+      const created = await createPage({
+        pageType: "article",
+        url: "/article",
+        title: "Article",
+      });
+      if (!created.ok) throw new Error("create failed");
+
+      const html = await formHtml(created.page.id);
+      expect(html).toContain(
+        '<p class="flash-title">Block names are missing. Redeploy the site to publish them.</p>',
+      );
+      expect(html).not.toContain("data-flash-dismiss");
+    });
+
+    test("the missing-name warning stays away when every name is published", async () => {
+      await seedBlockType(db, quote);
+      await seedPageType(db, article);
+      const created = await createPage({
+        pageType: "article",
+        url: "/article",
+        title: "Article",
+      });
+      if (!created.ok) throw new Error("create failed");
+
+      const html = await formHtml(created.page.id);
+      expect(html).not.toContain("Block names are missing");
+    });
+
+    test("a removed block type with no name does not raise the warning", async () => {
+      await seedBlockType(db, quote);
+      await seedPageType(db, article);
+      await db`
+        UPDATE cms_block_types SET label = '', removed_at = NOW()
+        WHERE name = 'quote'
+      `;
+      const created = await createPage({
+        pageType: "article",
+        url: "/article",
+        title: "Article",
+      });
+      if (!created.ok) throw new Error("create failed");
+
+      const html = await formHtml(created.page.id);
+      expect(html).not.toContain("Block names are missing");
+    });
+
     test("block legends use the type's label, never its slug", async () => {
       await seedBlockType(db, quote);
       await seedPageType(db, article);
@@ -1272,6 +1342,58 @@ describe("Pages controller", () => {
     // The block type's slug is never the name the editor reads.
     expect(html).not.toContain("Block 2 (banner)");
     expect(html).not.toContain("Block 1 (");
+    expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
+  });
+
+  // The same line reads the humanised name when the label is missing, so a
+  // CMS newer than its site never shows "Block 2 (): Photo".
+  test("names an empty-label block by its humanised name in a field issue", async () => {
+    const wall = block(
+      "photo_wall",
+      { label: "Photo gallery" },
+      { photo: image({ label: "Photo" }) },
+      () => null,
+    );
+    await seedBlockType(db, wall);
+    await db`UPDATE cms_block_types SET label = '' WHERE name = 'photo_wall'`;
+    await seedPageType(db, pageType("walls", { allowedBlocks: [hero, wall] }));
+    const created = await createPage({
+      pageType: "walls",
+      url: "/walls",
+      title: "Walls",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const pageId = created.page.id;
+
+    const res = await pages.save(
+      await post(
+        `/cms/pages/${pageId}`,
+        {
+          pageType: "walls",
+          url: "/walls",
+          title: "Walls",
+          content: JSON.stringify({
+            blocks: [
+              {
+                type: "hero",
+                heading: "Hi",
+                body: { type: "doc", content: [] },
+              },
+              { type: "photo_wall", photo: { mediaId: "not-a-uuid" } },
+            ],
+          }),
+          base_revision: "",
+        },
+        `/cms/pages/${pageId}`,
+        { id: pageId },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Block 2 (Photo wall): Photo</a>");
+    expect(html).not.toContain("Block 2 (photo_wall)");
+    expect(html).not.toContain("Block 2 ():");
     expect(await db`SELECT id FROM cms_revisions`).toHaveLength(0);
   });
 

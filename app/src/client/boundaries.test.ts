@@ -88,7 +88,15 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // measures 15,135, so the old budget had no room for this. 15,300 keeps a few
 // lines' headroom; the number moving is still the signal, so raise it again
 // only with the same arithmetic written down.
-const CMS_FORM_BUNDLE_BUDGET_BYTES = 15_300;
+//
+// This rise, 15,300 → 15,700, is placing the Add block menu where it fits: on
+// open it measures the room between the sticky top bar (only when that bar
+// spans the viewport) and the button, and sets `data-placement="below"` when
+// the menu is taller than that room. It measures 15,586, so the old budget had
+// no room for this. 15,700 keeps a few lines' headroom; the number moving is
+// still the signal, so raise it again only with the same arithmetic written
+// down.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 15_700;
 
 // Minified bytes for the shared image picker, `image-picker.ts`, including the
 // `upload-shared.ts` it imports. It is 9,988 bytes at the time of writing,

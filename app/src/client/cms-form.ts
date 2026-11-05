@@ -585,11 +585,44 @@ const closeBlockAddMenu = (area: Element, returnFocus = false): void => {
 };
 
 /**
+ * The bottom of a sticky bar across the top of the viewport, or 0 when none.
+ *
+ * At narrow widths the app nav is a sticky top bar. At wide widths it is a
+ * full-height side rail: sticky, and starting at the top, but spanning a
+ * column rather than the viewport — it is not over the content, so it must not
+ * count as a floor, or the menu would open below at every width.
+ */
+const stickyTopBarBottom = (): number => {
+  // `body.clientWidth` rather than `innerWidth`: with a classic scrollbar the
+  // latter counts the gutter the bar does not cover.
+  const viewport = document.body.clientWidth || window.innerWidth;
+  for (const nav of Array.from(
+    document.querySelectorAll('[data-component="nav"]'),
+  )) {
+    const rect = nav.getBoundingClientRect();
+    const { position } = getComputedStyle(nav);
+    if (
+      (position === "sticky" || position === "fixed") &&
+      rect.width >= viewport - 1
+    ) {
+      return rect.bottom;
+    }
+  }
+  return 0;
+};
+
+/**
  * Open the menu on its first item.
  *
  * A type at its page-type maximum has been hidden by `syncBlockAdds`, so an
  * empty menu means nothing can be added: the toggle does nothing rather than
  * opening an empty panel.
+ *
+ * The menu opens upward unless the room between the sticky top bar and the
+ * button is shorter than the menu itself, in which case `data-placement="below"`
+ * drops it under the button instead. It is measured while un-hidden, but
+ * before focus(): focusing the first item scrolls it into view, and it is the
+ * room at the position the editor pressed from that matters.
  */
 const openBlockAddMenu = (area: Element): void => {
   const menu = blockAddMenu(area);
@@ -598,6 +631,12 @@ const openBlockAddMenu = (area: Element): void => {
   const items = blockAddItems(menu);
   if (items.length === 0) return;
   menu.hidden = false;
+  const room = toggle.getBoundingClientRect().top - stickyTopBarBottom();
+  if (room < menu.getBoundingClientRect().height) {
+    menu.setAttribute("data-placement", "below");
+  } else {
+    menu.removeAttribute("data-placement");
+  }
   toggle.setAttribute("aria-expanded", "true");
   items[0]?.focus();
 };

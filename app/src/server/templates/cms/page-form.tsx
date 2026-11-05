@@ -22,6 +22,7 @@ import type {
 import { normalisePageUrl } from "../../services/content/pages";
 import { SITE_NAME } from "../../services/seo";
 import type { User } from "../../services/users";
+import { blockLabel } from "../../utils/block-title";
 import { formatWhen } from "../../utils/format";
 import {
   previewReason,
@@ -139,10 +140,10 @@ const contentIssueField = (
     definition?.fields.find((candidate) => candidate.name === field)?.label ??
     field;
   // The block's human label, never its slug. A row written before labels were
-  // required may have none, and there is deliberately no fallback to the type
-  // name; the line then keeps only the field label.
-  const label = definition?.label
-    ? `Block ${index + 1} (${definition.label}): ${fieldLabel}`
+  // required may have none; `blockLabel` falls back to the humanised name until
+  // the site republishes.
+  const label = definition
+    ? `Block ${index + 1} (${blockLabel(definition)}): ${fieldLabel}`
     : fieldLabel;
   return { id: `cms-block-${index}-${type}-${field}`, label };
 };
@@ -310,6 +311,20 @@ export const PageForm = ({
 
   const uneditable = pageType === null;
 
+  // A site that predates labels has `label = ''` on every block type until it
+  // republishes (migration 021). The editor falls back to the humanised name
+  // (`blockLabel`), so nothing reads blank — but the names are not the site's
+  // own, and this banner says why. Removed types are excluded: they cannot be
+  // added, so they are not the editor's problem.
+  const blockNamesMissing =
+    pageType !== null &&
+    blockTypes.some(
+      (blockType) =>
+        blockType.removedAt === null &&
+        blockType.label === "" &&
+        pageType.allowedBlocks.includes(blockType.name),
+    );
+
   // The error banner lists every issue: a field links to its control, a whole
   // block links to the block, and an issue with neither (a page-limit rule, an
   // unreadable body) keeps its own message. The "Fix these N fields" line only
@@ -408,6 +423,13 @@ export const PageForm = ({
               content is kept.
             </>
           }
+        />
+      )}
+
+      {blockNamesMissing && (
+        <Flash
+          tone="warning"
+          title="Block names are missing. Redeploy the site to publish them."
         />
       )}
 
