@@ -63,6 +63,39 @@ export const seedSlot = async (
   return rows[0].id;
 };
 
+export interface SeedSectionInput {
+  name: string;
+  label?: string | null;
+  paths: string[];
+  position: number;
+  removed?: boolean;
+}
+
+/**
+ * Publish a section into `cms_page_sections` the way a site's deploy would.
+ *
+ * `paths` is the JSONB column; `unsafe` binds the plain array the way the
+ * publish step does, outside the tagged template the parameter guard checks.
+ */
+export const seedSection = async (
+  db: SQL,
+  input: SeedSectionInput,
+): Promise<string> => {
+  const rows = (await db.unsafe(
+    `INSERT INTO cms_page_sections (name, label, paths, position, removed_at)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [
+      input.name,
+      input.label ?? null,
+      input.paths,
+      input.position,
+      input.removed ? new Date() : null,
+    ],
+  )) as { id: string }[];
+  return rows[0].id;
+};
+
 /**
  * Publish a page type into `cms_page_types` the way a site's deploy would.
  *

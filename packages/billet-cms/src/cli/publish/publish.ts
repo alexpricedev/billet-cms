@@ -2,10 +2,10 @@
  * Publish a site's definitions into the CMS's tables on deploy.
  *
  * The site is the source of truth; the database is the runtime contract. This
- * runs once per deploy, writes the block types, page types and slots the site
- * declares, and marks anything a previous deploy declared but this one no
- * longer does as `removed_at` — never deleting it (Q4), so saved content keeps
- * pointing at a row and the CMS can flag what no longer validates.
+ * runs once per deploy, writes the block types, page types, slots and sections
+ * the site declares, and marks anything a previous deploy declared but this one
+ * no longer does as `removed_at` — never deleting it (Q4), so saved content
+ * keeps pointing at a row and the CMS can flag what no longer validates.
  *
  * Re-publishing the same definitions writes nothing: each stored document
  * carries a schema hash the next publish compares against, so an unchanged
@@ -18,6 +18,7 @@ import {
   blockStoredSchema,
   type PageTypeDefinition,
   pageTypeStoredSchema,
+  type SectionDefinition,
   type SlotDefinition,
 } from "../../fields";
 import { assertContractVersion, CmsNotSetUpError } from "./version";
@@ -27,6 +28,8 @@ export interface SiteDefinitions {
   blocks?: readonly BlockDefinitionShape[];
   slots?: readonly SlotDefinition[];
   pageTypes?: readonly PageTypeDefinition[];
+  /** Optional: a site that declares no sections still publishes. */
+  sections?: readonly SectionDefinition[];
 }
 
 /** What one publish did, for the CLI's summary and the tests' assertions. */
@@ -34,9 +37,11 @@ export interface PublishSummary {
   blocks: number;
   pageTypes: number;
   slots: number;
+  sections: number;
   removedBlocks: number;
   removedPageTypes: number;
   removedSlots: number;
+  removedSections: number;
   /** `cms_meta.content_version` after the publish. */
   contentVersion: number;
   /** False when every definition was already stored as-is. */
@@ -69,6 +74,12 @@ interface SlotRow extends DefinitionRow {
   help: string | null;
 }
 
+interface SectionRow extends DefinitionRow {
+  label: string | null;
+  paths: string[];
+  position: number;
+}
+
 interface SyncResult {
   changed: boolean;
   removed: number;
@@ -98,6 +109,7 @@ export const validateDefinitions = (definitions: SiteDefinitions): void => {
   checkKind(definitions.blocks, "block", "blocks");
   checkKind(definitions.pageTypes, "pageType", "pageTypes");
   checkKind(definitions.slots, "slot", "slots");
+  checkKind(definitions.sections, "section", "sections");
   assertUniqueNames(
     (definitions.blocks ?? []).map(({ name }) => name),
     "block type",
@@ -110,23 +122,30 @@ export const validateDefinitions = (definitions: SiteDefinitions): void => {
     (definitions.slots ?? []).map(({ name }) => name),
     "slot",
   );
+  assertUniqueNames(
+    (definitions.sections ?? []).map(({ name }) => name),
+    "section",
+  );
   assertBlocksResolve(definitions);
 };
 
 /**
- * Require the three collections to be present, and each one an array.
+ * Require the original three collections to be present, and each one an array.
  *
  * A site with no blocks must still export `blocks = []`: an absent key reads
  * the same as a config wired to the wrong module, and only the explicit empty
- * array says the site means it. A value that isn't an array is checked here
- * too, so a `blocks: {}` typo names itself instead of failing later as a
- * confusing "not iterable" from the validator below.
+ * array says the site means it. `sections` is the exception — it is optional,
+ * so an absent key means "no sections" and every page groups by type. A value
+ * that isn't an array is checked here too, so a `blocks: {}` typo names itself
+ * instead of failing later as a confusing "not iterable" from the validator
+ * below.
  */
 const assertCollections = (definitions: SiteDefinitions): void => {
   const collections = {
     blocks: definitions.blocks,
     pageTypes: definitions.pageTypes,
     slots: definitions.slots,
+    sections: definitions.sections,
   };
 
   for (const [name, value] of Object.entries(collections)) {
@@ -228,6 +247,7 @@ export const publish = async (
   const blocks = definitions.blocks ?? [];
   const pageTypes = definitions.pageTypes ?? [];
   const slots = definitions.slots ?? [];
+  const sections = definitions.sections ?? [];
 
   return await sql.begin(async (tx) => {
     const meta = await readMeta(tx);
@@ -239,9 +259,13 @@ export const publish = async (
     const blockResult = await syncBlockTypes(tx, blocks, removedAt);
     const pageTypeResult = await syncPageTypes(tx, pageTypes, removedAt);
     const slotResult = await syncSlots(tx, slots, removedAt);
+    const sectionResult = await syncSections(tx, sections, removedAt);
 
     const changed =
-      blockResult.changed || pageTypeResult.changed || slotResult.changed;
+      blockResult.changed ||
+      pageTypeResult.changed ||
+      slotResult.changed ||
+      sectionResult.changed;
     const contentVersion = changed
       ? await bumpContentVersion(tx)
       : Number(meta?.content_version ?? 0);
@@ -250,9 +274,11 @@ export const publish = async (
       blocks: blocks.length,
       pageTypes: pageTypes.length,
       slots: slots.length,
+      sections: sections.length,
       removedBlocks: blockResult.removed,
       removedPageTypes: pageTypeResult.removed,
       removedSlots: slotResult.removed,
+      removedSections: sectionResult.removed,
       contentVersion,
       changed,
     };
@@ -508,6 +534,69 @@ const syncSlots = async (
     TABLES.slots,
     existing,
     new Set(slots.map(({ name }) => name)),
+    removedAt,
+  );
+  return { changed: changed || removed > 0, removed };
+};
+
+/**
+ * A section has no schema hash: its row is just where it sits and what it
+ * matches, so a re-publish compares the stored values directly.
+ *
+ * `position` is the section's place in the config array. It is part of the
+ * comparison, so moving a section up or down rewrites its row and the Pages
+ * list follows the new order.
+ */
+const sectionMatches = (
+  row: SectionRow,
+  definition: SectionDefinition,
+  position: number,
+): boolean =>
+  (row.label ?? null) === (definition.label ?? null) &&
+  row.position === position &&
+  row.paths.length === definition.paths.length &&
+  row.paths.every((path, index) => path === definition.paths[index]);
+
+const syncSections = async (
+  tx: SQL,
+  sections: readonly SectionDefinition[],
+  removedAt: Date,
+): Promise<SyncResult> => {
+  const existing = (await tx.unsafe(
+    `SELECT name, label, paths, position, removed_at
+     FROM ${TABLES.pageSections}`,
+  )) as SectionRow[];
+
+  let changed = false;
+  for (const [position, definition] of sections.entries()) {
+    const current = existing.find((row) => row.name === definition.name);
+    if (current === undefined) {
+      await tx.unsafe(
+        `INSERT INTO ${TABLES.pageSections} (name, label, paths, position)
+         VALUES ($1, $2, $3, $4)`,
+        [definition.name, definition.label ?? null, definition.paths, position],
+      );
+      changed = true;
+    } else if (
+      !sectionMatches(current, definition, position) ||
+      current.removed_at !== null
+    ) {
+      await tx.unsafe(
+        `UPDATE ${TABLES.pageSections}
+         SET label = $1, paths = $2, position = $3, removed_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE name = $4`,
+        [definition.label ?? null, definition.paths, position, definition.name],
+      );
+      changed = true;
+    }
+  }
+
+  const removed = await markMissingRemoved(
+    tx,
+    TABLES.pageSections,
+    existing,
+    new Set(sections.map(({ name }) => name)),
     removedAt,
   );
   return { changed: changed || removed > 0, removed };

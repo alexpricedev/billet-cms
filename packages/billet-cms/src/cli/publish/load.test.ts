@@ -12,6 +12,10 @@ describe("loadDefinitions", () => {
     expect(definitions.blocks?.map(({ name }) => name)).toEqual(["hero"]);
     expect(definitions.slots?.map(({ name }) => name)).toEqual(["home.hero"]);
     expect(definitions.pageTypes?.map(({ name }) => name)).toEqual(["landing"]);
+    expect(definitions.sections?.map(({ name }) => name)).toEqual([
+      "case-studies",
+      "journal",
+    ]);
   });
 
   test("stops with the path when the config can't be imported", async () => {

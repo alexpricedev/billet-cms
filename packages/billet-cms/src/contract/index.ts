@@ -51,9 +51,13 @@ import { createHash } from "node:crypto";
  * `cms_block_types`, which the CMS reads it from): an older site publishes
  * documents without one, and the CMS has no human name to show for its blocks,
  * so both sides must move together. A label-only change also moves the schema
- * hash, so a redeploy that renames a block re-publishes it.
+ * hash, so a redeploy that renames a block re-publishes it. Phase 12 adds
+ * `cms_page_sections` (the URL-pattern sections a site's `sections` declares,
+ * which the Pages list groups pages under): the publish step writes them, so a
+ * site that declares sections needs a CMS with the table, and an older CMS
+ * cannot store what the newer site publishes.
  */
-export const CONTRACT_VERSION = "0.11.0";
+export const CONTRACT_VERSION = "0.12.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -187,9 +191,10 @@ export interface MediaVariant {
  * every signed-in page. One row per identity, created on the first save; no
  * row means the `system` default.
  *
- * `block_types`, `page_types` and `slots` hold what a site's deploy publishes:
- * the JSON Schema and field metadata the CMS builds its forms from, and the
- * page type rules (allowed blocks, required blocks, limits).
+ * `block_types`, `page_types`, `slots` and `page_sections` hold what a site's
+ * deploy publishes: the JSON Schema and field metadata the CMS builds its forms
+ * from, the page type rules (allowed blocks, required blocks, limits), and the
+ * URL-pattern sections the Pages list groups pages under.
  *
  * `revisions` is where every save lands: one immutable row per draft, keyed by
  * the page or slot it belongs to. `handoff_tokens` carries the single-use
@@ -231,6 +236,7 @@ export const TABLES = {
   blockTypes: "cms_block_types",
   pageTypes: "cms_page_types",
   slots: "cms_slots",
+  pageSections: "cms_page_sections",
   revisions: "cms_revisions",
   handoffTokens: "cms_handoff_tokens",
   pages: "cms_pages",

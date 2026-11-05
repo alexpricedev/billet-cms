@@ -70,6 +70,7 @@ const RESET_TABLES = [
   "cms_block_types",
   "cms_page_types",
   "cms_slots",
+  "cms_page_sections",
   "users",
 ] as const;
 
@@ -79,6 +80,7 @@ export const FIXTURE_TABLES = [
   "cms_block_types",
   "cms_page_types",
   "cms_slots",
+  "cms_page_sections",
   "cms_revisions",
   "cms_pages",
   "cms_redirects",
@@ -131,6 +133,7 @@ export const loadFixtures = async (options: LoadOptions): Promise<void> => {
     "cms_block_types",
     "cms_page_types",
     "cms_slots",
+    "cms_page_sections",
   ] as const;
   for (const [index, table] of definitionTables.entries()) {
     const names = (await sql.unsafe(

@@ -34,10 +34,14 @@ const describe = (summary: PublishSummary): string => {
     count(summary.blocks, "block type"),
     count(summary.pageTypes, "page type"),
     count(summary.slots, "slot"),
+    count(summary.sections, "section"),
   ].join(", ");
 
   const removedTotal =
-    summary.removedBlocks + summary.removedPageTypes + summary.removedSlots;
+    summary.removedBlocks +
+    summary.removedPageTypes +
+    summary.removedSlots +
+    summary.removedSections;
   const removed =
     removedTotal > 0
       ? ` Marked ${count(removedTotal, "definition")} removed.`

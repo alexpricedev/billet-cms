@@ -7,4 +7,5 @@ export * from "./preview";
 export * from "./publishing";
 export * from "./removed";
 export * from "./revisions";
+export * from "./sections";
 export * from "./slots";

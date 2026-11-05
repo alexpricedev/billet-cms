@@ -1,6 +1,6 @@
 /**
- * Blocks, slots and page types — the things a site declares in code and
- * publishes on deploy.
+ * Blocks, slots, page types and sections — the things a site declares in code
+ * and publishes on deploy.
  *
  * `render` is carried here so a site's templates can use the same definition
  * the publish step sees, but it is never serialised: the CMS builds its forms
@@ -18,7 +18,7 @@ import {
 import { type Field, readSchemaOf } from "./field";
 import { assertName, SLOT_NAME_PATTERN } from "./name";
 import { assertMinMax, assertNonNegativeInteger } from "./options";
-import { sameOriginPath } from "./path";
+import { sameOriginPath, sameOriginPathPattern } from "./path";
 
 export type BlockFields = Record<string, Field>;
 
@@ -262,6 +262,79 @@ export const pageType = (
     limits,
     ...(options.label !== undefined ? { label: options.label } : {}),
     ...(options.help !== undefined ? { help: options.help } : {}),
+  };
+};
+
+export interface SectionOptions {
+  /**
+   * The human name the CMS shows for this section ("Case studies"). Optional:
+   * the CMS falls back to the humanised name.
+   */
+  label?: string;
+  /**
+   * The site paths whose pages belong to this section. Required and non-empty.
+   *
+   * A pattern is a site path: `*` matches within one segment, `**` matches any
+   * number of segments, and everything else is literal. So `"/case-study-*"`
+   * covers `/case-study-one` but not `/case-study/one`, and `"/journal/**"`
+   * covers every page under `/journal`.
+   */
+  paths: readonly string[];
+}
+
+export interface SectionDefinition {
+  readonly kind: "section";
+  readonly name: string;
+  readonly label?: string;
+  readonly paths: readonly string[];
+}
+
+/**
+ * Define a section: a heading the Pages list groups pages under, chosen by URL
+ * pattern.
+ *
+ * The patterns are matched against a page's URL in the order the sections are
+ * declared, so a page belongs to the first section that matches it. A page that
+ * matches none falls back to its page type's heading.
+ */
+export const section = (
+  name: string,
+  options: SectionOptions,
+): SectionDefinition => {
+  assertName(name, "section");
+
+  const paths = options?.paths;
+  if (!Array.isArray(paths) || paths.length === 0) {
+    throw new Error(
+      `Section "${name}" must declare a non-empty array of paths`,
+    );
+  }
+  const label = options.label;
+  if (
+    label !== undefined &&
+    (typeof label !== "string" || label.trim() === "")
+  ) {
+    throw new Error(`Section "${name}" must have a non-empty label`);
+  }
+
+  for (const path of paths) {
+    // The CMS matches these against page URLs, which are site paths, so a
+    // pattern that could not be one — a bare host, `//host`, or a backslash the
+    // browser reads as one — is refused where it is written.
+    if (typeof path !== "string" || sameOriginPathPattern(path) === null) {
+      throw new Error(
+        `Section "${name}" has an invalid path pattern ${JSON.stringify(path)}: ` +
+          'it must be a same-origin path starting with "/" (without "//" or ' +
+          "a backslash)",
+      );
+    }
+  }
+
+  return {
+    kind: "section",
+    name,
+    paths,
+    ...(label !== undefined ? { label } : {}),
   };
 };
 

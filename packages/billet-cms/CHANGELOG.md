@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.6.0
+
+A site can declare **sections** — headings the CMS's Pages list groups pages
+under by URL pattern — and the contract version moves to `0.12.0`, so deploy the
+CMS and the site together.
+
+### Sections group the Pages list
+
+`section(name, { label?, paths })` declares a group in the site's `cms.config.ts`,
+beside its page types:
+
+```ts
+import { section } from "@alexpricedev/billet-cms/fields";
+
+export const sections = [
+  section("case-studies", { label: "Case studies", paths: ["/case-study-*"] }),
+  section("journal", { label: "Journal", paths: ["/journal", "/journal/**"] }),
+];
+```
+
+`paths` is required and non-empty. `*` matches within one segment and `**`
+matches any number of segments; everything else is literal. A page joins the
+first declared section whose pattern matches its URL, and a page that matches
+none stays under its page type's heading — so a site that declares no sections
+groups the list by page type, exactly as before. `label` is optional and falls
+back to the humanised name.
+
+The publish step writes the declarations to `cms_page_sections` (name, label,
+paths and position), marking a section it no longer finds `removed_at` and
+restoring one that comes back. The CMS ignores removed sections, and a group
+with no pages is not shown.
+
+**Deploy the CMS before the site.** The CMS's boot migration creates
+`cms_page_sections`; the contract version is `0.12.0`, so a site publishing
+sections against an older CMS is refused rather than writing to a table that
+does not exist. An older site against the new CMS is refused by the same check.
+
 ## 0.5.0
 
 Every block type carries a required human label, which the CMS shows instead of

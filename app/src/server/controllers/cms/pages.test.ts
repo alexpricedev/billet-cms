@@ -13,7 +13,11 @@ import {
 } from "@alexpricedev/billet-cms/fields";
 import { createMemoryStorage } from "@alexpricedev/billet-storage";
 import { createBunRequest } from "../../test-utils/bun-request";
-import { seedBlockType, seedPageType } from "../../test-utils/content";
+import {
+  seedBlockType,
+  seedPageType,
+  seedSection,
+} from "../../test-utils/content";
 import { testDatabase } from "../../test-utils/database";
 import { cleanupTestData, seedIdentity } from "../../test-utils/helpers";
 import { makeJpeg } from "../../test-utils/images";
@@ -80,6 +84,11 @@ const landing: PageTypeDefinition = pageType("landing", {
 // A page type whose allowed blocks a deploy can change out from under a saved
 // page — the flag review round 2 makes savable and publishable.
 const notes: PageTypeDefinition = pageType("notes", { allowedBlocks: [prose] });
+
+// A second page type so the list has two fallback groups to order.
+const article: PageTypeDefinition = pageType("article", {
+  allowedBlocks: [prose],
+});
 
 // A page type with an image field, so a save can name a media id the picker
 // then has to carry.
@@ -184,6 +193,87 @@ describe("Pages controller", () => {
     expect(html).toContain("New page");
     expect(html).toContain("About us");
     expect(html).toContain("/about");
+  });
+
+  test("groups the list under its sections, then page types", async () => {
+    await seedPageType(db, article);
+    await seedSection(db, {
+      name: "case-studies",
+      label: "Case studies",
+      paths: ["/case-study-*"],
+      position: 0,
+    });
+    await seedSection(db, {
+      name: "journal",
+      label: "Journal",
+      paths: ["/journal", "/journal/**"],
+      position: 1,
+    });
+    // A live section with no matching page must take no heading, and must not
+    // push the fallback groups down.
+    await seedSection(db, {
+      name: "careers",
+      label: "Careers",
+      paths: ["/careers/**"],
+      position: 2,
+    });
+
+    await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+    await createPage({
+      pageType: "landing",
+      url: "/case-study-harbour",
+      title: "Harbour",
+    });
+    await createPage({
+      pageType: "article",
+      url: "/journal/one",
+      title: "Tides",
+    });
+    await createPage({
+      pageType: "article",
+      url: "/notes",
+      title: "Working notes",
+    });
+
+    const res = await pages.index(get("/cms/pages"));
+    const html = await res.text();
+    const headings = [
+      ...html.matchAll(/<h2 class="cms-page-group-heading">([^<]*)<\/h2>/g),
+    ].map((match) => match[1]);
+
+    expect(headings).toEqual(["Case studies", "Journal", "Article", "Landing"]);
+    // Each page sits inside its own group, in URL order.
+    expect(html.indexOf("Harbour")).toBeLessThan(html.indexOf("Tides"));
+    expect(html.indexOf("Tides")).toBeLessThan(html.indexOf("Working notes"));
+    expect(html.indexOf("Working notes")).toBeLessThan(
+      html.indexOf("About us"),
+    );
+  });
+
+  test("groups every page by its page type when no sections are declared", async () => {
+    await seedPageType(db, article);
+    await createPage({
+      pageType: "article",
+      url: "/journal/one",
+      title: "Tides",
+    });
+    await createPage({
+      pageType: "landing",
+      url: "/about",
+      title: "About us",
+    });
+
+    const res = await pages.index(get("/cms/pages"));
+    const html = await res.text();
+    const headings = [
+      ...html.matchAll(/<h2 class="cms-page-group-heading">([^<]*)<\/h2>/g),
+    ].map((match) => match[1]);
+
+    expect(headings).toEqual(["Article", "Landing"]);
   });
 
   test("redirects an anonymous visitor to sign in", async () => {

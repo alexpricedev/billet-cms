@@ -211,7 +211,7 @@ beforeAll(async () => {
       cms_media, cms_redirects, cms_pages,
       cms_preview_tokens, cms_handoff_tokens, cms_revisions,
       cms_user_tokens, cms_sessions,
-      cms_block_types, cms_page_types, cms_slots
+      cms_block_types, cms_page_types, cms_slots, cms_page_sections
     RESTART IDENTITY CASCADE
   `;
   await sql`TRUNCATE TABLE users RESTART IDENTITY CASCADE`;
@@ -228,6 +228,7 @@ beforeAll(async () => {
   expect(summary.blocks).toBe(siteDefinitions.blocks.length);
   expect(summary.slots).toBe(siteDefinitions.slots.length);
   expect(summary.pageTypes).toBe(siteDefinitions.pageTypes.length);
+  expect(summary.sections).toBe(siteDefinitions.sections.length);
 
   // A `group` has to survive the trip through JSONB, not just the unit tests:
   // the CMS builds its form from this row and never imports site code, so a

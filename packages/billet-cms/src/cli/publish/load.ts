@@ -3,7 +3,8 @@
  *
  * A site declares its definitions in its own repo; the CMS never imports site
  * code. This is the one place the site's config crosses into the plugin, and it
- * is deliberately narrow: three named arrays, or a default export holding them.
+ * is deliberately narrow: three required named arrays (`blocks`, `pageTypes`,
+ * `slots`) and an optional `sections`, or a default export holding them.
  */
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -48,5 +49,6 @@ export const loadDefinitions = async (
     blocks: pick("blocks") as SiteDefinitions["blocks"],
     pageTypes: pick("pageTypes") as SiteDefinitions["pageTypes"],
     slots: pick("slots") as SiteDefinitions["slots"],
+    sections: pick("sections") as SiteDefinitions["sections"],
   };
 };
