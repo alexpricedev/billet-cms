@@ -2,6 +2,7 @@ import { Flash } from "../../components/flash";
 import { Layout } from "../../components/layouts";
 import { PageHeader } from "../../components/page-header";
 import type {
+  PageGroup,
   PageRecord,
   PageTypeRecord,
   RedirectRecord,
@@ -12,7 +13,10 @@ import type { User } from "../../services/users";
 export interface PagesListProps {
   user: User;
   navCsrfToken?: string;
+  /** Every page, for resolving the redirects list's titles. */
   pages: PageRecord[];
+  /** The pages under their section or page-type headings, in display order. */
+  groups: PageGroup[];
   pageTypes: PageTypeRecord[];
   redirects: RedirectRecord[];
   /** A one-line outcome shown above the list, e.g. after a delete. */
@@ -24,6 +28,7 @@ export const PagesList = ({
   user,
   navCsrfToken,
   pages,
+  groups,
   pageTypes,
   redirects,
   notice,
@@ -59,24 +64,34 @@ export const PagesList = ({
         No pages yet. Create one to add content the site serves at its own URL.
       </div>
     ) : (
-      <ul className="cms-page-list">
-        {pages.map((page) => (
-          <li key={page.id} className="cms-page-list-item">
-            <a className="cms-page-link" href={`/cms/pages/${page.id}`}>
-              {page.title}
-            </a>
-            <span className="cms-page-meta">
-              <code>{page.url}</code>
-              <span className="cms-page-type">{page.pageType}</span>
-              {page.publishedRevisionId ? (
-                <span className="cms-published-badge">Published</span>
-              ) : (
-                <span className="cms-draft-badge">Draft</span>
-              )}
-            </span>
-          </li>
+      <div className="cms-page-groups">
+        {groups.map((group) => (
+          <section
+            className="cms-page-group"
+            key={`${group.kind}-${group.key}`}
+          >
+            <h2 className="cms-page-group-heading">{group.label}</h2>
+            <ul className="cms-page-list">
+              {group.pages.map((page) => (
+                <li key={page.id} className="cms-page-list-item">
+                  <a className="cms-page-link" href={`/cms/pages/${page.id}`}>
+                    {page.title}
+                  </a>
+                  <span className="cms-page-meta">
+                    <code>{page.url}</code>
+                    <span className="cms-page-type">{page.pageType}</span>
+                    {page.publishedRevisionId ? (
+                      <span className="cms-published-badge">Published</span>
+                    ) : (
+                      <span className="cms-draft-badge">Draft</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
     )}
 
     <section className="cms-page">

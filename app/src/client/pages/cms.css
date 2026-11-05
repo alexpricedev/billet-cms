@@ -91,6 +91,22 @@ h1 {
 
 /* ---- Pages list -------------------------------------------------------- */
 
+/* A section or page-type heading starts its group: the gap above a later
+   heading (--space-8) is more than the gap to its own first card, so it reads
+   as the start of what follows rather than the end of what precedes. The first
+   group keeps the page's ordinary top spacing. */
+.cms-page-group + .cms-page-group {
+  margin-top: var(--space-8);
+}
+
+.cms-page-group-heading {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0 0 var(--space-3);
+}
+
 .cms-page-list li {
   align-items: center;
   background: var(--surface);

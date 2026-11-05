@@ -16,12 +16,14 @@ import {
   getPageTypeByName,
   getPageUsage,
   getRevisionById,
+  groupPages,
   listBlockTypes,
   listPageOptions,
   listPageRedirects,
   listPages,
   listPageTypes,
   listRedirects,
+  listSections,
   type PageBlock,
   type PageRecord,
   type PageSettingsInput,
@@ -489,9 +491,10 @@ export const pages = {
     const ctx = await getSessionContext(req);
     if (!ctx.user || !ctx.sessionId) return redirect("/sign-in");
 
-    const [pages, pageTypes, redirects] = await Promise.all([
+    const [pages, pageTypes, sections, redirects] = await Promise.all([
       listPages(),
       listPageTypes(),
+      listSections(),
       listRedirects(),
     ]);
 
@@ -511,6 +514,7 @@ export const pages = {
         user={ctx.user}
         navCsrfToken={navCsrfToken}
         pages={pages}
+        groups={groupPages(pages, sections, pageTypes)}
         pageTypes={pageTypes}
         redirects={redirects}
         notice={notice}
