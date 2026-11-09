@@ -35,7 +35,7 @@
     "migrate:create": "bun run src/server/database/cli.ts create"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.4",
+    "@biomejs/biome": "2.6.6",
     "@happy-dom/global-registrator": "^21.0.4",
     "@types/bun": "1.4.4",
     "@types/node": "^26.6.6",
@@ -48,7 +48,7 @@
     "@alexpricedev/billet-dialog": "^0.3.1",
     "@alexpricedev/billet-storage": "^0.1.0",
     "@modelcontextprotocol/server": "^2.4.0",
-    "preact": "^11.0.2",
+    "preact": "^11.2.0",
     "preact-render-to-string": "^6.8.2",
     "sharp": "0.35.5",
     "zod": "^4.6.7"
