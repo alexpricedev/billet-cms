@@ -650,7 +650,9 @@ describe("browser smoke", () => {
 
       // Leave the shared view as the tests below expect it: no touch
       // emulation, desktop size.
-      await view.cdp("Emulation.setEmitTouchEventsForMouse", { enabled: false });
+      await view.cdp("Emulation.setEmitTouchEventsForMouse", {
+        enabled: false,
+      });
       await view.cdp("Emulation.setTouchEmulationEnabled", { enabled: false });
       await view.resize(1280, 900);
     },
@@ -1046,6 +1048,130 @@ describe("browser smoke", () => {
     // The view is shared by every test in the file: put it back.
     await view.resize(1280, 900);
   });
+
+  // The block header's controls change shape only on a coarse pointer. The
+  // button's own box must stay the 44px target (an audit measures that box),
+  // while the pill drawn inside it is smaller, and the whole control must sit
+  // inside the 44px header band rather than overhang its bottom border.
+  // happy-dom has no media queries and the CSS unit test reads the source;
+  // only a real engine gives the laid-out boxes and the pseudo-element.
+  test.skipIf(process.platform === "darwin")(
+    "the block header's controls fit the band on a phone",
+    async () => {
+      // Navigate before resizing: the CDP target a fresh WebView resizes does
+      // not exist yet when this test runs alone.
+      await goto(`${CMS_BASE}/cms/pages/${pageId}`);
+      await view.resize(390, 844);
+      await view.cdp("Emulation.setTouchEmulationEnabled", {
+        enabled: true,
+        maxTouchPoints: 5,
+      });
+      await view.cdp("Emulation.setEmitTouchEventsForMouse", {
+        enabled: true,
+        configuration: "mobile",
+      });
+      await goto(`${CMS_BASE}/cms/pages/${pageId}`);
+      await until(
+        () =>
+          view.evaluate<boolean>(
+            `document.querySelector("[data-block-add-toggle]") !== null`,
+          ),
+        (present) => present,
+      );
+
+      // The page has no blocks yet; add the hero through the editor's own
+      // menu, which clones the server-rendered template into the form.
+      await view.evaluate(
+        `document.querySelector("[data-block-add-toggle]").click()`,
+      );
+      await view.evaluate(
+        `document.querySelector('[data-block-add="hero"]').click()`,
+      );
+
+      const measured = await until(
+        () =>
+          view.evaluate<{
+            bandTop: number;
+            bandBottom: number;
+            bandHeight: number;
+            actionsTop: number;
+            moves: number;
+            removes: number;
+            controls: {
+              height: number;
+              top: number;
+              bottom: number;
+              pillHeight: number;
+            }[];
+          } | null>(
+            `(() => {
+              const block = document.querySelector("[data-cms-block]");
+              const legend = block?.querySelector(".cms-block-legend");
+              const actions = block?.querySelector(".cms-block-actions");
+              if (!block || !legend || !actions) return null;
+              const band = legend.getBoundingClientRect();
+              const controls = Array.from(
+                actions.querySelectorAll(
+                  ".cms-block-move, .cms-block-remove",
+                ),
+              ).map((control) => {
+                const box = control.getBoundingClientRect();
+                return {
+                  height: Math.round(box.height),
+                  top: Math.round(box.top),
+                  bottom: Math.round(box.bottom),
+                  pillHeight: Math.round(
+                    Number.parseFloat(
+                      getComputedStyle(control, "::before").height,
+                    ),
+                  ),
+                };
+              });
+              return {
+                bandTop: Math.round(band.top),
+                bandBottom: Math.round(band.bottom),
+                bandHeight: Math.round(band.height),
+                actionsTop: Math.round(actions.getBoundingClientRect().top),
+                moves: actions.querySelectorAll(".cms-block-move").length,
+                removes: actions.querySelectorAll(".cms-block-remove").length,
+                controls,
+              };
+            })()`,
+          ),
+        (value) =>
+          value !== null &&
+          value.controls.length >= 3 &&
+          value.controls.every((control) => control.height === 44),
+        5_000,
+      );
+
+      expect(measured).not.toBeNull();
+      // The ticket asked for the header not to stretch: the band keeps its
+      // height and the controls fit inside it.
+      expect(measured?.bandHeight).toBe(44);
+      expect(measured?.actionsTop).toBe(measured?.bandTop);
+      expect(measured?.moves).toBe(2);
+      expect(measured?.removes).toBe(1);
+      for (const control of measured?.controls ?? []) {
+        // The element's own box is the target, so an audit measuring the
+        // button reads 44px rather than the pill's smaller height.
+        expect(control.height).toBeGreaterThanOrEqual(44);
+        expect(control.pillHeight).toBe(36);
+        // Nothing overhangs the band's top or bottom border.
+        expect(control.top).toBeGreaterThanOrEqual(measured?.bandTop ?? 0);
+        expect(control.bottom).toBeLessThanOrEqual(measured?.bandBottom ?? 0);
+      }
+
+      // The view is shared by every test in the file: put it back.
+      await view.cdp("Emulation.setEmitTouchEventsForMouse", {
+        enabled: false,
+      });
+      await view.cdp("Emulation.setTouchEmulationEnabled", {
+        enabled: false,
+      });
+      await view.resize(1280, 900);
+    },
+  );
 
   test("a published slot renders on the site within seconds", async () => {
     // Continues signed in from above; the save left a draft whose heading is

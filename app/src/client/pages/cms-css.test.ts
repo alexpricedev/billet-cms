@@ -879,3 +879,93 @@ describe("cms.css tap targets", () => {
     expect(rule).toContain("min-width: var(--tap-target)");
   });
 });
+
+describe("cms.css block header on touch", () => {
+  // The block's controls ride in a 44px header band, and base.css lifts every
+  // button to the 44px tap target on a coarse pointer. The button's own box is
+  // therefore the target an audit measures; the smaller pill the editor sees
+  // is drawn inside it. These tests pin the stylesheet's side of that split;
+  // `scripts/browser-smoke.test.ts` measures the laid-out box and the pill.
+  const coarse =
+    /@media\s*\(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+
+  test("makes the block controls' own box the tap target", () => {
+    const rule =
+      /\.cms-block-move,\s*\n\s*\.cms-block-remove\s*\{([^}]*)\}/.exec(
+        coarse,
+      )?.[1] ?? "";
+    expect(rule).toContain("height: var(--tap-target)");
+    // The transparent button is what lets the pill show through it.
+    expect(rule).toContain("background: transparent");
+    expect(rule).toContain("border-color: transparent");
+    expect(rule).toContain("position: relative");
+  });
+
+  // The editor sees a shorter control than they press: a 36px pill centred
+  // behind the button's label, with the button's own 44px box around it.
+  test("draws a smaller pill inside the block controls", () => {
+    const rule =
+      /\.cms-block-move::before,\s*\n\s*\.cms-block-remove::before\s*\{([^}]*)\}/.exec(
+        coarse,
+      )?.[1] ?? "";
+    expect(rule).toContain('content: ""');
+    expect(rule).toContain("position: absolute");
+    expect(rule).toContain("height: var(--cms-block-control-height)");
+    expect(rule).toContain("top: 50%");
+    expect(rule).toContain("transform: translateY(-50%)");
+    expect(rule).toContain("z-index: -1");
+
+    // The button is transparent, so hover and focus must paint the pill
+    // rather than fill the whole target.
+    const hover =
+      /\.cms-block-move:hover::before,\s*\n\s*\.cms-block-move:focus::before\s*\{([^}]*)\}/.exec(
+        coarse,
+      )?.[1] ?? "";
+    expect(hover).toContain("background: var(--surface-hover)");
+  });
+
+  // The band is the target's height, so the controls sit flush at its top.
+  // The centring is written as the difference between the two heights, so a
+  // change to either moves the actions with it. The desktop offset
+  // (`--space-2`, 8px) is what used to hang them below the band.
+  test("centres the block controls in the band", () => {
+    const rule =
+      /\.cms-block > \.cms-block-actions\s*\{([^}]*)\}/.exec(coarse)?.[1] ?? "";
+    expect(rule).toContain(
+      "top: calc((var(--cms-block-band-height) - var(--tap-target)) / 2)",
+    );
+  });
+
+  // The band was 44px before the fix and the ticket asked for it not to
+  // stretch, so pin both the band and the space the card reserves for it: the
+  // legend is out of flow, and a change to one without the other clips it.
+  // The two control heights are tokens so the rules above can derive from
+  // them rather than repeating the literals.
+  test("keeps the header band at its own height", () => {
+    const block = /\.cms-block\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(block).toContain("--cms-block-band-height: 44px");
+    expect(block).toContain("--cms-block-control-height: 36px");
+    expect(block).toContain(
+      "padding: calc(var(--cms-block-band-height) + var(--space-4))",
+    );
+
+    const legend = /\.cms-block-legend\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(legend).toContain("min-height: var(--cms-block-band-height)");
+  });
+
+  // The compact height is a coarse-pointer rule: a mouse keeps the 28px
+  // controls and the actions' 8px offset, so desktop is untouched.
+  test("leaves the desktop controls alone", () => {
+    const desktop =
+      /^\.cms-block-move,\s*\n\.cms-block-remove,\s*\n\.cms-delete-button\s*\{([^}]*)\}/m.exec(
+        css,
+      )?.[1] ?? "";
+    expect(desktop).toContain("height: 28px");
+    expect(desktop).not.toContain("min-height");
+
+    const actions = /\.cms-block > \.cms-block-actions\s*\{([^}]*)\}/.exec(
+      css,
+    )?.[1];
+    expect(actions).toContain("top: var(--space-2)");
+  });
+});
