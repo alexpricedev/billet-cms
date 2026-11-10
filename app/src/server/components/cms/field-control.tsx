@@ -443,6 +443,7 @@ const ListItemControl = ({
   value,
   listLabel,
   nameScope,
+  placeholder = false,
   pages,
   pickerImages,
   uploadCsrfToken,
@@ -453,11 +454,21 @@ const ListItemControl = ({
   listLabel: string;
   /** Where the row sits, so a link in it gets radio names of its own. */
   nameScope: string;
+  /**
+   * The one row an empty list renders so a required list has somewhere to type.
+   * It is not a stored entry, so the client drops it while it holds nothing —
+   * a row the editor added is a real one and is kept.
+   */
+  placeholder?: boolean;
   pages?: PageOption[];
   pickerImages?: Map<string, PickerImage>;
   uploadCsrfToken: string;
 }): JSX.Element => (
-  <div className="cms-list-item" data-list-item>
+  <div
+    className="cms-list-item"
+    data-list-item
+    data-list-item-placeholder={placeholder ? "" : undefined}
+  >
     <FieldControl
       field={field}
       value={value}
@@ -1018,7 +1029,9 @@ export const FieldControl = ({
 
       return (
         <fieldset
-          className="cms-field cms-field-group"
+          className={`cms-field cms-field-group${
+            field.required ? "" : " cms-field-group-optional"
+          }`}
           data-field
           data-field-kind="group"
           data-field-name={field.name}
@@ -1132,6 +1145,7 @@ export const FieldControl = ({
                 value={item}
                 listLabel={listLabel}
                 nameScope={`${scopeBase}-${itemField.name}-${index}`}
+                placeholder={items.length === 0}
                 pages={pages}
                 pickerImages={pickerImages}
                 uploadCsrfToken={uploadCsrfToken}

@@ -668,6 +668,29 @@ describe("FieldControl link", () => {
       /Call to action<span class="cms-field-optional"> Optional<\/span>/,
     );
     expect(count(html, 'class="cms-required"')).toBe(0);
+    // The class is what the client reads to tell an untouched optional group
+    // from a required one when it decides whether a link posts while empty.
+    expect(html).toContain("cms-field-group cms-field-group-optional");
+  });
+
+  test("a required group does not carry the optional marker", () => {
+    const html = renderToString(
+      <FieldControl
+        field={{
+          name: "cta",
+          kind: "group",
+          label: "Call to action",
+          required: true,
+          fields: [{ name: "heading", kind: "text", required: true }],
+        }}
+        value={{ heading: "Hi" }}
+        idBase="cms-field-cta"
+        uploadCsrfToken="upload-token"
+      />,
+    );
+
+    expect(html).toContain("cms-field cms-field-group");
+    expect(html).not.toContain("cms-field-group-optional");
   });
 
   // An optional link is optional as a whole, so its heading says "Optional"
@@ -753,6 +776,40 @@ describe("FieldControl link", () => {
     );
     expect(html).not.toContain("Button text<span");
     expect(html).not.toContain(">Goes to<span");
+  });
+
+  // An empty list still renders one row to type into, but it is not a stored
+  // entry: the client marks it so an untouched required link inside it is
+  // dropped, while a stored row (or one the editor adds) keeps its link.
+  test("marks the one row an empty list renders as a placeholder", () => {
+    const links: FieldMetadata = {
+      name: "links",
+      kind: "list",
+      required: false,
+      of: { name: "link", kind: "link", required: true },
+    };
+    const render = (value: unknown[]): string =>
+      renderToString(
+        <FieldControl
+          field={links}
+          idBase="cms-field-links"
+          value={value}
+          uploadCsrfToken="upload-token"
+        />,
+      );
+
+    const empty = render([]);
+    expect(empty.match(/data-list-item-placeholder/g)).toHaveLength(1);
+    expect(empty).toContain('data-list-item="true" data-list-item-placeholder');
+    // The template row is not a placeholder: a row the editor adds is real.
+    const template = empty.match(/<template[\s\S]*<\/template>/)?.[0] ?? "";
+    expect(template).toContain("data-list-item");
+    expect(template).not.toContain("data-list-item-placeholder");
+
+    const stored = render([
+      { type: "url", url: "https://a.example", label: "A" },
+    ]);
+    expect(stored).not.toContain("data-list-item-placeholder");
   });
 
   // A URL-rendered link has no page picker, so an error keyed `pageId` has no
