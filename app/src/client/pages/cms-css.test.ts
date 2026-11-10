@@ -881,55 +881,76 @@ describe("cms.css tap targets", () => {
 });
 
 describe("cms.css block header on touch", () => {
-  // The block's controls ride in a 44px header band, but base.css lifts every
-  // button to the 44px tap target on a coarse pointer: a button as tall as the
-  // band hangs over its bottom border once the actions' offset is counted. The
-  // controls take a smaller height on a phone, so the band keeps its own
-  // height rather than being stretched to fit them.
+  // The block's controls ride in a 44px header band, and base.css lifts every
+  // button to the 44px tap target on a coarse pointer. The button's own box is
+  // therefore the target an audit measures; the smaller pill the editor sees
+  // is drawn inside it. These tests pin the stylesheet's side of that split;
+  // `scripts/browser-smoke.test.ts` measures the laid-out box and the pill.
   const coarse =
     /@media\s*\(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
 
-  test("gives the block's controls a smaller height on a coarse pointer", () => {
+  test("makes the block controls' own box the tap target", () => {
     const rule =
       /\.cms-block-move,\s*\n\s*\.cms-block-remove\s*\{([^}]*)\}/.exec(
         coarse,
       )?.[1] ?? "";
-    expect(rule).toContain("min-height: 36px");
-    // A positioned button is what lets its hit area extend beyond the box.
+    expect(rule).toContain("height: var(--tap-target)");
+    // The transparent button is what lets the pill show through it.
+    expect(rule).toContain("background: transparent");
+    expect(rule).toContain("border-color: transparent");
     expect(rule).toContain("position: relative");
   });
 
-  // The visible box is 36px, so the pseudo-element puts the full target back
-  // around it, 4px above and below: the button looks smaller than it presses.
-  test("extends the block controls' hit area to the tap target", () => {
+  // The editor sees a shorter control than they press: a 36px pill centred
+  // behind the button's label, with the button's own 44px box around it.
+  test("draws a smaller pill inside the block controls", () => {
     const rule =
       /\.cms-block-move::before,\s*\n\s*\.cms-block-remove::before\s*\{([^}]*)\}/.exec(
         coarse,
       )?.[1] ?? "";
     expect(rule).toContain('content: ""');
     expect(rule).toContain("position: absolute");
-    expect(rule).toMatch(
-      /inset:\s*calc\(\(var\(--tap-target\)\s*-\s*36px\)\s*\/\s*-2\) 0/,
-    );
+    expect(rule).toContain("height: var(--cms-block-control-height)");
+    expect(rule).toContain("top: 50%");
+    expect(rule).toContain("transform: translateY(-50%)");
+    expect(rule).toContain("z-index: -1");
+
+    // The button is transparent, so hover and focus must paint the pill
+    // rather than fill the whole target.
+    const hover =
+      /\.cms-block-move:hover::before,\s*\n\s*\.cms-block-move:focus::before\s*\{([^}]*)\}/.exec(
+        coarse,
+      )?.[1] ?? "";
+    expect(hover).toContain("background: var(--surface-hover)");
   });
 
-  // A 36px control in the 44px band has 4px of air above and below. The
-  // desktop offset (`--space-2`, 8px) would leave it 4px low.
+  // The band is the target's height, so the controls sit flush at its top.
+  // The centring is written as the difference between the two heights, so a
+  // change to either moves the actions with it. The desktop offset
+  // (`--space-2`, 8px) is what used to hang them below the band.
   test("centres the block controls in the band", () => {
     const rule =
       /\.cms-block > \.cms-block-actions\s*\{([^}]*)\}/.exec(coarse)?.[1] ?? "";
-    expect(rule).toContain("top: var(--space-1)");
+    expect(rule).toContain(
+      "top: calc((var(--cms-block-band-height) - var(--tap-target)) / 2)",
+    );
   });
 
   // The band was 44px before the fix and the ticket asked for it not to
   // stretch, so pin both the band and the space the card reserves for it: the
   // legend is out of flow, and a change to one without the other clips it.
+  // The two control heights are tokens so the rules above can derive from
+  // them rather than repeating the literals.
   test("keeps the header band at its own height", () => {
-    const legend = /\.cms-block-legend\s*\{([^}]*)\}/.exec(css)?.[1];
-    expect(legend).toContain("min-height: 44px");
+    const block = /\.cms-block\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(block).toContain("--cms-block-band-height: 44px");
+    expect(block).toContain("--cms-block-control-height: 36px");
+    expect(block).toContain(
+      "padding: calc(var(--cms-block-band-height) + var(--space-4))",
+    );
 
-    const block = /\.cms-block\s*\{([^}]*)\}/.exec(css)?.[1];
-    expect(block).toContain("padding: calc(44px + var(--space-4))");
+    const legend = /\.cms-block-legend\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(legend).toContain("min-height: var(--cms-block-band-height)");
   });
 
   // The compact height is a coarse-pointer rule: a mouse keeps the 28px

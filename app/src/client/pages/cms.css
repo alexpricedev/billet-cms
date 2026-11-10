@@ -1024,13 +1024,21 @@ h1 {
 }
 
 .cms-block {
+  /* The header band's height and the visible height of the controls in it.
+     The legend's box, the card's reserved top padding and the controls'
+     position all derive from the band, and the control pill from its own
+     height, so changing either moves everything that depends on it. */
+  --cms-block-band-height: 44px;
+  --cms-block-control-height: 36px;
+
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   counter-increment: cms-block;
   margin: 0 0 var(--space-4);
   min-inline-size: 0;
-  padding: calc(44px + var(--space-4)) var(--space-4) var(--space-4);
+  padding: calc(var(--cms-block-band-height) + var(--space-4)) var(--space-4)
+    var(--space-4);
   position: relative;
 }
 
@@ -1055,7 +1063,7 @@ h1 {
   font-weight: 600;
   gap: var(--space-2);
   left: 0;
-  min-height: 44px;
+  min-height: var(--cms-block-band-height);
   padding: var(--space-2) var(--space-4);
   padding-right: 136px;
   position: absolute;
@@ -1151,27 +1159,70 @@ h1 {
     min-width: var(--tap-target);
   }
 
-  /* The block's controls sit inside its 44px header band rather than
-     stretching it. base.css lifts every button to the 44px tap target, which
-     is as tall as the band and, with the actions' offset, hangs 8px below it.
-     They take a smaller height instead, centred in the band, so the header
-     stays 44px. A transparent pseudo-element keeps the full target as the hit
-     area: the button looks smaller than it presses. */
+  /* The block's controls fill its header band rather than stretching it.
+     base.css already lifts every button to the 44px tap target, which is the
+     band's height, so the button's own box is the target an audit measures;
+     the actions' offset is what used to push that box 8px below the band. It
+     sits flush now, and the smaller pill the editor sees is drawn inside the
+     button as a pseudo-element: the control looks 36px tall and presses for
+     the full 44px. */
   .cms-block-move,
   .cms-block-remove {
-    min-height: 36px;
+    background: transparent;
+    border-color: transparent;
+    height: var(--tap-target);
     position: relative;
   }
 
+  /* The pill is centred in the button, full width, and painted behind the
+     label. Its height is the one the header was designed around; the button
+     around it is the tap target. */
   .cms-block-move::before,
   .cms-block-remove::before {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
     content: "";
-    inset: calc((var(--tap-target) - 36px) / -2) 0;
+    height: var(--cms-block-control-height);
+    left: 0;
     position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: -1;
   }
 
+  .cms-block-remove::before {
+    border-color: var(--danger-border);
+  }
+
+  /* The button is transparent, so the hover and focus paint moves to the
+     pill; without these the full 44px box would fill on hover. */
+  .cms-block-move:hover,
+  .cms-block-move:focus,
+  .cms-block-remove:hover,
+  .cms-block-remove:focus {
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .cms-block-move:hover::before,
+  .cms-block-move:focus::before {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+  }
+
+  .cms-block-remove:hover::before,
+  .cms-block-remove:focus::before {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+  }
+
+  /* The band is the target's height, so the actions sit flush at its top.
+     The centring is written as the difference so the two stay tied if either
+     height changes. */
   .cms-block > .cms-block-actions {
-    top: var(--space-1);
+    top: calc((var(--cms-block-band-height) - var(--tap-target)) / 2);
   }
 }
 
