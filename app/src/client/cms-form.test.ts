@@ -88,9 +88,11 @@ const input = <T extends HTMLElement = HTMLInputElement>(
 };
 
 /** A link field's server markup: four type radios and one input per type. */
-const linkMarkup = (checked: string): string => `
+const linkMarkup = (checked: string, optional = false): string => `
   <form data-cms-form>
-    <div data-field data-field-kind="link" data-field-name="cta">
+    <div data-field data-field-kind="link" data-field-name="cta"${
+      optional ? ' class="cms-field-link-optional"' : ""
+    }>
       ${["url", "page", "email", "phone"]
         .map(
           (kind) =>
@@ -198,7 +200,7 @@ describe("cms form editor", () => {
   test("keeps a page-mode link's mode and label with no page chosen", () => {
     mount(`
       <form data-cms-form>
-        <div data-field data-field-kind="link" data-field-name="cta">
+        <div data-field data-field-kind="link" data-field-name="cta" class="cms-field-link-optional">
           <input type="radio" name="cta-type" value="url" data-link-type>
           <input type="radio" name="cta-type" value="page" data-link-type checked>
           <input type="radio" name="cta-type" value="email" data-link-type>
@@ -226,10 +228,106 @@ describe("cms form editor", () => {
 
     expect(buildContent(form()).cta).toEqual({ type: "page", label: "Go" });
 
-    // A page-mode link that carries nothing at all is still dropped.
+    // An optional page-mode link that carries nothing at all is still dropped.
     const label = form().querySelector<HTMLInputElement>("[data-link-label]");
     if (label) label.value = "";
     expect(buildContent(form()).cta).toBeUndefined();
+  });
+
+  // A required link posts even when nothing is typed, so a refused save names
+  // the part that is missing under its own input instead of reporting the whole
+  // group as required.
+  test.each([
+    ["url", { type: "url", url: "" }],
+    ["email", { type: "url", url: "mailto:" }],
+    ["phone", { type: "url", url: "tel:" }],
+    ["page", { type: "page" }],
+  ] as const)(
+    "keeps an empty required %s link's chosen type",
+    (kind, expected) => {
+      mount(linkMarkup(kind));
+
+      expect(buildContent(form()).cta).toEqual(expected);
+    },
+  );
+
+  // The entries lost after a refused save: everything typed around a missing
+  // destination must come back in the re-rendered form.
+  test("keeps a required link's typed entries with no destination", () => {
+    mount(linkMarkup("url"));
+    input("[data-link-label]").value = "Read more";
+    input("[data-link-title]").value = "About us";
+    input("[data-link-newtab]").checked = true;
+
+    expect(buildContent(form()).cta).toEqual({
+      type: "url",
+      url: "",
+      label: "Read more",
+      title: "About us",
+      newTab: true,
+    });
+  });
+
+  // An optional link the editor never touched is left out, so it doesn't join
+  // the document as an empty value the block's schema would refuse.
+  test("drops an untouched optional link", () => {
+    mount(linkMarkup("url", true));
+
+    expect(buildContent(form()).cta).toBeUndefined();
+  });
+
+  // Choosing a type is not enough on its own: an optional link with an empty
+  // Email destination has nothing to store and stays dropped.
+  test("drops an optional link with only a destination type chosen", () => {
+    mount(linkMarkup("email", true));
+
+    expect(buildContent(form()).cta).toBeUndefined();
+  });
+
+  // Once an optional link is started it must be complete, so the typed entries
+  // are kept and the refused save points at the missing destination.
+  test("keeps an optional link with only Button text or the new-tab tick", () => {
+    mount(linkMarkup("url", true));
+    input("[data-link-label]").value = "Read more";
+    expect(buildContent(form()).cta).toEqual({
+      type: "url",
+      url: "",
+      label: "Read more",
+    });
+
+    input("[data-link-label]").value = "";
+    input("[data-link-newtab]").checked = true;
+    expect(buildContent(form()).cta).toEqual({
+      type: "url",
+      url: "",
+      newTab: true,
+    });
+  });
+
+  // A list always renders one empty row. Its link is required, but keeping the
+  // untouched row would make every save of an empty list fail.
+  test("still drops an untouched link row in a list", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="list" data-field-name="links" data-list>
+          <div data-list-items>
+            <div data-list-item>
+              <div data-field data-field-kind="link" data-field-name="link">
+                <input type="radio" name="row" value="url" data-link-type checked>
+                <div data-link-destination="url">
+                  <input type="url" data-link-url value="">
+                </div>
+                <input type="text" data-link-label value="">
+                <input type="text" data-link-title value="">
+                <input type="checkbox" data-link-newtab>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    `);
+
+    expect(buildContent(form()).links).toEqual([]);
   });
 
   // Email and Phone have no stored type of their own: both save as url links

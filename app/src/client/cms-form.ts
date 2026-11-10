@@ -245,13 +245,28 @@ const linkValue = (control: Element): unknown => {
       : (control.querySelector<HTMLInputElement>("[data-link-newtab]")
           ?.checked ?? false);
 
+  // A required link that carries nothing is still kept, so the server can name
+  // the part that is missing and put it under that input instead of reporting
+  // the whole group as required. An optional link is dropped while untouched
+  // (the server marks one with `cms-field-link-optional`), and so is an
+  // untouched row in a list of links: the list always renders one empty row,
+  // and keeping it would turn every such row into a refused save.
+  const keepEmpty =
+    !control.classList.contains("cms-field-link-optional") &&
+    !control.closest("[data-list-item]");
+
   if (type === "page") {
     const pageId = inputValue("[data-link-page]");
     // Keep the page mode, label and hover text even with no page chosen yet, so
     // a failed save re-renders what the editor typed instead of resetting the
-    // field to a URL link. A page-mode link that carries nothing at all is
-    // still dropped.
-    if (pageId === "" && label === "" && title === "" && !newTab) {
+    // field to a URL link.
+    if (
+      pageId === "" &&
+      label === "" &&
+      title === "" &&
+      !newTab &&
+      !keepEmpty
+    ) {
       return undefined;
     }
     return {
@@ -276,7 +291,14 @@ const linkValue = (control: Element): unknown => {
   // or an import end up the same. The server accepts either.
   const stored =
     type === "phone" ? destination.replace(/\s+/g, "") : destination;
-  if (stored === "") return undefined;
+  // An empty address used to throw the whole link away, taking the Button text,
+  // hover text and New tab tick with it; a failed save then came back blank. It
+  // is kept now whenever the editor has done anything to the link, and always
+  // for a required one. The scheme stays on an empty Email or Phone so the
+  // server names that destination's own message ("Enter an email address…").
+  if (stored === "" && label === "" && title === "" && !newTab && !keepEmpty) {
+    return undefined;
+  }
   return {
     type: "url",
     url: `${scheme}${stored}`,
