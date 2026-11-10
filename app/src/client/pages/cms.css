@@ -1141,14 +1141,37 @@ h1 {
 }
 
 /* Glyph-only controls have no label to widen them, so on a coarse pointer
-   they get the tap target's width as well as its height (base.css sets the
-   height for every button). A labelled control is already wider than the
-   target and is left alone. */
+   they get the tap target's width (base.css sets the height for every
+   button). A labelled control is already wider than the target and is left
+   alone. */
 @media (pointer: coarse) {
   .cms-rte-toolbar button,
   .cms-block-move,
   .cms-media-tile-actions .btn-ghost {
     min-width: var(--tap-target);
+  }
+
+  /* The block's controls sit inside its 44px header band rather than
+     stretching it. base.css lifts every button to the 44px tap target, which
+     is as tall as the band and, with the actions' offset, hangs 8px below it.
+     They take a smaller height instead, centred in the band, so the header
+     stays 44px. A transparent pseudo-element keeps the full target as the hit
+     area: the button looks smaller than it presses. */
+  .cms-block-move,
+  .cms-block-remove {
+    min-height: 36px;
+    position: relative;
+  }
+
+  .cms-block-move::before,
+  .cms-block-remove::before {
+    content: "";
+    inset: calc((var(--tap-target) - 36px) / -2) 0;
+    position: absolute;
+  }
+
+  .cms-block > .cms-block-actions {
+    top: var(--space-1);
   }
 }
 
