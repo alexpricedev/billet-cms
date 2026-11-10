@@ -305,8 +305,35 @@ describe("cms form editor", () => {
   });
 
   // A list always renders one empty row. Its link is required, but keeping the
-  // untouched row would make every save of an empty list fail.
+  // untouched placeholder row would make every save of an empty list fail.
   test("still drops an untouched link row in a list", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="list" data-field-name="links" data-list>
+          <div data-list-items>
+            <div data-list-item data-list-item-placeholder>
+              <div data-field data-field-kind="link" data-field-name="link">
+                <input type="radio" name="row" value="url" data-link-type checked>
+                <div data-link-destination="url">
+                  <input type="url" data-link-url value="">
+                </div>
+                <input type="text" data-link-label value="">
+                <input type="text" data-link-title value="">
+                <input type="checkbox" data-link-newtab>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    `);
+
+    expect(buildContent(form()).links).toEqual([]);
+  });
+
+  // A real row — a stored entry, or one the editor added — is not the
+  // placeholder. Its required link is kept while empty so a refused save names
+  // the part instead of reporting the row as required.
+  test("keeps an empty required link in a real list row", () => {
     mount(`
       <form data-cms-form>
         <div data-field data-field-kind="list" data-field-name="links" data-list>
@@ -327,7 +354,102 @@ describe("cms form editor", () => {
       </form>
     `);
 
-    expect(buildContent(form()).links).toEqual([]);
+    expect(buildContent(form()).links).toEqual([{ type: "url", url: "" }]);
+  });
+
+  // A required link inside an optional group the editor never opened must not
+  // make the group present, or its empty value refuses a save they never asked
+  // for. Once the group holds anything, the link is kept and the missing part
+  // is named.
+  test("drops an empty required link in an untouched optional group", () => {
+    mount(`
+      <form data-cms-form>
+        <fieldset data-field data-field-kind="group" data-field-name="cta" class="cms-field-group-optional">
+          <div data-group-fields>
+            <div data-field data-field-kind="text" data-field-name="heading">
+              <input type="text" data-text-input value="">
+            </div>
+            <div data-field data-field-kind="link" data-field-name="link">
+              <input type="radio" name="row" value="url" data-link-type checked>
+              <div data-link-destination="url">
+                <input type="url" data-link-url value="">
+              </div>
+              <input type="text" data-link-label value="">
+              <input type="text" data-link-title value="">
+              <input type="checkbox" data-link-newtab>
+            </div>
+          </div>
+        </fieldset>
+      </form>
+    `);
+
+    expect(buildContent(form()).cta).toEqual({});
+
+    input("[data-text-input]").value = "Read this";
+    expect(buildContent(form()).cta).toEqual({
+      heading: "Read this",
+      link: { type: "url", url: "" },
+    });
+  });
+
+  // An empty required link is not content: a block the editor added and left
+  // alone is still dropped rather than kept alive by a field nobody filled.
+  test("drops an added block whose only field is an empty required link", () => {
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value="{}">
+        <div data-cms-page-content>
+          <div data-cms-blocks>
+            <div data-cms-block data-block-type="banner">
+              <div data-field data-field-kind="link" data-field-name="link">
+                <input type="radio" name="row" value="url" data-link-type checked>
+                <div data-link-destination="url">
+                  <input type="url" data-link-url value="">
+                </div>
+                <input type="text" data-link-label value="">
+                <input type="text" data-link-title value="">
+                <input type="checkbox" data-link-newtab>
+              </div>
+            </div>
+            <div data-cms-block data-block-type="cta">
+              <div data-field data-field-kind="text" data-field-name="heading">
+                <input type="text" data-text-input value="Hello">
+              </div>
+              <div data-field data-field-kind="link" data-field-name="link">
+                <input type="radio" name="row2" value="url" data-link-type checked>
+                <div data-link-destination="url">
+                  <input type="url" data-link-url value="">
+                </div>
+                <input type="text" data-link-label value="">
+                <input type="text" data-link-title value="">
+                <input type="checkbox" data-link-newtab>
+              </div>
+            </div>
+            <div data-cms-block data-block-type="banner">
+              <div data-field data-field-kind="link" data-field-name="link">
+                <input type="radio" name="row3" value="url" data-link-type checked>
+                <div data-link-destination="url">
+                  <input type="url" data-link-url value="">
+                </div>
+                <input type="text" data-link-label value="Read more">
+                <input type="text" data-link-title value="">
+                <input type="checkbox" data-link-newtab>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    `);
+
+    expect(buildPageContent(form())).toEqual({
+      blocks: [
+        { type: "cta", heading: "Hello", link: { type: "url", url: "" } },
+        {
+          type: "banner",
+          link: { type: "url", url: "", label: "Read more" },
+        },
+      ],
+    });
   });
 
   // Email and Phone have no stored type of their own: both save as url links

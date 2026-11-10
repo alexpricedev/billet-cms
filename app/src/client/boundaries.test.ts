@@ -97,14 +97,17 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // still the signal, so raise it again only with the same arithmetic written
 // down.
 //
-// This rise, 15,700 → 15,800, is keeping a link's entries after a refused
+// This rise, 15,700 → 16,500, is keeping a link's entries after a refused
 // save: an empty destination no longer throws the whole link away, so a
-// required link posts its chosen type (and an optional one still drops while
-// untouched), and an untouched row in a list of links stays dropped. It
-// measures 15,697, so the old budget had no room for this. 15,800 keeps a few
-// lines' headroom; the number moving is still the signal, so raise it again
-// only with the same arithmetic written down.
-const CMS_FORM_BUNDLE_BUDGET_BYTES = 15_800;
+// required link posts its chosen type and the server names the missing part.
+// That must leave a container the editor never touched alone, so the script
+// also reads the placeholder row an empty list renders and an optional group's
+// marker. It measured 15,586 before this change and 16,449 after it; the first
+// half of the fix alone measured 15,697, which fitted the old 15,700 with 3
+// bytes to spare rather than overflowing it. 16,500 keeps a few lines'
+// headroom; the number moving is still the signal, so raise it again only with
+// the same arithmetic written down.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 16_500;
 
 // Minified bytes for the shared image picker, `image-picker.ts`, including the
 // `upload-shared.ts` it imports. It is 9,988 bytes at the time of writing,

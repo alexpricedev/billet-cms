@@ -247,13 +247,17 @@ const linkValue = (control: Element): unknown => {
 
   // A required link that carries nothing is still kept, so the server can name
   // the part that is missing and put it under that input instead of reporting
-  // the whole group as required. An optional link is dropped while untouched
-  // (the server marks one with `cms-field-link-optional`), and so is an
-  // untouched row in a list of links: the list always renders one empty row,
-  // and keeping it would turn every such row into a refused save.
+  // the whole group as required. Three exceptions, all of them a container the
+  // editor never touched: an optional link (the server marks one with
+  // `cms-field-link-optional`), the one empty row an empty list renders, and an
+  // optional group with nothing else in it. Keeping the link in one of those
+  // would make an untouched container present and refuse the save for a field
+  // the editor never opened.
+  const optionalGroup = control.closest(".cms-field-group-optional");
   const keepEmpty =
     !control.classList.contains("cms-field-link-optional") &&
-    !control.closest("[data-list-item]");
+    !control.closest("[data-list-item-placeholder]") &&
+    !(optionalGroup && !groupHasContent(optionalGroup, control));
 
   if (type === "page") {
     const pageId = inputValue("[data-link-page]");
@@ -376,6 +380,58 @@ const isEmptyValue = (value: unknown): boolean => {
   return false;
 };
 
+/**
+ * True for a link value with nothing the editor typed.
+ *
+ * A required link posts while empty so the server can name the missing part,
+ * and that must not keep a block alive that was added and never filled: the
+ * block is dropped, as any other empty one is. A link with a label, hover text,
+ * a new-tab tick or a chosen page is never empty, whatever its destination.
+ */
+const isEmptyLinkValue = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  const link = value as Record<string, unknown>;
+  if (
+    link.label !== undefined ||
+    link.title !== undefined ||
+    link.newTab !== undefined ||
+    link.pageId !== undefined
+  ) {
+    return false;
+  }
+  if (link.type === "page") return true;
+  if (link.type !== "url" || typeof link.url !== "string") return false;
+  return link.url === "" || link.url === "mailto:" || link.url === "tel:";
+};
+
+/**
+ * True when an optional group holds anything the editor could have typed.
+ *
+ * A required link posts while empty so its missing part can be named, but that
+ * must not make an optional group the editor never opened present in the
+ * document: the group would then be validated and the save refused for a field
+ * they never saw. A group holding anything else is one they started, so the
+ * link is kept and the message lands on the part.
+ *
+ * It reads the group's controls, never its fields: reading a field back would
+ * meet the same link controls and recurse. A radio is not content — one is
+ * checked by default in every link — and the link's own controls are skipped.
+ */
+const groupHasContent = (group: Element, link: Element): boolean =>
+  Array.from(
+    group.querySelectorAll("input, textarea, select, [contenteditable]"),
+  ).some((el) => {
+    if (link.contains(el)) return false;
+    if (el instanceof HTMLInputElement) {
+      if (el.type === "radio") return false;
+      if (el.type === "checkbox") return el.checked;
+      return el.value !== "";
+    }
+    if (el instanceof HTMLSelectElement) return el.value !== "";
+    if (el instanceof HTMLTextAreaElement) return el.value !== "";
+    return (el.textContent ?? "").trim() !== "";
+  });
+
 const listValue = (control: Element): unknown[] => {
   // `:scope >` so a nested list's items are not read as this list's own; a
   // plain descendant selector matches them too, and one list would swallow the
@@ -496,7 +552,11 @@ const readPageBlocks = (
     const type = block.getAttribute("data-block-type");
     if (!type) continue;
     const fields = readFieldsIn(block, false);
-    if (!Object.values(fields).some((value) => !isEmptyValue(value))) {
+    if (
+      !Object.values(fields).some(
+        (value) => !isEmptyValue(value) && !isEmptyLinkValue(value),
+      )
+    ) {
       dropped.push(type);
       continue;
     }
