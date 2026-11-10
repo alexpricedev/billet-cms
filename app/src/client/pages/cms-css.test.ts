@@ -879,3 +879,72 @@ describe("cms.css tap targets", () => {
     expect(rule).toContain("min-width: var(--tap-target)");
   });
 });
+
+describe("cms.css block header on touch", () => {
+  // The block's controls ride in a 44px header band, but base.css lifts every
+  // button to the 44px tap target on a coarse pointer: a button as tall as the
+  // band hangs over its bottom border once the actions' offset is counted. The
+  // controls take a smaller height on a phone, so the band keeps its own
+  // height rather than being stretched to fit them.
+  const coarse =
+    /@media\s*\(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
+
+  test("gives the block's controls a smaller height on a coarse pointer", () => {
+    const rule =
+      /\.cms-block-move,\s*\n\s*\.cms-block-remove\s*\{([^}]*)\}/.exec(
+        coarse,
+      )?.[1] ?? "";
+    expect(rule).toContain("min-height: 36px");
+    // A positioned button is what lets its hit area extend beyond the box.
+    expect(rule).toContain("position: relative");
+  });
+
+  // The visible box is 36px, so the pseudo-element puts the full target back
+  // around it, 4px above and below: the button looks smaller than it presses.
+  test("extends the block controls' hit area to the tap target", () => {
+    const rule =
+      /\.cms-block-move::before,\s*\n\s*\.cms-block-remove::before\s*\{([^}]*)\}/.exec(
+        coarse,
+      )?.[1] ?? "";
+    expect(rule).toContain('content: ""');
+    expect(rule).toContain("position: absolute");
+    expect(rule).toMatch(
+      /inset:\s*calc\(\(var\(--tap-target\)\s*-\s*36px\)\s*\/\s*-2\) 0/,
+    );
+  });
+
+  // A 36px control in the 44px band has 4px of air above and below. The
+  // desktop offset (`--space-2`, 8px) would leave it 4px low.
+  test("centres the block controls in the band", () => {
+    const rule =
+      /\.cms-block > \.cms-block-actions\s*\{([^}]*)\}/.exec(coarse)?.[1] ?? "";
+    expect(rule).toContain("top: var(--space-1)");
+  });
+
+  // The band was 44px before the fix and the ticket asked for it not to
+  // stretch, so pin both the band and the space the card reserves for it: the
+  // legend is out of flow, and a change to one without the other clips it.
+  test("keeps the header band at its own height", () => {
+    const legend = /\.cms-block-legend\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(legend).toContain("min-height: 44px");
+
+    const block = /\.cms-block\s*\{([^}]*)\}/.exec(css)?.[1];
+    expect(block).toContain("padding: calc(44px + var(--space-4))");
+  });
+
+  // The compact height is a coarse-pointer rule: a mouse keeps the 28px
+  // controls and the actions' 8px offset, so desktop is untouched.
+  test("leaves the desktop controls alone", () => {
+    const desktop =
+      /^\.cms-block-move,\s*\n\.cms-block-remove,\s*\n\.cms-delete-button\s*\{([^}]*)\}/m.exec(
+        css,
+      )?.[1] ?? "";
+    expect(desktop).toContain("height: 28px");
+    expect(desktop).not.toContain("min-height");
+
+    const actions = /\.cms-block > \.cms-block-actions\s*\{([^}]*)\}/.exec(
+      css,
+    )?.[1];
+    expect(actions).toContain("top: var(--space-2)");
+  });
+});
