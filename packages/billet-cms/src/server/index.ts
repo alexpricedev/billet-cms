@@ -15,3 +15,4 @@ export * from "./pages";
 export * from "./rich-text";
 export * from "./seo";
 export * from "./slots";
+export * from "./video";
