@@ -23,7 +23,10 @@ import {
 } from "@alexpricedev/billet-storage";
 import type { SQL } from "bun";
 import { CMS_SIGN_IN_PATH } from "../packages/billet-cms/src/contract/index.ts";
-import type { RichTextDocument } from "../packages/billet-cms/src/fields/index.ts";
+import type {
+  RichTextDocument,
+  VideoValue,
+} from "../packages/billet-cms/src/fields/index.ts";
 import type {
   CmsMediaReader,
   CmsPageBlock,
@@ -39,6 +42,7 @@ import {
   createContentReader,
   getPreviewAccess,
   renderCmsImage,
+  renderCmsVideo,
   renderRichText,
 } from "../packages/billet-cms/src/server/index.ts";
 import { escapeHtml } from "../packages/billet-cms/src/server/rich-text.ts";
@@ -235,6 +239,29 @@ export const createSite = (sql: SQL, options: E2eSiteOptions = {}): E2eSite => {
           `${escapeHtml(String(block.heading ?? ""))}</h2>` +
           `${await renderLink(block.link, "Get in touch")}</section>`
         );
+      case "feature": {
+        // Every placement the field vocabulary offers, rendered through the
+        // plugin's helper: the site never builds an embed `src` itself, so the
+        // privacy-friendly origins and the title are the plugin's to get right.
+        const heading = String(block.heading ?? "");
+        const clips = Array.isArray(block.clips) ? block.clips : [];
+        const media = (block.media ?? {}) as {
+          heading?: unknown;
+          clip?: unknown;
+        };
+        return (
+          `<section data-block="feature"><h2>` +
+          `${escapeHtml(heading)}</h2>` +
+          `${renderCmsVideo(block.clip as VideoValue)}` +
+          `${renderCmsVideo(block.trailer as VideoValue)}` +
+          `<ul class="cms-video-clips">` +
+          `${clips
+            .map((clip) => `<li>${renderCmsVideo(clip as VideoValue)}</li>`)
+            .join("")}</ul>` +
+          `<h3>${escapeHtml(String(media.heading ?? ""))}</h3>` +
+          `${renderCmsVideo(media.clip as VideoValue)}</section>`
+        );
+      }
       case "steps": {
         const items = Array.isArray(block.items) ? block.items : [];
         // Each item's title and its own body share one `<li>`: the pairing is

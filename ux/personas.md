@@ -16,7 +16,9 @@ Fixture site (Northwind Studio), richer than `e2e/`'s one hero block so the
 editor has something to show:
 
 - Blocks: `hero` (heading, photo), `text` (rich text), `gallery` (list of
-  images, 1–6), `quote` (text, attribution, link), `cta` (heading, link).
+  images, 1–6), `quote` (text, attribution, link), `cta` (heading, link),
+  `feature` (heading; a required video clip and an optional trailer; a list of
+  clips; a group with a heading and a clip).
 - Slots: `home.hero`, `footer.cta`.
 - Page types: `landing` (hero first, max 1; then text, gallery, quote, cta)
   and `article` (text required; quote, gallery).

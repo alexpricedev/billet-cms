@@ -191,6 +191,19 @@ repo. This file is only the invariants.
   `S3_REGION` / `S3_ENDPOINT` when the provider needs them); uploads are simply
   refused, with a message, until they are set. A site's CSP `img-src` must
   allow the bucket host.
+- **A video is a stored provider and id, never a URL.** `video()` records
+  `{provider: "youtube" | "vimeo", id, title}`, and the title is required and
+  capped like alt text. The form posts the pasted link; `normaliseVideoContent`
+  in `fields/video.ts` parses it before validation at every write path — slot
+  and page drafts and the MCP tools — walking the metadata tree through a
+  list's `of` and a group's `fields`, the same walk the image guidance uses.
+  Only the provider's fixed embed origin is ever built (`videoEmbedUrl`). The
+  site renders the stored value with `renderCmsVideo` (exported from
+  `../server`), which returns the 16:9 player or `""` for a value that does not
+  fit the schema. A site's CSP `frame-src` must allow
+  `https://www.youtube-nocookie.com` and `https://player.vimeo.com`; the CMS's
+  own headers allow the same two so the editor sees the saved video in the
+  form.
 - **The sandbox and fixtures are dev-only.** The loader is the one thing besides the
   e2e suite that writes the site's `users`. `bun run sandbox`, `bun run fixtures` and
   `scripts/persona-session.ts` load Northwind Studio's people and content onto a

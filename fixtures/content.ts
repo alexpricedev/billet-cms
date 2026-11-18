@@ -102,6 +102,44 @@ export const REVISIONS: readonly FixtureRevision[] = [
     content: {
       blocks: [
         { type: "hero", heading: "About Northwind", photo: photo("team") },
+        // The video vocabulary in every placement: a required clip and an
+        // optional trailer at the top level, a list of clips and a group with
+        // its own clip. One block exercises all four in the editor and on the
+        // site, and gives the story's editor a published video to start from.
+        {
+          type: "feature",
+          heading: "A film about the harbour",
+          clip: {
+            provider: "youtube",
+            id: "M7lc1UVf-VE",
+            title: "Northwind Studio showreel",
+          },
+          trailer: {
+            provider: "vimeo",
+            id: "76979871",
+            title: "A walk around the boatyard",
+          },
+          clips: [
+            {
+              provider: "youtube",
+              id: "aqz-KE-bpKQ",
+              title: "Big Buck Bunny",
+            },
+            {
+              provider: "vimeo",
+              id: "1084537",
+              title: "Making the ferry timetable",
+            },
+          ],
+          media: {
+            heading: "Inside the workshop",
+            clip: {
+              provider: "vimeo",
+              id: "22439234",
+              title: "Inside the workshop",
+            },
+          },
+        },
         {
           type: "text",
           body: doc(
