@@ -302,7 +302,20 @@ describe("fixtures and personas", () => {
   test("the site serves the published content and the local media", async () => {
     const about = await fetch(`${siteUrl}/about`);
     expect(about.status).toBe(200);
-    expect(await about.text()).toContain("About Northwind");
+    const aboutHtml = await about.text();
+    expect(aboutHtml).toContain("About Northwind");
+
+    // The Feature block's videos go through the plugin's `renderCmsVideo`: the
+    // privacy-friendly origin, the stored id, and the title as the frame's
+    // accessible name — in every placement, list and group included.
+    expect(aboutHtml).toContain(
+      'src="https://www.youtube-nocookie.com/embed/M7lc1UVf-VE"',
+    );
+    expect(aboutHtml).toContain(
+      'src="https://player.vimeo.com/video/76979871?dnt=1"',
+    );
+    expect(aboutHtml).toContain('title="Big Buck Bunny"');
+    expect(aboutHtml).toContain('title="Inside the workshop"');
 
     const moved = await fetch(`${siteUrl}/our-work`, { redirect: "manual" });
     expect(moved.status).toBe(301);
