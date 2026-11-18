@@ -324,6 +324,32 @@ Content is capped at 1120px and left-aligned inside the column; forms cap at
 720px so lines do not run long. The page editor is the one two-column layout:
 blocks in the main column, settings in a 320px aside, stacking below 1024px.
 
+## Interaction patterns
+
+What the CMS has for putting a task in front of an editor, lightest first. A plan picks the
+lightest one that keeps the context the editor needs, and says why the one below wasn't enough.
+How a form talks to the server is `app/CLAUDE.md`'s three tiers, and the three recorded exceptions
+in `AGENTS.md` (the generated CMS form, the preview guard, the image picker and uploader) are the
+only departures from server-rendered interaction. A pattern that needs another is a new exception
+recorded there, not a plan step.
+
+- **Inline:** a form on the page. The page editor's settings aside keeps a page's secondary fields
+  beside its blocks rather than on another page.
+- **Disclosure:** a menu shown and hidden over markup the server already rendered, such as the
+  editor's *Add block* menu and the mobile navigation panel. A menu takes `--shadow-sm` (see
+  Elevation).
+- **Dialog:** `@alexpricedev/billet-dialog`, wired once in `main.ts`. A form carrying
+  `data-confirm` (with `data-confirm-title` and `data-confirm-label`) asks before it posts, and
+  posts unasked without JavaScript. That is the confirm for an action that takes effect at once and
+  can't be undone, such as revoking a token or disconnecting an MCP client. `Dialog.confirm` from
+  script is for the preview guard only. The image library is the one large dialog (see Image
+  picker) and is an exception, not a pattern to copy.
+- **Confirm page:** a delete whose consequences need explaining gets a page of its own that names
+  the thing and what stops resolving (`PageDeleteConfirm`, `MediaDeleteConfirm`), with the
+  committing button as the page's destructive action.
+- **Its own page:** a route under `/cms`. Whatever the pattern, the task still works with no bundle,
+  except the media library and upload, which say so on the page.
+
 ## Interaction states
 
 - Hover: background step (`--surface-hover`) or border step; no movement.
