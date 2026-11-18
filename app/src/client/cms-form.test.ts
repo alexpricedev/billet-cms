@@ -2653,6 +2653,41 @@ describe("video fields", () => {
     });
   });
 
+  // A required video posts while blank so its missing link can be named, but an
+  // added page block nobody filled is still dropped rather than kept alive by
+  // it — the same rule an empty required link follows.
+  test("drops an added page block whose only field is a blank required video", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-cms-page-content>
+          <div data-cms-blocks>
+            <div data-cms-block data-block-type="video">
+              ${videoField({})}
+            </div>
+            <div data-cms-block data-block-type="video">
+              ${videoField({
+                url: "https://youtu.be/dQw4w9WgXcQ",
+                title: "Studio refit walkthrough",
+              })}
+            </div>
+          </div>
+        </div>
+      </form>
+    `);
+
+    expect(buildPageContent(form())).toEqual({
+      blocks: [
+        {
+          type: "video",
+          clip: {
+            url: "https://youtu.be/dQw4w9WgXcQ",
+            title: "Studio refit walkthrough",
+          },
+        },
+      ],
+    });
+  });
+
   // With JavaScript off the hidden field submits the stored document, which is
   // still the stored `{ provider, id, title }` — nothing here rebuilds it until
   // a submit, so a save that changes nothing round-trips unchanged.

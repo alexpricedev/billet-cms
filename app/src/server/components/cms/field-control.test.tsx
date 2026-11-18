@@ -578,6 +578,7 @@ describe("FieldControl video", () => {
     const title = html.match(/<textarea[^>]*data-video-title[^>]*>/)?.[0] ?? "";
     expect(title).toContain('rows="2"');
     expect(title).toContain(`maxlength="${MAX_ALT_LENGTH}"`);
+    expect(title).toContain('aria-required="true"');
   });
 
   test("renders a saved YouTube video through the nocookie host", () => {
@@ -692,6 +693,37 @@ describe("FieldControl video", () => {
     expect(fieldset).toContain('aria-describedby="cms-field-clip-error"');
   });
 
+  // A field can itself be named "title" or "url". A whole-field message on one
+  // of those stays on the container instead of being read as that box's own.
+  test("keeps a whole-field error off a box of the same name", () => {
+    for (const name of ["title", "url"]) {
+      const html = renderVideo(saved, {
+        field: { ...video, name, label: name },
+        errors: [{ path: name, message: "This video cannot be embedded." }],
+      });
+      const url = html.match(/<input[^>]*data-video-url[^>]*>/)?.[0] ?? "";
+      const title =
+        html.match(/<textarea[^>]*data-video-title[^>]*>/)?.[0] ?? "";
+
+      expect(url).not.toContain("aria-invalid");
+      expect(title).not.toContain("aria-invalid");
+      expect(html).toContain("This video cannot be embedded.");
+      expect(html).toContain(
+        '<ul class="cms-field-errors" id="cms-field-clip-error">',
+      );
+    }
+  });
+
+  test("puts a box error on a field named title", () => {
+    const html = renderVideo(saved, {
+      field: { ...video, name: "title", label: "Title" },
+      errors: [{ path: "title.title", message: "Add a title for the video." }],
+    });
+    const title = html.match(/<textarea[^>]*data-video-title[^>]*>/)?.[0] ?? "";
+
+    expect(title).toContain('aria-invalid="true"');
+  });
+
   // The field's own help describes the whole field and is named by the
   // fieldset, not repeated under the link box's own help line.
   test("ties the field's own help to the fieldset", () => {
@@ -721,6 +753,8 @@ describe("FieldControl video", () => {
     expect(optional).toContain("cms-field-video-optional");
     expect(optional).toContain("Optional");
     expect(optional).not.toContain('<span class="cms-required"> *</span>');
+    // An optional video can be wholly blank, so its title is not required.
+    expect(optional).not.toContain('aria-required="true"');
   });
 
   // A video inside a group carries no marker of its own: the group heading
@@ -1052,6 +1086,27 @@ describe("FieldControl link", () => {
     expect(html).toContain('id="cms-field-cta-error"');
     expect(html).toContain("Choose a page.");
     expect(html).not.toMatch(/data-link-url[^>]*aria-invalid/);
+  });
+
+  // A field can itself be named "title" or "url"; a whole-field message on one
+  // of those must not be read as that box's own error.
+  test("keeps a whole-field error off a box of the same name", () => {
+    for (const name of ["title", "url"]) {
+      const html = renderToString(
+        <FieldControl
+          field={{ ...link, name, label: name }}
+          value={{ type: "url", url: "https://example.com", label: "Go" }}
+          idBase="cms-field-cta"
+          errors={[{ path: name, message: "This link is not allowed." }]}
+          uploadCsrfToken="upload-token"
+        />,
+      );
+
+      expect(html).toContain("This link is not allowed.");
+      expect(html).toContain('id="cms-field-cta-error"');
+      expect(html).not.toMatch(/data-link-url[^>]*aria-invalid/);
+      expect(html).not.toMatch(/data-link-title[^>]*aria-invalid/);
+    }
   });
 
   // Rendered outside `ContentFields` a link has neither an id nor a row scope.

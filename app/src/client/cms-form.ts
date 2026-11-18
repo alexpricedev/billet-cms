@@ -405,6 +405,23 @@ const isEmptyLinkValue = (value: unknown): boolean => {
 };
 
 /**
+ * True for a video value with nothing the editor typed.
+ *
+ * A required video posts while blank so the server can name the missing link,
+ * and that must not keep a page block alive that was added and never filled:
+ * the block is dropped, as any other empty one is. Either box holding something
+ * is enough to keep it.
+ */
+const isEmptyVideoValue = (value: unknown): boolean => {
+  if (typeof value !== "object" || value === null) return false;
+  const video = value as Record<string, unknown>;
+  // Both boxes are strings on a video control. A link's `title` is its hover
+  // text and may be absent, so requiring the two strings keeps this from
+  // matching a link with an empty destination.
+  return video.url === "" && video.title === "";
+};
+
+/**
  * True when an optional group holds anything the editor could have typed.
  *
  * A required link posts while empty so its missing part can be named, but that
@@ -588,8 +605,11 @@ const readPageBlocks = (
     if (!type) continue;
     const fields = readFieldsIn(block, false);
     if (
-      !Object.values(fields).some(
-        (value) => !isEmptyValue(value) && !isEmptyLinkValue(value),
+      Object.values(fields).every(
+        (value) =>
+          isEmptyValue(value) ||
+          isEmptyLinkValue(value) ||
+          isEmptyVideoValue(value),
       )
     ) {
       dropped.push(type);

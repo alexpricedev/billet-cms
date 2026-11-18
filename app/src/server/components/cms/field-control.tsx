@@ -236,6 +236,25 @@ const FieldErrors = ({
     </ul>
   ) : null;
 
+/**
+ * The errors that belong to one box of a multi-part field.
+ *
+ * Paths arrive dotted and rooted at the field (`cta.url`, or `feature.cta.url`
+ * when the control sits below a group). Matching only the last segment would
+ * hand a whole-field error for a field literally named "title" or "url" to
+ * that part's box, so the match names the field's own path.
+ */
+const partErrors = (
+  errors: FieldError[] | undefined,
+  fieldName: string,
+  part: string,
+): FieldError[] =>
+  (errors ?? []).filter(
+    (error) =>
+      error.path === `${fieldName}.${part}` ||
+      error.path.endsWith(`.${fieldName}.${part}`),
+  );
+
 /** The four destinations a link field offers, in the switch's order. */
 const LINK_TYPES = ["url", "page", "email", "phone"] as const;
 type LinkType = (typeof LINK_TYPES)[number];
@@ -779,19 +798,12 @@ export const FieldControl = ({
             : `https://vimeo.com/${videoId}`;
 
       // Errors arrive with the whole dotted path (`clip.url`), so each box
-      // takes the message whose last segment names it; anything else stays on
-      // the field as a whole.
-      const forControl = (segment: string): FieldError[] =>
-        (errors ?? []).filter(
-          (error) =>
-            error.path.slice(error.path.lastIndexOf(".") + 1) === segment,
-        );
-      const urlErrors = forControl("url");
-      const titleErrors = forControl("title");
-      const known = new Set(["url", "title"]);
+      // takes the message that names it; anything else stays on the field as a
+      // whole.
+      const urlErrors = partErrors(errors, field.name, "url");
+      const titleErrors = partErrors(errors, field.name, "title");
       const groupErrors = (errors ?? []).filter(
-        (error) =>
-          !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
+        (error) => !urlErrors.includes(error) && !titleErrors.includes(error),
       );
       const urlErrorId = idFor("url-error");
       const titleErrorId = idFor("title-error");
@@ -881,7 +893,7 @@ export const FieldControl = ({
                 rows={2}
                 maxLength={MAX_ALT_LENGTH}
                 aria-label={controlId ? undefined : "Title"}
-                aria-required="true"
+                aria-required={required ? "true" : undefined}
                 aria-invalid={titleErrors.length > 0 ? "true" : undefined}
                 aria-describedby={describedBy(
                   idFor("title-help"),
@@ -918,26 +930,25 @@ export const FieldControl = ({
               : "url";
 
       // Errors arrive with the whole dotted path (`cta.url`), so each control
-      // takes the message whose last segment names it. Anything else — a
-      // whole-link issue, or a field-level one the schema produced — stays on
-      // the container.
-      const forControl = (segment: string): FieldError[] =>
-        (errors ?? []).filter(
-          (error) =>
-            error.path.slice(error.path.lastIndexOf(".") + 1) === segment,
-        );
-      const labelErrors = forControl("label");
-      const titleErrors = forControl("title");
+      // takes the message that names it. Anything else — a whole-link issue, or
+      // a field-level one the schema produced — stays on the container.
+      const labelErrors = partErrors(errors, field.name, "label");
+      const titleErrors = partErrors(errors, field.name, "title");
       // Only the selected type's destination is rendered with an error list, so
       // only its key counts as "known". An error on the other one — a `pageId`
       // failure on a url-rendered link, say — has no visible control of its own
       // and falls through to the container rather than disappearing.
       const activeDestination = type === "page" ? "pageId" : "url";
-      const destinationErrors = forControl(activeDestination);
-      const known = new Set(["label", "title", activeDestination]);
+      const destinationErrors = partErrors(
+        errors,
+        field.name,
+        activeDestination,
+      );
       const groupErrors = (errors ?? []).filter(
         (error) =>
-          !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
+          !labelErrors.includes(error) &&
+          !titleErrors.includes(error) &&
+          !destinationErrors.includes(error),
       );
 
       const labelErrorId = idFor("label-error");

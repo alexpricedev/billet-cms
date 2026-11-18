@@ -49,6 +49,7 @@ describe("parseVideoUrl", () => {
       "youtube",
     ],
     ["vimeo.com", `https://vimeo.com/${VIMEO}`, "vimeo"],
+    ["www.vimeo.com", `https://www.vimeo.com/${VIMEO}`, "vimeo"],
     [
       "vimeo.com with a share parameter (dropped)",
       `https://vimeo.com/${VIMEO}?share=copy`,

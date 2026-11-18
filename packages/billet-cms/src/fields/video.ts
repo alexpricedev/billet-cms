@@ -92,7 +92,7 @@ const youTubeId = (url: URL): string | null => {
 const vimeoId = (url: URL): string | null => {
   if (url.searchParams.has("h")) return null;
   const pattern =
-    url.hostname === "vimeo.com"
+    url.hostname === "vimeo.com" || url.hostname === "www.vimeo.com"
       ? /^\/([^/]+)\/?$/
       : url.hostname === "player.vimeo.com"
         ? /^\/video\/([^/]+)\/?$/
