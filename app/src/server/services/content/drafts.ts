@@ -17,6 +17,7 @@
  */
 import {
   linkTextIssues,
+  normaliseVideoContent,
   URL_PATTERN,
   URL_PATTERN_MESSAGE,
 } from "@alexpricedev/billet-cms/fields";
@@ -290,6 +291,32 @@ export const blockContentIssues = (
   ];
 };
 
+/**
+ * Turn a block's pasted video links into the values the schema stores.
+ *
+ * The form posts a video as `{ url, title }` — what the editor typed — because
+ * parsing on the client would be a second copy of the allowlist and would not
+ * work with JavaScript off. `normaliseVideoContent` parses here instead, before
+ * the schema runs, so what the validator sees is the value that will be saved.
+ * Its issues point at the box that is wrong (`clip.url`, `clips.0.title`), so a
+ * refusal re-renders the typed text beside the message rather than reporting
+ * the whole field as missing.
+ *
+ * Exported because the MCP tools need the same answer before their own checks:
+ * `validate_slot` validates, and `save_slot` compares against the newest
+ * revision, which holds the stored shape.
+ */
+export const normaliseBlockContent = (
+  block: Pick<BlockIssueSource, "fields">,
+  content: Record<string, unknown>,
+): { content: Record<string, unknown>; issues: FieldIssue[] } => {
+  const normalised = normaliseVideoContent(block.fields, content);
+  return {
+    content: normalised.content as Record<string, unknown>,
+    issues: normalised.issues,
+  };
+};
+
 const describeConflict = async (
   revision: RevisionRecord,
 ): Promise<RevisionConflict> => {
@@ -369,11 +396,21 @@ export const saveSlotDraft = async (
     );
   }
 
+  // The pasted video links become the stored `{provider, id, title}` before the
+  // schema sees them. A link that names neither service is refused here, on the
+  // box the editor typed it in, rather than as a schema failure on a shape the
+  // validator has no better words for.
+  const videos = normaliseBlockContent(blockType, input.content);
+  if (videos.issues.length > 0) {
+    return { ok: false, reason: "invalid", issues: videos.issues };
+  }
+  const content = videos.content;
+
   // Strict: a key the block doesn't declare is refused. Removed fields are
   // re-attached below from the base revision, so they never need to pass here.
   // Strict: Button text is not in the schema, so the save runs both checks —
   // the rule has to fire even when the validator found nothing else wrong.
-  const issues = blockContentIssues(blockType, input.content);
+  const issues = blockContentIssues(blockType, content);
   if (issues.length > 0) {
     return { ok: false, reason: "invalid", issues };
   }
@@ -383,7 +420,7 @@ export const saveSlotDraft = async (
   // row. A wrong shape refuses the save; a short width does not — a narrow hero
   // still renders, so it is a warning the caller shows and the save goes ahead
   // (part 10).
-  const guidance = await checkImageGuidance(blockType.fields, input.content);
+  const guidance = await checkImageGuidance(blockType.fields, content);
   if (guidance.issues.length > 0) {
     return { ok: false, reason: "invalid", issues: guidance.issues };
   }
@@ -405,8 +442,8 @@ export const saveSlotDraft = async (
       return { kind: "conflict" as const, newer: latest };
     }
 
-    const content = await carryRemovedFields(
-      input.content,
+    const stored = await carryRemovedFields(
+      content,
       slot,
       blockType,
       input.baseRevisionId,
@@ -417,7 +454,7 @@ export const saveSlotDraft = async (
       {
         targetType: "slot",
         targetId: slot.id,
-        content,
+        content: stored,
         createdBy: input.actorId,
       },
       tx,
