@@ -19,7 +19,7 @@ describe("renderCmsVideo", () => {
   test("renders a YouTube player through youtube-nocookie.com", () => {
     const html = renderCmsVideo(youtube);
     expect(html).toBe(
-      '<iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ" title="A talk about foxes" loading="lazy" allowfullscreen style="aspect-ratio:16/9;width:100%;border:0"></iframe>',
+      '<iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ" title="A talk about foxes" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen style="aspect-ratio:16/9;width:100%;border:0"></iframe>',
     );
     expect(html).not.toContain("youtube.com/watch");
   });

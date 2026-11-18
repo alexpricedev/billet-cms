@@ -855,6 +855,7 @@ export const FieldControl = ({
                   src={embedUrl}
                   title={title}
                   loading="lazy"
+                  referrerpolicy="strict-origin-when-cross-origin"
                   allowfullscreen
                   style="aspect-ratio:16/9;width:100%;border:0"
                 />

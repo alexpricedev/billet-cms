@@ -588,6 +588,7 @@ describe("FieldControl video", () => {
     );
     expect(html).toContain('title="Studio refit walkthrough"');
     expect(html).toContain('loading="lazy"');
+    expect(html).toContain('referrerpolicy="strict-origin-when-cross-origin"');
     expect(html).toContain("allowfullscreen");
     expect(html).toContain("aspect-ratio:16/9");
     // The link box shows the canonical page, not the stored parts.

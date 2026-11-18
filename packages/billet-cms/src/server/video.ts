@@ -49,6 +49,7 @@ export const renderCmsVideo = (video: VideoValue): string => {
     `src="${escapeHtml(src)}"`,
     `title="${escapeHtml(title)}"`,
     `loading="lazy"`,
+    `referrerpolicy="strict-origin-when-cross-origin"`,
     "allowfullscreen",
     `style="aspect-ratio:16/9;width:100%;border:0"`,
   ].join(" ");
