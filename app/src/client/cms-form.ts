@@ -432,6 +432,39 @@ const groupHasContent = (group: Element, link: Element): boolean =>
     return (el.textContent ?? "").trim() !== "";
   });
 
+/**
+ * The stored value of a video control, as the form posts it.
+ *
+ * The boxes hold the pasted link and the iframe's title; the server parses the
+ * link into `{ provider, id, title }` and refuses anything that is not one of
+ * the two services (see `normaliseVideoContent`). Parsing here would be a
+ * second allowlist and would not work with JavaScript off, so this only reads
+ * the two boxes. A saved value renders its canonical link, which parses back to
+ * the same video.
+ *
+ * A required video posts while blank so the server can name the missing link
+ * instead of reporting the whole field as absent. An optional one is dropped,
+ * as are an untouched list row and an optional group the editor never opened —
+ * keeping either would refuse the save for a field they never saw.
+ */
+const videoValue = (control: Element): unknown => {
+  const url =
+    control.querySelector<HTMLInputElement>("[data-video-url]")?.value ?? "";
+  // The title is a textarea so a long one wraps; the stored value is one line.
+  const title = singleLine(
+    control.querySelector<HTMLTextAreaElement>("[data-video-title]")?.value ??
+      "",
+  ).trim();
+  if (url !== "" || title !== "") return { url, title };
+
+  const optionalGroup = control.closest(".cms-field-group-optional");
+  const keepEmpty =
+    !control.classList.contains("cms-field-video-optional") &&
+    !control.closest("[data-list-item-placeholder]") &&
+    !(optionalGroup && !groupHasContent(optionalGroup, control));
+  return keepEmpty ? { url: "", title: "" } : undefined;
+};
+
 const listValue = (control: Element): unknown[] => {
   // `:scope >` so a nested list's items are not read as this list's own; a
   // plain descendant selector matches them too, and one list would swallow the
@@ -481,6 +514,8 @@ const readControl = (control: Element): unknown => {
       return richTextValue(control);
     case "image":
       return imageValue(control);
+    case "video":
+      return videoValue(control);
     case "link":
       return linkValue(control);
     case "list":
@@ -1285,18 +1320,16 @@ const wireFieldErrors = (form: HTMLFormElement): void => {
     const target = event.target;
     if (!(target instanceof Element)) return;
 
-    // A link is one field with three error lists; the nearest wrapping part is
-    // the one the editor changed. The type switch's group has no list of its
-    // own, so flipping it clears nothing.
-    const linkPart = target.closest(
-      ".cms-link-text, .cms-link-title, .cms-link-destination, .cms-link-destination-group",
+    // A link or a video is one field with more than one error list; the
+    // nearest wrapping part is the one the editor changed. A link's type
+    // switch group has no list of its own, so flipping it clears nothing.
+    const part = target.closest(
+      ".cms-link-text, .cms-link-title, .cms-link-destination, .cms-link-destination-group, .cms-video-part",
     );
     // A block image field's picker is a `.cms-field` inside the field it
     // belongs to, so the field wins; a page setting's picker is its own field.
     const scope =
-      linkPart ??
-      target.closest("[data-field]") ??
-      target.closest(".cms-field");
+      part ?? target.closest("[data-field]") ?? target.closest(".cms-field");
     if (!scope) return;
 
     // A group or a list is a `[data-field]` whose children are fields of their

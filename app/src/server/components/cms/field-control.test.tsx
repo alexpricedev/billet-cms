@@ -512,6 +512,234 @@ describe("FieldControl image parts", () => {
     expect(html).toContain('id="cms-field-photo-error"');
   });
 });
+describe("FieldControl video", () => {
+  const video: FieldMetadata = {
+    name: "clip",
+    kind: "video",
+    label: "Clip",
+    required: true,
+  };
+  const saved = {
+    provider: "youtube",
+    id: "dQw4w9WgXcQ",
+    title: "Studio refit walkthrough",
+  };
+  const renderVideo = (
+    value: unknown,
+    options: {
+      field?: FieldMetadata;
+      errors?: FieldError[];
+      labelOverride?: string;
+    } = {},
+  ): string =>
+    renderToString(
+      <FieldControl
+        field={options.field ?? video}
+        value={value}
+        idBase={options.labelOverride ? undefined : "cms-field-clip"}
+        labelOverride={options.labelOverride}
+        errors={options.errors}
+        uploadCsrfToken="upload-token"
+      />,
+    );
+
+  // A legend is outside the fieldset's grid, so the parts wrapper carries the
+  // heading air; a list row's span label is a grid item and must not get it
+  // twice. The field's own help (when a site sets one) sits with the heading.
+  test("groups the player and the two boxes in one wrapper", () => {
+    const html = renderVideo(saved);
+    expect(count(html, 'class="cms-video-parts"')).toBe(1);
+    expect(html).toContain('class="cms-video-part"');
+
+    // A list row's label is a grid item, so its wrapper subtracts the gap the
+    // label already contributes; a legend's wrapper carries the whole air.
+    const row = renderVideo(saved, { labelOverride: "Videos" });
+    expect(row).toContain(
+      'class="cms-video-parts cms-video-parts-after-label"',
+    );
+  });
+
+  test("names the link and title boxes after the field", () => {
+    const html = renderVideo(saved);
+    expect(html).toContain('for="cms-field-clip-url"');
+    expect(html).toContain("data-video-url");
+    expect(html).toContain('for="cms-field-clip-title"');
+    expect(html).toContain("data-video-title");
+    expect(html).toContain("A YouTube or Vimeo link.");
+    expect(html).toContain(
+      `Describes the video, as alt text does. Read out by screen readers. Up to ${MAX_ALT_LENGTH} characters.`,
+    );
+  });
+
+  // The title is a two-row textarea so a long one wraps, and it is capped like
+  // an image's alt text.
+  test("renders the title as a capped two-row textarea", () => {
+    const html = renderVideo(saved);
+    const title = html.match(/<textarea[^>]*data-video-title[^>]*>/)?.[0] ?? "";
+    expect(title).toContain('rows="2"');
+    expect(title).toContain(`maxlength="${MAX_ALT_LENGTH}"`);
+  });
+
+  test("renders a saved YouTube video through the nocookie host", () => {
+    const html = renderVideo(saved);
+    expect(html).toContain(
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+    );
+    expect(html).toContain('title="Studio refit walkthrough"');
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain("allowfullscreen");
+    expect(html).toContain("aspect-ratio:16/9");
+    // The link box shows the canonical page, not the stored parts.
+    expect(html).toContain(
+      'value="https://www.youtube.com/watch?v=dQw4w9WgXcQ"',
+    );
+  });
+
+  test("renders a saved Vimeo video with dnt=1", () => {
+    const html = renderVideo({
+      provider: "vimeo",
+      id: "76979871",
+      title: "Studio tour",
+    });
+    expect(html).toContain("https://player.vimeo.com/video/76979871?dnt=1");
+    expect(html).toContain('value="https://vimeo.com/76979871"');
+  });
+
+  // A refused save comes back with what the editor typed; showing a player for
+  // a link the server refused would say it was accepted.
+  test("shows the typed link and no player after a refused link", () => {
+    const html = renderVideo({
+      url: "https://example.com/watch?v=abc",
+      title: "Studio refit walkthrough",
+    });
+    expect(html).toContain('value="https://example.com/watch?v=abc"');
+    expect(html).not.toContain("<iframe");
+    expect(html).not.toContain("data-video-embed");
+  });
+
+  test("shows no player for a stored video with no title", () => {
+    const html = renderVideo({ ...saved, title: "" });
+    expect(html).not.toContain("<iframe");
+    // The id is not lost: the link box still names the video.
+    expect(html).toContain(
+      'value="https://www.youtube.com/watch?v=dQw4w9WgXcQ"',
+    );
+  });
+
+  // A hand-edited row cannot smuggle a path into the player's address.
+  test("renders no player for an id the provider's pattern refuses", () => {
+    for (const id of ["../../evil", "dQw4w9WgXc", "dQw4w9WgXcQ/extra"]) {
+      const html = renderVideo({ ...saved, id });
+      expect(html).not.toContain("<iframe");
+    }
+  });
+
+  test("puts a link error under the link box and marks only it", () => {
+    const html = renderVideo(
+      { url: "https://example.com/watch?v=abc", title: "A talk" },
+      {
+        errors: [
+          { path: "clip.url", message: "Paste a YouTube or Vimeo link." },
+        ],
+      },
+    );
+    const url = html.match(/<input[^>]*data-video-url[^>]*>/)?.[0] ?? "";
+    const title = html.match(/<textarea[^>]*data-video-title[^>]*>/)?.[0] ?? "";
+    const fieldset =
+      html.match(/<fieldset[^>]*data-field-kind="video"[^>]*>/)?.[0] ?? "";
+
+    expect(url).toContain('aria-invalid="true"');
+    expect(url).toContain(
+      'aria-describedby="cms-field-clip-url-help cms-field-clip-url-error"',
+    );
+    expect(html).toContain(
+      '<ul class="cms-field-errors" id="cms-field-clip-url-error">',
+    );
+    expect(title).not.toContain("aria-invalid");
+    // The fieldset must not point at a container error list that isn't there.
+    expect(fieldset).not.toContain("aria-invalid");
+    expect(fieldset).not.toContain("cms-field-clip-error");
+  });
+
+  test("puts a title error under the title box and marks only it", () => {
+    const html = renderVideo(
+      { url: "https://youtu.be/dQw4w9WgXcQ", title: "" },
+      {
+        errors: [{ path: "clip.title", message: "Add a title for the video." }],
+      },
+    );
+    const url = html.match(/<input[^>]*data-video-url[^>]*>/)?.[0] ?? "";
+    const title = html.match(/<textarea[^>]*data-video-title[^>]*>/)?.[0] ?? "";
+
+    expect(title).toContain('aria-invalid="true"');
+    expect(title).toContain(
+      'aria-describedby="cms-field-clip-title-help cms-field-clip-title-error"',
+    );
+    expect(url).not.toContain("aria-invalid");
+  });
+
+  test("keeps a whole-video error on the container", () => {
+    const html = renderVideo(saved, {
+      errors: [{ path: "clip", message: "This video cannot be embedded." }],
+    });
+    const fieldset =
+      html.match(/<fieldset[^>]*data-field-kind="video"[^>]*>/)?.[0] ?? "";
+
+    expect(html).toContain(
+      '<ul class="cms-field-errors" id="cms-field-clip-error">',
+    );
+    expect(fieldset).toContain('aria-invalid="true"');
+    expect(fieldset).toContain('aria-describedby="cms-field-clip-error"');
+  });
+
+  // The field's own help describes the whole field and is named by the
+  // fieldset, not repeated under the link box's own help line.
+  test("ties the field's own help to the fieldset", () => {
+    const html = renderVideo(saved, {
+      field: { ...video, help: "The film for this block." },
+    });
+    const fieldset =
+      html.match(/<fieldset[^>]*data-field-kind="video"[^>]*>/)?.[0] ?? "";
+
+    expect(fieldset).toContain('aria-describedby="cms-field-clip-help"');
+    expect(html).toContain(
+      'class="cms-field-help cms-video-help" id="cms-field-clip-help"',
+    );
+    expect(html).toContain(
+      'class="cms-video-parts cms-video-parts-after-help"',
+    );
+  });
+
+  test("marks a required video and says Optional for an optional one", () => {
+    const required = renderVideo(saved);
+    expect(required).toContain('<span class="cms-required"> *</span>');
+    expect(required).not.toContain("cms-field-video-optional");
+
+    const optional = renderVideo(saved, {
+      field: { ...video, required: false },
+    });
+    expect(optional).toContain("cms-field-video-optional");
+    expect(optional).toContain("Optional");
+    expect(optional).not.toContain('<span class="cms-required"> *</span>');
+  });
+
+  // A video inside a group carries no marker of its own: the group heading
+  // owns the one required marker, exactly as it does for a link.
+  test("a video inside a group carries no marker of its own", () => {
+    const html = renderToString(
+      <FieldControl
+        field={{ ...video, required: false }}
+        value={saved}
+        idBase="cms-field-feature-clip"
+        labelOverride="Clip"
+        inGroup
+        uploadCsrfToken="upload-token"
+      />,
+    );
+    expect(html).not.toContain("cms-required");
+    expect(html).not.toContain("cms-field-optional");
+  });
+});
 describe("FieldControl link", () => {
   const PAGE_ID = "22222222-2222-4222-8222-222222222222";
   const link: FieldMetadata = {

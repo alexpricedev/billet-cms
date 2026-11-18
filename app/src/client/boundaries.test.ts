@@ -107,7 +107,14 @@ const MAIN_BUNDLE_BUDGET_BYTES = 16_000;
 // bytes to spare rather than overflowing it. 16,500 keeps a few lines'
 // headroom; the number moving is still the signal, so raise it again only with
 // the same arithmetic written down.
-const CMS_FORM_BUNDLE_BUDGET_BYTES = 16_500;
+//
+// This rise, 16,500 → 17,200, is the video field: the script reads its two
+// boxes back into `{ url, title }` for the server to parse, and reuses the
+// required-blank and untouched-container rules the link field already needed.
+// It measures 16,840, so the old budget had no room for this. 17,200 keeps a
+// few lines' headroom; the number moving is still the signal, so raise it again
+// only with the same arithmetic written down.
+const CMS_FORM_BUNDLE_BUDGET_BYTES = 17_200;
 
 // Minified bytes for the shared image picker, `image-picker.ts`, including the
 // `upload-shared.ts` it imports. It is 9,988 bytes at the time of writing,

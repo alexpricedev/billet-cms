@@ -2,7 +2,11 @@ import {
   type FieldMetadata,
   MAX_ALT_LENGTH,
 } from "@alexpricedev/billet-cms/contract";
-import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
+import {
+  type RichTextDocument,
+  type VideoProvider,
+  videoEmbedUrl,
+} from "@alexpricedev/billet-cms/fields";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
 import { ImagePicker, type PickerImage } from "./image-picker";
@@ -737,6 +741,163 @@ export const FieldControl = ({
             data-image-warning
             hidden
           />
+        </fieldset>
+      );
+    }
+
+    case "video": {
+      const video = asRecord(value);
+      const provider: VideoProvider | null =
+        video.provider === "youtube" || video.provider === "vimeo"
+          ? video.provider
+          : null;
+      const videoId = asString(video.id);
+      const title = asString(video.title);
+      // The embed address for a stored value. `videoEmbedUrl` checks the id
+      // against its provider's pattern, so a hand-edited row gets no player and
+      // no address of its own.
+      const storedEmbed = provider
+        ? videoEmbedUrl({ provider, id: videoId })
+        : "";
+      // Only a stored value with a title renders a player: a save that was
+      // refused posts the typed `{url, title}` back, and the control must show
+      // no embed for a link that was not accepted. The title cap mirrors the
+      // stored schema, so an over-long one shows no player either. The link box
+      // still shows the stored video's canonical page.
+      const embedUrl =
+        storedEmbed !== "" && title !== "" && title.length <= MAX_ALT_LENGTH
+          ? storedEmbed
+          : "";
+      // A saved video shows its canonical page in the link box — what the
+      // editor would have pasted — while a refused one keeps exactly what they
+      // typed so they can correct it.
+      const linkValue =
+        storedEmbed === ""
+          ? asString(video.url)
+          : provider === "youtube"
+            ? `https://www.youtube.com/watch?v=${videoId}`
+            : `https://vimeo.com/${videoId}`;
+
+      // Errors arrive with the whole dotted path (`clip.url`), so each box
+      // takes the message whose last segment names it; anything else stays on
+      // the field as a whole.
+      const forControl = (segment: string): FieldError[] =>
+        (errors ?? []).filter(
+          (error) =>
+            error.path.slice(error.path.lastIndexOf(".") + 1) === segment,
+        );
+      const urlErrors = forControl("url");
+      const titleErrors = forControl("title");
+      const known = new Set(["url", "title"]);
+      const groupErrors = (errors ?? []).filter(
+        (error) =>
+          !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
+      );
+      const urlErrorId = idFor("url-error");
+      const titleErrorId = idFor("title-error");
+
+      return (
+        <fieldset
+          className={`cms-field cms-field-video${
+            required ? "" : " cms-field-video-optional"
+          }`}
+          data-field
+          data-field-kind="video"
+          data-field-name={field.name}
+          id={controlId}
+          aria-label={labelOverride}
+          aria-invalid={groupErrors.length > 0 ? "true" : undefined}
+          aria-describedby={describedBy(
+            field.help ? helpId : undefined,
+            groupErrors.length > 0 ? errorId : undefined,
+          )}
+        >
+          {labelOverride ? (
+            <span className="cms-field-label">{labelOverride}</span>
+          ) : (
+            <legend className="cms-field-label">
+              <GroupLabelText field={field} inGroup={inGroup} />
+            </legend>
+          )}
+          {/* A fieldset's legend is outside its grid, so help directly under
+              the heading carries the field's 6px itself; a list row's span
+              label is a grid item and must not get it twice. */}
+          <FieldHelp
+            help={field.help}
+            id={helpId}
+            className={labelOverride ? undefined : "cms-video-help"}
+          />
+          <div
+            className={`cms-video-parts${
+              labelOverride ? " cms-video-parts-after-label" : ""
+            }${field.help ? " cms-video-parts-after-help" : ""}`}
+          >
+            {embedUrl !== "" && (
+              <div className="cms-video-embed" data-video-embed>
+                {/* The player is the field's own preview: the address comes
+                    from `videoEmbedUrl`, so it is one of the two fixed
+                    privacy-friendly origins and never anything an editor
+                    typed. 16:9 is on the frame, so the box reserves its space
+                    before the third-party document loads. */}
+                <iframe
+                  src={embedUrl}
+                  title={title}
+                  loading="lazy"
+                  allowfullscreen
+                  style="aspect-ratio:16/9;width:100%;border:0"
+                />
+              </div>
+            )}
+            <div className="cms-video-part">
+              <SubControlLabel htmlFor={idFor("url")}>
+                Video link
+              </SubControlLabel>
+              <input
+                type="text"
+                inputMode="url"
+                id={idFor("url")}
+                data-video-url
+                placeholder="youtube.com/watch?v=..."
+                aria-label={controlId ? undefined : "Video link"}
+                value={linkValue}
+                aria-invalid={urlErrors.length > 0 ? "true" : undefined}
+                aria-describedby={describedBy(
+                  idFor("url-help"),
+                  urlErrors.length > 0 ? urlErrorId : undefined,
+                )}
+              />
+              <FieldErrors errors={urlErrors} id={urlErrorId} />
+              <span className="cms-field-help" id={idFor("url-help")}>
+                A YouTube or Vimeo link.
+              </span>
+            </div>
+            <div className="cms-video-part">
+              <SubControlLabel htmlFor={idFor("title")}>Title</SubControlLabel>
+              {/* Two rows so a long title wraps and stays readable; the saved
+                  value is one line, the same as the stored schema's. */}
+              <textarea
+                id={idFor("title")}
+                data-video-title
+                rows={2}
+                maxLength={MAX_ALT_LENGTH}
+                aria-label={controlId ? undefined : "Title"}
+                aria-required="true"
+                aria-invalid={titleErrors.length > 0 ? "true" : undefined}
+                aria-describedby={describedBy(
+                  idFor("title-help"),
+                  titleErrors.length > 0 ? titleErrorId : undefined,
+                )}
+              >
+                {title}
+              </textarea>
+              <FieldErrors errors={titleErrors} id={titleErrorId} />
+              <span className="cms-field-help" id={idFor("title-help")}>
+                Describes the video, as alt text does. Read out by screen
+                readers. Up to {MAX_ALT_LENGTH} characters.
+              </span>
+            </div>
+          </div>
+          <FieldErrors errors={groupErrors} id={errorId} />
         </fieldset>
       );
     }
