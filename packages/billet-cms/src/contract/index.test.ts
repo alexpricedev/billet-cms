@@ -25,10 +25,11 @@ describe("CONTRACT_VERSION", () => {
     expect(CONTRACT_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  // Phase 12 added `cms_page_sections`; an older CMS cannot store what a newer
-  // site publishes, so both sides move together.
-  test("is the Phase 12 version", () => {
-    expect(CONTRACT_VERSION).toBe("0.12.0");
+  // Phase 13 added the `video` field kind; an older CMS has no control to render
+  // a published video with, and an older site cannot validate content written
+  // against one, so both sides move together.
+  test("is the Phase 13 version", () => {
+    expect(CONTRACT_VERSION).toBe("0.13.0");
   });
 });
 

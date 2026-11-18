@@ -16,9 +16,11 @@ import {
   MAX_LIST_DEPTH,
   richText,
   text,
+  video,
 } from "./field";
 import { MAX_RICH_TEXT_LIST_DEPTH } from "./rich-text";
 import { URL_PATTERN } from "./url";
+import { VIMEO_ID_PATTERN, YOUTUBE_ID_PATTERN } from "./video";
 
 const UUID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
@@ -445,6 +447,178 @@ describe("image", () => {
       block("hero", { label: "Hero" }, { photo: image() }, () => null),
     );
     expect(properties(stored).photo?.additionalProperties).toBe(false);
+  });
+});
+
+describe("video", () => {
+  const YOUTUBE = {
+    provider: "youtube",
+    id: "dQw4w9WgXcQ",
+    title: "A launch film",
+  };
+  const VIMEO = { provider: "vimeo", id: "76979871", title: "A launch film" };
+
+  test("carries its label, help and required in metadata", () => {
+    const field = video({
+      label: "Clip",
+      help: "Paste a YouTube or Vimeo link",
+      required: false,
+    });
+
+    expect(field.metadata("clip")).toEqual({
+      name: "clip",
+      kind: "video",
+      required: false,
+      label: "Clip",
+      help: "Paste a YouTube or Vimeo link",
+    });
+  });
+
+  test("stores a provider, an id and a title", () => {
+    const field = video();
+    expect(field.schema.safeParse(YOUTUBE).success).toBe(true);
+    expect(field.schema.safeParse(VIMEO).success).toBe(true);
+  });
+
+  // The id reaches the iframe's `src` on the site, so the stored schema checks
+  // it against its own provider's shape rather than accepting any string.
+  test("refuses an id that is not of its provider's shape", () => {
+    const field = video();
+    for (const value of [
+      { ...YOUTUBE, id: "../../evil" },
+      { ...YOUTUBE, id: "too-short" },
+      { ...YOUTUBE, id: "dQw4w9WgXcQ/extra" },
+      { ...YOUTUBE, id: "76979871" },
+      { ...VIMEO, id: "dQw4w9WgXcQ" },
+      { ...VIMEO, id: "76979871/extra" },
+      { ...VIMEO, id: "76-979" },
+    ]) {
+      expect(
+        field.schema.safeParse(value).success,
+        `expected ${JSON.stringify(value)} to be rejected`,
+      ).toBe(false);
+    }
+  });
+
+  test("refuses an unknown provider", () => {
+    expect(
+      video().schema.safeParse({ provider: "vimeo2", id: "1", title: "x" })
+        .success,
+    ).toBe(false);
+  });
+
+  test("requires a title and caps it at the contract's limit", () => {
+    const field = video();
+    expect(
+      field.schema.safeParse({ ...YOUTUBE, title: undefined }).success,
+    ).toBe(false);
+    expect(field.schema.safeParse({ ...YOUTUBE, title: "" }).success).toBe(
+      false,
+    );
+    expect(
+      field.schema.safeParse({
+        ...YOUTUBE,
+        title: "x".repeat(MAX_ALT_LENGTH),
+      }).success,
+    ).toBe(true);
+    expect(
+      field.schema.safeParse({
+        ...YOUTUBE,
+        title: "x".repeat(MAX_ALT_LENGTH + 1),
+      }).success,
+    ).toBe(false);
+  });
+
+  test("rejects a pasted URL where the stored shape belongs", () => {
+    expect(
+      video().schema.safeParse({
+        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        title: "A launch film",
+      }).success,
+    ).toBe(false);
+  });
+
+  test("rejects an unknown key, matching the stored JSON Schema", () => {
+    expect(video().schema.safeParse({ ...YOUTUBE, extra: 1 }).success).toBe(
+      false,
+    );
+
+    const stored = blockStoredSchema(
+      block("film", { label: "Film" }, { clip: video() }, () => null),
+    );
+    const clip = properties(stored).clip as {
+      oneOf: Array<{ additionalProperties?: boolean }>;
+    };
+    for (const branch of clip.oneOf) {
+      expect(branch.additionalProperties).toBe(false);
+    }
+  });
+
+  test("publishes each provider's id pattern and the title limit", () => {
+    const stored = blockStoredSchema(
+      block("film", { label: "Film" }, { clip: video() }, () => null),
+    );
+    const clip = properties(stored).clip as {
+      oneOf: Array<{
+        properties: Record<string, Record<string, unknown>>;
+        required?: string[];
+      }>;
+    };
+
+    const youTube = clip.oneOf.find(
+      (branch) => branch.properties.provider?.const === "youtube",
+    );
+    const vimeo = clip.oneOf.find(
+      (branch) => branch.properties.provider?.const === "vimeo",
+    );
+
+    expect(youTube?.properties.id?.pattern).toBe(YOUTUBE_ID_PATTERN.source);
+    expect(vimeo?.properties.id?.pattern).toBe(VIMEO_ID_PATTERN.source);
+    expect(youTube?.properties.title).toMatchObject({
+      type: "string",
+      minLength: 1,
+      maxLength: MAX_ALT_LENGTH,
+    });
+    expect(youTube?.required).toEqual(["provider", "id", "title"]);
+    expect(vimeo?.required).toEqual(["provider", "id", "title"]);
+  });
+
+  test("is required by default and optional when required is false", () => {
+    const optional = video({ required: false });
+    expect(optional.schema.safeParse(undefined).success).toBe(true);
+    expect(optional.metadata("clip").required).toBe(false);
+    expect(video().schema.safeParse(undefined).success).toBe(false);
+  });
+
+  // The two shapes the editor nests a control in. The value is the same leaf
+  // either way, so a declaration inside one must validate and reject exactly as
+  // it does at the top level.
+  test("round-trips inside a list and a group", () => {
+    const field = {
+      clips: list(video()),
+      feature: group({ clip: video() }),
+    };
+    const content = {
+      clips: [YOUTUBE, VIMEO],
+      feature: { clip: YOUTUBE },
+    };
+    const definition = block("film", { label: "Film" }, field, () => null);
+
+    expect(blockContentSchema(definition).safeParse(content).success).toBe(
+      true,
+    );
+    expect(
+      blockContentSchema(definition).safeParse({
+        clips: [{ ...YOUTUBE, id: "../evil" }],
+        feature: { clip: YOUTUBE },
+      }).success,
+    ).toBe(false);
+    expect(
+      blockContentSchema(definition).safeParse({
+        clips: [YOUTUBE],
+        feature: { clip: { ...YOUTUBE, title: "" } },
+      }).success,
+    ).toBe(false);
   });
 });
 

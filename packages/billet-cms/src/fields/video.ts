@@ -40,10 +40,10 @@ export const VIDEO_TITLE_MESSAGE = "Add a title for the video.";
  * interpolated into the embed URL the site renders. A path segment of `../…`
  * or a second `/` would otherwise travel into an iframe `src`.
  */
-const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+export const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 
 /** A Vimeo video id: digits only, for the same reason. */
-const VIMEO_ID = /^\d+$/;
+export const VIMEO_ID_PATTERN = /^\d+$/;
 
 /**
  * The YouTube id in `url`, or `null` when the host or path is not a video.
@@ -57,24 +57,24 @@ const youTubeId = (url: URL): string | null => {
   switch (url.hostname) {
     case "youtu.be": {
       const match = /^\/([^/]+)\/?$/.exec(url.pathname);
-      return match && YOUTUBE_ID.test(match[1]) ? match[1] : null;
+      return match && YOUTUBE_ID_PATTERN.test(match[1]) ? match[1] : null;
     }
     case "youtube.com":
     case "www.youtube.com":
     case "m.youtube.com": {
       if (url.pathname === "/watch" || url.pathname === "/watch/") {
         const id = url.searchParams.get("v") ?? "";
-        return YOUTUBE_ID.test(id) ? id : null;
+        return YOUTUBE_ID_PATTERN.test(id) ? id : null;
       }
       const match = /^\/(?:embed|shorts|live)\/([^/]+)\/?$/.exec(url.pathname);
-      return match && YOUTUBE_ID.test(match[1]) ? match[1] : null;
+      return match && YOUTUBE_ID_PATTERN.test(match[1]) ? match[1] : null;
     }
     // The host the embed itself uses. An editor who copies an embed's `src`,
     // or a link out of a privacy-minded site, pastes this one.
     case "youtube-nocookie.com":
     case "www.youtube-nocookie.com": {
       const match = /^\/embed\/([^/]+)\/?$/.exec(url.pathname);
-      return match && YOUTUBE_ID.test(match[1]) ? match[1] : null;
+      return match && YOUTUBE_ID_PATTERN.test(match[1]) ? match[1] : null;
     }
     default:
       return null;
@@ -99,7 +99,7 @@ const vimeoId = (url: URL): string | null => {
         : null;
   if (!pattern) return null;
   const match = pattern.exec(url.pathname);
-  return match && VIMEO_ID.test(match[1]) ? match[1] : null;
+  return match && VIMEO_ID_PATTERN.test(match[1]) ? match[1] : null;
 };
 
 /**
@@ -145,11 +145,11 @@ export const parseVideoUrl = (value: string): VideoRef | null => {
 export const videoEmbedUrl = (video: VideoRef): string => {
   switch (video.provider) {
     case "youtube":
-      return YOUTUBE_ID.test(video.id)
+      return YOUTUBE_ID_PATTERN.test(video.id)
         ? `https://www.youtube-nocookie.com/embed/${video.id}`
         : "";
     case "vimeo":
-      return VIMEO_ID.test(video.id)
+      return VIMEO_ID_PATTERN.test(video.id)
         ? `https://player.vimeo.com/video/${video.id}?dnt=1`
         : "";
     default:

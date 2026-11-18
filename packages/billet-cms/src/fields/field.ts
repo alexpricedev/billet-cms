@@ -18,6 +18,7 @@ import { assertName } from "./name";
 import { assertMinMax, assertNonNegativeInteger } from "./options";
 import { type RichTextDocument, richTextSchema } from "./rich-text";
 import { URL_PATTERN, URL_PATTERN_MESSAGE } from "./url";
+import { VIMEO_ID_PATTERN, type VideoValue, YOUTUBE_ID_PATTERN } from "./video";
 
 export interface FieldOptions {
   label?: string;
@@ -257,6 +258,46 @@ export const image = <O extends ImageOptions = DefaultOptions>(
     },
   };
 };
+
+/**
+ * One video's stored shape, per provider.
+ *
+ * The id pattern is the provider's own, not a plain string: the site builds the
+ * iframe's `src` from `{ provider, id }`, so a hand-written value — an import,
+ * an MCP caller, an old row — must not be able to smuggle a path or a second
+ * host into that address. `title` becomes the iframe's `title`, required the
+ * way an image's alt text is and capped by the same contract limit.
+ */
+const youTubeVideo = z.strictObject({
+  provider: z.literal("youtube"),
+  id: z.string().regex(YOUTUBE_ID_PATTERN),
+  title: z.string().min(1).max(MAX_ALT_LENGTH),
+});
+
+const vimeoVideo = z.strictObject({
+  provider: z.literal("vimeo"),
+  id: z.string().regex(VIMEO_ID_PATTERN),
+  title: z.string().min(1).max(MAX_ALT_LENGTH),
+});
+
+const videoValue = z.discriminatedUnion("provider", [youTubeVideo, vimeoVideo]);
+
+/**
+ * A video hosted on YouTube or Vimeo.
+ *
+ * The value keeps the service and the video id, never the address an editor
+ * pasted: the site asks `videoEmbedUrl` for the player's address, so the
+ * privacy-friendly host is decided once rather than by every site. `title` is
+ * the iframe's accessible name and is required, like an image's alt text.
+ */
+export const video = <O extends FieldOptions = DefaultOptions>(
+  options: O = {} as O,
+): Field<FieldValue<VideoValue, O>> => ({
+  kind: "video",
+  required: options.required !== false,
+  schema: optional(videoValue, options),
+  metadata: (name) => baseMetadata(name, "video", options),
+});
 
 const pageLink = z.strictObject({
   type: z.literal("page"),
