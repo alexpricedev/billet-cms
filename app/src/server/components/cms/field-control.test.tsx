@@ -3,7 +3,11 @@ import {
   type FieldMetadata,
   MAX_ALT_LENGTH,
 } from "@alexpricedev/billet-cms/contract";
-import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
+import type {
+  RichTextDocument,
+  VideoValue,
+} from "@alexpricedev/billet-cms/fields";
+import { renderCmsVideo } from "@alexpricedev/billet-cms/server";
 import { renderToString } from "preact-render-to-string";
 import { FieldControl, type FieldError } from "./field-control";
 import type { PickerImage } from "./image-picker";
@@ -519,7 +523,7 @@ describe("FieldControl video", () => {
     label: "Clip",
     required: true,
   };
-  const saved = {
+  const saved: VideoValue = {
     provider: "youtube",
     id: "dQw4w9WgXcQ",
     title: "Studio refit walkthrough",
@@ -583,6 +587,7 @@ describe("FieldControl video", () => {
 
   test("renders a saved YouTube video through the nocookie host", () => {
     const html = renderVideo(saved);
+    expect(html).toContain(renderCmsVideo(saved));
     expect(html).toContain(
       "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
     );

@@ -7,6 +7,7 @@ import {
   type VideoProvider,
   videoEmbedUrl,
 } from "@alexpricedev/billet-cms/fields";
+import { renderCmsVideo } from "@alexpricedev/billet-cms/server";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
 import { ImagePicker, type PickerImage } from "./image-picker";
@@ -778,15 +779,12 @@ export const FieldControl = ({
       const storedEmbed = provider
         ? videoEmbedUrl({ provider, id: videoId })
         : "";
-      // Only a stored value with a title renders a player: a save that was
-      // refused posts the typed `{url, title}` back, and the control must show
-      // no embed for a link that was not accepted. The title cap mirrors the
-      // stored schema, so an over-long one shows no player either. The link box
-      // still shows the stored video's canonical page.
-      const embedUrl =
-        storedEmbed !== "" && title !== "" && title.length <= MAX_ALT_LENGTH
-          ? storedEmbed
-          : "";
+      // The editor uses the site's renderer so the two players cannot drift.
+      // It refuses an invalid id or a missing/over-long title; a save that was
+      // refused posts `{url, title}` back, which likewise produces no player.
+      const embedHtml = provider
+        ? renderCmsVideo({ provider, id: videoId, title })
+        : "";
       // A saved video shows its canonical page in the link box — what the
       // editor would have pasted — while a refused one keeps exactly what they
       // typed so they can correct it.
@@ -844,22 +842,12 @@ export const FieldControl = ({
               labelOverride ? " cms-video-parts-after-label" : ""
             }${field.help ? " cms-video-parts-after-help" : ""}`}
           >
-            {embedUrl !== "" && (
-              <div className="cms-video-embed" data-video-embed>
-                {/* The player is the field's own preview: the address comes
-                    from `videoEmbedUrl`, so it is one of the two fixed
-                    privacy-friendly origins and never anything an editor
-                    typed. 16:9 is on the frame, so the box reserves its space
-                    before the third-party document loads. */}
-                <iframe
-                  src={embedUrl}
-                  title={title}
-                  loading="lazy"
-                  referrerpolicy="strict-origin-when-cross-origin"
-                  allowfullscreen
-                  style="aspect-ratio:16/9;width:100%;border:0"
-                />
-              </div>
+            {embedHtml !== "" && (
+              <div
+                className="cms-video-embed"
+                data-video-embed
+                dangerouslySetInnerHTML={{ __html: embedHtml }}
+              />
             )}
             <div className="cms-video-part">
               <SubControlLabel htmlFor={idFor("url")}>
