@@ -24,6 +24,7 @@
  * saved or published again (review round 2). A save additionally tolerates a
  * removed *field*, the same way it tolerates a removed block.
  */
+import { normaliseVideoContent } from "@alexpricedev/billet-cms/fields";
 import type { BlockTypeRecord, PageTypeRecord } from "./definitions";
 import { blockContentIssues, type FieldIssue } from "./drafts";
 
@@ -185,12 +186,19 @@ export const validatePageContent = (
 ): ValidatePageResult => {
   const issues: FieldIssue[] = [];
   const allowed = new Set(pageType.allowedBlocks);
+  // The blocks as they will be stored. A pasted video link is turned into its
+  // stored `{provider, id, title}` here, so the caller writes this content
+  // rather than the raw form values it was handed.
+  const storedBlocks: PageBlock[] = [];
 
   content.blocks.forEach((block, index) => {
     const at = `blocks.${index}`;
     const blockType = blockTypes.get(block.type);
 
     if (!blockType || blockType.removedAt) {
+      // Carried or refused exactly as it came in: there is no published field
+      // metadata to normalise against.
+      storedBlocks.push(block);
       if (options.allowUnavailableBlocks) return;
       issues.push({
         path: at,
@@ -202,6 +210,7 @@ export const validatePageContent = (
     // A tolerated not-allowed block falls through to the field check below: the
     // page type's rule is waived, but the block type's own schema still holds.
     if (!allowed.has(block.type) && !options.allowNotAllowedBlocks) {
+      storedBlocks.push(block);
       issues.push({
         path: at,
         message: `The "${block.type}" block isn't allowed on this page type.`,
@@ -212,12 +221,28 @@ export const validatePageContent = (
     // `type` is the discriminator, not a field, so it is removed before the
     // block's own schema sees it.
     const { type: _type, ...fields } = block;
+
+    // A video arrives from the form as `{url, title}` and is stored as
+    // `{provider, id, title}`. Normalise before the schema runs, and report a
+    // link that names neither service on the box the editor typed it in — the
+    // schema would only call the value malformed.
+    const videos = normaliseVideoContent(blockType.fields, fields);
+    if (videos.issues.length > 0) {
+      storedBlocks.push(block);
+      for (const issue of videos.issues) {
+        issues.push({ path: `${at}.${issue.path}`, message: issue.message });
+      }
+      return;
+    }
+    const normalised = videos.content as Record<string, unknown>;
+    storedBlocks.push({ ...normalised, type: block.type });
+
     // The schema is compiled by Zod, whose messages name the validator
     // ("Too big: expected string to have <=80 characters", "Invalid input")
     // rather than the problem. `blockContentIssues` rewrites them the way a
     // slot's editor sees them and adds the Button-text rule, so a page and a
     // slot speak the same language (review follow-up).
-    const fieldIssues = blockContentIssues(blockType, fields, {
+    const fieldIssues = blockContentIssues(blockType, normalised, {
       allowAdditionalFields: true,
       skipLinkText: options.skipLinkText,
     });
@@ -232,10 +257,11 @@ export const validatePageContent = (
 
   if (issues.length > 0) return { ok: false, issues };
 
-  const limitIssues = checkPageLimits(pageType, content.blocks);
+  const stored: PageContent = { blocks: storedBlocks };
+  const limitIssues = checkPageLimits(pageType, stored.blocks);
   if (limitIssues.length > 0) return { ok: false, issues: limitIssues };
 
-  return { ok: true, content };
+  return { ok: true, content: stored };
 };
 
 /**

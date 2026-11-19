@@ -2,7 +2,12 @@ import {
   type FieldMetadata,
   MAX_ALT_LENGTH,
 } from "@alexpricedev/billet-cms/contract";
-import type { RichTextDocument } from "@alexpricedev/billet-cms/fields";
+import {
+  type RichTextDocument,
+  type VideoProvider,
+  videoEmbedUrl,
+} from "@alexpricedev/billet-cms/fields";
+import { renderCmsVideo } from "@alexpricedev/billet-cms/server";
 import type { ComponentChildren, JSX } from "preact";
 import type { PageOption } from "../../services/content/pages";
 import { ImagePicker, type PickerImage } from "./image-picker";
@@ -231,6 +236,25 @@ const FieldErrors = ({
       ))}
     </ul>
   ) : null;
+
+/**
+ * The errors that belong to one box of a multi-part field.
+ *
+ * Paths arrive dotted and rooted at the field (`cta.url`, or `feature.cta.url`
+ * when the control sits below a group). Matching only the last segment would
+ * hand a whole-field error for a field literally named "title" or "url" to
+ * that part's box, so the match names the field's own path.
+ */
+const partErrors = (
+  errors: FieldError[] | undefined,
+  fieldName: string,
+  part: string,
+): FieldError[] =>
+  (errors ?? []).filter(
+    (error) =>
+      error.path === `${fieldName}.${part}` ||
+      error.path.endsWith(`.${fieldName}.${part}`),
+  );
 
 /** The four destinations a link field offers, in the switch's order. */
 const LINK_TYPES = ["url", "page", "email", "phone"] as const;
@@ -741,6 +765,144 @@ export const FieldControl = ({
       );
     }
 
+    case "video": {
+      const video = asRecord(value);
+      const provider: VideoProvider | null =
+        video.provider === "youtube" || video.provider === "vimeo"
+          ? video.provider
+          : null;
+      const videoId = asString(video.id);
+      const title = asString(video.title);
+      // The embed address for a stored value. `videoEmbedUrl` checks the id
+      // against its provider's pattern, so a hand-edited row gets no player and
+      // no address of its own.
+      const storedEmbed = provider
+        ? videoEmbedUrl({ provider, id: videoId })
+        : "";
+      // The editor uses the site's renderer so the two players cannot drift.
+      // It refuses an invalid id or a missing/over-long title; a save that was
+      // refused posts `{url, title}` back, which likewise produces no player.
+      const embedHtml = provider
+        ? renderCmsVideo({ provider, id: videoId, title })
+        : "";
+      // A saved video shows its canonical page in the link box — what the
+      // editor would have pasted — while a refused one keeps exactly what they
+      // typed so they can correct it.
+      const linkValue =
+        storedEmbed === ""
+          ? asString(video.url)
+          : provider === "youtube"
+            ? `https://www.youtube.com/watch?v=${videoId}`
+            : `https://vimeo.com/${videoId}`;
+
+      // Errors arrive with the whole dotted path (`clip.url`), so each box
+      // takes the message that names it; anything else stays on the field as a
+      // whole.
+      const urlErrors = partErrors(errors, field.name, "url");
+      const titleErrors = partErrors(errors, field.name, "title");
+      const groupErrors = (errors ?? []).filter(
+        (error) => !urlErrors.includes(error) && !titleErrors.includes(error),
+      );
+      const urlErrorId = idFor("url-error");
+      const titleErrorId = idFor("title-error");
+
+      return (
+        <fieldset
+          className={`cms-field cms-field-video${
+            required ? "" : " cms-field-video-optional"
+          }`}
+          data-field
+          data-field-kind="video"
+          data-field-name={field.name}
+          id={controlId}
+          aria-label={labelOverride}
+          aria-invalid={groupErrors.length > 0 ? "true" : undefined}
+          aria-describedby={describedBy(
+            field.help ? helpId : undefined,
+            groupErrors.length > 0 ? errorId : undefined,
+          )}
+        >
+          {labelOverride ? (
+            <span className="cms-field-label">{labelOverride}</span>
+          ) : (
+            <legend className="cms-field-label">
+              <GroupLabelText field={field} inGroup={inGroup} />
+            </legend>
+          )}
+          {/* A fieldset's legend is outside its grid, so help directly under
+              the heading carries the field's 6px itself; a list row's span
+              label is a grid item and must not get it twice. */}
+          <FieldHelp
+            help={field.help}
+            id={helpId}
+            className={labelOverride ? undefined : "cms-video-help"}
+          />
+          <div
+            className={`cms-video-parts${
+              labelOverride ? " cms-video-parts-after-label" : ""
+            }${field.help ? " cms-video-parts-after-help" : ""}`}
+          >
+            {embedHtml !== "" && (
+              <div
+                className="cms-video-embed"
+                data-video-embed
+                dangerouslySetInnerHTML={{ __html: embedHtml }}
+              />
+            )}
+            <div className="cms-video-part">
+              <SubControlLabel htmlFor={idFor("url")}>
+                Video link
+              </SubControlLabel>
+              <input
+                type="text"
+                inputMode="url"
+                id={idFor("url")}
+                data-video-url
+                placeholder="youtube.com/watch?v=..."
+                aria-label={controlId ? undefined : "Video link"}
+                value={linkValue}
+                aria-invalid={urlErrors.length > 0 ? "true" : undefined}
+                aria-describedby={describedBy(
+                  idFor("url-help"),
+                  urlErrors.length > 0 ? urlErrorId : undefined,
+                )}
+              />
+              <FieldErrors errors={urlErrors} id={urlErrorId} />
+              <span className="cms-field-help" id={idFor("url-help")}>
+                A YouTube or Vimeo link.
+              </span>
+            </div>
+            <div className="cms-video-part">
+              <SubControlLabel htmlFor={idFor("title")}>Title</SubControlLabel>
+              {/* Two rows so a long title wraps and stays readable; the saved
+                  value is one line, the same as the stored schema's. */}
+              <textarea
+                id={idFor("title")}
+                data-video-title
+                rows={2}
+                maxLength={MAX_ALT_LENGTH}
+                aria-label={controlId ? undefined : "Title"}
+                aria-required={required ? "true" : undefined}
+                aria-invalid={titleErrors.length > 0 ? "true" : undefined}
+                aria-describedby={describedBy(
+                  idFor("title-help"),
+                  titleErrors.length > 0 ? titleErrorId : undefined,
+                )}
+              >
+                {title}
+              </textarea>
+              <FieldErrors errors={titleErrors} id={titleErrorId} />
+              <span className="cms-field-help" id={idFor("title-help")}>
+                Describes the video, as alt text does. Read out by screen
+                readers. Up to {MAX_ALT_LENGTH} characters.
+              </span>
+            </div>
+          </div>
+          <FieldErrors errors={groupErrors} id={errorId} />
+        </fieldset>
+      );
+    }
+
     case "link": {
       const link = asRecord(value);
       // Email and Phone have no stored type of their own: both are url-mode
@@ -757,26 +919,25 @@ export const FieldControl = ({
               : "url";
 
       // Errors arrive with the whole dotted path (`cta.url`), so each control
-      // takes the message whose last segment names it. Anything else — a
-      // whole-link issue, or a field-level one the schema produced — stays on
-      // the container.
-      const forControl = (segment: string): FieldError[] =>
-        (errors ?? []).filter(
-          (error) =>
-            error.path.slice(error.path.lastIndexOf(".") + 1) === segment,
-        );
-      const labelErrors = forControl("label");
-      const titleErrors = forControl("title");
+      // takes the message that names it. Anything else — a whole-link issue, or
+      // a field-level one the schema produced — stays on the container.
+      const labelErrors = partErrors(errors, field.name, "label");
+      const titleErrors = partErrors(errors, field.name, "title");
       // Only the selected type's destination is rendered with an error list, so
       // only its key counts as "known". An error on the other one — a `pageId`
       // failure on a url-rendered link, say — has no visible control of its own
       // and falls through to the container rather than disappearing.
       const activeDestination = type === "page" ? "pageId" : "url";
-      const destinationErrors = forControl(activeDestination);
-      const known = new Set(["label", "title", activeDestination]);
+      const destinationErrors = partErrors(
+        errors,
+        field.name,
+        activeDestination,
+      );
       const groupErrors = (errors ?? []).filter(
         (error) =>
-          !known.has(error.path.slice(error.path.lastIndexOf(".") + 1)),
+          !labelErrors.includes(error) &&
+          !titleErrors.includes(error) &&
+          !destinationErrors.includes(error),
       );
 
       const labelErrorId = idFor("label-error");

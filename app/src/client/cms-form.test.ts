@@ -2478,3 +2478,237 @@ describe("url move line", () => {
     expect(line.hidden).toBe(true);
   });
 });
+
+describe("video fields", () => {
+  /**
+   * One server-rendered video field. A saved value arrives as the canonical
+   * link and the stored title; a refused one as exactly what was typed.
+   */
+  const videoField = (options: {
+    optional?: boolean;
+    url?: string;
+    title?: string;
+  }): string => `
+    <div data-field data-field-kind="video" data-field-name="clip"${
+      options.optional ? ' class="cms-field-video-optional"' : ""
+    }>
+      <input type="text" data-video-url value="${options.url ?? ""}">
+      <textarea data-video-title rows="2">${options.title ?? ""}</textarea>
+    </div>
+  `;
+
+  // The form posts what the boxes hold; the server parses the link and stores
+  // `{ provider, id, title }`. The title is one line, however it wraps.
+  test("posts the link and title, with the title on one line", () => {
+    mount(`
+      <form data-cms-form>
+        ${videoField({
+          url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          title: "Studio refit\nwalkthrough",
+        })}
+      </form>
+    `);
+
+    expect(buildContent(form()).clip).toEqual({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "Studio refit walkthrough",
+    });
+  });
+
+  // A required video posts while blank so the server can name the link box
+  // rather than reporting the whole field as missing.
+  test("keeps a required blank video so the missing link is named", () => {
+    mount(`<form data-cms-form>${videoField({})}</form>`);
+
+    expect(buildContent(form()).clip).toEqual({ url: "", title: "" });
+  });
+
+  // An optional one the editor never touched is absent, not an empty value the
+  // block's schema would refuse.
+  test("drops an untouched optional video", () => {
+    mount(`<form data-cms-form>${videoField({ optional: true })}</form>`);
+
+    expect(buildContent(form()).clip).toBeUndefined();
+  });
+
+  // Once started, an optional video must be complete: the title is kept with
+  // no link, so a refused save points at the link box.
+  test("keeps an optional video with only a title", () => {
+    mount(
+      `<form data-cms-form>${videoField({
+        optional: true,
+        title: "Studio tour",
+      })}</form>`,
+    );
+
+    expect(buildContent(form()).clip).toEqual({
+      url: "",
+      title: "Studio tour",
+    });
+  });
+
+  // The empty row an empty list renders is not a stored entry; a real row is.
+  test("drops the placeholder row but keeps a real empty video row", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="list" data-field-name="clips" data-list>
+          <div data-list-items>
+            <div data-list-item data-list-item-placeholder>
+              ${videoField({})}
+            </div>
+          </div>
+          <template data-list-template>
+            <div data-list-item>${videoField({})}</div>
+          </template>
+          <button type="button" data-list-add>Add item</button>
+        </div>
+      </form>
+    `);
+
+    expect(buildContent(form()).clips).toEqual([]);
+
+    click(input("[data-list-add]"));
+    expect(buildContent(form()).clips).toEqual([{ url: "", title: "" }]);
+  });
+
+  // A video inside a list row round-trips; each row is its own metadata node,
+  // never looked up by a key it does not have.
+  test("round-trips a video inside a list row", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-field data-field-kind="list" data-field-name="clips" data-list>
+          <div data-list-items>
+            <div data-list-item>${videoField({
+              url: "https://youtu.be/dQw4w9WgXcQ",
+              title: "Studio refit walkthrough",
+            })}</div>
+            <div data-list-item>${videoField({
+              url: "https://vimeo.com/76979871",
+              title: "Studio tour",
+            })}</div>
+          </div>
+        </div>
+      </form>
+    `);
+
+    expect(buildContent(form()).clips).toEqual([
+      {
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        title: "Studio refit walkthrough",
+      },
+      { url: "https://vimeo.com/76979871", title: "Studio tour" },
+    ]);
+  });
+
+  // A video inside a group round-trips beside the group's other fields.
+  test("round-trips a video inside a group", () => {
+    mount(`
+      <form data-cms-form>
+        <fieldset data-field data-field-kind="group" data-field-name="feature">
+          <div data-group-fields>
+            <div data-field data-field-kind="text" data-field-name="heading">
+              <input type="text" data-text-input value="How we work">
+            </div>
+            ${videoField({
+              url: "https://player.vimeo.com/video/76979871",
+              title: "Studio tour",
+            })}
+          </div>
+        </fieldset>
+      </form>
+    `);
+
+    expect(buildContent(form()).feature).toEqual({
+      heading: "How we work",
+      clip: {
+        url: "https://player.vimeo.com/video/76979871",
+        title: "Studio tour",
+      },
+    });
+  });
+
+  // A required video inside an optional group the editor never opened must not
+  // make the group present; once the group holds anything, it is kept and the
+  // missing link is named.
+  test("drops a blank required video in an untouched optional group", () => {
+    mount(`
+      <form data-cms-form>
+        <fieldset data-field data-field-kind="group" data-field-name="feature" class="cms-field-group-optional">
+          <div data-group-fields>
+            <div data-field data-field-kind="text" data-field-name="heading">
+              <input type="text" data-text-input value="">
+            </div>
+            ${videoField({})}
+          </div>
+        </fieldset>
+      </form>
+    `);
+
+    expect(buildContent(form()).feature).toEqual({});
+
+    input("[data-text-input]").value = "How we work";
+    expect(buildContent(form()).feature).toEqual({
+      heading: "How we work",
+      clip: { url: "", title: "" },
+    });
+  });
+
+  // A required video posts while blank so its missing link can be named, but an
+  // added page block nobody filled is still dropped rather than kept alive by
+  // it — the same rule an empty required link follows.
+  test("drops an added page block whose only field is a blank required video", () => {
+    mount(`
+      <form data-cms-form>
+        <div data-cms-page-content>
+          <div data-cms-blocks>
+            <div data-cms-block data-block-type="video">
+              ${videoField({})}
+            </div>
+            <div data-cms-block data-block-type="video">
+              ${videoField({
+                url: "https://youtu.be/dQw4w9WgXcQ",
+                title: "Studio refit walkthrough",
+              })}
+            </div>
+          </div>
+        </div>
+      </form>
+    `);
+
+    expect(buildPageContent(form())).toEqual({
+      blocks: [
+        {
+          type: "video",
+          clip: {
+            url: "https://youtu.be/dQw4w9WgXcQ",
+            title: "Studio refit walkthrough",
+          },
+        },
+      ],
+    });
+  });
+
+  // With JavaScript off the hidden field submits the stored document, which is
+  // still the stored `{ provider, id, title }` — nothing here rebuilds it until
+  // a submit, so a save that changes nothing round-trips unchanged.
+  test("leaves the stored document alone until submit", () => {
+    const stored = JSON.stringify({
+      clip: {
+        provider: "youtube",
+        id: "dQw4w9WgXcQ",
+        title: "Studio refit walkthrough",
+      },
+    });
+    mount(`
+      <form data-cms-form>
+        <input type="hidden" name="content" data-cms-content value='${stored}'>
+        ${videoField({
+          url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          title: "Studio refit walkthrough",
+        })}
+      </form>
+    `);
+
+    expect(input("[data-cms-content]").value).toBe(stored);
+  });
+});

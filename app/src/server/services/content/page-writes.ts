@@ -282,8 +282,11 @@ export const savePageDraft = async (
   if (!validation.ok) {
     return { ok: false, reason: "invalid", issues: validation.issues };
   }
+  // The validated content holds the stored shape of every video; the raw
+  // `{url, title}` the form posted must not reach the revision.
+  const content = validation.content;
 
-  const guidance = await blockImageGuidance(blockTypes, input.content);
+  const guidance = await blockImageGuidance(blockTypes, content);
   if (guidance.issues.length > 0) {
     return { ok: false, reason: "invalid", issues: guidance.issues };
   }
@@ -311,7 +314,7 @@ export const savePageDraft = async (
               page,
               pageType,
               blockTypes,
-              input.content,
+              content,
               input.baseRevisionId,
               input.removedBlockIndexes ?? [],
               tx,
@@ -402,13 +405,22 @@ export const savePage = async (
   if (!validation.ok) {
     return { ok: false, reason: "invalid", issues: validation.issues };
   }
+  // What the validation returned has every pasted video in its stored shape;
+  // the write below must use it rather than the raw `{url, title}` input.
+  const normalised: SavePageInput = { ...input, content: validation.content };
 
-  const guidance = await blockImageGuidance(blockTypes, input.content);
+  const guidance = await blockImageGuidance(blockTypes, normalised.content);
   if (guidance.issues.length > 0) {
     return { ok: false, reason: "invalid", issues: guidance.issues };
   }
 
-  const outcome = await writePage(page, pageType, blockTypes, settings, input);
+  const outcome = await writePage(
+    page,
+    pageType,
+    blockTypes,
+    settings,
+    normalised,
+  );
 
   if (outcome.kind === "duplicate" || outcome.kind === "settings") {
     return { ok: false, reason: "settings", issues: [outcome.issue] };

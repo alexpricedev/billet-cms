@@ -25,6 +25,7 @@ import {
   getSlotById,
   getSlotByName,
   listBlockTypes,
+  normaliseBlockContent,
   type PageBlock,
   type PageRecord,
   publishPage,
@@ -180,10 +181,23 @@ export const registerWriteTools = (
           });
         }
 
+        // A video arrives as `{url, title}` from a caller replaying what the
+        // editor typed, and is stored as `{provider, id, title}`. Parse it
+        // before the schema sees it; a link naming neither service is reported
+        // on its own box, not as a malformed value.
+        const videos = normaliseBlockContent(blockType, content);
+        if (videos.issues.length > 0) {
+          return issuesResult(
+            `The content does not validate: ${videos.issues.length} issue(s).`,
+            "invalid",
+            { issues: videos.issues },
+          );
+        }
+
         // Button text is an editor rule, not a schema one; the shared helper
         // runs both so validate_slot cannot say the content is fine and
         // save_slot then refuse it.
-        const issues = blockContentIssues(blockType, content);
+        const issues = blockContentIssues(blockType, videos.content);
         if (issues.length > 0) {
           return issuesResult(
             `The content does not validate: ${issues.length} issue(s).`,
@@ -192,7 +206,10 @@ export const registerWriteTools = (
           );
         }
 
-        const guidance = await checkImageGuidance(blockType.fields, content);
+        const guidance = await checkImageGuidance(
+          blockType.fields,
+          videos.content,
+        );
         if (guidance.issues.length > 0) {
           return issuesResult(
             `The images do not meet the block's guidance: ${guidance.issues.length} issue(s).`,
@@ -320,13 +337,21 @@ export const registerWriteTools = (
           });
         }
 
+        // Normalise first so the retry comparison below is against what a save
+        // stores: a video posted as `{url, title}` would otherwise never equal
+        // the `{provider, id, title}` in the newest revision.
+        const blockType = await getBlockTypeByName(slot.blockName);
+        const normalised = blockType
+          ? normaliseBlockContent(blockType, content).content
+          : content;
+
         // A retried request after a dropped response should not append a
         // second identical revision or report a conflict with itself.
         const latest = await getLatestRevision("slot", slot.id);
         if (
           latest &&
           baseRevisionId === latest.id &&
-          Bun.deepEquals(latest.content, content)
+          Bun.deepEquals(latest.content, normalised)
         ) {
           return okResult({
             ok: true,
@@ -340,7 +365,8 @@ export const registerWriteTools = (
         const result = await saveSlotDraft({
           slotId: slot.id,
           slot,
-          content,
+          blockType: blockType ?? undefined,
+          content: normalised,
           baseRevisionId,
           actorId,
         });
@@ -484,11 +510,16 @@ export const registerWriteTools = (
           );
         }
 
+        // The validation returns the blocks in their stored shape (a pasted
+        // video becomes `{provider, id, title}`), so the retry comparison and
+        // the write below both use it rather than the raw input.
+        const normalised = ruleCheck.content;
+
         if (
           settings === undefined &&
           latest &&
           baseRevisionId === latest.id &&
-          Bun.deepEquals(latest.content, content)
+          Bun.deepEquals(latest.content, normalised)
         ) {
           return okResult({
             ok: true,
@@ -518,7 +549,7 @@ export const registerWriteTools = (
                 ? settings.socialImageId
                 : page.socialImageId,
           },
-          content,
+          content: normalised,
           baseRevisionId,
           actorId,
         });

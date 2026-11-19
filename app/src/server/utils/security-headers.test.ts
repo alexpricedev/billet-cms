@@ -53,7 +53,13 @@ describe("Content-Security-Policy script-src", () => {
 
     expect(csp.split("; ")).toContain("script-src 'self'");
     expect(csp).not.toContain("unpkg.com");
-    expect(csp).not.toContain("https://");
+    // The whole policy is not https-free: frame-src names the two video embed
+    // origins. Only the script directive has to be first-party alone.
+    const scriptSrc = csp
+      .split("; ")
+      .find((directive) => directive.startsWith("script-src "));
+
+    expect(scriptSrc).toBe("script-src 'self'");
   });
 
   // The JSON-LD block is a data block CSP does not check, so nothing needs
@@ -69,6 +75,26 @@ describe("Content-Security-Policy script-src", () => {
 
     expect(scriptSrc).toBeDefined();
     expect(scriptSrc).not.toContain("'unsafe-inline'");
+  });
+});
+
+describe("Content-Security-Policy frame-src", () => {
+  // A saved `video()` field shows its player inside the editor. Without this
+  // directive the frame is blocked and the control silently shows nothing, so
+  // pin the exact allowlist: the two privacy-friendly embed origins the field
+  // can produce and nothing else.
+  test("allows only the two privacy-friendly video origins", () => {
+    const csp =
+      withSecurityHeaders(new Response("ok")).headers.get(
+        "Content-Security-Policy",
+      ) ?? "";
+    const frameSrc = csp
+      .split("; ")
+      .find((directive) => directive.startsWith("frame-src "));
+
+    expect(frameSrc).toBe(
+      "frame-src https://www.youtube-nocookie.com https://player.vimeo.com",
+    );
   });
 });
 

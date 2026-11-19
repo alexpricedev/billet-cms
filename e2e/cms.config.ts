@@ -18,6 +18,7 @@ import {
   section,
   slot,
   text,
+  video,
 } from "../packages/billet-cms/src/fields/index.ts";
 
 export const hero = block(
@@ -122,9 +123,40 @@ export const banner = block(
   },
 );
 
+/**
+ * The video vocabulary in every placement it can take: a required video and an
+ * optional one at the top level, a list of videos, and a group holding one.
+ *
+ * The fixture page carries all four so the sandbox shows the control's saved,
+ * empty and refused states in the page the story starts from, and the site's
+ * renderer turns each stored `{provider, id, title}` into the same embed a real
+ * site would publish.
+ */
+export const feature = block(
+  "feature",
+  { label: "Feature" },
+  {
+    heading: text({ max: 120, label: "Heading" }),
+    clip: video({ label: "Clip" }),
+    trailer: video({ label: "Trailer", required: false }),
+    clips: list(video({ label: "Clip" }), {
+      label: "Clips",
+      min: 1,
+      max: 3,
+    }),
+    media: group(
+      {
+        heading: text({ max: 120, label: "Heading" }),
+        clip: video({ label: "Clip" }),
+      },
+      { label: "Feature" },
+    ),
+  },
+);
+
 export const landing = pageType("landing", {
   label: "Landing",
-  allowedBlocks: [hero, textBlock, gallery, quote, cta, steps, banner],
+  allowedBlocks: [hero, textBlock, gallery, quote, cta, steps, banner, feature],
   requiredBlocks: [],
   limits: { hero: { max: 1, position: "top" } },
 });
@@ -153,7 +185,7 @@ export const sections = [
 ];
 
 export const siteDefinitions = {
-  blocks: [hero, textBlock, gallery, quote, cta, steps, banner],
+  blocks: [hero, textBlock, gallery, quote, cta, steps, banner, feature],
   slots: [homeHero, footerCta],
   pageTypes: [landing, article],
   sections,

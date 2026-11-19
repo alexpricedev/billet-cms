@@ -385,6 +385,48 @@ h1 {
   gap: 6px;
 }
 
+/* ---- The video field ----------------------------------------------------- */
+
+/* A video is composite like an image field: the field's heading titles the
+   parts (its own preview, then the link and title boxes) rather than being a
+   second label stacked on "Video link". The fieldset's legend is outside its
+   grid, so the wrapper carries the heading air itself; a list row's span label
+   is a grid item, and the help line between the two keeps the field's rhythm. */
+.cms-video-parts {
+  display: grid;
+  gap: var(--field-gap);
+  margin-top: var(--space-3);
+}
+
+.cms-video-parts-after-label {
+  margin-top: calc(var(--space-3) - 6px);
+}
+
+.cms-video-parts-after-help {
+  margin-top: 0;
+}
+
+.cms-video-help {
+  margin-top: 6px;
+}
+
+.cms-video-part {
+  display: grid;
+  gap: 6px;
+}
+
+/* The player is the preview the editor saves: a 16:9 box that reserves its
+   space before the third-party document loads, so the form does not jump when
+   it arrives. `line-height: 0` on the wrapper drops the inline-frame baseline
+   gap; the frame itself carries its aspect ratio from the server. */
+.cms-video-embed {
+  line-height: 0;
+}
+
+.cms-video-embed iframe {
+  display: block;
+}
+
 /* ---- The link field ------------------------------------------------------ */
 
 /* One box per link: button text, where it goes, then hover text. The field's
@@ -419,6 +461,11 @@ h1 {
 /* An image fieldset's heading is a group heading too (see `.cms-image-parts`):
    it titles the whole field, so it is not a second label stacked on "Reuse an
    upload". */
+/* A video fieldset's heading titles the whole field too, like an image's. */
+.cms-field[data-field-kind="video"] > .cms-field-label {
+  font-weight: 600;
+}
+
 .cms-field[data-field-kind="image"] > .cms-field-label {
   font-weight: 600;
 }

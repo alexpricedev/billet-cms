@@ -55,9 +55,12 @@ import { createHash } from "node:crypto";
  * `cms_page_sections` (the URL-pattern sections a site's `sections` declares,
  * which the Pages list groups pages under): the publish step writes them, so a
  * site that declares sections needs a CMS with the table, and an older CMS
- * cannot store what the newer site publishes.
+ * cannot store what the newer site publishes. Phase 13 adds the `video` field
+ * kind and its stored `{ provider, id, title }` value: an older CMS reading a
+ * published `video` has no control to render it with, and an older site cannot
+ * validate content written against one, so both sides must move together.
  */
-export const CONTRACT_VERSION = "0.12.0";
+export const CONTRACT_VERSION = "0.13.0";
 
 /**
  * Every relation the CMS creates is prefixed with this, so a CMS instance can
@@ -305,6 +308,7 @@ export type FieldKind =
   | "text"
   | "richText"
   | "image"
+  | "video"
   | "link"
   | "list"
   | "group";
@@ -329,7 +333,7 @@ export interface ImageGuidance {
 export interface FieldMetadata {
   /** The field name as it appears in the block's stored content. */
   name: string;
-  /** The vocabulary kind: text, richText, image, link or list. */
+  /** The vocabulary kind: text, richText, image, video, link, list or group. */
   kind: FieldKind;
   label?: string;
   help?: string;

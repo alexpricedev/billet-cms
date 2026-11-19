@@ -47,6 +47,11 @@ export const contentSecurityPolicy = (): string => {
     "style-src 'self' 'unsafe-inline'",
     "script-src 'self'",
     "connect-src 'self'",
+    // A saved `video()` field shows its player inside the editor. Only the two
+    // privacy-friendly embed origins the field can produce are allowed; the
+    // frame's address is built by `videoEmbedUrl`, never from what an editor
+    // typed.
+    "frame-src https://www.youtube-nocookie.com https://player.vimeo.com",
     // Production only, like HSTS below: WebKit applies the upgrade to
     // http://localhost subresources too (Chrome exempts localhost), so in dev it
     // rewrites every asset URL to an https origin nothing serves and the page
