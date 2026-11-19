@@ -3,8 +3,9 @@
 ## 0.6.0
 
 A site can declare **sections** — headings the CMS's Pages list groups pages
-under by URL pattern — and the contract version moves to `0.12.0`, so deploy the
-CMS and the site together.
+under by URL pattern — and a new **`video()`** field embeds YouTube and Vimeo
+videos. The contract version moves to `0.13.0`, so deploy the CMS and the site
+together.
 
 ### Sections group the Pages list
 
@@ -33,9 +34,43 @@ restoring one that comes back. The CMS ignores removed sections, and a group
 with no pages is not shown.
 
 **Deploy the CMS before the site.** The CMS's boot migration creates
-`cms_page_sections`; the contract version is `0.12.0`, so a site publishing
+`cms_page_sections`; the contract version is `0.13.0`, so a site publishing
 sections against an older CMS is refused rather than writing to a table that
 does not exist. An older site against the new CMS is refused by the same check.
+
+### A `video()` field for YouTube and Vimeo
+
+`video()` is a field like any other, at the top level, in a `list()` or inside a
+`group()`:
+
+```ts
+import { video } from "@alexpricedev/billet-cms/fields";
+
+clip: video({ label: "Clip" }),
+trailer: video({ label: "Trailer", required: false }),
+```
+
+The editor pastes a YouTube or Vimeo link and gives the video a title, which is
+the player's accessible name and is required, like an image's alt text. The CMS
+stores `{ provider, id, title }`, never the pasted address. A link to anything
+else, or an unlisted Vimeo video (one with a hash), is refused with "Paste a
+YouTube or Vimeo link."
+
+The site renders a stored value with `renderCmsVideo` from `./server`:
+
+```ts
+import { renderCmsVideo } from "@alexpricedev/billet-cms/server";
+
+return renderCmsVideo(content.clip);
+```
+
+It returns a 16:9 `<iframe>` through `youtube-nocookie.com`, or Vimeo's player
+with `dnt=1`, and an empty string for a value it cannot embed. `parseVideoUrl`
+and `videoEmbedUrl` are exported from `./fields` for a site that accepts video
+links another way.
+
+**A site that renders videos must allow the players in its CSP:**
+`frame-src https://www.youtube-nocookie.com https://player.vimeo.com`.
 
 ## 0.5.0
 

@@ -37,7 +37,7 @@
     },
     "packages/billet-cms": {
       "name": "@alexpricedev/billet-cms",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "bin": {
         "billet-cms-publish": "./src/cli/publish/cli.ts",
         "billet-cms-pull": "./src/cli/pull/cli.ts",

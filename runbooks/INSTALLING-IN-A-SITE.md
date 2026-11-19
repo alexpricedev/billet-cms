@@ -117,7 +117,7 @@ Rules that are easy to get wrong:
   page editor's Add block menu — so write "Full-width image", not `fullImage`.
   A missing or blank label throws where the module loads. The label is published
   with the definition and is part of its schema hash, so renaming it and
-  redeploying republishes the block. The contract version is `0.11.0`: an older
+  redeploying republishes the block. The contract version is `0.13.0`: an older
   site's publish is refused, and a site upgrading has to add a label to every
   block.
 - **`render` is never published, and it is optional.** The CMS serialises the
