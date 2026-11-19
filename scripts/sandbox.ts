@@ -12,7 +12,6 @@
  * and each persona's sign-in email, and stops both on Ctrl-C. The guards run
  * before anything opens a database.
  */
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { SANDBOX_PEPPER } from "../fixtures/constants.ts";
 import { PERSONAS } from "../fixtures/personas.ts";
@@ -37,16 +36,17 @@ await loadFixtures({
   mediaDir: config.mediaDir,
 });
 
-// Pages are unstyled without the CSS and the editor scripts, so build them once.
-if (!existsSync(join(root, "app", "dist", "assets", "main.css"))) {
-  console.log("Building the CMS assets (first run)...");
-  const build = Bun.spawn(["bun", "run", "build"], {
-    cwd: root,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  if ((await build.exited) !== 0) process.exit(1);
-}
+// Build the CSS and the editor scripts on every start, not only when they are
+// missing. `dist/` is gitignored, so after a branch switch (`gh pr checkout`)
+// the bundles on disk are whatever the last build left: a form script that
+// predates a new field kind silently drops that field from every save.
+console.log("Building the CMS assets...");
+const build = Bun.spawn(["bun", "run", "build"], {
+  cwd: root,
+  stdout: "inherit",
+  stderr: "inherit",
+});
+if ((await build.exited) !== 0) process.exit(1);
 
 const site = createSite(sql, {
   cmsUrl: config.cmsUrl,
