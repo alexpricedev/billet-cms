@@ -19,8 +19,9 @@ bun run scripts/persona-session.ts leo --side cms    # prints  northwind_cms_ses
 ```
 
 Needs a Postgres that `DATABASE_URL` (from `.env`) points at, e.g. `createdb
-cms_dev`. `bun run sandbox` builds the CMS assets on first run, so pages are
-styled; Ctrl-C stops both servers.
+cms_dev`. `bun run sandbox` rebuilds the CMS assets every time it starts, so the
+editor scripts and styles always match the checked-out branch; Ctrl-C stops
+both servers.
 
 | | Default | Override |
 |---|---|---|
